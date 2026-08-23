@@ -3,6 +3,7 @@ import type {
   ProviderUsageFetcherFactoryOptions,
   ProviderUsageFetcherManifestEntry,
 } from "./provider.js";
+import { BdDevLabQuotaProvider } from "./providers/bddevlab.js";
 import { ClaudeQuotaProvider } from "./providers/claude.js";
 import { CodexQuotaProvider } from "./providers/codex.js";
 import { CopilotQuotaProvider } from "./providers/copilot.js";
@@ -57,6 +58,11 @@ export const PROVIDER_USAGE_FETCHERS: readonly ProviderUsageFetcherManifestEntry
   {
     providerId: "kiro",
     create: (options) => new KiroQuotaProvider({ logger: options.logger, fetch: options.fetch }),
+  },
+  {
+    providerId: "bddevlab",
+    create: (options) =>
+      new BdDevLabQuotaProvider({ logger: options.logger, fetch: options.fetch }),
   },
 ];
 

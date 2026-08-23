@@ -143,6 +143,8 @@ To add plan usage for a provider, add `packages/server/src/services/quota-fetche
 
 Keep the protocol shape provider-agnostic. Do not add provider-specific renderers for new limit windows; labels and generic bars should carry the UI. API responses should be parsed and normalized with Zod inside the fetcher, while the protocol boundary stays strict so old/new client compatibility is explicit.
 
+A `providerId` does not have to name an agent provider. Host Usage settings lists every fetcher, and the composer tooltip picks one by matching the agent's provider id first, then the segment before the slash in its model id — so a gateway reached through another CLI (`opencode` running `bddevlab/claude-opus-5`) gets its usage shown by naming the fetcher after the gateway.
+
 Kimi Code usage follows the CLI-managed credential file at `KIMI_CODE_HOME` or `~/.kimi-code/credentials/kimi-code.json`; do not probe the legacy `~/.kimi` path as the primary source for current Kimi Code installs.
 
 Cursor usage reads the desktop `state.vscdb` token first, then `cursor-agent`'s `~/.config/cursor/auth.json`. Headless hosts only have the CLI file.

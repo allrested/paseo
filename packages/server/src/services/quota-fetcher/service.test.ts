@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderUsage } from "../../server/messages.js";
 import type { ProviderUsageFetcher } from "./provider.js";
+import { BdDevLabQuotaProvider } from "./providers/bddevlab.js";
 import { ClaudeQuotaProvider } from "./providers/claude.js";
 import { CodexQuotaProvider } from "./providers/codex.js";
 import { CopilotQuotaProvider } from "./providers/copilot.js";
@@ -380,6 +381,7 @@ describe("real provider usage fetchers", () => {
       "CODEX_HOME",
       "MINIMAX_API_KEY",
       "MINIMAX_BASE_URL",
+      "BDDEVLAB_API_KEY",
     ]) {
       delete process.env[key];
     }
@@ -452,6 +454,7 @@ describe("real provider usage fetchers", () => {
           credentialsPath:
             options.miniMaxCredentialsPath ?? join(homeDir, ".mmx", "credentials.json"),
         }),
+        new BdDevLabQuotaProvider({ logger, fetch: fetchThroughTestDouble }),
       ],
       cacheTtlMs: 0,
     });
@@ -882,6 +885,120 @@ describe("real provider usage fetchers", () => {
       planLabel: "GLM Coding Max",
       details: expect.arrayContaining([{ id: "status", label: "Status", value: "VALID" }]),
     });
+  });
+
+  it("fetches BDDevLab usage and reports quota as credits", async () => {
+    process.env["BDDEVLAB_API_KEY"] = "bd_test_token";
+    fetchApi = mockFetch(
+      new Map([
+        [
+          "https://api.bddevlab.online/api/usage/token/",
+          () =>
+            jsonResponse({
+              code: true,
+              message: "ok",
+              data: {
+                object: "token_usage",
+                name: "500M",
+                total_granted: 500_000_000,
+                total_used: 120_500_000,
+                total_available: 379_500_000,
+                unlimited_quota: false,
+              },
+            }),
+        ],
+      ]),
+    );
+
+    const bddevlab = findProvider(await service().listUsage(), "bddevlab");
+
+    expect(bddevlab).toMatchObject({
+      status: "available",
+      displayName: "BDDevLab",
+      planLabel: "500M",
+      balances: [
+        {
+          id: "credits",
+          label: "Credits",
+          used: 1205,
+          remaining: 3795,
+          limit: 5000,
+          unit: "credits",
+          tone: "ok",
+        },
+      ],
+    });
+    expect(fetchApi).toHaveBeenCalledWith(
+      "https://api.bddevlab.online/api/usage/token/",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("drops the BDDevLab limit when the key has unlimited quota", async () => {
+    process.env["BDDEVLAB_API_KEY"] = "bd_test_token";
+    fetchApi = mockFetch(
+      new Map([
+        [
+          "https://api.bddevlab.online/api/usage/token/",
+          () =>
+            jsonResponse({
+              data: {
+                name: "unlimited",
+                total_granted: 0,
+                total_used: 700_000,
+                total_available: 0,
+                unlimited_quota: true,
+              },
+            }),
+        ],
+      ]),
+    );
+
+    const bddevlab = findProvider(await service().listUsage(), "bddevlab");
+
+    expect(bddevlab).toMatchObject({
+      status: "available",
+      balances: [
+        {
+          id: "credits",
+          label: "Credits",
+          used: 7,
+          remaining: null,
+          limit: null,
+          unit: "credits",
+          tone: "default",
+        },
+      ],
+      details: [{ id: "quota", label: "Quota", value: "Unlimited" }],
+    });
+  });
+
+  it("reports BDDevLab as unavailable without BDDEVLAB_API_KEY", async () => {
+    fetchApi = mockFetch(new Map());
+
+    const bddevlab = findProvider(await service().listUsage(), "bddevlab");
+
+    expect(bddevlab).toMatchObject({ status: "unavailable", balances: [], error: null });
+    expect(fetchApi).not.toHaveBeenCalledWith(
+      "https://api.bddevlab.online/api/usage/token/",
+      expect.anything(),
+    );
+  });
+
+  it("reports BDDevLab as unavailable when the gateway rejects the key", async () => {
+    process.env["BDDEVLAB_API_KEY"] = "bd_bad_token";
+    fetchApi = mockFetch(
+      new Map([
+        [
+          "https://api.bddevlab.online/api/usage/token/",
+          () => jsonResponse({ message: "unauthorized" }, 401),
+        ],
+      ]),
+    );
+
+    const bddevlab = findProvider(await service().listUsage(), "bddevlab");
+
+    expect(bddevlab).toMatchObject({ status: "unavailable", balances: [] });
   });
 
   it("fetches Grok usage and preserves zero values", async () => {
