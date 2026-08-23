@@ -62,6 +62,13 @@ services:
       - ${PASEO_HOME_DIR:-./paseo-home}:/home/paseo
       # Code visible to Paseo and the agents it launches. Shareable.
       - ${WORKSPACE_DIR:-./workspace}:/workspace
+    networks:
+      # `default` must be listed explicitly: naming any network opts the
+      # service out of the implicit one, which the CDP sidecars rely on.
+      - default
+      # Lets a reverse proxy in its own stack reach this container by name.
+      # See the networks block at the bottom of this file.
+      - dokploy-network
 
   # One real Chromium with two ways in: agents drive it over CDP, you watch and
   # take over through noVNC. Because both attach to the same browser, an agent
@@ -95,6 +102,9 @@ services:
       # Chromium profile: cookies and logins survive restarts, so a captcha you
       # solve by hand keeps paying off. Per-instance.
       - ${BROWSER_CONFIG_DIR:-./browser-config}:/config
+    networks:
+      - default
+      - dokploy-network
 
   # Chrome ignores --remote-debugging-address and always binds CDP to
   # 127.0.0.1, so nothing outside its own network namespace can reach it. This
@@ -117,6 +127,11 @@ services:
   #      the client runs.
   # Same port number as Chrome uses on purpose — the advertised URL then works
   # unchanged inside the paseo container.
+  #
+  # Targets the browser by CONTAINER name, not service name: on a shared proxy
+  # network every instance's `browser` service carries that same DNS alias, so
+  # `TCP:browser:9223` could resolve to another person's browser. The container
+  # name carries INSTANCE_NAME and is unique.
   paseo-cdp:
     image: alpine/socat:latest
     container_name: ${INSTANCE_NAME:-paseo}-cdp
@@ -125,4 +140,18 @@ services:
     depends_on:
       - paseo
       - browser-cdp
-    command: TCP-LISTEN:9222,fork,reuseaddr,bind=127.0.0.1 TCP:browser:9223
+    command: TCP-LISTEN:9222,fork,reuseaddr,bind=127.0.0.1 TCP:${INSTANCE_NAME:-paseo}-browser:9223
+
+networks:
+  # The stack's own network: container-to-container traffic between these four.
+  default: {}
+  # A reverse proxy living in a different compose stack (Dokploy's Traefik, for
+  # one) can only reach these containers if it shares a network with them.
+  # Created by that proxy, so it is external here.
+  #
+  # On a host without it, create it once — otherwise `docker compose up` fails
+  # with "network dokploy-network declared as external, but could not be found":
+  #   docker network create dokploy-network
+  dokploy-network:
+    external: true
+

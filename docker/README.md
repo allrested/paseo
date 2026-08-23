@@ -162,6 +162,21 @@ noVNC is unauthenticated without both, and it exposes a browser holding your
 logged-in sessions. Set `PASEO_HOSTNAMES` to the domain you serve each instance
 on, or the daemon rejects requests by host name.
 
+Give each instance its own subdomains rather than one shared host — name them
+after `INSTANCE_NAME` so it stays obvious whose is whose, e.g. `tatsuya.example.com`
+for the UI (port 6767) and `tatsuya-browser.example.com` for the screen (port
+3000). `paseo` and `browser` both join the external `dokploy-network` so a
+reverse proxy in its own stack can reach them; on a host that has no such proxy,
+`docker network create dokploy-network` once is all it needs.
+
+Compose adds each service's **name** as a DNS alias on every network it joins,
+including that shared one, so two instances put two containers answering to
+`paseo` and to `browser` on it. Address another instance's containers by their
+`INSTANCE_NAME`-prefixed container name, never by service name — the CDP sidecar
+already does. For the same reason, agents reach their own dev server as
+`http://${INSTANCE_NAME}:3000`; plain `http://paseo:3000` is ambiguous once a
+second instance exists.
+
 ## Building on Windows
 
 A checkout with `core.autocrlf=true` rewrites `base/rootfs`'s entrypoint to
