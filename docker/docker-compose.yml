@@ -122,6 +122,17 @@ services:
     depends_on:
       - browser
     command: TCP-LISTEN:9223,fork,reuseaddr TCP:127.0.0.1:9222
+    # When a deploy recreates the parent container, a netns sidecar can keep
+    # running inside the old namespace: docker still reports it Up, but its
+    # listener no longer exists where anyone looks for it. Probing Chrome's CDP
+    # on loopback only succeeds from the live browser namespace, so a zombie
+    # goes unhealthy instead of silently lying.
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:9222,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # The other half, in paseo's namespace. Reaching CDP over the network is not
   # enough for two reasons, and putting it on paseo's loopback fixes both:
@@ -146,6 +157,14 @@ services:
       - paseo
       - browser-cdp
     command: TCP-LISTEN:9222,fork,reuseaddr,bind=127.0.0.1 TCP:${INSTANCE_NAME:-paseo}-browser:9223
+    # Same zombie-netns detection as browser-cdp: the daemon's port only
+    # answers from the live paseo namespace.
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:6767,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 networks:
   # The stack's own network: container-to-container traffic between these four.
