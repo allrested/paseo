@@ -35,11 +35,15 @@ services:
     container_name: ${INSTANCE_NAME:-paseo}
     restart: unless-stopped
     ports:
-      - "${PASEO_PORT:-6767}:6767"
+      # BIND_ADDRESS defaults to every interface, so a plain local run still
+      # reaches http://localhost:6767. Behind a reverse proxy set it to
+      # 127.0.0.1: the proxy reaches these containers over dokploy-network, and
+      # nothing is left listening on the public interface in cleartext.
+      - "${BIND_ADDRESS:-0.0.0.0}:${PASEO_PORT:-6767}:6767"
       # Dev servers inside this container. The app listens on
       # DEV_PORT_INTERNAL inside; only the host side is remapped. Bind services
       # to 0.0.0.0 — 127.0.0.1 is not reachable from outside the container.
-      - "${DEV_PORT:-6666}:${DEV_PORT_INTERNAL:-3000}"
+      - "${BIND_ADDRESS:-0.0.0.0}:${DEV_PORT:-6666}:${DEV_PORT_INTERNAL:-3000}"
     environment:
       PASEO_PASSWORD: ${PASEO_PASSWORD:-change-me}
       # Required to reach the daemon by domain name; IPs and localhost are
@@ -97,7 +101,8 @@ services:
       CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*"
     ports:
       # noVNC/KasmVNC web UI — the browser's screen, for manual takeover.
-      - "${BROWSER_PORT:-3000}:3000"
+      # See BIND_ADDRESS on the paseo service above.
+      - "${BIND_ADDRESS:-0.0.0.0}:${BROWSER_PORT:-3000}:3000"
     volumes:
       # Chromium profile: cookies and logins survive restarts, so a captcha you
       # solve by hand keeps paying off. Per-instance.
@@ -154,4 +159,3 @@ networks:
   #   docker network create dokploy-network
   dokploy-network:
     external: true
-
