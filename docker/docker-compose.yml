@@ -110,6 +110,17 @@ services:
     networks:
       - default
       - dokploy-network
+    # noVNC answering says nothing about Chromium: the browser process can
+    # crash or relaunch without its debug listener while the screen still
+    # serves. Agents need CDP, so health means CDP answers. Restarting the
+    # container relaunches Chromium with CHROME_CLI; the profile volume keeps
+    # logins across it.
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9222/json/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   # Chrome ignores --remote-debugging-address and always binds CDP to
   # 127.0.0.1, so nothing outside its own network namespace can reach it. This
