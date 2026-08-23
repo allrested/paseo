@@ -70,6 +70,35 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     gh --version
 
+# GitHub's SSH host keys, system-wide.
+#
+# Without this, the first `git clone git@github.com:...` in a fresh container
+# fails with "Host key verification failed" — a per-user known_hosts starts
+# empty, and every new instance gets one. OpenSSH also ignores a known_hosts it
+# does not own, so a clone that runs as root fails even when the paseo user has
+# already trusted the host.
+#
+# Keys come from GitHub's own API over TLS so they stay current through a key
+# rotation, and the ED25519 fingerprint is pinned so a substituted key fails the
+# build instead of being trusted silently. Fingerprint published at
+# https://docs.github.com/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+RUN <<'SCRIPT'
+set -eux
+curl -fsSL https://api.github.com/meta -o /tmp/gh-meta.json
+node -e '
+const meta = require("/tmp/gh-meta.json");
+const keys = meta.ssh_keys;
+if (!Array.isArray(keys) || keys.length === 0) throw new Error("no ssh_keys in api.github.com/meta");
+require("node:fs").writeFileSync(
+  "/etc/ssh/ssh_known_hosts",
+  keys.map((k) => "github.com " + k).join("\n") + "\n",
+);
+'
+chmod 644 /etc/ssh/ssh_known_hosts
+rm -f /tmp/gh-meta.json
+ssh-keygen -lf /etc/ssh/ssh_known_hosts | grep -q "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU"
+SCRIPT
+
 # Paseo launches agents as the non-root `paseo` user (uid 1000), but /home/paseo
 # and /workspace are mounted volumes that survive rebuilds. Anything left
 # root-owned in them — most easily by a bare `docker exec`, which defaults to

@@ -46,6 +46,15 @@ services:
       # allowed without it.
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES:-}
       TZ: ${TZ:-Asia/Jakarta}
+      # Who commits show as. Separate from `gh auth`, which only decides who
+      # pushes — with these unset, git refuses to commit or attributes the work
+      # to nobody, and on a shared workspace three people's commits become
+      # indistinguishable. Set per instance here rather than with `git config`
+      # inside the container, so the identity survives a paseo-home reset.
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-}
+      GIT_COMMITTER_NAME: ${GIT_COMMITTER_NAME:-${GIT_AUTHOR_NAME:-}}
+      GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-${GIT_AUTHOR_EMAIL:-}}
       # Inherited by every agent and terminal Paseo launches.
       BDDEVLAB_API_KEY: ${BDDEVLAB_API_KEY:-}
     volumes:

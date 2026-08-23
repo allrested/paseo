@@ -45,3 +45,4 @@ CLAUDE.local.md
 # context loader rejects.
 docker/paseo-home
 docker/workspace
+docker/browser-config
