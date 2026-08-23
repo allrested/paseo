@@ -1,0 +1,115 @@
+# syntax=docker/dockerfile:1
+# Child image that adds agent CLIs to the Paseo base image.
+#
+# Defaults to `paseo:src`, a Paseo built from this repo, because the Kiro usage
+# fetcher (services/quota-fetcher/providers/kiro.ts) lives inside
+# @getpaseo/server and cannot be layered on from here. Build the base first:
+#
+#   docker build -f docker/base/Dockerfile -t paseo:src .
+#
+# To go back to the published image — dropping Kiro usage with it:
+#
+#   docker compose build --build-arg PASEO_IMAGE=ghcr.io/getpaseo/paseo:latest
+#
+# docker/docker-compose.yml builds this image directly, so `docker compose up -d
+# --build` is enough for the normal workflow.
+
+ARG PASEO_IMAGE=paseo:src
+FROM ${PASEO_IMAGE}
+
+USER root
+# @playwright/mcp is installed but its browsers deliberately are not: it runs
+# with --cdp-endpoint against the `browser` service, so it drives that Chromium
+# instead of launching its own. That keeps ~500MB of browser binaries out of
+# this image and, more importantly, puts the agents and you in the same browser.
+RUN npm install -g \
+  @anthropic-ai/claude-code \
+  @openai/codex \
+  opencode-ai \
+  @playwright/mcp
+
+# Kiro CLI has no npm package, so it comes from Amazon's release archive.
+#
+# Two things this has to work around:
+#   * Kiro installs to $HOME/.local/bin by default. HOME is /home/paseo, which
+#     is a mounted volume at runtime, so a build-time install there would be
+#     masked. Q_INSTALL_GLOBAL=1 puts the binaries in /usr/local/bin instead.
+#   * The aarch64 GNU build needs glibc 2.39; this image is bookworm (2.36).
+#     The musl build has no such floor, so arm64 uses that variant.
+#
+# Q_SKIP_SETUP=1 skips the installer's interactive shell-integration setup.
+# One RUN layer keeps the ~560 MB archive out of the image.
+ARG TARGETARCH
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends unzip; \
+    rm -rf /var/lib/apt/lists/*; \
+    case "$TARGETARCH" in \
+      amd64) asset="kirocli-x86_64-linux.zip" ;; \
+      arm64) asset="kirocli-aarch64-linux-musl.zip" ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/kirocli.zip \
+      "https://desktop-release.q.us-east-1.amazonaws.com/latest/${asset}"; \
+    unzip -q /tmp/kirocli.zip -d /tmp; \
+    Q_INSTALL_GLOBAL=1 Q_SKIP_SETUP=1 /tmp/kirocli/install.sh; \
+    rm -rf /tmp/kirocli.zip /tmp/kirocli; \
+    kiro-cli --version
+
+# GitHub CLI, from GitHub's own apt repo. Kept after the Kiro step so editing
+# this does not invalidate that layer and re-download the archive.
+RUN set -eux; \
+    mkdir -p -m 755 /etc/apt/keyrings; \
+    curl -fsSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+      https://cli.github.com/packages/githubcli-archive-keyring.gpg; \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends gh; \
+    rm -rf /var/lib/apt/lists/*; \
+    gh --version
+
+# Paseo launches agents as the non-root `paseo` user (uid 1000), but /home/paseo
+# and /workspace are mounted volumes that survive rebuilds. Anything left
+# root-owned in them — most easily by a bare `docker exec`, which defaults to
+# root, or by Docker creating an empty bind-mount source — breaks agents in ways
+# that give no useful error: Kiro exits silently (code 0, no stderr) when
+# session/new cannot write .kiro/sessions, Codex fails to open its sqlite state
+# under .codex, and a root-owned /workspace refuses `mkdir` with EACCES.
+#
+# The base entrypoint chowns a fixed set of top-level dirs only when they are
+# themselves root-owned, so nested contamination survives. Repair both trees on
+# every start instead. The find only writes when something is actually
+# mis-owned, so the normal path is a read-only walk.
+RUN <<'SCRIPT'
+set -eux
+# A Windows checkout with core.autocrlf=true rewrites the base image's
+# entrypoint to CRLF, so its `#!/usr/bin/env bash` shebang picks up a trailing
+# carriage return and the container dies in a restart loop (exit 127). Strip
+# them with node so there is no shell escaping to get wrong. This is a no-op
+# for an image built from a Linux checkout.
+node -e "const f='/usr/local/bin/paseo-docker-entrypoint';const fs=require('fs');fs.writeFileSync(f,fs.readFileSync(f,'utf8').split(String.fromCharCode(13)).join(''))"
+bash -n /usr/local/bin/paseo-docker-entrypoint
+cat > /usr/local/bin/paseo-agents-entrypoint <<'ENTRY'
+#!/bin/sh
+set -e
+if [ "$(id -u)" = "0" ]; then
+  for tree in /home/paseo /workspace; do
+    [ -d "$tree" ] || continue
+    count=$(find "$tree" \( ! -user paseo -o ! -group paseo \) -print 2>/dev/null | wc -l)
+    if [ "$count" -gt 0 ]; then
+      echo "[agents] repairing ownership on $count path(s) under $tree" >&2
+      find "$tree" \( ! -user paseo -o ! -group paseo \) -exec chown paseo:paseo {} + 2>/dev/null || true
+    fi
+  done
+fi
+exec /usr/local/bin/paseo-docker-entrypoint "$@"
+ENTRY
+chmod +x /usr/local/bin/paseo-agents-entrypoint
+SCRIPT
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/paseo-agents-entrypoint"]
+
+# Leave the image user as root. The base entrypoint prepares mounted volumes,
+# then drops the daemon and launched agents to the non-root `paseo` user.

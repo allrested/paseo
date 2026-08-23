@@ -39,3 +39,9 @@ packages/desktop/release
 plan.*.log
 *.log
 CLAUDE.local.md
+
+# Runtime state for the local docker-compose deployment. Never belongs in a
+# build context: it is gigabytes of agent state and can contain symlinks the
+# context loader rejects.
+docker/paseo-home
+docker/workspace

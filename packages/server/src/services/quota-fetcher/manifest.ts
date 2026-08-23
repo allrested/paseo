@@ -9,6 +9,7 @@ import { CopilotQuotaProvider } from "./providers/copilot.js";
 import { CursorQuotaProvider } from "./providers/cursor.js";
 import { GrokQuotaProvider } from "./providers/grok.js";
 import { KimiQuotaProvider } from "./providers/kimi.js";
+import { KiroQuotaProvider } from "./providers/kiro.js";
 import { MiniMaxQuotaProvider } from "./providers/minimax.js";
 import { ZaiQuotaProvider } from "./providers/zai.js";
 
@@ -52,6 +53,10 @@ export const PROVIDER_USAGE_FETCHERS: readonly ProviderUsageFetcherManifestEntry
   {
     providerId: "minimax",
     create: (options) => new MiniMaxQuotaProvider({ logger: options.logger, fetch: options.fetch }),
+  },
+  {
+    providerId: "kiro",
+    create: (options) => new KiroQuotaProvider({ logger: options.logger, fetch: options.fetch }),
   },
 ];
 

@@ -1,0 +1,119 @@
+# Paseo daemon + web UI, the agent-equipped image, and a shared browser the
+# agents drive and you can watch.
+#
+# Every setting is overridable from .env (see .env.example) so the same file
+# runs locally and on a server. Defaults reproduce the original local setup, so
+# this works with no .env present.
+#
+#   docker build -f docker/base/Dockerfile -t paseo:src .   # from the repo root
+#   docker compose up -d --build
+#
+#   http://localhost:${PASEO_PORT}    Paseo web UI
+#   http://localhost:${BROWSER_PORT}  the browser's screen (noVNC)
+#   http://localhost:${DEV_PORT}      your dev server
+#
+# RUNNING SEVERAL INSTANCES (one per person)
+#   Give each a distinct INSTANCE_NAME and distinct ports, and a private
+#   PASEO_HOME_DIR and BROWSER_CONFIG_DIR. WORKSPACE_DIR may be shared.
+#
+#   Sharing a workspace means agents from different people write the same files
+#   with no locking between them — concurrent edits and git operations on one
+#   repo will collide. It works; coordinate who touches what.
+#
+#   Never share PASEO_HOME_DIR. Two daemons writing one state directory corrupt
+#   it. Keep PUID at 1000 on every instance sharing a workspace: the paseo
+#   image's user is uid 1000 and cannot be changed, so a different PUID makes
+#   the containers rewrite each other's file ownership on every restart.
+services:
+  paseo:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+      args:
+        PASEO_IMAGE: ${PASEO_IMAGE:-paseo:src}
+    image: ${AGENT_IMAGE:-paseo-with-agents:latest}
+    container_name: ${INSTANCE_NAME:-paseo}
+    restart: unless-stopped
+    ports:
+      - "${PASEO_PORT:-6767}:6767"
+      # Dev servers inside this container. The app listens on
+      # DEV_PORT_INTERNAL inside; only the host side is remapped. Bind services
+      # to 0.0.0.0 — 127.0.0.1 is not reachable from outside the container.
+      - "${DEV_PORT:-6666}:${DEV_PORT_INTERNAL:-3000}"
+    environment:
+      PASEO_PASSWORD: ${PASEO_PASSWORD:-change-me}
+      # Required to reach the daemon by domain name; IPs and localhost are
+      # allowed without it.
+      PASEO_HOSTNAMES: ${PASEO_HOSTNAMES:-}
+      TZ: ${TZ:-Asia/Jakarta}
+      # Inherited by every agent and terminal Paseo launches.
+      BDDEVLAB_API_KEY: ${BDDEVLAB_API_KEY:-}
+    volumes:
+      # Daemon state and agent credentials. Per-instance, never shared.
+      - ${PASEO_HOME_DIR:-./paseo-home}:/home/paseo
+      # Code visible to Paseo and the agents it launches. Shareable.
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+
+  # One real Chromium with two ways in: agents drive it over CDP, you watch and
+  # take over through noVNC. Because both attach to the same browser, an agent
+  # can stop at a captcha or SSO screen, you solve it by hand, and the agent
+  # continues in that same session with those same cookies.
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: ${INSTANCE_NAME:-paseo}-browser
+    restart: unless-stopped
+    # Chromium's sandbox needs these; without them it fails to start under the
+    # default Docker seccomp profile, and it will crash on pages that need more
+    # than the stock 64MB of shared memory.
+    security_opt:
+      - seccomp:unconfined
+    shm_size: "1gb"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Asia/Jakarta}
+      # noVNC is unauthenticated unless BOTH of these are set.
+      CUSTOM_USER: ${BROWSER_USER:-}
+      PASSWORD: ${BROWSER_PASSWORD:-}
+      # CDP has no authentication whatsoever: anything reaching port 9222
+      # controls the browser and every session logged into it. It is never
+      # published to the host — see the sidecars below. Do not add a ports entry.
+      CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*"
+    ports:
+      # noVNC/KasmVNC web UI — the browser's screen, for manual takeover.
+      - "${BROWSER_PORT:-3000}:3000"
+    volumes:
+      # Chromium profile: cookies and logins survive restarts, so a captcha you
+      # solve by hand keeps paying off. Per-instance.
+      - ${BROWSER_CONFIG_DIR:-./browser-config}:/config
+
+  # Chrome ignores --remote-debugging-address and always binds CDP to
+  # 127.0.0.1, so nothing outside its own network namespace can reach it. This
+  # sidecar joins that namespace and republishes CDP on the compose network.
+  browser-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-browser-cdp
+    restart: unless-stopped
+    network_mode: "service:browser"
+    depends_on:
+      - browser
+    command: TCP-LISTEN:9223,fork,reuseaddr TCP:127.0.0.1:9222
+
+  # The other half, in paseo's namespace. Reaching CDP over the network is not
+  # enough for two reasons, and putting it on paseo's loopback fixes both:
+  #   1. Chrome rejects any Host header that is not localhost or an IP, so
+  #      http://browser:9223 answers 500 while http://127.0.0.1:9222 answers 200.
+  #   2. /json/version advertises webSocketDebuggerUrl as ws://127.0.0.1:9222/…
+  #      and clients follow it verbatim, so that address has to be valid where
+  #      the client runs.
+  # Same port number as Chrome uses on purpose — the advertised URL then works
+  # unchanged inside the paseo container.
+  paseo-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-cdp
+    restart: unless-stopped
+    network_mode: "service:paseo"
+    depends_on:
+      - paseo
+      - browser-cdp
+    command: TCP-LISTEN:9222,fork,reuseaddr,bind=127.0.0.1 TCP:browser:9223
