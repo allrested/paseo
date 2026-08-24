@@ -66,6 +66,15 @@ AGENT_IMAGE=ghcr.io/allrested/paseo-agents:0.5.1 docker compose up -d
 The agent image tracks the paseo version it was built FROM, so
 `paseo-agents:0.5.1` is the `0.5.1` base plus the CLIs above.
 
+Upgrading to this version adds three environment keys to the `paseo` service,
+so the first `up -d` recreates that container. `paseo-cdp` runs in `paseo`'s
+namespace and does not recreate with it, so it is left running against the
+old, gone namespace. Run this once after the upgrade:
+
+```bash
+docker compose -f docker-compose.yml up -d --force-recreate paseo-cdp
+```
+
 ### Publishing a new image
 
 A `v*` tag publishes both images; so does a manual run when you do not want to
@@ -166,12 +175,15 @@ echo ppp_generic > /etc/modules-load.d/ppp.conf
 | `VPN_REALM`                                               | Set only if the portal is realm-scoped                      |
 | `INTERNAL_CIDRS`                                          | What "internal" means — see below                           |
 | `VPN_HEALTH_TARGET`                                       | `host:port` the healthcheck reaches through the tunnel      |
+| `SSH_KNOWN_HOSTS_EXTRA`                                   | Host keys for the private git server, from `ssh-keyscan`    |
 
 `INTERNAL_CIDRS` is curated by hand, not copied from the gateway. A FortiGate
 offers far more routes than you want, including public address space —
 installing those would route parts of the internet through the corporate
 tunnel. `paseo-vpn-validate` enforces the curation at startup: RFC
-1918 only, `/12` or longer, no overlap with the container's own networks.
+1918 only, `/12` or longer, no overlap with the gateway container's own
+networks and no overlap with `paseo`'s — including `dokploy-network`, which a
+Swarm host's default overlay pool (`10.0.0.0/8`) can easily collide with.
 
 `INTERNAL_SSH_HOST` and `INTERNAL_SSH_KEY_FILE` wire up SSH to a private git
 server over the tunnel. `INTERNAL_SSH_KEY_FILE` is a path inside the

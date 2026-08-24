@@ -1,7 +1,7 @@
 # Container-scoped SSL-VPN for internal repository access
 
 Date: 2026-08-25
-Status: approved design, not yet implemented
+Status: implemented
 
 ## Problem
 
@@ -214,7 +214,9 @@ reports unhealthy instead of lying.
 
 ### 5. Composition
 
-Everything lives in `docker/docker-compose.vpn.yml`, applied as an overlay:
+Everything lives in `docker/docker-compose.vpn.yml`, applied as an overlay.
+`docker/docker-compose.vpn.stack.yml` wraps it for deploy tools, like Dokploy,
+that take one compose file instead of two:
 
 ```
 docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
@@ -270,6 +272,7 @@ All values are placeholders in `.env.example` and real only in the gitignored
 | `VPN_GATEWAY`, `VPN_PORT`                         | SSL-VPN gateway host and port                                                                                                                |
 | `VPN_USERNAME`, `VPN_PASSWORD`                    | Credentials                                                                                                                                  |
 | `VPN_TRUSTED_CERT`                                | Gateway certificate SHA256. The client requires it on first connect; pinning it is also what prevents a machine-in-the-middle. Not a secret. |
+| `VPN_REALM`                                       | Set only if the portal is realm-scoped. A missing realm fails authentication in a way that looks like a wrong password.                     |
 | `INTERNAL_CIDRS`                                  | Comma-separated, curated, RFC 1918 only. The definition of "internal".                                                                       |
 | `VPN_HEALTH_TARGET`                               | `host:port` the gateway healthcheck connects to                                                                                              |
 | `INTERNAL_SSH_HOST`                               | Host the deploy key and its config block apply to                                                                                            |
@@ -326,13 +329,26 @@ New:
 - `docker/Dockerfile.vpn`
 - `docker/vpn/rootfs/usr/local/bin/paseo-vpn-entrypoint`
 - `docker/vpn/rootfs/usr/local/bin/paseo-vpn-healthcheck`
+- `docker/vpn/rootfs/usr/local/bin/paseo-vpn-config` — renders
+  `/etc/openfortivpn/config` from the environment
+- `docker/vpn/rootfs/usr/local/bin/paseo-vpn-validate` — the curation guard,
+  run from both the gateway entrypoint and the route sidecars
 - `docker/vpn/rootfs/usr/local/bin/paseo-vpn-route` — the sidecar's assert loop
   and its healthcheck
 - `docker/vpn/rootfs/etc/ppp/ip-up.d/10-internal-routes`
 - `docker/docker-compose.vpn.yml`
+- `docker/docker-compose.vpn.stack.yml` — single-file entry point for deploy
+  tools that take one compose file, like Dokploy
+- `docker/agents/rootfs/usr/local/bin/paseo-agents-ssh-setup` — writes the SSH
+  config block and known-hosts file for the private git server
+- `scripts/vpn-overlay.test.mjs`
+- `.gitattributes` — forces LF endings on the rootfs shell scripts
 
 Modified:
 
+- `docker/docker-compose.yml` — three SSH variables added to the `paseo`
+  service's environment. See Verification item 2 for why the overlay could
+  not carry these instead.
 - `docker/Dockerfile.agents` — generated `ssh_config.d` snippet and extra
   known-hosts file
 - `docker/.env.example` — new section, placeholders only
@@ -351,14 +367,24 @@ carry the weight.
 1. **Host invariant.** Capture `ip route show` and `/etc/resolv.conf` on the
    host before anything runs. Re-diff after `up` and again after `down`. An
    empty diff is the acceptance test for the entire feature.
-2. **Overlay-off regression.** `docker compose -f docker-compose.yml config` is
-   byte-identical to its output before these changes, and applying the overlay
-   to a running stack recreates no existing container.
+2. **Overlay-off regression.** Not byte-identical: `docker/docker-compose.yml`
+   itself gained three SSH variables in the `paseo` service, because Compose
+   only injects a variable into a container when the service's own
+   `environment:` block names it, and the overlay is forbidden from touching
+   `paseo`. There was nowhere else to put them. What still holds without the
+   overlay: `docker compose -f docker-compose.yml config` matches the base
+   file's own content one-to-one, and applying the VPN overlay to a running
+   stack recreates no existing container.
 3. Overlay parses: `docker compose -f docker-compose.yml -f
 docker-compose.vpn.yml config`.
 4. **Curation guard.** With a public range or a range covering the container's
    own network in `INTERNAL_CIDRS`, the gateway exits naming it. This is a test,
-   not just a safeguard — run it deliberately.
+   not just a safeguard — run it deliberately. The guard also runs inside
+   `paseo-vpn-route` and `browser-vpn-route`, in the namespace they borrow,
+   before those sidecars install a single route. The sidecar is the one that
+   matters: it runs inside `paseo`'s namespace, which also joins
+   `dokploy-network`, a network the gateway container never joins and so
+   cannot check on `paseo`'s behalf.
 5. Gateway reports healthy. `ppp0` has an address, carries only the declared
    CIDRs, and has no default route.
 6. From `paseo`: a private name resolves and connects; `paseo-browser` still
