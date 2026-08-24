@@ -237,11 +237,7 @@ The key lives at `/home/paseo/.ssh/internal_key` inside the container, in the
 carries it there. On the host it must be `chown 1000:1000` and `chmod 600` —
 uid 1000 is the `paseo` user, and OpenSSH refuses a group-readable private
 key. Both failures produce messages that do not name the file, so the
-documentation carries the exact commands. Where filesystem access on the
-deploy host is inconvenient,
-`INTERNAL_SSH_KEY_B64` in the environment is written out at `0600` by the
-entrypoint instead. Neither is more secure than the other: an agent inside the
-container can read its own `/proc/self/environ`.
+documentation carries the exact commands.
 
 The agents entrypoint writes `/etc/ssh/ssh_config.d/10-internal.conf` from the
 environment at every start. Debian's `ssh_config` already includes that
@@ -277,7 +273,7 @@ All values are placeholders in `.env.example` and real only in the gitignored
 | `INTERNAL_CIDRS`                                  | Comma-separated, curated, RFC 1918 only. The definition of "internal".                                                                       |
 | `VPN_HEALTH_TARGET`                               | `host:port` the gateway healthcheck connects to                                                                                              |
 | `INTERNAL_SSH_HOST`                               | Host the deploy key and its config block apply to                                                                                            |
-| `INTERNAL_SSH_KEY_FILE` or `INTERNAL_SSH_KEY_B64` | Deploy key, by mount or by environment                                                                                                       |
+| `INTERNAL_SSH_KEY_FILE`                           | Path inside the container to the deploy key, which lives in the paseo-home volume                                                            |
 | `SSH_KNOWN_HOSTS_EXTRA`                           | Host keys for the private Git server                                                                                                         |
 
 ## Health
