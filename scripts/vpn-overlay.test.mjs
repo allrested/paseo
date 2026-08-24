@@ -522,3 +522,65 @@ test("agents image installs and invokes the ssh setup script", () => {
   assert.match(dockerfile, /COPY agents\/rootfs\/ \//);
   assert.match(dockerfile, /paseo-agents-ssh-setup/);
 });
+
+const envExample = readFileSync(fileURLToPath(new URL("docker/.env.example", repoRoot)), "utf8");
+
+test("every overlay variable is documented in .env.example", () => {
+  const referenced = new Set(
+    [...overlay.matchAll(/\$\{([A-Z0-9_]+)(?::[-?][^}]*)?\}/g)].map((m) => m[1]),
+  );
+  // Declared by docker-compose.yml, not the overlay.
+  referenced.delete("INSTANCE_NAME");
+  const missing = [...referenced].filter(
+    (name) => !new RegExp(`^#?\\s*${name}=`, "m").test(envExample),
+  );
+  assert.deepEqual(missing, [], `undocumented variables: ${missing.join(", ")}`);
+});
+
+test("env example carries only placeholder values", () => {
+  // Real values live in docker/.env, which is gitignored. Example CIDRs have to
+  // parse, so addresses are allowed — but only private ones, which also keeps
+  // the examples consistent with what the curation guard accepts.
+  const addresses = [...envExample.matchAll(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/g)].map((m) => m[1]);
+  const publicAddresses = addresses.filter(
+    (address) =>
+      !/^10\./.test(address) &&
+      !/^192\.168\./.test(address) &&
+      !/^172\.(1[6-9]|2\d|3[01])\./.test(address) &&
+      // Not VPN-related: BIND_ADDRESS's wildcard default and the reverse-proxy
+      // note above it. Reserved special-use sentinels, not real addresses.
+      address !== "0.0.0.0" &&
+      !/^127\./.test(address),
+  );
+  assert.deepEqual(publicAddresses, [], `public addresses in .env.example: ${publicAddresses}`);
+
+  // Every hostname default must be a reserved example name. Naming the real
+  // hostnames to forbid them would put them in a tracked file, which is the
+  // thing being prevented — so this asserts the allowed shape instead.
+  for (const name of ["VPN_GATEWAY", "VPN_HEALTH_TARGET", "INTERNAL_SSH_HOST"]) {
+    const value = new RegExp(`^${name}=(.*)$`, "m").exec(envExample)?.[1] ?? "";
+    const host = value.split(":")[0];
+    assert.ok(
+      host === "" || host.endsWith("example.com"),
+      `${name} default must be an example.com placeholder, found: ${host}`,
+    );
+  }
+});
+
+const stackFile = readFileSync(
+  fileURLToPath(new URL("docker/docker-compose.vpn.stack.yml", repoRoot)),
+  "utf8",
+);
+
+test("the Dokploy single-file entry point only includes the base stack and the overlay", () => {
+  // Hand-parsed the same way jobBlocks()/serviceBlocks() read YAML above: no
+  // YAML library is available in this test's CI job.
+  const topLevelKeys = [...stackFile.matchAll(/^([a-z0-9_-]+):\s*$/gm)].map((m) => m[1]);
+  assert.deepEqual(topLevelKeys, ["include"]);
+
+  const includeLines = stackFile
+    .split("\n")
+    .filter((line) => /^ {2}-\s/.test(line))
+    .map((line) => line.replace(/^ {2}-\s*/, "").trim());
+  assert.deepEqual(includeLines, ["docker-compose.yml", "docker-compose.vpn.yml"]);
+});
