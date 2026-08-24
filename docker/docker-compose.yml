@@ -69,6 +69,11 @@ services:
       GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-${GIT_AUTHOR_EMAIL:-}}
       # Inherited by every agent and terminal Paseo launches.
       BDDEVLAB_API_KEY: ${BDDEVLAB_API_KEY:-}
+      # Configure SSH to a private git server, read by the agents entrypoint
+      # at every start. Inert when empty.
+      INTERNAL_SSH_HOST: ${INTERNAL_SSH_HOST:-}
+      INTERNAL_SSH_KEY_FILE: ${INTERNAL_SSH_KEY_FILE:-}
+      SSH_KNOWN_HOSTS_EXTRA: ${SSH_KNOWN_HOSTS_EXTRA:-}
     volumes:
       # Daemon state and agent credentials. Per-instance, never shared.
       - ${PASEO_HOME_DIR:-./paseo-home}:/home/paseo

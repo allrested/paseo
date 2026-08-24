@@ -523,6 +523,33 @@ test("agents image installs and invokes the ssh setup script", () => {
   assert.match(dockerfile, /paseo-agents-ssh-setup/);
 });
 
+const baseCompose = readFileSync(
+  fileURLToPath(new URL("docker/docker-compose.yml", repoRoot)),
+  "utf8",
+);
+
+test("every env var the ssh setup script reads reaches paseo through the base compose file", () => {
+  // Compose only injects a variable into a container if the service's own
+  // environment: block names it — .env alone does not reach the process. The
+  // overlay cannot carry these: it is forbidden from touching the paseo
+  // service, so the base file is the only place they can be wired through.
+  const sshSetupScript = readFileSync(sshSetupPath, "utf8");
+  const readVars = [
+    ...new Set(
+      [...sshSetupScript.matchAll(/\$\{([A-Z][A-Z0-9_]*)(?::[-=?][^}]*)?\}/g)].map((m) => m[1]),
+    ),
+  ];
+  assert.ok(readVars.length > 0, "expected the script to read at least one variable");
+
+  const paseoService = serviceBlocks(baseCompose).get("paseo").join("\n");
+  const missing = readVars.filter((name) => !new RegExp(`^\\s*${name}:`, "m").test(paseoService));
+  assert.deepEqual(
+    missing,
+    [],
+    `not passed through to paseo's environment in docker-compose.yml: ${missing.join(", ")}`,
+  );
+});
+
 const envExample = readFileSync(fileURLToPath(new URL("docker/.env.example", repoRoot)), "utf8");
 
 test("every overlay variable is documented in .env.example", () => {
