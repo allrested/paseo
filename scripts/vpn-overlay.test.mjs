@@ -439,3 +439,64 @@ test("sidecars target the gateway by container name, not service name", () => {
     assert.match(block, /VPN_GATEWAY_CONTAINER: \$\{INSTANCE_NAME:-paseo\}-vpn/);
   }
 });
+
+const sshSetupPath = fileURLToPath(
+  new URL("docker/agents/rootfs/usr/local/bin/paseo-agents-ssh-setup", repoRoot),
+);
+
+function runSshSetup(env) {
+  const root = mkdtempSync(path.join(tmpdir(), "paseo-ssh-"));
+  const result = runScript(sshSetupPath, env, ["--root", root]);
+  return { ...result, root };
+}
+
+test("ssh setup writes the host block and known hosts", () => {
+  const { code, root, stderr } = runSshSetup({
+    INTERNAL_SSH_HOST: "git.example.com",
+    INTERNAL_SSH_KEY_FILE: "/home/paseo/.ssh/internal_key",
+    SSH_KNOWN_HOSTS_EXTRA: "git.example.com ssh-ed25519 AAAA\\ngit.example.com ssh-rsa BBBB",
+  });
+  assert.equal(code, 0, stderr);
+
+  const config = readFileSync(path.join(root, "etc/ssh/ssh_config.d/10-internal.conf"), "utf8");
+  assert.match(config, /^Host git\.example\.com$/m);
+  assert.match(config, /IdentityFile \/home\/paseo\/\.ssh\/internal_key/);
+  assert.match(config, /IdentitiesOnly yes/);
+  assert.match(
+    config,
+    /GlobalKnownHostsFile \/etc\/ssh\/ssh_known_hosts \/etc\/ssh\/ssh_known_hosts\.extra/,
+  );
+
+  // Escaped separators become real newlines: .env parsing across compose
+  // versions does not carry literal newlines reliably.
+  const known = readFileSync(path.join(root, "etc/ssh/ssh_known_hosts.extra"), "utf8");
+  assert.deepEqual(known.trim().split("\n"), [
+    "git.example.com ssh-ed25519 AAAA",
+    "git.example.com ssh-rsa BBBB",
+  ]);
+});
+
+test("ssh setup keeps IdentitiesOnly inside the Host block", () => {
+  const { root } = runSshSetup({
+    INTERNAL_SSH_HOST: "git.example.com",
+    INTERNAL_SSH_KEY_FILE: "/home/paseo/.ssh/internal_key",
+    SSH_KNOWN_HOSTS_EXTRA: "",
+  });
+  const config = readFileSync(path.join(root, "etc/ssh/ssh_config.d/10-internal.conf"), "utf8");
+  const hostLine = config.split("\n").findIndex((line) => /^Host /.test(line));
+  const identitiesOnly = config.split("\n").findIndex((line) => /IdentitiesOnly/.test(line));
+  // Applied globally, IdentitiesOnly breaks GitHub authentication.
+  assert.ok(hostLine >= 0 && identitiesOnly > hostLine);
+});
+
+test("ssh setup does nothing without INTERNAL_SSH_HOST", () => {
+  const { code, root, stderr } = runSshSetup({ INTERNAL_SSH_HOST: "" });
+  assert.equal(code, 0, stderr);
+  assert.ok(!existsSync(path.join(root, "etc/ssh/ssh_config.d/10-internal.conf")));
+});
+
+test("agents image installs and invokes the ssh setup script", () => {
+  const dockerfile = readFileSync(fileURLToPath(new URL("docker/Dockerfile.agents", repoRoot)), "utf8");
+  assert.match(dockerfile, /COPY agents\/rootfs\/ \//);
+  assert.match(dockerfile, /paseo-agents-ssh-setup/);
+});

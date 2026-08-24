@@ -99,6 +99,14 @@ rm -f /tmp/gh-meta.json
 ssh-keygen -lf /etc/ssh/ssh_known_hosts | grep -q "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU"
 SCRIPT
 
+# SSH configuration for an optional private Git server, applied at start from
+# the environment. See docker/docker-compose.vpn.yml.
+COPY agents/rootfs/ /
+RUN set -eux; \
+    sed -i 's/\r$//' /usr/local/bin/paseo-agents-ssh-setup; \
+    chmod +x /usr/local/bin/paseo-agents-ssh-setup; \
+    bash -n /usr/local/bin/paseo-agents-ssh-setup
+
 # Paseo launches agents as the non-root `paseo` user (uid 1000), but /home/paseo
 # and /workspace are mounted volumes that survive rebuilds. Anything left
 # root-owned in them — most easily by a bare `docker exec`, which defaults to
@@ -133,6 +141,7 @@ if [ "$(id -u)" = "0" ]; then
     fi
   done
 fi
+/usr/local/bin/paseo-agents-ssh-setup
 exec /usr/local/bin/paseo-docker-entrypoint "$@"
 ENTRY
 chmod +x /usr/local/bin/paseo-agents-entrypoint
