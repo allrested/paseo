@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+# SSL-VPN gateway for the optional private-network overlay
+# (docker/docker-compose.vpn.yml).
+#
+# bookworm to match the paseo base image, so the stack has one userland.
+#
+# Built here rather than pulled from a third party: this container holds live
+# VPN credentials and a route into a private network, so an unreviewed image is
+# the wrong trade.
+FROM debian:bookworm-slim
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      openfortivpn \
+      ppp \
+      iptables \
+      iproute2 \
+      netcat-openbsd \
+      ca-certificates \
+      tini; \
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /etc/openfortivpn
+
+COPY vpn/rootfs/ /
+
+# A Windows checkout with core.autocrlf=true rewrites these scripts to CRLF, so
+# the `#!/usr/bin/env bash` shebang picks up a trailing carriage return and the
+# container dies with exit 127. Strip them, then assert each script parses.
+RUN set -eux; \
+    for script in \
+      /usr/local/bin/paseo-vpn-validate \
+      /usr/local/bin/paseo-vpn-config \
+      /usr/local/bin/paseo-vpn-entrypoint \
+      /usr/local/bin/paseo-vpn-healthcheck \
+      /usr/local/bin/paseo-vpn-route \
+      /etc/ppp/ip-up.d/10-internal-routes; do \
+      sed -i 's/\r$//' "$script"; \
+      chmod +x "$script"; \
+      bash -n "$script"; \
+    done
+
+# The entrypoint runs an infinite retry loop as PID 1 with no signal handler,
+# so a bare `docker stop` would wait out the full timeout and then SIGKILL,
+# tearing the tunnel down uncleanly on every deploy. tini forwards signals and
+# reaps zombies so the loop gets a clean SIGTERM instead.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/paseo-vpn-entrypoint"]

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -318,4 +318,49 @@ test("route hook does not execute a command smuggled in via the env file", () =>
   });
   assert.equal(result.code, 0, result.stderr);
   assert.equal(existsSync(markerPath), false);
+});
+
+const dockerWorkflow = readFileSync(
+  fileURLToPath(new URL(".github/workflows/docker.yml", repoRoot)),
+  "utf8",
+);
+
+// Mirrors jobBlocks() in scripts/ci-workflow.test.mjs: split top-level jobs by
+// their two-space indented keys. Hand-parsed because this test runs in the
+// `changes` job, which installs no dependencies.
+function jobBlocks(source) {
+  const jobs = new Map();
+  let current;
+  for (const line of source.split("\n")) {
+    const match = /^ {2}([a-z0-9-]+):\s*$/.exec(line);
+    if (match) {
+      current = match[1];
+      jobs.set(current, []);
+      continue;
+    }
+    if (current) jobs.get(current).push(line);
+  }
+  return jobs;
+}
+
+test("docker workflow publishes the VPN gateway image", () => {
+  const job = jobBlocks(dockerWorkflow).get("publish-vpn")?.join("\n");
+  assert.ok(job, "publish-vpn job is missing");
+  assert.match(job, /file: docker\/Dockerfile\.vpn/);
+  assert.match(job, /tags: \$\{\{ needs\.setup\.outputs\.vpn_publish_tags \}\}/);
+  assert.match(job, /push: true/);
+  // FROM debian, not the paseo base, so it must not wait on the base publish.
+  assert.match(job, /needs: \[setup\]/);
+});
+
+test("docker workflow build-checks the VPN image on pull requests", () => {
+  const job = jobBlocks(dockerWorkflow).get("build")?.join("\n");
+  assert.ok(job);
+  assert.match(job, /file: docker\/Dockerfile\.vpn/);
+});
+
+test("setup job exposes vpn_publish_tags", () => {
+  const job = jobBlocks(dockerWorkflow).get("setup")?.join("\n");
+  assert.ok(job);
+  assert.match(job, /vpn_publish_tags/);
 });
