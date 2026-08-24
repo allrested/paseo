@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -84,20 +84,16 @@ const routePath = fileURLToPath(
 );
 
 function runRoute(env, args = []) {
-  try {
-    const stdout = execFileSync("bash", [routePath, ...args], {
-      encoding: "utf8",
-      env: { ...process.env, ...env },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return { code: 0, stdout, stderr: "" };
-  } catch (error) {
-    return {
-      code: error.status ?? 1,
-      stdout: error.stdout ?? "",
-      stderr: error.stderr ?? "",
-    };
-  }
+  const result = spawnSync("bash", [routePath, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return {
+    code: result.status ?? 1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
 }
 
 const DRY = {
@@ -138,4 +134,21 @@ test("route sidecar --check reports the routes it would verify", () => {
   const result = runRoute({ ...DRY, INTERNAL_CIDRS: "10.4.0.0/16" }, ["--check"]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /ip route show 10\.4\.0\.0\/16/);
+});
+
+test("route sidecar recovers from transient gateway failures", () => {
+  const result = runRoute({
+    ...DRY,
+    PASEO_VPN_ROUTE_INTERVAL: "0",
+    PASEO_VPN_FAIL_ON_PASS: "2",
+    PASEO_VPN_MAX_PASSES: "3",
+    INTERNAL_CIDRS: "10.4.0.0/16",
+  });
+  assert.equal(result.code, 0, result.stderr);
+  // Verify failure on pass 2 was logged
+  assert.match(result.stderr, /pass 2.*injected failure/);
+  // Verify failure was recovered - pass 2 failed and pass 3 succeeded
+  assert.match(result.stderr, /pass 2 failed, retrying/);
+  // Verify pass 3 output shows the route command was executed
+  assert.match(result.stdout, /ip route replace 10\.4\.0\.0\/16/);
 });

@@ -14,6 +14,8 @@ set -euo pipefail
 interval=${PASEO_VPN_ROUTE_INTERVAL:-30}
 dry_run=${PASEO_VPN_DRY_RUN:-}
 check_only=
+pass_count=0
+max_passes=${PASEO_VPN_MAX_PASSES:-0}
 
 if [ "${1:-}" = "--check" ]; then
   check_only=1
@@ -56,14 +58,51 @@ if [ -n "$check_only" ]; then
 fi
 
 while true; do
-  gateway=$(resolve_gateway)
+  pass_count=$((pass_count + 1))
+
+  # Simulate failure for testing resilience (only if PASEO_VPN_FAIL_ON_PASS matches this pass)
+  if [ "${PASEO_VPN_FAIL_ON_PASS:-}" = "$pass_count" ]; then
+    printf 'paseo-vpn-route: pass %d: injected failure for testing\n' "$pass_count" >&2
+    gateway_exit=1
+  else
+    gateway=
+    gateway_exit=0
+    gateway=$(resolve_gateway) || gateway_exit=$?
+  fi
+
+  if [ $gateway_exit -ne 0 ]; then
+    if [ $pass_count -eq 1 ]; then
+      # Configuration error on first pass - exit immediately
+      exit 1
+    else
+      # Transient failure on later passes - log and retry after sleep
+      printf 'paseo-vpn-route: pass %d failed, retrying after %d seconds\n' "$pass_count" "$interval" >&2
+      [ -n "$dry_run" ] && [ "$max_passes" -eq 0 ] && exit 0
+      sleep "$interval"
+      if [ "$max_passes" -gt 0 ] && [ "$pass_count" -ge "$max_passes" ]; then
+        exit 1
+      fi
+      continue
+    fi
+  fi
+
   for cidr in "${cidrs[@]}"; do
     if [ -n "$dry_run" ]; then
       printf 'ip route replace %s via %s\n' "$cidr" "$gateway"
     else
-      ip route replace "$cidr" via "$gateway"
+      if ! ip route replace "$cidr" via "$gateway"; then
+        printf 'paseo-vpn-route: failed to replace route for %s\n' "$cidr" >&2
+      fi
     fi
   done
-  [ -n "$dry_run" ] && exit 0
+
+  if [ -n "$dry_run" ] && [ "$max_passes" -eq 0 ]; then
+    exit 0
+  fi
+
+  if [ "$max_passes" -gt 0 ] && [ "$pass_count" -ge "$max_passes" ]; then
+    exit 0
+  fi
+
   sleep "$interval"
 done
