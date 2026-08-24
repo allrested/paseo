@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -282,4 +282,27 @@ test("route hook falls back to PASEO_VPN_ENV_FILE when INTERNAL_CIDRS is unset",
     "ip route replace 10.4.0.0/16 dev ppp0",
     "ip route replace 10.15.0.0/16 dev ppp0",
   ]);
+});
+
+test("route hook does not execute a command smuggled in via the env file", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "paseo-vpn-"));
+  const envFile = path.join(dir, "paseo-vpn.env");
+  const markerPath = path.join(dir, "marker");
+
+  // Mirrors the quoting paseo-vpn-entrypoint uses when persisting
+  // INTERNAL_CIDRS: the whole value is wrapped in single quotes, so an
+  // embedded newline (and whatever follows it) stays part of the string
+  // instead of becoming a second command when the hook `source`s this file.
+  writeFileSync(
+    envFile,
+    `INTERNAL_CIDRS='10.4.0.0/16\ntouch ${markerPath}'\n`,
+  );
+
+  const result = runScript(ipUpPath, {
+    PASEO_VPN_DRY_RUN: "1",
+    INTERNAL_CIDRS: "",
+    PASEO_VPN_ENV_FILE: envFile,
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(existsSync(markerPath), false);
 });
