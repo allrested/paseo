@@ -1,0 +1,80 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = new URL("../", import.meta.url);
+const validatePath = fileURLToPath(
+  new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-validate", repoRoot),
+);
+
+// The scripts run under bash on the CI runner and under Git Bash on Windows.
+// PASEO_VPN_LOCAL_ADDRS short-circuits the `ip` call so no container is needed.
+function runValidate(env) {
+  try {
+    const stdout = execFileSync("bash", [validatePath], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { code: 0, stdout, stderr: "" };
+  } catch (error) {
+    return {
+      code: error.status ?? 1,
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? "",
+    };
+  }
+}
+
+const LOCAL = { PASEO_VPN_LOCAL_ADDRS: "172.18.0.5/16,127.0.0.1/8" };
+
+test("validator accepts a curated private range", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "10.4.0.0/16" });
+  assert.equal(result.code, 0, result.stderr);
+});
+
+test("validator accepts several ranges", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16,10.15.0.0/16,192.168.40.0/22",
+  });
+  assert.equal(result.code, 0, result.stderr);
+});
+
+test("validator rejects public address space", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "52.219.32.0/21" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /outside RFC 1918/);
+});
+
+test("validator rejects a prefix broader than /12", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "10.0.0.0/8" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /broader than \/12/);
+});
+
+test("validator rejects a range covering the container's own network", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "172.16.0.0/12" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /overlaps this container's own network/);
+});
+
+test("validator rejects a range not aligned to its prefix", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "10.4.0.1/16" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /not aligned/);
+});
+
+test("validator rejects malformed input", () => {
+  for (const value of ["10.4.0.0", "10.4.0.0/33", "10.4.0.256/16", "banana"]) {
+    const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: value });
+    assert.equal(result.code, 1, `expected rejection for ${value}`);
+  }
+});
+
+test("validator requires INTERNAL_CIDRS", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /INTERNAL_CIDRS is required/);
+});

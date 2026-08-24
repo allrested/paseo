@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Enforces the Route curation rules from
+# docs/superpowers/specs/2026-08-25-container-scoped-vpn-design.md.
+#
+# The gateway offers far more routes than this stack should install, including
+# public address space and a range inside Docker's own address pool. Declared
+# ranges are checked here instead, and a violation stops the container rather
+# than producing a private name that resolves while connections hang.
+#
+# PASEO_VPN_LOCAL_ADDRS overrides interface discovery so tests run without a
+# container. It must be read before any `ip` call.
+set -euo pipefail
+
+RFC1918="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
+MIN_PREFIX=12
+
+fail() {
+  printf 'paseo-vpn: %s\n' "$1" >&2
+  exit 1
+}
+
+# Octets are forced to base 10: `08` is a valid octet but an invalid octal
+# literal, and bash arithmetic would otherwise abort on it.
+to_int() {
+  local IFS='.' o1 o2 o3 o4
+  read -r o1 o2 o3 o4 <<<"$1"
+  printf '%s' "$(((10#$o1 << 24) + (10#$o2 << 16) + (10#$o3 << 8) + 10#$o4))"
+}
+
+mask_of() {
+  if [ "$1" -eq 0 ]; then
+    printf '0'
+  else
+    printf '%s' "$(((0xFFFFFFFF << (32 - $1)) & 0xFFFFFFFF))"
+  fi
+}
+
+# Sets CIDR_NET and CIDR_LEN. Callers that loop must copy both out first.
+parse_cidr() {
+  local cidr=$1 addr len octet
+  case "$cidr" in
+    */*)
+      addr=${cidr%%/*}
+      len=${cidr##*/}
+      ;;
+    *) fail "not a CIDR, missing /prefix: $cidr" ;;
+  esac
+  [[ $addr =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "malformed address: $cidr"
+  [[ $len =~ ^[0-9]{1,2}$ ]] || fail "malformed prefix length: $cidr"
+  [ "$((10#$len))" -le 32 ] || fail "prefix length above 32: $cidr"
+  local IFS='.'
+  for octet in $addr; do
+    [ "$((10#$octet))" -le 255 ] || fail "octet above 255: $cidr"
+  done
+  CIDR_NET=$(to_int "$addr")
+  CIDR_LEN=$((10#$len))
+}
+
+overlaps() {
+  local n1=$1 l1=$2 n2=$3 l2=$4 len mask
+  len=$l1
+  [ "$l2" -lt "$len" ] && len=$l2
+  mask=$(mask_of "$len")
+  [ "$((n1 & mask))" -eq "$((n2 & mask))" ]
+}
+
+contained_in() {
+  local n=$1 l=$2 bn=$3 bl=$4 mask
+  [ "$bl" -le "$l" ] || return 1
+  mask=$(mask_of "$bl")
+  [ "$((n & mask))" -eq "$bn" ]
+}
+
+[ -n "${INTERNAL_CIDRS:-}" ] || fail "INTERNAL_CIDRS is required"
+
+if [ -n "${PASEO_VPN_LOCAL_ADDRS:-}" ]; then
+  local_addrs=${PASEO_VPN_LOCAL_ADDRS//,/ }
+else
+  local_addrs=$(ip -o -4 addr show | awk '{ print $4 }' | tr '\n' ' ')
+fi
+
+read -r -a entries <<<"${INTERNAL_CIDRS//,/ }"
+for entry in "${entries[@]}"; do
+  parse_cidr "$entry"
+  net=$CIDR_NET
+  len=$CIDR_LEN
+  mask=$(mask_of "$len")
+
+  [ "$((net & mask))" -eq "$net" ] || fail "$entry is not aligned to its prefix"
+  [ "$len" -ge "$MIN_PREFIX" ] ||
+    fail "$entry is broader than /$MIN_PREFIX; see Route curation in the spec"
+
+  inside_rfc1918=0
+  for block in $RFC1918; do
+    parse_cidr "$block"
+    if contained_in "$net" "$len" "$CIDR_NET" "$CIDR_LEN"; then
+      inside_rfc1918=1
+      break
+    fi
+  done
+  [ "$inside_rfc1918" -eq 1 ] || fail "$entry is outside RFC 1918"
+
+  for local_addr in $local_addrs; do
+    parse_cidr "$local_addr"
+    if overlaps "$net" "$len" "$CIDR_NET" "$CIDR_LEN"; then
+      fail "$entry overlaps this container's own network $local_addr"
+    fi
+  done
+done
+
+printf 'paseo-vpn: validated %s\n' "$INTERNAL_CIDRS"
