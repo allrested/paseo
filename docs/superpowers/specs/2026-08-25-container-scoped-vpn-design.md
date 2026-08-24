@@ -232,11 +232,13 @@ distinct `INSTANCE_NAME`.
 
 Transport is SSH with a deploy key.
 
-The key is bind-mounted read-only to `/home/paseo/.ssh/internal_key`. On the
-host it must be `chown 1000:1000` and `chmod 600` — uid 1000 is the `paseo`
-user, and OpenSSH refuses a group-readable private key. Both failures produce
-messages that do not name the mount, so the documentation carries the exact
-commands. Where filesystem access on the deploy host is inconvenient,
+The key lives at `/home/paseo/.ssh/internal_key` inside the container, in the
+`PASEO_HOME_DIR` volume already mounted at `/home/paseo` — no separate mount
+carries it there. On the host it must be `chown 1000:1000` and `chmod 600` —
+uid 1000 is the `paseo` user, and OpenSSH refuses a group-readable private
+key. Both failures produce messages that do not name the file, so the
+documentation carries the exact commands. Where filesystem access on the
+deploy host is inconvenient,
 `INTERNAL_SSH_KEY_B64` in the environment is written out at `0600` by the
 entrypoint instead. Neither is more secure than the other: an agent inside the
 container can read its own `/proc/self/environ`.

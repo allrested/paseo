@@ -174,8 +174,11 @@ tunnel. `paseo-vpn-validate` enforces the curation at startup: RFC
 1918 only, `/12` or longer, no overlap with the container's own networks.
 
 `INTERNAL_SSH_HOST` and `INTERNAL_SSH_KEY_FILE` wire up SSH to a private git
-server over the tunnel. The deploy key file needs `chown 1000:1000` and
-`chmod 600` on the host — uid 1000 is the `paseo` user, and OpenSSH refuses to
+server over the tunnel. `INTERNAL_SSH_KEY_FILE` is a path inside the
+container; no separate mount carries it there. Place the deploy key in the
+`PASEO_HOME_DIR` volume already mounted at `/home/paseo` — at
+`${PASEO_HOME_DIR}/.ssh/internal_key` on the host — and set `chown 1000:1000`
+and `chmod 600` on it. uid 1000 is the `paseo` user, and OpenSSH refuses to
 use a group-readable private key.
 
 `paseo-vpn-route` and `browser-vpn-route` install routes inside `paseo`'s and
