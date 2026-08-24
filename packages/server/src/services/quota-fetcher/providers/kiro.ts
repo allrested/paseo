@@ -126,8 +126,9 @@ async function readKiroSession(homeDir: string, logger: Logger): Promise<KiroSes
   let db: KiroStateDatabase | undefined;
   try {
     db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
-    const rawToken = db.prepare("SELECT value FROM auth_kv WHERE key = ?").get(KIRO_TOKEN_KEY)
-      ?.["value"];
+    const rawToken = db.prepare("SELECT value FROM auth_kv WHERE key = ?").get(KIRO_TOKEN_KEY)?.[
+      "value"
+    ];
     if (typeof rawToken !== "string") return null;
     const token = KiroTokenSchema.parse(JSON.parse(rawToken));
 
@@ -139,8 +140,9 @@ async function readKiroSession(homeDir: string, logger: Logger): Promise<KiroSes
     }
 
     let profileArn: string | null = null;
-    const rawProfile = db.prepare("SELECT value FROM state WHERE key = ?").get(KIRO_PROFILE_KEY)
-      ?.["value"];
+    const rawProfile = db.prepare("SELECT value FROM state WHERE key = ?").get(KIRO_PROFILE_KEY)?.[
+      "value"
+    ];
     if (typeof rawProfile === "string") {
       try {
         profileArn = KiroProfileSchema.parse(JSON.parse(rawProfile)).arn ?? null;
@@ -184,15 +186,19 @@ export class KiroQuotaProvider implements ProviderUsageFetcher {
     const session = await readKiroSession(this.homeDir, this.logger);
     if (!session) return unavailableUsage(this);
 
-    const res = await fetchProviderApi(this.fetchApi, `https://q.${session.region}.amazonaws.com/`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-        "Content-Type": "application/x-amz-json-1.0",
-        "X-Amz-Target": KIRO_USAGE_TARGET,
+    const res = await fetchProviderApi(
+      this.fetchApi,
+      `https://q.${session.region}.amazonaws.com/`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/x-amz-json-1.0",
+          "X-Amz-Target": KIRO_USAGE_TARGET,
+        },
+        body: JSON.stringify(session.profileArn ? { profileArn: session.profileArn } : {}),
       },
-      body: JSON.stringify(session.profileArn ? { profileArn: session.profileArn } : {}),
-    });
+    );
 
     if (!res.ok) {
       this.logger.debug({ status: res.status }, "Kiro usage fetch failed");

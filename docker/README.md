@@ -36,12 +36,12 @@ agent auth, and troubleshooting notes.
 
 `docker-compose.yml` runs four containers:
 
-| Service       | What it does                                                        |
-| ------------- | ------------------------------------------------------------------- |
-| `paseo`       | Daemon + web UI, from the `Dockerfile.agents` image                 |
-| `browser`     | Chromium with a screen you can reach over noVNC                     |
-| `browser-cdp` | Publishes Chromium's CDP port onto the Compose network              |
-| `paseo-cdp`   | Puts that CDP port on `paseo`'s loopback                            |
+| Service       | What it does                                           |
+| ------------- | ------------------------------------------------------ |
+| `paseo`       | Daemon + web UI, from the `Dockerfile.agents` image    |
+| `browser`     | Chromium with a screen you can reach over noVNC        |
+| `browser-cdp` | Publishes Chromium's CDP port onto the Compose network |
+| `paseo-cdp`   | Puts that CDP port on `paseo`'s loopback               |
 
 `Dockerfile.agents` adds Claude Code, Codex, OpenCode, Kiro CLI, GitHub CLI and
 Playwright MCP.
@@ -100,11 +100,11 @@ Every setting has a default that reproduces a plain local install, so the stack
 runs with no `.env`. Copy `.env.example` to `.env` to change any of them; on
 Dokploy, set them in the app's Environment tab.
 
-| URL                              | What                                      |
-| -------------------------------- | ----------------------------------------- |
-| `http://localhost:${PASEO_PORT}` | Paseo web UI (6767)                       |
-| `http://localhost:${BROWSER_PORT}` | The browser's screen, noVNC (3000)      |
-| `http://localhost:${DEV_PORT}`   | Your dev server (6666)                    |
+| URL                                | What                               |
+| ---------------------------------- | ---------------------------------- |
+| `http://localhost:${PASEO_PORT}`   | Paseo web UI (6767)                |
+| `http://localhost:${BROWSER_PORT}` | The browser's screen, noVNC (3000) |
+| `http://localhost:${DEV_PORT}`     | Your dev server (6666)             |
 
 `DEV_PORT` only remaps the host side. The app still listens on
 `DEV_PORT_INTERNAL` (3000) inside the container, and must bind `0.0.0.0` —
@@ -155,8 +155,7 @@ Both print a code and a URL to open yourself. The container is headless, so
 `gh` reports `Failed opening a web browser` and Kiro needs `--use-device-flow`;
 neither is a failure.
 
-Bare `docker exec` runs as **root** and writes root-owned files that agents (uid
-1000) cannot read. That produces failures with no useful error: Kiro exits code
+Bare `docker exec` runs as **root** and writes root-owned files that agents (uid 1000) cannot read. That produces failures with no useful error: Kiro exits code
 0 with empty stderr when it cannot write `.kiro/sessions`, Codex reports a
 corrupt sqlite state, `gh` reports a permission-denied config. The entrypoint
 repairs ownership under `/home/paseo` and `/workspace` at every start, so a
@@ -213,8 +212,7 @@ second instance exists.
 ## Building on Windows
 
 A checkout with `core.autocrlf=true` rewrites `base/rootfs`'s entrypoint to
-CRLF, so its shebang becomes `bash\r` and the container restart-loops on exit
-127. `Dockerfile.agents` strips the carriage returns before use.
+CRLF, so its shebang becomes `bash\r` and the container restart-loops on exit 127. `Dockerfile.agents` strips the carriage returns before use.
 
 Keep `docker/paseo-home` and `docker/workspace` in `.dockerignore`. They are
 runtime state, they reach gigabytes, and a symlink inside them makes the context
