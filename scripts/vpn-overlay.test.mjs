@@ -495,6 +495,28 @@ test("ssh setup does nothing without INTERNAL_SSH_HOST", () => {
   assert.ok(!existsSync(path.join(root, "etc/ssh/ssh_config.d/10-internal.conf")));
 });
 
+test("ssh setup clears stale known hosts when the env var is emptied on restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "paseo-ssh-"));
+  const base = {
+    INTERNAL_SSH_HOST: "git.example.com",
+    INTERNAL_SSH_KEY_FILE: "/home/paseo/.ssh/internal_key",
+  };
+
+  const first = runScript(sshSetupPath, { ...base, SSH_KNOWN_HOSTS_EXTRA: "git.example.com ssh-ed25519 AAAA" }, [
+    "--root",
+    root,
+  ]);
+  assert.equal(first.code, 0, first.stderr);
+  assert.match(
+    readFileSync(path.join(root, "etc/ssh/ssh_known_hosts.extra"), "utf8"),
+    /git\.example\.com ssh-ed25519 AAAA/,
+  );
+
+  const second = runScript(sshSetupPath, { ...base, SSH_KNOWN_HOSTS_EXTRA: "" }, ["--root", root]);
+  assert.equal(second.code, 0, second.stderr);
+  assert.equal(readFileSync(path.join(root, "etc/ssh/ssh_known_hosts.extra"), "utf8"), "");
+});
+
 test("agents image installs and invokes the ssh setup script", () => {
   const dockerfile = readFileSync(fileURLToPath(new URL("docker/Dockerfile.agents", repoRoot)), "utf8");
   assert.match(dockerfile, /COPY agents\/rootfs\/ \//);

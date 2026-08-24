@@ -10,7 +10,11 @@ set -euo pipefail
 
 root=/
 if [ "${1:-}" = "--root" ]; then
-  root=$2
+  root=${2:-}
+  if [ -z "$root" ]; then
+    echo "paseo-agents-ssh-setup: --root requires a path argument" >&2
+    exit 1
+  fi
 fi
 
 host=${INTERNAL_SSH_HOST:-}
@@ -32,7 +36,13 @@ GlobalKnownHostsFile /etc/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts.extra
 CONFIG
 chmod 644 "$config_dir/10-internal.conf"
 
+# Written unconditionally, truncating to empty when unset: trust material
+# should not outlive its configuration. Without this, host keys from an
+# earlier run would keep being trusted after SSH_KNOWN_HOSTS_EXTRA is cleared
+# on a restart of the same container.
 if [ -n "${SSH_KNOWN_HOSTS_EXTRA:-}" ]; then
   printf '%b\n' "$SSH_KNOWN_HOSTS_EXTRA" > "$known_hosts"
-  chmod 644 "$known_hosts"
+else
+  : > "$known_hosts"
 fi
+chmod 644 "$known_hosts"
