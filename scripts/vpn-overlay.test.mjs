@@ -82,6 +82,19 @@ test("validator requires INTERNAL_CIDRS", () => {
   assert.match(result.stderr, /INTERNAL_CIDRS is required/);
 });
 
+test("validator rejects a multi-line value even when the first line is a valid CIDR", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16\ntouch /tmp/paseo-vpn-test-marker",
+  });
+  assert.equal(result.code, 1);
+});
+
+test("validator rejects a value containing a quote and a semicolon", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "10.4.0.0/16;'" });
+  assert.equal(result.code, 1);
+});
+
 const routePath = fileURLToPath(
   new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-route", repoRoot),
 );

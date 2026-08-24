@@ -73,6 +73,18 @@ contained_in() {
 
 [ -n "${INTERNAL_CIDRS:-}" ] || fail "INTERNAL_CIDRS is required"
 
+# Reject the whole value up front if it contains anything outside the
+# CIDR-list alphabet (digits, dots, slashes, commas, spaces, tabs) — before any
+# per-entry parsing happens. `read -r -a entries <<<...` below only ever
+# consumes the first line of INTERNAL_CIDRS, so a newline is not a safe
+# boundary: everything after it would otherwise reach the entrypoint's
+# persisted env file and the route hook's `source` unexamined. This closes
+# that hole for every consumer of the variable, not just the ones caught so
+# far — a quote, semicolon, backtick or `$` must fail here.
+cidr_list_alphabet='^[0-9,./ '$'\t'']*$'
+[[ $INTERNAL_CIDRS =~ $cidr_list_alphabet ]] ||
+  fail "INTERNAL_CIDRS contains a character outside the CIDR-list alphabet (digits, dots, slashes, commas, spaces)"
+
 if [ -n "${PASEO_VPN_LOCAL_ADDRS:-}" ]; then
   local_addrs=${PASEO_VPN_LOCAL_ADDRS//,/ }
 else
