@@ -60,7 +60,7 @@ services:
     depends_on:
       - paseo
       - vpn
-    entrypoint: ["/usr/local/bin/paseo-vpn-route"]
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/paseo-vpn-route"]
     environment:
       INTERNAL_CIDRS: ${INTERNAL_CIDRS:?INTERNAL_CIDRS is required}
       # Container name, not service name: on a shared proxy network every
@@ -90,7 +90,7 @@ services:
     depends_on:
       - browser
       - vpn
-    entrypoint: ["/usr/local/bin/paseo-vpn-route"]
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/paseo-vpn-route"]
     environment:
       INTERNAL_CIDRS: ${INTERNAL_CIDRS:?INTERNAL_CIDRS is required}
       VPN_GATEWAY_CONTAINER: ${INSTANCE_NAME:-paseo}-vpn

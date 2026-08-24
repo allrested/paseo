@@ -115,6 +115,10 @@ function runRoute(env, args = []) {
 const DRY = {
   PASEO_VPN_DRY_RUN: "1",
   PASEO_VPN_GATEWAY_ADDR: "172.18.0.9",
+  // paseo-vpn-route now runs the curation guard before doing anything else.
+  // Without this seam it would shell out to the real `ip` command, which
+  // this test's environment does not have.
+  PASEO_VPN_LOCAL_ADDRS: "172.18.0.5/16,127.0.0.1/8",
 };
 
 test("route sidecar emits one replace per declared CIDR", () => {
@@ -139,11 +143,26 @@ test("route sidecar never emits a default route", () => {
 test("route sidecar requires a resolvable gateway", () => {
   const result = runRoute({
     PASEO_VPN_DRY_RUN: "1",
+    PASEO_VPN_LOCAL_ADDRS: "172.18.0.5/16,127.0.0.1/8",
     INTERNAL_CIDRS: "10.4.0.0/16",
     VPN_GATEWAY_CONTAINER: "",
   });
   assert.equal(result.code, 1);
   assert.match(result.stderr, /VPN_GATEWAY_CONTAINER is required/);
+});
+
+test("route sidecar rejects a CIDR that overlaps its own namespace's addresses", () => {
+  // Reproduces the Critical defect: a range that collides with a network only
+  // paseo is on (dokploy-network, standing in here for any address the
+  // gateway container cannot see) must be caught inside the sidecar, since
+  // the gateway's own curation check never sees that namespace.
+  const result = runRoute({
+    ...DRY,
+    PASEO_VPN_LOCAL_ADDRS: "10.0.1.5/24",
+    INTERNAL_CIDRS: "10.0.0.0/16",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /overlaps this container's own network/);
 });
 
 test("route sidecar --check reports the routes it would verify", () => {
@@ -429,6 +448,12 @@ test("sidecars join the target namespaces and can set routes", () => {
   for (const block of [paseoRoute, browserRoute]) {
     assert.match(block, /cap_add:\s*\n\s+- NET_ADMIN/);
     assert.match(block, /paseo-vpn-route",\s*"--check"/);
+    // tini must stay PID 1: without it the sidecar has no SIGTERM handler and
+    // `docker compose down` waits out the full stop timeout on every sidecar.
+    assert.match(
+      block,
+      /entrypoint: \["\/usr\/bin\/tini", "--", "\/usr\/local\/bin\/paseo-vpn-route"\]/,
+    );
   }
 });
 
@@ -548,6 +573,59 @@ test("every env var the ssh setup script reads reaches paseo through the base co
     [],
     `not passed through to paseo's environment in docker-compose.yml: ${missing.join(", ")}`,
   );
+});
+
+const entrypointPath = fileURLToPath(
+  new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-entrypoint", repoRoot),
+);
+
+// Mirrors the ssh-setup guard above: derive the variables a script reads from
+// the environment by scanning for `$NAME` and `${NAME...}`, then drop the
+// PASEO_VPN_* test seams (deliberately not wired in compose) and any names
+// that are local, script-only computation rather than something read from
+// the environment.
+function envVarsReadBy(source, localNames = []) {
+  return [
+    ...new Set(
+      [...source.matchAll(/\$\{?([A-Z][A-Z0-9_]*)/g)]
+        .map((m) => m[1])
+        .filter((name) => !name.startsWith("PASEO_VPN_") && !localNames.includes(name)),
+    ),
+  ];
+}
+
+test("every env var the gateway scripts read reaches the vpn service in the overlay", () => {
+  // paseo-vpn-validate computes these locally (CIDR_NET, CIDR_LEN) or
+  // declares them as constants (RFC1918, MIN_PREFIX); none is read from the
+  // environment.
+  const validateLocals = ["CIDR_NET", "CIDR_LEN", "RFC1918", "MIN_PREFIX"];
+  const gatewayScripts = [entrypointPath, validatePath, configPath, healthPath].map((p) =>
+    readFileSync(p, "utf8"),
+  );
+  const readVars = [
+    ...new Set(gatewayScripts.flatMap((source) => envVarsReadBy(source, validateLocals))),
+  ];
+  assert.ok(readVars.length > 0, "expected the gateway scripts to read at least one variable");
+
+  const vpnService = serviceBlocks(overlay).get("vpn").join("\n");
+  const missing = readVars.filter((name) => !new RegExp(`^\\s*${name}:`, "m").test(vpnService));
+  assert.deepEqual(
+    missing,
+    [],
+    `not passed through to the vpn service in docker-compose.vpn.yml: ${missing.join(", ")}`,
+  );
+});
+
+test("every env var the sidecar script reads reaches both route sidecars in the overlay", () => {
+  const readVars = envVarsReadBy(readFileSync(routePath, "utf8"));
+  assert.ok(readVars.length > 0, "expected the sidecar script to read at least one variable");
+
+  const services = serviceBlocks(overlay);
+  for (const name of ["paseo-vpn-route", "browser-vpn-route"]) {
+    const block = services.get(name).join("\n");
+    const missing = readVars.filter((v) => !new RegExp(`^\\s*${v}:`, "m").test(block));
+    assert.deepEqual(missing, [], `not passed through to ${name}: ${missing.join(", ")}`);
+  }
 });
 
 const envExample = readFileSync(fileURLToPath(new URL("docker/.env.example", repoRoot)), "utf8");

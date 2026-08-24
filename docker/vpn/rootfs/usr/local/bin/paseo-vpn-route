@@ -9,6 +9,18 @@
 # The gateway is addressed by CONTAINER name, not service name: on a shared
 # proxy network every instance's service carries the same DNS alias, so a
 # service name can resolve to another instance's container.
+#
+# This container joins paseo's or browser's namespace, not the gateway's, and
+# that namespace is the one the curation guard most needs to see: paseo also
+# joins dokploy-network, which the gateway container never touches. Running
+# the guard here, rather than only in the gateway, is what catches an
+# INTERNAL_CIDRS range that collides with that network instead of installing a
+# route that captures it.
+#
+# PASEO_VPN_GATEWAY_ADDR, PASEO_VPN_DRY_RUN, PASEO_VPN_ROUTE_INTERVAL,
+# PASEO_VPN_FAIL_ON_PASS and PASEO_VPN_MAX_PASSES are test seams: they let
+# tests run this script with no gateway container and no `ip` command, and
+# without waiting out real retry intervals.
 set -euo pipefail
 
 interval=${PASEO_VPN_ROUTE_INTERVAL:-30}
@@ -25,6 +37,12 @@ fail() {
   printf 'paseo-vpn-route: %s\n' "$1" >&2
   exit 1
 }
+
+# Resolved next to this script rather than hardcoded to /usr/local/bin: both
+# scripts ship in that same directory in the image, and this also lets tests
+# run this script straight out of the checkout, where nothing is installed to
+# /usr/local/bin.
+"$(dirname "$0")/paseo-vpn-validate" >/dev/null
 
 [ -n "${INTERNAL_CIDRS:-}" ] || fail "INTERNAL_CIDRS is required"
 
