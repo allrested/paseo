@@ -172,6 +172,17 @@ environment:
 
 IPs and `localhost` are allowed by default.
 
+## Private network access
+
+`docker-compose.vpn.yml` adds an optional SSL-VPN client so `paseo` and
+`browser` can reach a private network — a corporate git server, for example.
+See [Private network access in docker/README.md](../docker/README.md#private-network-access)
+for the command, the required environment variables, the host's `ppp_generic`
+prerequisite, and route sidecar recovery.
+
+For Dokploy or any deploy tool that takes a single compose file, use
+`docker/docker-compose.vpn.stack.yml` instead of the two `-f` flags.
+
 ## Security
 
 - Set `PASEO_PASSWORD` for any published port or network-reachable deployment.

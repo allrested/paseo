@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Gateway container entrypoint.
+#
+# Validates before connecting, then keeps the client alive. Nothing here touches
+# the host: the tunnel, its routes, and these iptables rules exist only in this
+# container's network namespace.
+set -euo pipefail
+
+log() { printf 'paseo-vpn: %s\n' "$1" >&2; }
+
+/usr/local/bin/paseo-vpn-validate
+
+umask 077
+
+# pppd runs /etc/ppp/ip-up.d/* with its own restricted environment, which does
+# not guarantee INTERNAL_CIDRS reaches those scripts. Persist it here so
+# 10-internal-routes can fall back to reading it from disk. The value is
+# single-quoted so an embedded newline stays part of the value instead of
+# starting a second command when the hook `source`s this file.
+env_file=${PASEO_VPN_ENV_FILE:-/etc/paseo-vpn.env}
+printf "INTERNAL_CIDRS='%s'\n" "$INTERNAL_CIDRS" > "$env_file"
+
+if [ ! -c /dev/ppp ]; then
+  log "/dev/ppp is missing. Load ppp_generic on the host (modprobe ppp_generic)"
+  exit 1
+fi
+
+# Create the file at 0600 before any content lands in it, so there is no
+# window where the rendered password sits in a world-readable file (the umask
+# above only governs the mode a *new* file is created with, not one that
+# already existed at a looser mode).
+install -m 600 /dev/null /etc/openfortivpn/config
+/usr/local/bin/paseo-vpn-config > /etc/openfortivpn/config
+
+# Only traffic bound for the declared ranges may leave through the tunnel, so a
+# route added by mistake in a sidecar cannot push unrelated traffic to the
+# corporate network.
+iptables -P FORWARD DROP
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+read -r -a cidrs <<<"${INTERNAL_CIDRS//,/ }"
+for cidr in "${cidrs[@]}"; do
+  iptables -A FORWARD -o ppp0 -d "$cidr" -j ACCEPT
+done
+iptables -t nat -A POSTROUTING -o ppp0 -j MASQUERADE
+
+# Route and DNS management are disabled: this is what discards the gateway's
+# pushed route list, most of which is public address space. Routes come from
+# /etc/ppp/ip-up.d/10-internal-routes instead.
+#
+# The flag spelling differs across releases. Pick whichever the packaged binary
+# accepts rather than assuming.
+#
+# The output is captured first and matched with `case` rather than piped into
+# `grep -q`: under `set -o pipefail`, a pipeline used directly as an `if`
+# condition fails whenever its left side exits non-zero, and `grep -q` can make
+# `openfortivpn --help` do exactly that (SIGPIPE on the first match) even when
+# the match succeeded — which would nondeterministically select the wrong
+# flag spelling and leave the client unable to connect.
+command -v openfortivpn >/dev/null 2>&1 || {
+  log "openfortivpn is not installed"
+  exit 1
+}
+
+help_output=$(openfortivpn --help 2>&1 || true)
+case "$help_output" in
+  *--set-routes*) route_flags=(--set-routes=0 --set-dns=0) ;;
+  *) route_flags=(--no-routes --no-dns) ;;
+esac
+
+backoff=5
+while true; do
+  log "connecting to ${VPN_GATEWAY}:${VPN_PORT}"
+  if openfortivpn -c /etc/openfortivpn/config "${route_flags[@]}"; then
+    backoff=5
+  else
+    log "client exited, retrying in ${backoff}s"
+  fi
+  sleep "$backoff"
+  backoff=$((backoff * 2))
+  [ "$backoff" -le 60 ] || backoff=60
+done

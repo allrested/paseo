@@ -66,6 +66,15 @@ AGENT_IMAGE=ghcr.io/allrested/paseo-agents:0.5.1 docker compose up -d
 The agent image tracks the paseo version it was built FROM, so
 `paseo-agents:0.5.1` is the `0.5.1` base plus the CLIs above.
 
+Upgrading to this version adds three environment keys to the `paseo` service,
+so the first `up -d` recreates that container. `paseo-cdp` runs in `paseo`'s
+namespace and does not recreate with it, so it is left running against the
+old, gone namespace. Run this once after the upgrade:
+
+```bash
+docker compose -f docker-compose.yml up -d --force-recreate paseo-cdp
+```
+
 ### Publishing a new image
 
 A `v*` tag publishes both images; so does a manual run when you do not want to
@@ -132,6 +141,67 @@ sidecars exist:
 
 **Never publish port 9222.** CDP has no authentication: anything that reaches it
 controls the browser and every session logged into it.
+
+## Private network access
+
+`docker-compose.vpn.yml` is an optional overlay that puts an SSL-VPN client in
+its own container and routes `paseo` and `browser` through it. Apply it with a
+second `-f`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+```
+
+Without the second `-f`, none of this exists and the stack is unchanged. The
+tunnel lives only in the `vpn` container's network namespace — the host's
+routing table and resolv.conf are never touched.
+
+Dokploy takes a single `composePath`, not two `-f` flags. Use
+`docker-compose.vpn.stack.yml` there instead — it `include`s the base stack and
+the overlay, in that order, and needs Docker Compose v2.20 or newer.
+
+The host needs the `ppp_generic` kernel module, loaded and persisted across
+reboots:
+
+```bash
+modprobe ppp_generic
+echo ppp_generic > /etc/modules-load.d/ppp.conf
+```
+
+| Variable                                                  | What                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `VPN_GATEWAY`, `VPN_PORT`, `VPN_USERNAME`, `VPN_PASSWORD` | FortiGate SSL-VPN portal credentials                        |
+| `VPN_TRUSTED_CERT`                                        | Gateway certificate SHA256, pinned after the first connect  |
+| `VPN_REALM`                                               | Set only if the portal is realm-scoped                      |
+| `INTERNAL_CIDRS`                                          | What "internal" means — see below                           |
+| `VPN_HEALTH_TARGET`                                       | `host:port` the healthcheck reaches through the tunnel      |
+| `SSH_KNOWN_HOSTS_EXTRA`                                   | Host keys for the private git server, from `ssh-keyscan`    |
+
+`INTERNAL_CIDRS` is curated by hand, not copied from the gateway. A FortiGate
+offers far more routes than you want, including public address space —
+installing those would route parts of the internet through the corporate
+tunnel. `paseo-vpn-validate` enforces the curation at startup: RFC
+1918 only, `/12` or longer, no overlap with the gateway container's own
+networks and no overlap with `paseo`'s — including `dokploy-network`, which a
+Swarm host's default overlay pool (`10.0.0.0/8`) can easily collide with.
+
+`INTERNAL_SSH_HOST` and `INTERNAL_SSH_KEY_FILE` wire up SSH to a private git
+server over the tunnel. `INTERNAL_SSH_KEY_FILE` is a path inside the
+container; no separate mount carries it there. Place the deploy key in the
+`PASEO_HOME_DIR` volume already mounted at `/home/paseo` — at
+`${PASEO_HOME_DIR}/.ssh/internal_key` on the host — and set `chown 1000:1000`
+and `chmod 600` on it. uid 1000 is the `paseo` user, and OpenSSH refuses to
+use a group-readable private key.
+
+`paseo-vpn-route` and `browser-vpn-route` install routes inside `paseo`'s and
+`browser`'s network namespaces. Recreating `paseo` leaves its route sidecar
+behind in the old namespace — Up, but useless, and its healthcheck goes
+unhealthy because it can only pass from the live namespace. Recover with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml \
+  up -d --force-recreate paseo-vpn-route
+```
 
 ## Per-person auth
 

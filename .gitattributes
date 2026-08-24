@@ -1,0 +1,4 @@
+# Shell scripts baked into container images must keep LF endings. With
+# core.autocrlf=true a Windows checkout rewrites them to CRLF, and bash then
+# fails on `set -euo pipefail` with a trailing carriage return.
+docker/**/rootfs/** text eol=lf

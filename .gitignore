@@ -93,3 +93,6 @@ app.json
 /docker/paseo-home
 /docker/workspace
 /docker/browser-config
+
+# SDD scratch workspace (subagent-driven-development)
+.superpowers/

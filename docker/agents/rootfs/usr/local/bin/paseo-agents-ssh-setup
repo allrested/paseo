@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Configures SSH for a private Git server from the environment, at every start.
+#
+# Writes into an image layer rather than the mounted /home/paseo volume, so
+# rewriting the same file each start is idempotent with no dedupe logic.
+#
+# Without the known-hosts entry the first clone fails with "Host key
+# verification failed": Dockerfile.agents pins GitHub's keys and nothing else.
+set -euo pipefail
+
+root=/
+if [ "${1:-}" = "--root" ]; then
+  root=${2:-}
+  if [ -z "$root" ]; then
+    echo "paseo-agents-ssh-setup: --root requires a path argument" >&2
+    exit 1
+  fi
+fi
+
+host=${INTERNAL_SSH_HOST:-}
+[ -n "$host" ] || exit 0
+
+key_file=${INTERNAL_SSH_KEY_FILE:-/home/paseo/.ssh/internal_key}
+config_dir="${root%/}/etc/ssh/ssh_config.d"
+known_hosts="${root%/}/etc/ssh/ssh_known_hosts.extra"
+
+mkdir -p "$config_dir" "$(dirname "$known_hosts")"
+
+# IdentitiesOnly stays scoped to this Host block. Applied globally it stops
+# GitHub authentication from working.
+cat > "$config_dir/10-internal.conf" <<CONFIG
+Host $host
+  IdentityFile $key_file
+  IdentitiesOnly yes
+GlobalKnownHostsFile /etc/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts.extra
+CONFIG
+chmod 644 "$config_dir/10-internal.conf"
+
+# Written unconditionally, truncating to empty when unset: trust material
+# should not outlive its configuration. Without this, host keys from an
+# earlier run would keep being trusted after SSH_KNOWN_HOSTS_EXTRA is cleared
+# on a restart of the same container.
+if [ -n "${SSH_KNOWN_HOSTS_EXTRA:-}" ]; then
+  printf '%b\n' "$SSH_KNOWN_HOSTS_EXTRA" > "$known_hosts"
+else
+  : > "$known_hosts"
+fi
+chmod 644 "$known_hosts"
