@@ -78,3 +78,64 @@ test("validator requires INTERNAL_CIDRS", () => {
   assert.equal(result.code, 1);
   assert.match(result.stderr, /INTERNAL_CIDRS is required/);
 });
+
+const routePath = fileURLToPath(
+  new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-route", repoRoot),
+);
+
+function runRoute(env, args = []) {
+  try {
+    const stdout = execFileSync("bash", [routePath, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { code: 0, stdout, stderr: "" };
+  } catch (error) {
+    return {
+      code: error.status ?? 1,
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? "",
+    };
+  }
+}
+
+const DRY = {
+  PASEO_VPN_DRY_RUN: "1",
+  PASEO_VPN_GATEWAY_ADDR: "172.18.0.9",
+};
+
+test("route sidecar emits one replace per declared CIDR", () => {
+  const result = runRoute({
+    ...DRY,
+    INTERNAL_CIDRS: "10.4.0.0/16,10.15.0.0/16",
+  });
+  assert.equal(result.code, 0, result.stderr);
+  const lines = result.stdout.trim().split("\n");
+  assert.deepEqual(lines, [
+    "ip route replace 10.4.0.0/16 via 172.18.0.9",
+    "ip route replace 10.15.0.0/16 via 172.18.0.9",
+  ]);
+});
+
+test("route sidecar never emits a default route", () => {
+  const result = runRoute({ ...DRY, INTERNAL_CIDRS: "10.4.0.0/16" });
+  assert.doesNotMatch(result.stdout, /default/);
+  assert.doesNotMatch(result.stdout, /0\.0\.0\.0\/0/);
+});
+
+test("route sidecar requires a resolvable gateway", () => {
+  const result = runRoute({
+    PASEO_VPN_DRY_RUN: "1",
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    VPN_GATEWAY_CONTAINER: "",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /VPN_GATEWAY_CONTAINER is required/);
+});
+
+test("route sidecar --check reports the routes it would verify", () => {
+  const result = runRoute({ ...DRY, INTERNAL_CIDRS: "10.4.0.0/16" }, ["--check"]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /ip route show 10\.4\.0\.0\/16/);
+});

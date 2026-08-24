@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Installs routes for the declared CIDRs into the namespace this container
+# shares with paseo or browser, pointing at the VPN gateway container.
+#
+# Runs as a loop rather than once. `ip route replace` is idempotent, so a pass
+# that changes nothing costs nothing, and a gateway container that was recreated
+# with a new address is picked up on the next pass without intervention.
+#
+# The gateway is addressed by CONTAINER name, not service name: on a shared
+# proxy network every instance's service carries the same DNS alias, so a
+# service name can resolve to another instance's container.
+set -euo pipefail
+
+interval=${PASEO_VPN_ROUTE_INTERVAL:-30}
+dry_run=${PASEO_VPN_DRY_RUN:-}
+check_only=
+
+if [ "${1:-}" = "--check" ]; then
+  check_only=1
+fi
+
+fail() {
+  printf 'paseo-vpn-route: %s\n' "$1" >&2
+  exit 1
+}
+
+[ -n "${INTERNAL_CIDRS:-}" ] || fail "INTERNAL_CIDRS is required"
+
+resolve_gateway() {
+  if [ -n "${PASEO_VPN_GATEWAY_ADDR:-}" ]; then
+    printf '%s' "$PASEO_VPN_GATEWAY_ADDR"
+    return 0
+  fi
+  [ -n "${VPN_GATEWAY_CONTAINER:-}" ] || fail "VPN_GATEWAY_CONTAINER is required"
+  local addr
+  addr=$(getent hosts "$VPN_GATEWAY_CONTAINER" | awk '{ print $1 }' | head -1)
+  [ -n "$addr" ] || fail "cannot resolve $VPN_GATEWAY_CONTAINER"
+  printf '%s' "$addr"
+}
+
+read -r -a cidrs <<<"${INTERNAL_CIDRS//,/ }"
+
+if [ -n "$check_only" ]; then
+  status=0
+  for cidr in "${cidrs[@]}"; do
+    if [ -n "$dry_run" ]; then
+      printf 'ip route show %s\n' "$cidr"
+      continue
+    fi
+    if [ -z "$(ip route show "$cidr")" ]; then
+      printf 'paseo-vpn-route: %s missing from this namespace\n' "$cidr" >&2
+      status=1
+    fi
+  done
+  exit "$status"
+fi
+
+while true; do
+  gateway=$(resolve_gateway)
+  for cidr in "${cidrs[@]}"; do
+    if [ -n "$dry_run" ]; then
+      printf 'ip route replace %s via %s\n' "$cidr" "$gateway"
+    else
+      ip route replace "$cidr" via "$gateway"
+    fi
+  done
+  [ -n "$dry_run" ] && exit 0
+  sleep "$interval"
+done
