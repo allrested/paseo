@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Gateway container entrypoint.
+#
+# Validates before connecting, then keeps the client alive. Nothing here touches
+# the host: the tunnel, its routes, and these iptables rules exist only in this
+# container's network namespace.
+set -euo pipefail
+
+log() { printf 'paseo-vpn: %s\n' "$1" >&2; }
+
+/usr/local/bin/paseo-vpn-validate
+
+# pppd runs /etc/ppp/ip-up.d/* with its own restricted environment, which does
+# not guarantee INTERNAL_CIDRS reaches those scripts. Persist it here so
+# 10-internal-routes can fall back to reading it from disk.
+env_file=${PASEO_VPN_ENV_FILE:-/etc/paseo-vpn.env}
+printf 'INTERNAL_CIDRS=%s\n' "$INTERNAL_CIDRS" > "$env_file"
+
+if [ ! -c /dev/ppp ]; then
+  log "/dev/ppp is missing. Load ppp_generic on the host (modprobe ppp_generic)"
+  exit 1
+fi
+
+umask 077
+/usr/local/bin/paseo-vpn-config > /etc/openfortivpn/config
+chmod 600 /etc/openfortivpn/config
+
+# Only traffic bound for the declared ranges may leave through the tunnel, so a
+# route added by mistake in a sidecar cannot push unrelated traffic to the
+# corporate network.
+iptables -P FORWARD DROP
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+read -r -a cidrs <<<"${INTERNAL_CIDRS//,/ }"
+for cidr in "${cidrs[@]}"; do
+  iptables -A FORWARD -o ppp0 -d "$cidr" -j ACCEPT
+done
+iptables -t nat -A POSTROUTING -o ppp0 -j MASQUERADE
+
+# Route and DNS management are disabled: this is what discards the gateway's
+# pushed route list, most of which is public address space. Routes come from
+# /etc/ppp/ip-up.d/10-internal-routes instead.
+#
+# The flag spelling differs across releases. Pick whichever the packaged binary
+# accepts rather than assuming.
+if openfortivpn --help 2>&1 | grep -q -- '--set-routes'; then
+  route_flags=(--set-routes=0 --set-dns=0)
+else
+  route_flags=(--no-routes --no-dns)
+fi
+
+backoff=5
+while true; do
+  log "connecting to ${VPN_GATEWAY}:${VPN_PORT}"
+  if openfortivpn -c /etc/openfortivpn/config "${route_flags[@]}"; then
+    backoff=5
+  else
+    log "client exited, retrying in ${backoff}s"
+  fi
+  sleep "$backoff"
+  [ "$backoff" -lt 60 ] && backoff=$((backoff * 2))
+done

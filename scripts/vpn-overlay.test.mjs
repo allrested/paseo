@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -151,4 +154,132 @@ test("route sidecar recovers from transient gateway failures", () => {
   assert.match(result.stderr, /pass 2 failed, retrying/);
   // Verify pass 3 output shows the route command was executed
   assert.match(result.stdout, /ip route replace 10\.4\.0\.0\/16/);
+});
+
+const configPath = fileURLToPath(
+  new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-config", repoRoot),
+);
+const healthPath = fileURLToPath(
+  new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-healthcheck", repoRoot),
+);
+const ipUpPath = fileURLToPath(
+  new URL("docker/vpn/rootfs/etc/ppp/ip-up.d/10-internal-routes", repoRoot),
+);
+
+function runScript(scriptPath, env, args = []) {
+  try {
+    const stdout = execFileSync("bash", [scriptPath, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { code: 0, stdout, stderr: "" };
+  } catch (error) {
+    return {
+      code: error.status ?? 1,
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? "",
+    };
+  }
+}
+
+const VPN_ENV = {
+  VPN_GATEWAY: "vpn.example.com",
+  VPN_PORT: "11443",
+  VPN_USERNAME: "someone",
+  VPN_PASSWORD: "secret",
+  VPN_TRUSTED_CERT: "abc123",
+};
+
+test("config renderer emits the client config", () => {
+  const result = runScript(configPath, VPN_ENV);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /^host = vpn\.example\.com$/m);
+  assert.match(result.stdout, /^port = 11443$/m);
+  assert.match(result.stdout, /^username = someone$/m);
+  assert.match(result.stdout, /^password = secret$/m);
+  assert.match(result.stdout, /^trusted-cert = abc123$/m);
+});
+
+test("config renderer omits an unset realm and unset trusted-cert", () => {
+  const result = runScript(configPath, { ...VPN_ENV, VPN_TRUSTED_CERT: "" });
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /trusted-cert/);
+  assert.doesNotMatch(result.stdout, /realm/);
+});
+
+test("config renderer includes a realm when one is set", () => {
+  const result = runScript(configPath, { ...VPN_ENV, VPN_REALM: "contractors" });
+  assert.match(result.stdout, /^realm = contractors$/m);
+});
+
+test("config renderer refuses to start without a password", () => {
+  const result = runScript(configPath, { ...VPN_ENV, VPN_PASSWORD: "" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /VPN_PASSWORD is required/);
+});
+
+test("config renderer refuses to start without a gateway", () => {
+  const result = runScript(configPath, { ...VPN_ENV, VPN_GATEWAY: "" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /VPN_GATEWAY is required/);
+});
+
+test("route hook adds only the declared CIDRs and no default route", () => {
+  const result = runScript(ipUpPath, {
+    PASEO_VPN_DRY_RUN: "1",
+    INTERNAL_CIDRS: "10.4.0.0/16,10.15.0.0/16",
+  });
+  assert.equal(result.code, 0, result.stderr);
+  const lines = result.stdout.trim().split("\n");
+  assert.deepEqual(lines, [
+    "ip route replace 10.4.0.0/16 dev ppp0",
+    "ip route replace 10.15.0.0/16 dev ppp0",
+  ]);
+  assert.doesNotMatch(result.stdout, /default/);
+});
+
+test("healthcheck probes the configured target", () => {
+  const result = runScript(healthPath, {
+    PASEO_VPN_DRY_RUN: "1",
+    VPN_HEALTH_TARGET: "git.example.com:22",
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /nc -z -w 5 git\.example\.com 22/);
+});
+
+test("healthcheck falls back to asserting ppp0 exists", () => {
+  const result = runScript(healthPath, {
+    PASEO_VPN_DRY_RUN: "1",
+    VPN_HEALTH_TARGET: "",
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /ip -4 addr show ppp0/);
+});
+
+test("healthcheck rejects a malformed target", () => {
+  const result = runScript(healthPath, {
+    PASEO_VPN_DRY_RUN: "1",
+    VPN_HEALTH_TARGET: "git.example.com",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /must be host:port/);
+});
+
+test("route hook falls back to PASEO_VPN_ENV_FILE when INTERNAL_CIDRS is unset", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "paseo-vpn-"));
+  const envFile = path.join(dir, "paseo-vpn.env");
+  writeFileSync(envFile, "INTERNAL_CIDRS=10.4.0.0/16,10.15.0.0/16\n");
+
+  const result = runScript(ipUpPath, {
+    PASEO_VPN_DRY_RUN: "1",
+    INTERNAL_CIDRS: "",
+    PASEO_VPN_ENV_FILE: envFile,
+  });
+  assert.equal(result.code, 0, result.stderr);
+  const lines = result.stdout.trim().split("\n");
+  assert.deepEqual(lines, [
+    "ip route replace 10.4.0.0/16 dev ppp0",
+    "ip route replace 10.15.0.0/16 dev ppp0",
+  ]);
 });
