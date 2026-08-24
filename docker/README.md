@@ -38,7 +38,7 @@ agent auth, and troubleshooting notes.
 
 | Service       | What it does                                                        |
 | ------------- | ------------------------------------------------------------------- |
-| `paseo`       | Daemon + web UI, built from `Dockerfile.agents`                     |
+| `paseo`       | Daemon + web UI, from the `Dockerfile.agents` image                 |
 | `browser`     | Chromium with a screen you can reach over noVNC                     |
 | `browser-cdp` | Publishes Chromium's CDP port onto the Compose network              |
 | `paseo-cdp`   | Puts that CDP port on `paseo`'s loopback                            |
@@ -46,20 +46,53 @@ agent auth, and troubleshooting notes.
 `Dockerfile.agents` adds Claude Code, Codex, OpenCode, Kiro CLI, GitHub CLI and
 Playwright MCP.
 
-### Build the base first
+### Deploying
 
-`Dockerfile.agents` defaults to `FROM paseo:src`, which nothing builds for you:
+Nothing builds. Both images are published by `.github/workflows/docker.yml`, so
+a deploy is a pull:
+
+```bash
+cd docker && docker compose pull && docker compose up -d
+```
+
+`AGENT_IMAGE` defaults to `ghcr.io/allrested/paseo-agents:latest`. Pin an exact
+version when a deploy should be reproducible rather than tracking the newest
+publish:
+
+```bash
+AGENT_IMAGE=ghcr.io/allrested/paseo-agents:0.5.1 docker compose up -d
+```
+
+The agent image tracks the paseo version it was built FROM, so
+`paseo-agents:0.5.1` is the `0.5.1` base plus the CLIs above.
+
+### Publishing a new image
+
+A `v*` tag publishes both images; so does a manual run when you do not want to
+move a tag:
+
+```bash
+gh workflow run docker.yml -f paseo_version=0.5.1 -f publish=true -f publish_latest=true
+```
+
+`paseo_version` must equal `package.json`'s version — `docker/base/Dockerfile`
+asserts it and fails the build otherwise.
+
+### Building locally
+
+Only needed to test a change before publishing:
 
 ```bash
 docker build -f docker/base/Dockerfile -t paseo:src .   # from the repo root
-cd docker && docker compose up -d --build
+docker build -f docker/Dockerfile.agents --build-arg PASEO_IMAGE=paseo:src \
+  -t paseo-with-agents:local docker
+AGENT_IMAGE=paseo-with-agents:local docker compose up -d
 ```
 
-Build from source because the Kiro usage fetcher
-(`packages/server/src/services/quota-fetcher/providers/kiro.ts`) lives inside
-`@getpaseo/server` and cannot be layered on top of a published image. To use the
-published image instead, set `PASEO_IMAGE=ghcr.io/getpaseo/paseo:latest` and lose
-the Kiro usage card.
+The base has to come from this fork's source: the Kiro usage fetcher
+(`packages/server/src/services/quota-fetcher/providers/kiro.ts`) and the
+BDDevLab usage provider live inside `@getpaseo/server` and cannot be layered on
+from `Dockerfile.agents`. `ghcr.io/getpaseo/paseo` has neither.
 
 ### Configuration
 

@@ -5,8 +5,16 @@
 # runs locally and on a server. Defaults reproduce the original local setup, so
 # this works with no .env present.
 #
-#   docker build -f docker/base/Dockerfile -t paseo:src .   # from the repo root
-#   docker compose up -d --build
+#   docker compose pull && docker compose up -d
+#
+# Nothing here builds. The agent image comes from GHCR, published by
+# .github/workflows/docker.yml on a v* tag or a manual run. To build locally
+# instead:
+#
+#   docker build -f docker/base/Dockerfile -t paseo:src .
+#   docker build -f docker/Dockerfile.agents --build-arg PASEO_IMAGE=paseo:src \
+#     -t paseo-with-agents:local docker
+#   AGENT_IMAGE=paseo-with-agents:local docker compose up -d
 #
 #   http://localhost:${PASEO_PORT}    Paseo web UI
 #   http://localhost:${BROWSER_PORT}  the browser's screen (noVNC)
@@ -26,12 +34,12 @@
 #   the containers rewrite each other's file ownership on every restart.
 services:
   paseo:
-    build:
-      context: .
-      dockerfile: Dockerfile.agents
-      args:
-        PASEO_IMAGE: ${PASEO_IMAGE:-paseo:src}
-    image: ${AGENT_IMAGE:-paseo-with-agents:latest}
+    # Pulled, never built. The agent image is published by
+    # .github/workflows/docker.yml, so a deploy is a pull instead of a
+    # multi-minute rebuild of the whole workspace. To run a locally built
+    # image instead, point AGENT_IMAGE at it — see docker/README.md.
+    image: ${AGENT_IMAGE:-ghcr.io/allrested/paseo-agents:latest}
+    pull_policy: always
     container_name: ${INSTANCE_NAME:-paseo}
     restart: unless-stopped
     ports:

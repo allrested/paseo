@@ -66,6 +66,8 @@ jobs:
       publish: ${{ steps.values.outputs.publish }}
       check_tag: ${{ steps.values.outputs.check_tag }}
       publish_tags: ${{ steps.values.outputs.publish_tags }}
+      base_ref_tag: ${{ steps.values.outputs.base_ref_tag }}
+      agents_publish_tags: ${{ steps.values.outputs.agents_publish_tags }}
     steps:
       - uses: actions/checkout@v6
 
@@ -81,6 +83,10 @@ jobs:
 
           owner="$(printf '%s' "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner}/paseo"
+          # Paseo's own source carries no agent CLIs, so the image the services
+          # actually run is Dockerfile.agents layered on top of the base. It
+          # tracks the paseo version it was built FROM.
+          agents_image="ghcr.io/${owner}/paseo-agents"
           package_version="$(node -p "require('./package.json').version")"
           install_version="${INPUT_PASEO_VERSION:-${package_version}}"
           publish=false
@@ -115,17 +121,28 @@ jobs:
 
           check_tag="${image}:check-${GITHUB_SHA::12}"
           publish_tags="${image}:${install_version}"
+          agents_publish_tags="${agents_image}:${install_version}"
           if [[ "${publish_latest}" == "true" ]]; then
             publish_tags="${publish_tags}"$'\n'"${image}:latest"
+            agents_publish_tags="${agents_publish_tags}"$'\n'"${agents_image}:latest"
           fi
+
+          # The exact base the agents image is built FROM. Pinned to the
+          # version tag, never :latest, so a concurrent publish cannot swap the
+          # base out from under this build.
+          base_ref_tag="${image}:${install_version}"
 
           {
             echo "image=${image}"
             echo "install_version=${install_version}"
             echo "publish=${publish}"
             echo "check_tag=${check_tag}"
+            echo "base_ref_tag=${base_ref_tag}"
             echo "publish_tags<<EOF"
             echo "${publish_tags}"
+            echo "EOF"
+            echo "agents_publish_tags<<EOF"
+            echo "${agents_publish_tags}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -188,3 +205,39 @@ jobs:
           provenance: false
           cache-from: type=gha,scope=paseo
           cache-to: type=gha,scope=paseo,mode=max
+
+  # The image the services actually run: agent CLIs layered onto the base that
+  # the publish job just pushed. Kept a separate job so a failure here is
+  # obvious and re-runnable without rebuilding the base.
+  publish-agents:
+    needs: [setup, publish]
+    if: needs.setup.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.agents
+          platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            PASEO_IMAGE=${{ needs.setup.outputs.base_ref_tag }}
+          tags: ${{ needs.setup.outputs.agents_publish_tags }}
+          push: true
+          provenance: false
+          cache-from: type=gha,scope=paseo-agents
+          cache-to: type=gha,scope=paseo-agents,mode=max
