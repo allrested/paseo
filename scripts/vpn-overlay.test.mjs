@@ -690,3 +690,47 @@ test("the Dokploy single-file entry point only includes the base stack and the o
     .map((line) => line.replace(/^ {2}-\s*/, "").trim());
   assert.deepEqual(includeLines, ["docker-compose.yml", "docker-compose.vpn.yml"]);
 });
+
+// Every image built by docker.yml declares a build context, and each Dockerfile
+// copies paths relative to that context. The two are set in different files, so
+// they drift silently: `Dockerfile.agents` copied `agents/rootfs/`, correct for
+// the context docker/README.md documents but wrong for the one CI used, and the
+// release publish failed with "/agents/rootfs: not found". Nothing caught it
+// because no test crossed from the workflow into the Dockerfile.
+test("every Dockerfile's COPY sources resolve under the build context CI gives it", () => {
+  const workflow = readFileSync(
+    fileURLToPath(new URL(".github/workflows/docker.yml", repoRoot)),
+    "utf8",
+  ).split("\n");
+
+  const pairs = [];
+  for (let i = 0; i < workflow.length; i += 1) {
+    const context = /^\s+context:\s*(\S+)\s*$/.exec(workflow[i]);
+    if (!context) continue;
+    for (let j = i + 1; j < Math.min(i + 6, workflow.length); j += 1) {
+      const file = /^\s+file:\s*(\S+)\s*$/.exec(workflow[j]);
+      if (file) {
+        pairs.push({ context: context[1], dockerfile: file[1] });
+        break;
+      }
+    }
+  }
+  assert.ok(pairs.length > 0, "found no context/file pairs in docker.yml");
+
+  for (const { context, dockerfile } of pairs) {
+    const contents = readFileSync(fileURLToPath(new URL(dockerfile, repoRoot)), "utf8");
+    for (const line of contents.split("\n")) {
+      const copy = /^COPY\s+(?!--from=)(?:--\S+\s+)*(\S+)\s+\S+\s*$/.exec(line.trim());
+      if (!copy) continue;
+      const source = copy[1];
+      const resolved = fileURLToPath(
+        new URL(path.posix.join(context === "." ? "" : context, source), repoRoot),
+      );
+      assert.ok(
+        existsSync(resolved),
+        `${dockerfile} copies "${source}" but with context "${context}" that resolves to ` +
+          `${resolved}, which does not exist`,
+      );
+    }
+  }
+});

@@ -248,7 +248,10 @@ jobs:
 
       - uses: docker/build-push-action@v7
         with:
-          context: .
+          # docker, not the repo root: Dockerfile.agents copies agents/rootfs/,
+          # and this is the context docker/README.md documents for building it
+          # by hand. They must not diverge.
+          context: docker
           file: docker/Dockerfile.agents
           platforms: ${{ env.PLATFORMS }}
           build-args: |
