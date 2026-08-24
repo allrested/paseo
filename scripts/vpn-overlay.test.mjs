@@ -325,10 +325,7 @@ test("route hook does not execute a command smuggled in via the env file", () =>
   // INTERNAL_CIDRS: the whole value is wrapped in single quotes, so an
   // embedded newline (and whatever follows it) stays part of the string
   // instead of becoming a second command when the hook `source`s this file.
-  writeFileSync(
-    envFile,
-    `INTERNAL_CIDRS='10.4.0.0/16\ntouch ${markerPath}'\n`,
-  );
+  writeFileSync(envFile, `INTERNAL_CIDRS='10.4.0.0/16\ntouch ${markerPath}'\n`);
 
   const result = runScript(ipUpPath, {
     PASEO_VPN_DRY_RUN: "1",
@@ -508,7 +505,7 @@ test("ssh setup keeps IdentitiesOnly inside the Host block", () => {
     SSH_KNOWN_HOSTS_EXTRA: "",
   });
   const config = readFileSync(path.join(root, "etc/ssh/ssh_config.d/10-internal.conf"), "utf8");
-  const hostLine = config.split("\n").findIndex((line) => /^Host /.test(line));
+  const hostLine = config.split("\n").findIndex((line) => line.startsWith("Host "));
   const identitiesOnly = config.split("\n").findIndex((line) => /IdentitiesOnly/.test(line));
   // Applied globally, IdentitiesOnly breaks GitHub authentication.
   assert.ok(hostLine >= 0 && identitiesOnly > hostLine);
@@ -527,10 +524,11 @@ test("ssh setup clears stale known hosts when the env var is emptied on restart"
     INTERNAL_SSH_KEY_FILE: "/home/paseo/.ssh/internal_key",
   };
 
-  const first = runScript(sshSetupPath, { ...base, SSH_KNOWN_HOSTS_EXTRA: "git.example.com ssh-ed25519 AAAA" }, [
-    "--root",
-    root,
-  ]);
+  const first = runScript(
+    sshSetupPath,
+    { ...base, SSH_KNOWN_HOSTS_EXTRA: "git.example.com ssh-ed25519 AAAA" },
+    ["--root", root],
+  );
   assert.equal(first.code, 0, first.stderr);
   assert.match(
     readFileSync(path.join(root, "etc/ssh/ssh_known_hosts.extra"), "utf8"),
@@ -543,7 +541,10 @@ test("ssh setup clears stale known hosts when the env var is emptied on restart"
 });
 
 test("agents image installs and invokes the ssh setup script", () => {
-  const dockerfile = readFileSync(fileURLToPath(new URL("docker/Dockerfile.agents", repoRoot)), "utf8");
+  const dockerfile = readFileSync(
+    fileURLToPath(new URL("docker/Dockerfile.agents", repoRoot)),
+    "utf8",
+  );
   assert.match(dockerfile, /COPY agents\/rootfs\/ \//);
   assert.match(dockerfile, /paseo-agents-ssh-setup/);
 });
@@ -649,13 +650,13 @@ test("env example carries only placeholder values", () => {
   const addresses = [...envExample.matchAll(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/g)].map((m) => m[1]);
   const publicAddresses = addresses.filter(
     (address) =>
-      !/^10\./.test(address) &&
-      !/^192\.168\./.test(address) &&
+      !address.startsWith("10.") &&
+      !address.startsWith("192.168.") &&
       !/^172\.(1[6-9]|2\d|3[01])\./.test(address) &&
       // Not VPN-related: BIND_ADDRESS's wildcard default and the reverse-proxy
       // note above it. Reserved special-use sentinels, not real addresses.
       address !== "0.0.0.0" &&
-      !/^127\./.test(address),
+      !address.startsWith("127."),
   );
   assert.deepEqual(publicAddresses, [], `public addresses in .env.example: ${publicAddresses}`);
 

@@ -266,18 +266,18 @@ and nothing else.
 All values are placeholders in `.env.example` and real only in the gitignored
 `.env` or the deployment platform's environment settings.
 
-| Variable                                          | Purpose                                                                                                                                      |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VPN_IMAGE`                                       | Published gateway image and tag                                                                                                              |
-| `VPN_GATEWAY`, `VPN_PORT`                         | SSL-VPN gateway host and port                                                                                                                |
-| `VPN_USERNAME`, `VPN_PASSWORD`                    | Credentials                                                                                                                                  |
-| `VPN_TRUSTED_CERT`                                | Gateway certificate SHA256. The client requires it on first connect; pinning it is also what prevents a machine-in-the-middle. Not a secret. |
-| `VPN_REALM`                                       | Set only if the portal is realm-scoped. A missing realm fails authentication in a way that looks like a wrong password.                     |
-| `INTERNAL_CIDRS`                                  | Comma-separated, curated, RFC 1918 only. The definition of "internal".                                                                       |
-| `VPN_HEALTH_TARGET`                               | `host:port` the gateway healthcheck connects to                                                                                              |
-| `INTERNAL_SSH_HOST`                               | Host the deploy key and its config block apply to                                                                                            |
-| `INTERNAL_SSH_KEY_FILE`                           | Path inside the container to the deploy key, which lives in the paseo-home volume                                                            |
-| `SSH_KNOWN_HOSTS_EXTRA`                           | Host keys for the private Git server                                                                                                         |
+| Variable                       | Purpose                                                                                                                                      |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VPN_IMAGE`                    | Published gateway image and tag                                                                                                              |
+| `VPN_GATEWAY`, `VPN_PORT`      | SSL-VPN gateway host and port                                                                                                                |
+| `VPN_USERNAME`, `VPN_PASSWORD` | Credentials                                                                                                                                  |
+| `VPN_TRUSTED_CERT`             | Gateway certificate SHA256. The client requires it on first connect; pinning it is also what prevents a machine-in-the-middle. Not a secret. |
+| `VPN_REALM`                    | Set only if the portal is realm-scoped. A missing realm fails authentication in a way that looks like a wrong password.                      |
+| `INTERNAL_CIDRS`               | Comma-separated, curated, RFC 1918 only. The definition of "internal".                                                                       |
+| `VPN_HEALTH_TARGET`            | `host:port` the gateway healthcheck connects to                                                                                              |
+| `INTERNAL_SSH_HOST`            | Host the deploy key and its config block apply to                                                                                            |
+| `INTERNAL_SSH_KEY_FILE`        | Path inside the container to the deploy key, which lives in the paseo-home volume                                                            |
+| `SSH_KNOWN_HOSTS_EXTRA`        | Host keys for the private Git server                                                                                                         |
 
 ## Health
 

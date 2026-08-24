@@ -168,14 +168,14 @@ modprobe ppp_generic
 echo ppp_generic > /etc/modules-load.d/ppp.conf
 ```
 
-| Variable                                                  | What                                                        |
-| ---------------------------------------------------------- | ------------------------------------------------------------ |
-| `VPN_GATEWAY`, `VPN_PORT`, `VPN_USERNAME`, `VPN_PASSWORD` | FortiGate SSL-VPN portal credentials                        |
-| `VPN_TRUSTED_CERT`                                        | Gateway certificate SHA256, pinned after the first connect  |
-| `VPN_REALM`                                               | Set only if the portal is realm-scoped                      |
-| `INTERNAL_CIDRS`                                          | What "internal" means — see below                           |
-| `VPN_HEALTH_TARGET`                                       | `host:port` the healthcheck reaches through the tunnel      |
-| `SSH_KNOWN_HOSTS_EXTRA`                                   | Host keys for the private git server, from `ssh-keyscan`    |
+| Variable                                                  | What                                                       |
+| --------------------------------------------------------- | ---------------------------------------------------------- |
+| `VPN_GATEWAY`, `VPN_PORT`, `VPN_USERNAME`, `VPN_PASSWORD` | FortiGate SSL-VPN portal credentials                       |
+| `VPN_TRUSTED_CERT`                                        | Gateway certificate SHA256, pinned after the first connect |
+| `VPN_REALM`                                               | Set only if the portal is realm-scoped                     |
+| `INTERNAL_CIDRS`                                          | What "internal" means — see below                          |
+| `VPN_HEALTH_TARGET`                                       | `host:port` the healthcheck reaches through the tunnel     |
+| `SSH_KNOWN_HOSTS_EXTRA`                                   | Host keys for the private git server, from `ssh-keyscan`   |
 
 `INTERNAL_CIDRS` is curated by hand, not copied from the gateway. A FortiGate
 offers far more routes than you want, including public address space —
