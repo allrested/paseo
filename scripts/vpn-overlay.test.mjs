@@ -364,3 +364,78 @@ test("setup job exposes vpn_publish_tags", () => {
   assert.ok(job);
   assert.match(job, /vpn_publish_tags/);
 });
+
+const overlay = readFileSync(
+  fileURLToPath(new URL("docker/docker-compose.vpn.yml", repoRoot)),
+  "utf8",
+);
+
+// Compose services sit at two-space indent under `services:`, the same shape
+// jobBlocks() handles for workflows.
+function serviceBlocks(source) {
+  const services = new Map();
+  let current;
+  let inServices = false;
+  for (const line of source.split("\n")) {
+    if (/^services:\s*$/.test(line)) {
+      inServices = true;
+      continue;
+    }
+    if (/^[a-z]/.test(line)) inServices = false;
+    if (!inServices) continue;
+    const match = /^ {2}([a-z0-9-]+):\s*$/.exec(line);
+    if (match) {
+      current = match[1];
+      services.set(current, []);
+      continue;
+    }
+    if (current) services.get(current).push(line);
+  }
+  return services;
+}
+
+test("overlay defines the gateway and both route sidecars", () => {
+  const services = serviceBlocks(overlay);
+  assert.deepEqual([...services.keys()].sort(), ["browser-vpn-route", "paseo-vpn-route", "vpn"]);
+});
+
+test("overlay modifies no existing service", () => {
+  const services = serviceBlocks(overlay);
+  assert.ok(!services.has("paseo"), "overlay must not modify the paseo service");
+  assert.ok(!services.has("browser"), "overlay must not modify the browser service");
+  assert.doesNotMatch(overlay, /^\s+dns:/m, "no DNS override: public DNS already resolves");
+  assert.doesNotMatch(overlay, /^networks:/m, "no new network is needed");
+});
+
+test("gateway has exactly the privileges the spec allows", () => {
+  const vpn = serviceBlocks(overlay).get("vpn").join("\n");
+  assert.match(vpn, /cap_add:\s*\n\s+- NET_ADMIN/);
+  assert.match(vpn, /devices:\s*\n\s+- "\/dev\/ppp:\/dev\/ppp"/);
+  assert.match(vpn, /net\.ipv4\.ip_forward: "1"/);
+  assert.doesNotMatch(vpn, /privileged/);
+});
+
+test("overlay pulls the published image and never builds", () => {
+  assert.match(overlay, /image: \$\{VPN_IMAGE:-/);
+  assert.doesNotMatch(overlay, /^\s+build:/m);
+});
+
+test("sidecars join the target namespaces and can set routes", () => {
+  const services = serviceBlocks(overlay);
+  const paseoRoute = services.get("paseo-vpn-route").join("\n");
+  const browserRoute = services.get("browser-vpn-route").join("\n");
+  assert.match(paseoRoute, /network_mode: "service:paseo"/);
+  assert.match(browserRoute, /network_mode: "service:browser"/);
+  for (const block of [paseoRoute, browserRoute]) {
+    assert.match(block, /cap_add:\s*\n\s+- NET_ADMIN/);
+    assert.match(block, /paseo-vpn-route",\s*"--check"/);
+  }
+});
+
+test("sidecars target the gateway by container name, not service name", () => {
+  const services = serviceBlocks(overlay);
+  for (const name of ["paseo-vpn-route", "browser-vpn-route"]) {
+    const block = services.get(name).join("\n");
+    assert.match(block, /VPN_GATEWAY_CONTAINER: \$\{INSTANCE_NAME:-paseo\}-vpn/);
+  }
+});
