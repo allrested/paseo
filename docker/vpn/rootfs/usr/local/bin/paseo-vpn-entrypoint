@@ -28,6 +28,20 @@ if [ ! -c /dev/ppp ]; then
   exit 1
 fi
 
+# /dev/ppp only proves ppp_generic: a device node can outlive the module that
+# created it, and Docker maps the node either way. pppd also needs the N_PPP
+# tty line discipline, which ppp_async registers separately. A container cannot
+# autoload it — that needs CAP_SYS_MODULE and this one holds only
+# CAP_NET_ADMIN — so pppd dies with "Couldn't set tty to PPP discipline:
+# Operation not permitted" and ppp0 never appears. The healthcheck reports that
+# identically to a rejected certificate, so fail here where the cause is named.
+#
+# -w so the pppsync discipline ppp_synctty registers cannot pass for this one.
+if [ -r /proc/tty/ldiscs ] && ! grep -qw ppp /proc/tty/ldiscs; then
+  log "N_PPP line discipline missing. Load ppp_async on the host (modprobe ppp_async)"
+  exit 1
+fi
+
 # Create the file at 0600 before any content lands in it, so there is no
 # window where the rendered password sits in a world-readable file (the umask
 # above only governs the mode a *new* file is created with, not one that
