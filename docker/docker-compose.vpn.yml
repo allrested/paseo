@@ -1,17 +1,183 @@
-# Optional private-network access, applied on top of docker-compose.yml:
+# Paseo stack WITH private network access over an SSL-VPN.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+# This is a complete, self-contained stack: the same four services as
+# docker-compose.yml, plus the VPN gateway and the two route sidecars. Point a
+# deploy tool at THIS file to run an instance with private network access, and
+# at docker-compose.yml to run one without. Instances that do not need the VPN
+# are untouched by it.
 #
-# Without the second -f, none of this exists and the stack is unchanged. This
-# file adds services and modifies none, so applying it recreates nothing.
+#   docker compose -f docker-compose.vpn.yml up -d
 #
-# The tunnel lives only in the `vpn` container's network namespace. The host's
-# routing table and resolv.conf are never touched, which is the whole point:
-# running the client on a host is what locked the server out to begin with.
+# The four shared services below are duplicated from docker-compose.yml on
+# purpose: deploy tools that accept a single compose path cannot express an
+# overlay, and Compose `include:` is not understood by all of them. They must
+# stay identical to the base file — scripts/vpn-overlay.test.mjs fails if they
+# drift.
+#
+# The tunnel exists only inside the `vpn` container's network namespace. The
+# host's routing table and resolv.conf are never touched, which is the entire
+# point: running the client on a host is what locked the operator out before.
 #
 # Requires ppp_generic on the host:
 #   modprobe ppp_generic && echo ppp_generic > /etc/modules-load.d/ppp.conf
 services:
+  paseo:
+    # Pulled, never built. The agent image is published by
+    # .github/workflows/docker.yml, so a deploy is a pull instead of a
+    # multi-minute rebuild of the whole workspace. To run a locally built
+    # image instead, point AGENT_IMAGE at it — see docker/README.md.
+    image: ${AGENT_IMAGE:-ghcr.io/allrested/paseo-agents:latest}
+    pull_policy: always
+    container_name: ${INSTANCE_NAME:-paseo}
+    restart: unless-stopped
+    ports:
+      # BIND_ADDRESS defaults to every interface, so a plain local run still
+      # reaches http://localhost:6767. Behind a reverse proxy set it to
+      # 127.0.0.1: the proxy reaches these containers over dokploy-network, and
+      # nothing is left listening on the public interface in cleartext.
+      - "${BIND_ADDRESS:-0.0.0.0}:${PASEO_PORT:-6767}:6767"
+      # Dev servers inside this container. The app listens on
+      # DEV_PORT_INTERNAL inside; only the host side is remapped. Bind services
+      # to 0.0.0.0 — 127.0.0.1 is not reachable from outside the container.
+      - "${BIND_ADDRESS:-0.0.0.0}:${DEV_PORT:-6666}:${DEV_PORT_INTERNAL:-3000}"
+    environment:
+      PASEO_PASSWORD: ${PASEO_PASSWORD:-change-me}
+      # Required to reach the daemon by domain name; IPs and localhost are
+      # allowed without it.
+      PASEO_HOSTNAMES: ${PASEO_HOSTNAMES:-}
+      TZ: ${TZ:-Asia/Jakarta}
+      # Who commits show as. Separate from `gh auth`, which only decides who
+      # pushes — with these unset, git refuses to commit or attributes the work
+      # to nobody, and on a shared workspace three people's commits become
+      # indistinguishable. Set per instance here rather than with `git config`
+      # inside the container, so the identity survives a paseo-home reset.
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-}
+      GIT_COMMITTER_NAME: ${GIT_COMMITTER_NAME:-${GIT_AUTHOR_NAME:-}}
+      GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-${GIT_AUTHOR_EMAIL:-}}
+      # Inherited by every agent and terminal Paseo launches.
+      BDDEVLAB_API_KEY: ${BDDEVLAB_API_KEY:-}
+      # Configure SSH to a private git server, read by the agents entrypoint
+      # at every start. Inert when empty.
+      INTERNAL_SSH_HOST: ${INTERNAL_SSH_HOST:-}
+      INTERNAL_SSH_KEY_FILE: ${INTERNAL_SSH_KEY_FILE:-}
+      SSH_KNOWN_HOSTS_EXTRA: ${SSH_KNOWN_HOSTS_EXTRA:-}
+    volumes:
+      # Daemon state and agent credentials. Per-instance, never shared.
+      - ${PASEO_HOME_DIR:-./paseo-home}:/home/paseo
+      # Code visible to Paseo and the agents it launches. Shareable.
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+    networks:
+      # `default` must be listed explicitly: naming any network opts the
+      # service out of the implicit one, which the CDP sidecars rely on.
+      - default
+      # Lets a reverse proxy in its own stack reach this container by name.
+      # See the networks block at the bottom of this file.
+      - dokploy-network
+
+  # One real Chromium with two ways in: agents drive it over CDP, you watch and
+  # take over through noVNC. Because both attach to the same browser, an agent
+  # can stop at a captcha or SSO screen, you solve it by hand, and the agent
+  # continues in that same session with those same cookies.
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: ${INSTANCE_NAME:-paseo}-browser
+    restart: unless-stopped
+    # Chromium's sandbox needs these; without them it fails to start under the
+    # default Docker seccomp profile, and it will crash on pages that need more
+    # than the stock 64MB of shared memory.
+    security_opt:
+      - seccomp:unconfined
+    shm_size: "1gb"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Asia/Jakarta}
+      # noVNC is unauthenticated unless BOTH of these are set.
+      CUSTOM_USER: ${BROWSER_USER:-}
+      PASSWORD: ${BROWSER_PASSWORD:-}
+      # CDP has no authentication whatsoever: anything reaching port 9222
+      # controls the browser and every session logged into it. It is never
+      # published to the host — see the sidecars below. Do not add a ports entry.
+      CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*"
+    ports:
+      # noVNC/KasmVNC web UI — the browser's screen, for manual takeover.
+      # See BIND_ADDRESS on the paseo service above.
+      - "${BIND_ADDRESS:-0.0.0.0}:${BROWSER_PORT:-3000}:3000"
+    volumes:
+      # Chromium profile: cookies and logins survive restarts, so a captcha you
+      # solve by hand keeps paying off. Per-instance.
+      - ${BROWSER_CONFIG_DIR:-./browser-config}:/config
+    networks:
+      - default
+      - dokploy-network
+    # noVNC answering says nothing about Chromium: the browser process can
+    # crash or relaunch without its debug listener while the screen still
+    # serves. Agents need CDP, so health means CDP answers. Restarting the
+    # container relaunches Chromium with CHROME_CLI; the profile volume keeps
+    # logins across it.
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9222/json/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Chrome ignores --remote-debugging-address and always binds CDP to
+  # 127.0.0.1, so nothing outside its own network namespace can reach it. This
+  # sidecar joins that namespace and republishes CDP on the compose network.
+  browser-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-browser-cdp
+    restart: unless-stopped
+    network_mode: "service:browser"
+    depends_on:
+      - browser
+    command: TCP-LISTEN:9223,fork,reuseaddr TCP:127.0.0.1:9222
+    # When a deploy recreates the parent container, a netns sidecar can keep
+    # running inside the old namespace: docker still reports it Up, but its
+    # listener no longer exists where anyone looks for it. Probing Chrome's CDP
+    # on loopback only succeeds from the live browser namespace, so a zombie
+    # goes unhealthy instead of silently lying.
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:9222,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # The other half, in paseo's namespace. Reaching CDP over the network is not
+  # enough for two reasons, and putting it on paseo's loopback fixes both:
+  #   1. Chrome rejects any Host header that is not localhost or an IP, so
+  #      http://browser:9223 answers 500 while http://127.0.0.1:9222 answers 200.
+  #   2. /json/version advertises webSocketDebuggerUrl as ws://127.0.0.1:9222/…
+  #      and clients follow it verbatim, so that address has to be valid where
+  #      the client runs.
+  # Same port number as Chrome uses on purpose — the advertised URL then works
+  # unchanged inside the paseo container.
+  #
+  # Targets the browser by CONTAINER name, not service name: on a shared proxy
+  # network every instance's `browser` service carries that same DNS alias, so
+  # `TCP:browser:9223` could resolve to another person's browser. The container
+  # name carries INSTANCE_NAME and is unique.
+  paseo-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-cdp
+    restart: unless-stopped
+    network_mode: "service:paseo"
+    depends_on:
+      - paseo
+      - browser-cdp
+    command: TCP-LISTEN:9222,fork,reuseaddr,bind=127.0.0.1 TCP:${INSTANCE_NAME:-paseo}-browser:9223
+    # Same zombie-netns detection as browser-cdp: the daemon's port only
+    # answers from the live paseo namespace.
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:6767,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # SSL-VPN client and routed gateway. Everything reaching the private network
   # is masqueraded out of ppp0 here.
   vpn:
@@ -100,3 +266,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+networks:
+  # The stack's own network: container-to-container traffic between these four.
+  default: {}
+  # A reverse proxy living in a different compose stack (Dokploy's Traefik, for
+  # one) can only reach these containers if it shares a network with them.
+  # Created by that proxy, so it is external here.
+  #
+  # On a host without it, create it once — otherwise `docker compose up` fails
+  # with "network dokploy-network declared as external, but could not be found":
+  #   docker network create dokploy-network
+  dokploy-network:
+    external: true

@@ -144,21 +144,27 @@ controls the browser and every session logged into it.
 
 ## Private network access
 
-`docker-compose.vpn.yml` is an optional overlay that puts an SSL-VPN client in
-its own container and routes `paseo` and `browser` through it. Apply it with a
-second `-f`:
+`docker-compose.vpn.yml` is a complete stack: the same four services as
+`docker-compose.yml`, plus an SSL-VPN client in its own container and two
+sidecars that route `paseo` and `browser` through it. Run an instance with
+private network access by pointing at that file instead of the base one:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+docker compose -f docker-compose.vpn.yml up -d
 ```
 
-Without the second `-f`, none of this exists and the stack is unchanged. The
-tunnel lives only in the `vpn` container's network namespace — the host's
+On Dokploy, set the app's compose path to `./docker/docker-compose.vpn.yml`.
+Instances that do not need the VPN keep using `docker-compose.yml` and are
+untouched by any of this.
+
+The tunnel lives only in the `vpn` container's network namespace — the host's
 routing table and resolv.conf are never touched.
 
-Dokploy takes a single `composePath`, not two `-f` flags. Use
-`docker-compose.vpn.stack.yml` there instead — it `include`s the base stack and
-the overlay, in that order, and needs Docker Compose v2.20 or newer.
+The four shared services are duplicated between the two files rather than
+layered with a second `-f`, because a deploy tool that takes one compose path
+cannot express an overlay, and Compose `include:` is not understood by all of
+them. `scripts/vpn-overlay.test.mjs` fails if the duplicated services drift
+apart, so edit them in `docker-compose.yml` and copy the change across.
 
 The host needs the `ppp_generic` kernel module, loaded and persisted across
 reboots:
@@ -199,8 +205,7 @@ behind in the old namespace — Up, but useless, and its healthcheck goes
 unhealthy because it can only pass from the live namespace. Recover with:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml \
-  up -d --force-recreate paseo-vpn-route
+docker compose -f docker-compose.vpn.yml up -d --force-recreate paseo-vpn-route
 ```
 
 ## Per-person auth

@@ -1,9 +1,0 @@
-# Single-file entry point for deploy tools that accept only one compose file
-# (Dokploy's `composePath` is one file, not `-f` twice). Equivalent to:
-#
-#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
-#
-# Requires Docker Compose v2.20+ — that's when `include` was added.
-include:
-  - docker-compose.yml
-  - docker-compose.vpn.yml

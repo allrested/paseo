@@ -63,9 +63,10 @@ the stack's existing network. The tunnel exists only in that container's network
 namespace. Two sidecars install routes for the declared CIDRs into the `paseo`
 and `browser` namespaces, pointing at that gateway.
 
-`paseo` and `browser` are **not modified at all** — no new network, no DNS
-override, no capabilities. The overlay is purely additive, so applying it does
-not recreate them.
+`paseo` and `browser` gain no new network, no DNS override, and no
+capabilities: their definitions are identical to the ones in the base file, and
+a test enforces that. Everything the feature needs sits in services beside
+them.
 
 Two rejected alternatives, recorded because the reasons still apply:
 
@@ -214,18 +215,26 @@ reports unhealthy instead of lying.
 
 ### 5. Composition
 
-Everything lives in `docker/docker-compose.vpn.yml`, applied as an overlay.
-`docker/docker-compose.vpn.stack.yml` wraps it for deploy tools, like Dokploy,
-that take one compose file instead of two:
+`docker/docker-compose.vpn.yml` is a complete stack — the four services of
+`docker-compose.yml` plus the gateway and the two route sidecars:
 
 ```
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+docker compose -f docker-compose.vpn.yml up -d
 ```
 
-With only the first `-f`, none of it exists and the stack is unchanged. This is
-what keeps the feature optional and the main file free of
-organisation-specific concerns. Because no existing service is modified,
-applying the overlay adds containers without recreating any.
+An instance runs one file or the other. Instances that do not need the VPN
+point at `docker-compose.yml` and are untouched by this feature, which is what
+keeps it optional and the base file free of organisation-specific concerns.
+
+This replaces two earlier designs, both defeated by the same constraint.
+An overlay applied with a second `-f` cannot be expressed by a deploy tool
+whose configuration is a single compose path. A wrapper file using Compose
+`include:` parses correctly for Compose itself but not for every tool that
+reads the file: Dokploy reported `Services not found`, discovered no services,
+and failed validation for every domain attached to the stack — after the
+containers were already running. The cost of the surviving design is that the
+four shared services are duplicated, so a test asserts they stay identical to
+the base file.
 
 Multi-instance deployments need no extra coordination beyond the existing
 distinct `INSTANCE_NAME`.
@@ -336,9 +345,7 @@ New:
 - `docker/vpn/rootfs/usr/local/bin/paseo-vpn-route` — the sidecar's assert loop
   and its healthcheck
 - `docker/vpn/rootfs/etc/ppp/ip-up.d/10-internal-routes`
-- `docker/docker-compose.vpn.yml`
-- `docker/docker-compose.vpn.stack.yml` — single-file entry point for deploy
-  tools that take one compose file, like Dokploy
+- `docker/docker-compose.vpn.yml` — the complete VPN-enabled stack
 - `docker/agents/rootfs/usr/local/bin/paseo-agents-ssh-setup` — writes the SSH
   config block and known-hosts file for the private git server
 - `scripts/vpn-overlay.test.mjs`

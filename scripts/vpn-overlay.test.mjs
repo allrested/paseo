@@ -381,10 +381,12 @@ test("setup job exposes vpn_publish_tags", () => {
   assert.match(job, /vpn_publish_tags/);
 });
 
-const overlay = readFileSync(
+// Normalised: this repo checks out CRLF on Windows, and the drift check
+// below compares these two files line by line.
+const vpnStack = readFileSync(
   fileURLToPath(new URL("docker/docker-compose.vpn.yml", repoRoot)),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 // Compose services sit at two-space indent under `services:`, the same shape
 // jobBlocks() handles for workflows.
@@ -410,34 +412,75 @@ function serviceBlocks(source) {
   return services;
 }
 
-test("overlay defines the gateway and both route sidecars", () => {
-  const services = serviceBlocks(overlay);
-  assert.deepEqual([...services.keys()].sort(), ["browser-vpn-route", "paseo-vpn-route", "vpn"]);
+test("the VPN stack is self-contained: base services plus the VPN services", () => {
+  // A deploy tool that accepts one compose path cannot express an overlay, and
+  // Dokploy does not resolve Compose `include:` — it reported "Services not
+  // found" and every attached domain failed validation. So this file declares
+  // the whole stack.
+  const services = serviceBlocks(vpnStack);
+  assert.deepEqual([...services.keys()].sort(), [
+    "browser",
+    "browser-cdp",
+    "browser-vpn-route",
+    "paseo",
+    "paseo-cdp",
+    "paseo-vpn-route",
+    "vpn",
+  ]);
 });
 
-test("overlay modifies no existing service", () => {
-  const services = serviceBlocks(overlay);
-  assert.ok(!services.has("paseo"), "overlay must not modify the paseo service");
-  assert.ok(!services.has("browser"), "overlay must not modify the browser service");
-  assert.doesNotMatch(overlay, /^\s+dns:/m, "no DNS override: public DNS already resolves");
-  assert.doesNotMatch(overlay, /^networks:/m, "no new network is needed");
+test("the base stack carries no VPN services", () => {
+  // Instances that do not need the VPN must be untouched by it.
+  const services = serviceBlocks(baseCompose);
+  for (const name of ["vpn", "paseo-vpn-route", "browser-vpn-route"]) {
+    assert.ok(!services.has(name), `${name} must not appear in docker-compose.yml`);
+  }
+});
+
+test("shared services stay identical between the base stack and the VPN stack", () => {
+  // The four are duplicated on purpose. Duplication drifts unless something
+  // watches it, and a drifted paseo definition would deploy a different daemon
+  // depending on which file the instance points at.
+  // A block runs until the next service key, so it absorbs any blank lines and
+  // comments introducing whatever follows. Those belong to the next section,
+  // not to this service.
+  const body = (lines) => {
+    const out = [...(lines ?? [])];
+    while (out.length && /^\s*(#.*)?$/.test(out[out.length - 1])) out.pop();
+    return out;
+  };
+  const base = serviceBlocks(baseCompose);
+  const vpn = serviceBlocks(vpnStack);
+  for (const name of ["paseo", "browser", "browser-cdp", "paseo-cdp"]) {
+    assert.deepEqual(
+      body(vpn.get(name)),
+      body(base.get(name)),
+      `service "${name}" differs between docker-compose.yml and docker-compose.vpn.yml`,
+    );
+  }
+});
+
+test("the VPN stack keeps the DNS and network decisions the design settled", () => {
+  assert.doesNotMatch(vpnStack, /^\s+dns:/m, "no DNS override: public DNS already resolves");
+  const vpnBlock = serviceBlocks(vpnStack).get("vpn").join("\n");
+  assert.doesNotMatch(vpnBlock, /networks:/, "the gateway joins the default network implicitly");
 });
 
 test("gateway has exactly the privileges the spec allows", () => {
-  const vpn = serviceBlocks(overlay).get("vpn").join("\n");
+  const vpn = serviceBlocks(vpnStack).get("vpn").join("\n");
   assert.match(vpn, /cap_add:\s*\n\s+- NET_ADMIN/);
   assert.match(vpn, /devices:\s*\n\s+- "\/dev\/ppp:\/dev\/ppp"/);
   assert.match(vpn, /net\.ipv4\.ip_forward: "1"/);
   assert.doesNotMatch(vpn, /privileged/);
 });
 
-test("overlay pulls the published image and never builds", () => {
-  assert.match(overlay, /image: \$\{VPN_IMAGE:-/);
-  assert.doesNotMatch(overlay, /^\s+build:/m);
+test("the VPN stack pulls the published image and never builds", () => {
+  assert.match(vpnStack, /image: \$\{VPN_IMAGE:-/);
+  assert.doesNotMatch(vpnStack, /^\s+build:/m);
 });
 
 test("sidecars join the target namespaces and can set routes", () => {
-  const services = serviceBlocks(overlay);
+  const services = serviceBlocks(vpnStack);
   const paseoRoute = services.get("paseo-vpn-route").join("\n");
   const browserRoute = services.get("browser-vpn-route").join("\n");
   assert.match(paseoRoute, /network_mode: "service:paseo"/);
@@ -455,7 +498,7 @@ test("sidecars join the target namespaces and can set routes", () => {
 });
 
 test("sidecars target the gateway by container name, not service name", () => {
-  const services = serviceBlocks(overlay);
+  const services = serviceBlocks(vpnStack);
   for (const name of ["paseo-vpn-route", "browser-vpn-route"]) {
     const block = services.get(name).join("\n");
     assert.match(block, /VPN_GATEWAY_CONTAINER: \$\{INSTANCE_NAME:-paseo\}-vpn/);
@@ -549,10 +592,12 @@ test("agents image installs and invokes the ssh setup script", () => {
   assert.match(dockerfile, /paseo-agents-ssh-setup/);
 });
 
+// Normalised: this repo checks out CRLF on Windows, and the drift check
+// below compares these two files line by line.
 const baseCompose = readFileSync(
   fileURLToPath(new URL("docker/docker-compose.yml", repoRoot)),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 test("every env var the ssh setup script reads reaches paseo through the base compose file", () => {
   // Compose only injects a variable into a container if the service's own
@@ -595,7 +640,7 @@ function envVarsReadBy(source, localNames = []) {
   ];
 }
 
-test("every env var the gateway scripts read reaches the vpn service in the overlay", () => {
+test("every env var the gateway scripts read reaches the vpn service", () => {
   // paseo-vpn-validate computes these locally (CIDR_NET, CIDR_LEN) or
   // declares them as constants (RFC1918, MIN_PREFIX); none is read from the
   // environment.
@@ -608,7 +653,7 @@ test("every env var the gateway scripts read reaches the vpn service in the over
   ];
   assert.ok(readVars.length > 0, "expected the gateway scripts to read at least one variable");
 
-  const vpnService = serviceBlocks(overlay).get("vpn").join("\n");
+  const vpnService = serviceBlocks(vpnStack).get("vpn").join("\n");
   const missing = readVars.filter((name) => !new RegExp(`^\\s*${name}:`, "m").test(vpnService));
   assert.deepEqual(
     missing,
@@ -617,11 +662,11 @@ test("every env var the gateway scripts read reaches the vpn service in the over
   );
 });
 
-test("every env var the sidecar script reads reaches both route sidecars in the overlay", () => {
+test("every env var the sidecar script reads reaches both route sidecars", () => {
   const readVars = envVarsReadBy(readFileSync(routePath, "utf8"));
   assert.ok(readVars.length > 0, "expected the sidecar script to read at least one variable");
 
-  const services = serviceBlocks(overlay);
+  const services = serviceBlocks(vpnStack);
   for (const name of ["paseo-vpn-route", "browser-vpn-route"]) {
     const block = services.get(name).join("\n");
     const missing = readVars.filter((v) => !new RegExp(`^\\s*${v}:`, "m").test(block));
@@ -631,9 +676,9 @@ test("every env var the sidecar script reads reaches both route sidecars in the 
 
 const envExample = readFileSync(fileURLToPath(new URL("docker/.env.example", repoRoot)), "utf8");
 
-test("every overlay variable is documented in .env.example", () => {
+test("every VPN stack variable is documented in .env.example", () => {
   const referenced = new Set(
-    [...overlay.matchAll(/\$\{([A-Z0-9_]+)(?::[-?][^}]*)?\}/g)].map((m) => m[1]),
+    [...vpnStack.matchAll(/\$\{([A-Z0-9_]+)(?::[-?][^}]*)?\}/g)].map((m) => m[1]),
   );
   // Declared by docker-compose.yml, not the overlay.
   referenced.delete("INSTANCE_NAME");
@@ -671,24 +716,6 @@ test("env example carries only placeholder values", () => {
       `${name} default must be an example.com placeholder, found: ${host}`,
     );
   }
-});
-
-const stackFile = readFileSync(
-  fileURLToPath(new URL("docker/docker-compose.vpn.stack.yml", repoRoot)),
-  "utf8",
-);
-
-test("the Dokploy single-file entry point only includes the base stack and the overlay", () => {
-  // Hand-parsed the same way jobBlocks()/serviceBlocks() read YAML above: no
-  // YAML library is available in this test's CI job.
-  const topLevelKeys = [...stackFile.matchAll(/^([a-z0-9_-]+):\s*$/gm)].map((m) => m[1]);
-  assert.deepEqual(topLevelKeys, ["include"]);
-
-  const includeLines = stackFile
-    .split("\n")
-    .filter((line) => /^ {2}-\s/.test(line))
-    .map((line) => line.replace(/^ {2}-\s*/, "").trim());
-  assert.deepEqual(includeLines, ["docker-compose.yml", "docker-compose.vpn.yml"]);
 });
 
 // Every image built by docker.yml declares a build context, and each Dockerfile
