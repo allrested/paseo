@@ -621,10 +621,6 @@ test("every env var the ssh setup script reads reaches paseo through the base co
   );
 });
 
-const entrypointPath = fileURLToPath(
-  new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-entrypoint", repoRoot),
-);
-
 // Mirrors the ssh-setup guard above: derive the variables a script reads from
 // the environment by scanning for `$NAME` and `${NAME...}`, then drop the
 // PASEO_VPN_* test seams (deliberately not wired in compose) and any names
