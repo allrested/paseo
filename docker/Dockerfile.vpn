@@ -30,6 +30,7 @@ COPY vpn/rootfs/ /
 RUN set -eux; \
     for script in \
       /usr/local/bin/paseo-vpn-validate \
+      /usr/local/bin/paseo-vpn-ca \
       /usr/local/bin/paseo-vpn-config \
       /usr/local/bin/paseo-vpn-entrypoint \
       /usr/local/bin/paseo-vpn-healthcheck \

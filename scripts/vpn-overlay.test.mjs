@@ -761,3 +761,72 @@ test("every Dockerfile's COPY sources resolve under the build context CI gives i
     }
   }
 });
+
+const caPath = fileURLToPath(new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-ca", repoRoot));
+
+const PEM = ["-----BEGIN CERTIFICATE-----", "MIIBkTCB+w==", "-----END CERTIFICATE-----"].join("\n");
+
+test("CA installer writes a base64 certificate into the trust anchors", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "paseo-ca-"));
+  const result = runScript(caPath, { VPN_CA_CERT_B64: Buffer.from(PEM).toString("base64") }, [
+    "--root",
+    root,
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  const written = readFileSync(
+    path.join(root, "usr/local/share/ca-certificates/paseo-vpn-extra.crt"),
+    "utf8",
+  );
+  assert.match(written, /BEGIN CERTIFICATE/);
+});
+
+test("CA installer does nothing when no certificate is supplied", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "paseo-ca-"));
+  const result = runScript(caPath, { VPN_CA_CERT_B64: "" }, ["--root", root]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(!existsSync(path.join(root, "usr/local/share/ca-certificates/paseo-vpn-extra.crt")));
+});
+
+test("CA installer refuses a value that is not a PEM certificate", () => {
+  // A truncated or wrong-format value would otherwise install silently and the
+  // tunnel would keep failing with nothing reporting why.
+  const root = mkdtempSync(path.join(tmpdir(), "paseo-ca-"));
+  const result = runScript(
+    caPath,
+    { VPN_CA_CERT_B64: Buffer.from("not a cert").toString("base64") },
+    ["--root", root],
+  );
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /not a PEM certificate/);
+  assert.ok(!existsSync(path.join(root, "usr/local/share/ca-certificates/paseo-vpn-extra.crt")));
+});
+
+test("the gateway entrypoint installs the CA before starting the client", () => {
+  const entrypoint = readFileSync(
+    fileURLToPath(new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-entrypoint", repoRoot)),
+    "utf8",
+  );
+  const caCall = entrypoint.indexOf("paseo-vpn-ca");
+  const client = entrypoint.indexOf("openfortivpn");
+  assert.ok(caCall > 0, "entrypoint never installs the CA");
+  assert.ok(caCall < client, "the CA must be installed before the client connects");
+});
+
+test("the image makes every rootfs script executable", () => {
+  // run-parts skips non-executable files and ENTRYPOINT cannot exec one, and
+  // the scripts are tracked 100644.
+  const dockerfile = readFileSync(
+    fileURLToPath(new URL("docker/Dockerfile.vpn", repoRoot)),
+    "utf8",
+  );
+  const shipped = execFileSync("git", ["ls-files", "docker/vpn/rootfs"], {
+    encoding: "utf8",
+    cwd: fileURLToPath(repoRoot),
+  })
+    .split("\n")
+    .filter(Boolean)
+    .map((p) => p.replace("docker/vpn/rootfs", ""));
+  for (const script of shipped) {
+    assert.ok(dockerfile.includes(script), `Dockerfile.vpn never chmods ${script}`);
+  }
+});

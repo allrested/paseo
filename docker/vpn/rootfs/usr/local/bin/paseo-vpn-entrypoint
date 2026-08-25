@@ -10,6 +10,9 @@ log() { printf 'paseo-vpn: %s\n' "$1" >&2; }
 
 /usr/local/bin/paseo-vpn-validate
 
+# Trust an inspecting proxy's root, when one is in the path to the gateway.
+/usr/local/bin/paseo-vpn-ca
+
 umask 077
 
 # pppd runs /etc/ppp/ip-up.d/* with its own restricted environment, which does
