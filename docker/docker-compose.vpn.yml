@@ -198,6 +198,10 @@ services:
       VPN_PASSWORD: ${VPN_PASSWORD:?VPN_PASSWORD is required}
       VPN_TRUSTED_CERT: ${VPN_TRUSTED_CERT:-}
       VPN_REALM: ${VPN_REALM:-}
+      # A root to trust when something between here and the gateway re-signs
+      # TLS. Without it the client rejects the certificate and never reaches
+      # PPP, which looks exactly like a wrong password.
+      VPN_CA_CERT_B64: ${VPN_CA_CERT_B64:-}
       # Curated, never copied from the gateway. Most of what the gateway offers
       # is public address space; installing it would route parts of the
       # internet through the corporate tunnel. Validated at startup: RFC 1918

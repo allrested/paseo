@@ -645,9 +645,19 @@ test("every env var the gateway scripts read reaches the vpn service", () => {
   // declares them as constants (RFC1918, MIN_PREFIX); none is read from the
   // environment.
   const validateLocals = ["CIDR_NET", "CIDR_LEN", "RFC1918", "MIN_PREFIX"];
-  const gatewayScripts = [entrypointPath, validatePath, configPath, healthPath].map((p) =>
-    readFileSync(p, "utf8"),
-  );
+  // Derived from the tree, not listed by hand: a hardcoded list silently fails
+  // to cover a script added later, which is how VPN_CA_CERT_B64 reached the
+  // image and the docs while never being passed to the container.
+  // paseo-vpn-route is excluded because it runs in the sidecars, which the
+  // next test covers separately.
+  const gatewayScripts = execFileSync("git", ["ls-files", "docker/vpn/rootfs"], {
+    encoding: "utf8",
+    cwd: fileURLToPath(repoRoot),
+  })
+    .split("\n")
+    .filter(Boolean)
+    .filter((p) => !p.endsWith("paseo-vpn-route"))
+    .map((p) => readFileSync(fileURLToPath(new URL(p, repoRoot)), "utf8"));
   const readVars = [
     ...new Set(gatewayScripts.flatMap((source) => envVarsReadBy(source, validateLocals))),
   ];
