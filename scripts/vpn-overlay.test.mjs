@@ -818,6 +818,20 @@ test("the gateway entrypoint installs the CA before starting the client", () => 
   assert.ok(caCall < client, "the CA must be installed before the client connects");
 });
 
+test("the gateway entrypoint requires the N_PPP line discipline", () => {
+  // /dev/ppp satisfies the older check while ppp_async is unloaded, and pppd
+  // then fails with EPERM on TIOCSETD instead of naming the missing module.
+  const entrypoint = readFileSync(
+    fileURLToPath(new URL("docker/vpn/rootfs/usr/local/bin/paseo-vpn-entrypoint", repoRoot)),
+    "utf8",
+  );
+  const guard = entrypoint.indexOf("/proc/tty/ldiscs");
+  const client = entrypoint.indexOf("openfortivpn");
+  assert.ok(guard > 0, "entrypoint never checks for the N_PPP line discipline");
+  assert.ok(guard < client, "the discipline must be checked before the client connects");
+  assert.match(entrypoint, /modprobe ppp_async/);
+});
+
 test("the image makes every rootfs script executable", () => {
   // run-parts skips non-executable files and ENTRYPOINT cannot exec one, and
   // the scripts are tracked 100644.
