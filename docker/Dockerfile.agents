@@ -142,6 +142,18 @@ if [ "$(id -u)" = "0" ]; then
   done
 fi
 /usr/local/bin/paseo-agents-ssh-setup || echo "[agents] WARNING: paseo-agents-ssh-setup failed; continuing without internal SSH config" >&2
+# The stack files cannot omit these when they are unset: `${GIT_AUTHOR_NAME:-}`
+# defines the variable as an empty string, and git rejects an empty ident with
+# "empty ident name" instead of falling back to git config -- so an unconfigured
+# author breaks every commit in the container. Drop only the empties, before
+# exec so every descendant inherits the result. A configured identity still
+# reaches the agent untouched, which is what keeps per-container attribution
+# working on a shared /workspace.
+for var in GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL; do
+  eval "value=\${$var-}"
+  [ -n "$value" ] || unset "$var"
+done
+unset var value
 exec /usr/local/bin/paseo-docker-entrypoint "$@"
 ENTRY
 chmod +x /usr/local/bin/paseo-agents-entrypoint

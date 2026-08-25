@@ -592,6 +592,56 @@ test("agents image installs and invokes the ssh setup script", () => {
   assert.match(dockerfile, /paseo-agents-ssh-setup/);
 });
 
+test("agents entrypoint drops empty GIT_* vars but keeps configured ones", () => {
+  // The stack files define these as empty strings when unset, and git rejects
+  // an empty ident outright instead of falling back to config.
+  const dockerfile = readFileSync(
+    fileURLToPath(new URL("docker/Dockerfile.agents", repoRoot)),
+    "utf8",
+  );
+  const entry = dockerfile.match(/<<'ENTRY'\n([\s\S]*?)\nENTRY\n/);
+  assert.ok(entry, "could not find the generated agents entrypoint");
+  const loop = entry[1].match(/for var in GIT_AUTHOR_NAME[\s\S]*?\nunset var value/);
+  assert.ok(loop, "entrypoint never drops empty GIT_* vars");
+  assert.ok(
+    entry[1].indexOf(loop[0]) < entry[1].indexOf("exec /usr/local/bin/paseo-docker-entrypoint"),
+    "the vars must be dropped before exec so descendants inherit it",
+  );
+
+  const dir = mkdtempSync(path.join(tmpdir(), "agents-ident-"));
+  const script = path.join(dir, "probe.sh");
+  writeFileSync(
+    script,
+    [
+      loop[0],
+      "printf 'GIT_AUTHOR_NAME=[%s]\\n' \"${GIT_AUTHOR_NAME-UNSET}\"",
+      "printf 'GIT_AUTHOR_EMAIL=[%s]\\n' \"${GIT_AUTHOR_EMAIL-UNSET}\"",
+      "printf 'GIT_COMMITTER_NAME=[%s]\\n' \"${GIT_COMMITTER_NAME-UNSET}\"",
+      "",
+    ].join("\n"),
+  );
+  const run = (env) =>
+    spawnSync("sh", [script], { encoding: "utf8", env: { ...process.env, ...env } }).stdout;
+
+  const emptied = run({
+    GIT_AUTHOR_NAME: "",
+    GIT_AUTHOR_EMAIL: "",
+    GIT_COMMITTER_NAME: "",
+  });
+  assert.match(emptied, /GIT_AUTHOR_NAME=\[UNSET\]/);
+  assert.match(emptied, /GIT_AUTHOR_EMAIL=\[UNSET\]/);
+  assert.match(emptied, /GIT_COMMITTER_NAME=\[UNSET\]/);
+
+  const configured = run({
+    GIT_AUTHOR_NAME: "Someone",
+    GIT_AUTHOR_EMAIL: "someone@example.com",
+    GIT_COMMITTER_NAME: "Someone",
+  });
+  assert.match(configured, /GIT_AUTHOR_NAME=\[Someone\]/);
+  assert.match(configured, /GIT_AUTHOR_EMAIL=\[someone@example\.com\]/);
+  assert.match(configured, /GIT_COMMITTER_NAME=\[Someone\]/);
+});
+
 // Normalised: this repo checks out CRLF on Windows, and the drift check
 // below compares these two files line by line.
 const baseCompose = readFileSync(
