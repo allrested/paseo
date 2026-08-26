@@ -688,9 +688,16 @@ function envVarsReadBy(source, localNames = []) {
 
 test("every env var the gateway scripts read reaches the vpn service", () => {
   // paseo-vpn-validate computes these locally (CIDR_NET, CIDR_LEN) or
-  // declares them as constants (RFC1918, MIN_PREFIX); none is read from the
-  // environment.
-  const validateLocals = ["CIDR_NET", "CIDR_LEN", "RFC1918", "MIN_PREFIX"];
+  // declares them as constants (RFC1918, MIN_PREFIX, SPECIAL_USE,
+  // MIN_EXTERNAL_PREFIX); none is read from the environment.
+  const validateLocals = [
+    "CIDR_NET",
+    "CIDR_LEN",
+    "RFC1918",
+    "MIN_PREFIX",
+    "SPECIAL_USE",
+    "MIN_EXTERNAL_PREFIX",
+  ];
   // Derived from the tree, not listed by hand: a hardcoded list silently fails
   // to cover a script added later, which is how VPN_CA_CERT_B64 reached the
   // image and the docs while never being passed to the container.
@@ -898,5 +905,141 @@ test("the image makes every rootfs script executable", () => {
     .map((p) => p.replace("docker/vpn/rootfs", ""));
   for (const script of shipped) {
     assert.ok(dockerfile.includes(script), `Dockerfile.vpn never chmods ${script}`);
+  }
+});
+
+test("validator accepts a public host in EXTERNAL_VIA_VPN", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "44.197.240.51/32",
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /validated external 44\.197\.240\.51\/32/);
+});
+
+test("validator accepts several public hosts", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "44.197.240.51/32,203.0.113.0/24",
+  });
+  assert.equal(result.code, 0, result.stderr);
+});
+
+test("validator rejects a private range in EXTERNAL_VIA_VPN", () => {
+  // It belongs in INTERNAL_CIDRS, where the curation guard covers it.
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "10.9.0.0/24",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /inside RFC 1918; declare private ranges in INTERNAL_CIDRS/);
+});
+
+test("validator rejects an external range broader than /24", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "44.197.0.0/16",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /broader than \/24/);
+});
+
+test("validator rejects a default route smuggled in via EXTERNAL_VIA_VPN", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "0.0.0.0/0",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /broader than \/24/);
+});
+
+test("validator rejects special-use ranges in EXTERNAL_VIA_VPN", () => {
+  // 169.254.169.254 is the cloud metadata endpoint; routing it into a
+  // corporate tunnel would be a credential-exposure bug, not a typo.
+  for (const entry of ["127.0.0.1/32", "169.254.169.254/32", "224.0.0.1/32"]) {
+    const result = runValidate({
+      ...LOCAL,
+      INTERNAL_CIDRS: "10.4.0.0/16",
+      EXTERNAL_VIA_VPN: entry,
+    });
+    assert.equal(result.code, 1, `${entry} should be rejected`);
+    assert.match(result.stderr, /overlaps the special-use range/);
+  }
+});
+
+test("validator rejects an unaligned external entry", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "203.0.113.5/24",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /not aligned to its prefix/);
+});
+
+test("validator rejects a command smuggled into EXTERNAL_VIA_VPN", () => {
+  const result = runValidate({
+    ...LOCAL,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "44.197.240.51/32; touch /tmp/pwned",
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /outside the CIDR-list alphabet/);
+});
+
+test("validator leaves EXTERNAL_VIA_VPN optional", () => {
+  const result = runValidate({ ...LOCAL, INTERNAL_CIDRS: "10.4.0.0/16" });
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /validated external/);
+});
+
+test("route hook sends declared public hosts out ppp0", () => {
+  const result = runScript(ipUpPath, {
+    PASEO_VPN_DRY_RUN: "1",
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "44.197.240.51/32",
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split("\n"), [
+    "ip route replace 10.4.0.0/16 dev ppp0",
+    "ip route replace 44.197.240.51/32 dev ppp0",
+  ]);
+  assert.doesNotMatch(result.stdout, /default/);
+});
+
+test("route sidecar installs and checks the public exceptions too", () => {
+  const env = {
+    ...DRY,
+    INTERNAL_CIDRS: "10.4.0.0/16",
+    EXTERNAL_VIA_VPN: "44.197.240.51/32",
+  };
+  const installed = runRoute(env);
+  assert.equal(installed.code, 0, installed.stderr);
+  assert.deepEqual(installed.stdout.trim().split("\n"), [
+    "ip route replace 10.4.0.0/16 via 172.18.0.9",
+    "ip route replace 44.197.240.51/32 via 172.18.0.9",
+  ]);
+
+  const checked = runRoute(env, ["--check"]);
+  assert.equal(checked.code, 0, checked.stderr);
+  assert.match(checked.stdout, /ip route show 44\.197\.240\.51\/32/);
+});
+
+test("the VPN stack passes EXTERNAL_VIA_VPN to the gateway and both sidecars", () => {
+  // All three must agree: the gateway opens the firewall and routes out ppp0,
+  // each sidecar installs the matching route in its own namespace.
+  const services = serviceBlocks(vpnStack);
+  for (const name of ["vpn", "paseo-vpn-route", "browser-vpn-route"]) {
+    const block = services.get(name).join("\n");
+    assert.match(
+      block,
+      /EXTERNAL_VIA_VPN: \$\{EXTERNAL_VIA_VPN:-\}/,
+      `service "${name}" does not receive EXTERNAL_VIA_VPN`,
+    );
   }
 });

@@ -14,6 +14,14 @@ set -euo pipefail
 RFC1918="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
 MIN_PREFIX=12
 
+# Ranges that must never be steered into the tunnel whatever else is declared:
+# this host, the link-local block a cloud metadata service lives on, multicast
+# and reserved space.
+SPECIAL_USE="0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4 240.0.0.0/4"
+# Public exceptions are per-host, not per-network. /24 is the widest that can
+# still be reasoned about at a glance.
+MIN_EXTERNAL_PREFIX=24
+
 fail() {
   printf 'paseo-vpn: %s\n' "$1" >&2
   exit 1
@@ -121,3 +129,54 @@ for entry in "${entries[@]}"; do
 done
 
 printf 'paseo-vpn: validated %s\n' "$INTERNAL_CIDRS"
+
+# EXTERNAL_VIA_VPN is the deliberate exception to Route curation: specific
+# PUBLIC destinations that must be reached from the corporate network's own
+# egress address, because the far end allowlists it. Kept separate from
+# INTERNAL_CIDRS so "no public address space in the tunnel" still holds by
+# default and every exception has to be written down one host at a time.
+#
+# Optional. The checks below are deliberately stricter than the RFC 1918 ones:
+# a mistake here sends real internet traffic through a corporate tunnel.
+if [ -n "${EXTERNAL_VIA_VPN:-}" ]; then
+  [[ $EXTERNAL_VIA_VPN =~ $cidr_list_alphabet ]] ||
+    fail "EXTERNAL_VIA_VPN contains a character outside the CIDR-list alphabet (digits, dots, slashes, commas, spaces)"
+
+  read -r -a externals <<<"${EXTERNAL_VIA_VPN//,/ }"
+  for entry in "${externals[@]}"; do
+    parse_cidr "$entry"
+    net=$CIDR_NET
+    len=$CIDR_LEN
+    mask=$(mask_of "$len")
+
+    [ "$((net & mask))" -eq "$net" ] || fail "$entry is not aligned to its prefix"
+    [ "$len" -ge "$MIN_EXTERNAL_PREFIX" ] ||
+      fail "$entry is broader than /$MIN_EXTERNAL_PREFIX; EXTERNAL_VIA_VPN takes specific hosts, not networks"
+
+    # A private range here is always a mistake: it either belongs in
+    # INTERNAL_CIDRS, where the curation guard covers it, or it does not
+    # belong in the tunnel at all.
+    for block in $RFC1918; do
+      parse_cidr "$block"
+      if contained_in "$net" "$len" "$CIDR_NET" "$CIDR_LEN"; then
+        fail "$entry is inside RFC 1918; declare private ranges in INTERNAL_CIDRS instead"
+      fi
+    done
+
+    for block in $SPECIAL_USE; do
+      parse_cidr "$block"
+      if overlaps "$net" "$len" "$CIDR_NET" "$CIDR_LEN"; then
+        fail "$entry overlaps the special-use range $block"
+      fi
+    done
+
+    for local_addr in $local_addrs; do
+      parse_cidr "$local_addr"
+      if overlaps "$net" "$len" "$CIDR_NET" "$CIDR_LEN"; then
+        fail "$entry overlaps this container's own network $local_addr"
+      fi
+    done
+  done
+
+  printf 'paseo-vpn: validated external %s\n' "$EXTERNAL_VIA_VPN"
+fi

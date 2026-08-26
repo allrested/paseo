@@ -207,6 +207,11 @@ services:
       # internet through the corporate tunnel. Validated at startup: RFC 1918
       # only, /12 or longer, no overlap with this container's own networks.
       INTERNAL_CIDRS: ${INTERNAL_CIDRS:?INTERNAL_CIDRS is required}
+      # The narrow exception: specific PUBLIC hosts that must be reached from
+      # the corporate egress address because the far end allowlists it. One
+      # host at a time — validated as /24 or longer, outside RFC 1918 and
+      # outside special-use space. Leave empty unless something needs it.
+      EXTERNAL_VIA_VPN: ${EXTERNAL_VIA_VPN:-}
       VPN_HEALTH_TARGET: ${VPN_HEALTH_TARGET:-}
     # Health means the private network answers. A ppp0 that exists while
     # routing nowhere reports unhealthy instead of lying.
@@ -233,6 +238,9 @@ services:
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/paseo-vpn-route"]
     environment:
       INTERNAL_CIDRS: ${INTERNAL_CIDRS:?INTERNAL_CIDRS is required}
+      # Must match the gateway's: this sidecar installs the matching route into
+      # paseo's namespace, and --check fails if one is missing.
+      EXTERNAL_VIA_VPN: ${EXTERNAL_VIA_VPN:-}
       # Container name, not service name: on a shared proxy network every
       # instance's `vpn` service carries the same DNS alias, so a service name
       # can resolve to another instance's gateway.
@@ -263,6 +271,7 @@ services:
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/paseo-vpn-route"]
     environment:
       INTERNAL_CIDRS: ${INTERNAL_CIDRS:?INTERNAL_CIDRS is required}
+      EXTERNAL_VIA_VPN: ${EXTERNAL_VIA_VPN:-}
       VPN_GATEWAY_CONTAINER: ${INSTANCE_NAME:-paseo}-vpn
     healthcheck:
       test: ["CMD", "/usr/local/bin/paseo-vpn-route", "--check"]

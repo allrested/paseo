@@ -22,6 +22,7 @@ umask 077
 # starting a second command when the hook `source`s this file.
 env_file=${PASEO_VPN_ENV_FILE:-/etc/paseo-vpn.env}
 printf "INTERNAL_CIDRS='%s'\n" "$INTERNAL_CIDRS" > "$env_file"
+printf "EXTERNAL_VIA_VPN='%s'\n" "${EXTERNAL_VIA_VPN:-}" >> "$env_file"
 
 if [ ! -c /dev/ppp ]; then
   log "/dev/ppp is missing. Load ppp_generic on the host (modprobe ppp_generic)"
@@ -58,6 +59,16 @@ read -r -a cidrs <<<"${INTERNAL_CIDRS//,/ }"
 for cidr in "${cidrs[@]}"; do
   iptables -A FORWARD -o ppp0 -d "$cidr" -j ACCEPT
 done
+# The public exceptions get exactly the same treatment: one ACCEPT per declared
+# destination, so the FORWARD policy stays DROP for everything undeclared. The
+# validator has already refused anything broader than a /24, private, or
+# special-use, so this cannot widen into "the internet via the tunnel".
+if [ -n "${EXTERNAL_VIA_VPN:-}" ]; then
+  read -r -a externals <<<"${EXTERNAL_VIA_VPN//,/ }"
+  for cidr in "${externals[@]}"; do
+    iptables -A FORWARD -o ppp0 -d "$cidr" -j ACCEPT
+  done
+fi
 iptables -t nat -A POSTROUTING -o ppp0 -j MASQUERADE
 
 # Route and DNS management are disabled: this is what discards the gateway's
