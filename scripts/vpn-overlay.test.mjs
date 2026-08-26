@@ -1043,3 +1043,25 @@ test("the VPN stack passes EXTERNAL_VIA_VPN to the gateway and both sidecars", (
     );
   }
 });
+
+test("agents image hands the npm prefix to the runtime user", () => {
+  // Installed as root, run as paseo (uid 1000): without this the Claude Code
+  // updater has nowhere to write and the version is frozen to image rebuilds.
+  const dockerfile = readFileSync(
+    fileURLToPath(new URL("docker/Dockerfile.agents", repoRoot)),
+    "utf8",
+  );
+  const chown = dockerfile.indexOf("chown -R paseo:paseo /usr/local/lib/node_modules");
+  assert.ok(chown > 0, "the npm global tree is never handed to the runtime user");
+  assert.match(dockerfile, /chown paseo:paseo \/usr\/local\/bin\b/);
+  // Ordering is the whole point: a root install afterwards would land
+  // root-owned inside a tree the runtime user is supposed to own.
+  assert.ok(
+    chown > dockerfile.indexOf("npm install -g"),
+    "the chown must come after the npm install it is fixing",
+  );
+  assert.ok(
+    chown > dockerfile.indexOf("COPY agents/rootfs/ /"),
+    "the chown must come after the rootfs copy",
+  );
+});

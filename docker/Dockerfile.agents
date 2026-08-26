@@ -107,6 +107,23 @@ RUN set -eux; \
     chmod +x /usr/local/bin/paseo-agents-ssh-setup; \
     bash -n /usr/local/bin/paseo-agents-ssh-setup
 
+# The CLIs above are installed as root, but Paseo runs agents as `paseo`
+# (uid 1000) and Claude Code's updater writes into the npm prefix. Left as-is
+# every container built from this image reports that it has no write permission
+# to the npm prefix and can never self-update: the version is frozen until
+# somebody rebuilds, and the warning is in front of the user on every start.
+#
+# Runs after every root-owned install above — npm, the Kiro archive, the rootfs
+# copy — so nothing lands here root-owned afterwards except the entrypoint
+# generated below, which root is meant to own.
+#
+# /usr/local/bin is chowned as a directory and NOT recursively: replacing the
+# `claude` symlink needs write on the directory itself, while the binaries the
+# other tools installed there keep their root ownership.
+RUN set -eux; \
+    chown -R paseo:paseo /usr/local/lib/node_modules; \
+    chown paseo:paseo /usr/local/bin
+
 # Paseo launches agents as the non-root `paseo` user (uid 1000), but /home/paseo
 # and /workspace are mounted volumes that survive rebuilds. Anything left
 # root-owned in them — most easily by a bare `docker exec`, which defaults to
