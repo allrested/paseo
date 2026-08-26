@@ -1043,3 +1043,43 @@ test("the VPN stack passes EXTERNAL_VIA_VPN to the gateway and both sidecars", (
     );
   }
 });
+
+test("agents image hands the npm prefix to the runtime user", () => {
+  // Installed as root, run as paseo (uid 1000): without this the Claude Code
+  // updater has nowhere to write and the version is frozen to image rebuilds.
+  const dockerfile = readFileSync(
+    fileURLToPath(new URL("docker/Dockerfile.agents", repoRoot)),
+    "utf8",
+  );
+
+  // Instructions, with line continuations folded back together.
+  const instructions = dockerfile
+    .replace(/\\\n/g, " ")
+    .split("\n")
+    .filter((line) => /^[A-Z]+ /.test(line));
+
+  // The recursive chown MUST share the npm layer. In its own RUN it would
+  // rewrite ~1.4GB of packages into a new layer for a metadata change.
+  const npmRun = instructions.find((i) => i.includes("npm install -g"));
+  assert.ok(npmRun, "no npm install -g instruction");
+  assert.match(
+    npmRun,
+    /chown -R paseo:paseo \/usr\/local\/lib\/node_modules/,
+    "the node_modules chown must be in the same RUN as the npm install, or it costs a 1.4GB layer",
+  );
+
+  // /usr/local/bin is a directory chown, never recursive: recursing would copy
+  // the ~1.1GB of Kiro binaries into a new layer.
+  const binChown = dockerfile.indexOf("chown paseo:paseo /usr/local/bin");
+  assert.ok(binChown > 0, "/usr/local/bin is never handed to the runtime user");
+  assert.doesNotMatch(dockerfile, /chown -R paseo:paseo \/usr\/local\/bin/);
+
+  // ...and it must come last, after every root-owned install: npm, the Kiro
+  // archive, and the rootfs copy. One added afterwards would land root-owned.
+  for (const earlier of ["npm install -g", "Q_INSTALL_GLOBAL", "COPY agents/rootfs/ /"]) {
+    assert.ok(
+      binChown > dockerfile.indexOf(earlier),
+      `the /usr/local/bin chown must come after "${earlier}"`,
+    );
+  }
+});
