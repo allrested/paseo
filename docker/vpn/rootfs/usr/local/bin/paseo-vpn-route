@@ -58,7 +58,14 @@ resolve_gateway() {
   printf '%s' "$addr"
 }
 
+# The declared public exceptions need the same route into the gateway container
+# as the private ranges, and the same --check coverage: a missing route for one
+# of them is just as broken, and just as invisible, as a missing private one.
 read -r -a cidrs <<<"${INTERNAL_CIDRS//,/ }"
+if [ -n "${EXTERNAL_VIA_VPN:-}" ]; then
+  read -r -a externals <<<"${EXTERNAL_VIA_VPN//,/ }"
+  cidrs+=("${externals[@]}")
+fi
 
 if [ -n "$check_only" ]; then
   status=0

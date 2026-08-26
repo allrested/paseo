@@ -10,7 +10,12 @@
 # environment always wins.
 set -euo pipefail
 
-if [ -z "${INTERNAL_CIDRS:-}" ]; then
+# Captured before sourcing: the file assigns both names unconditionally, so
+# without this an explicit value would be overwritten by the persisted one.
+explicit_internal=${INTERNAL_CIDRS:-}
+explicit_external=${EXTERNAL_VIA_VPN:-}
+
+if [ -z "$explicit_internal" ] || [ -z "$explicit_external" ]; then
   env_file=${PASEO_VPN_ENV_FILE:-/etc/paseo-vpn.env}
   if [ -f "$env_file" ]; then
     # shellcheck disable=SC1090
@@ -18,12 +23,22 @@ if [ -z "${INTERNAL_CIDRS:-}" ]; then
   fi
 fi
 
+[ -n "$explicit_internal" ] && INTERNAL_CIDRS=$explicit_internal
+[ -n "$explicit_external" ] && EXTERNAL_VIA_VPN=$explicit_external
+
 [ -n "${INTERNAL_CIDRS:-}" ] || {
   printf 'paseo-vpn: INTERNAL_CIDRS is required\n' >&2
   exit 1
 }
 
+# The public exceptions ride the same interface as the private ranges: a route
+# out ppp0 is what makes the far end see the corporate egress address, which is
+# the whole point of declaring them.
 read -r -a cidrs <<<"${INTERNAL_CIDRS//,/ }"
+if [ -n "${EXTERNAL_VIA_VPN:-}" ]; then
+  read -r -a externals <<<"${EXTERNAL_VIA_VPN//,/ }"
+  cidrs+=("${externals[@]}")
+fi
 for cidr in "${cidrs[@]}"; do
   if [ -n "${PASEO_VPN_DRY_RUN:-}" ]; then
     printf 'ip route replace %s dev ppp0\n' "$cidr"
