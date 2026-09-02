@@ -1399,6 +1399,9 @@ export async function createPaseoDaemon(
   agentManager.setPaseoToolCatalogFactory(createAgentToolCatalog);
   agentManager.setPaseoToolsEnabled(config.mcpInjectIntoAgents !== false);
   setAgentProviderToolsEnabled(config.mcpEnabled !== false && config.mcpInjectIntoAgents !== false);
+  // No-op unless PASEO_IDLE_SESSION_REAP_MINUTES is set. See
+  // agent/idle-session-reaper.ts for why unbounded warm sessions are a problem.
+  agentManager.startIdleSessionReaper();
 
   let mcpEnabled = config.mcpEnabled ?? true;
   let agentMcpBaseUrl: string | null = null;

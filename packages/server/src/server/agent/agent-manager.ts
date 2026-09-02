@@ -52,6 +52,12 @@ import { buildArchivedAgentRecord, type ArchivedStoredAgentRecord } from "./agen
 import type { StoredAgentRecord, AgentStorage } from "./agent-storage.js";
 import type { AgentOwner } from "./agent-owner.js";
 import {
+  idleReaperConfigFromEnv,
+  selectIdleAgentsToReap,
+  type IdleReaperConfig,
+  type ReapCandidate,
+} from "./idle-session-reaper.js";
+import {
   InMemoryAgentTimelineStore,
   type SeedAgentTimelineOptions,
 } from "./agent-timeline-store.js";
@@ -673,6 +679,8 @@ export class AgentManager {
   private readonly providerEnabled = new Map<AgentProvider, boolean>();
   private readonly providerDefinitions = new Map<AgentProvider, ProviderEnabledFlag>();
   private readonly agents = new Map<string, LiveManagedAgent>();
+  private idleReaperTimer: ReturnType<typeof setInterval> | null = null;
+  private idleReaperConfig: IdleReaperConfig | null = null;
   private readonly timelineStore = new InMemoryAgentTimelineStore();
   private readonly providerSubagents = new ProviderSubagentStore();
   private readonly agentsAwaitingInitialSnapshotPersist = new Set<string>();
@@ -783,6 +791,82 @@ export class AgentManager {
 
   prepareForShutdown(): void {
     this.acceptingAgentRegistrations = false;
+    this.stopIdleSessionReaper();
+  }
+
+  /**
+   * Start closing sessions that have gone idle past the configured threshold.
+   *
+   * A provider session is deliberately kept warm between turns, but until this
+   * existed that warmth had no ceiling: `session.close()` ran only on an
+   * explicit close, archive or delete, so every agent ever prompted pinned its
+   * provider process for the life of the daemon. One production sandbox held 11
+   * live `kiro-cli` pairs (~2.5 GiB) after five days and took its host to 95%
+   * memory.
+   *
+   * Opt-in via `PASEO_IDLE_SESSION_REAP_MINUTES`; a no-op when unset.
+   */
+  startIdleSessionReaper(config = idleReaperConfigFromEnv(process.env)): void {
+    this.stopIdleSessionReaper();
+    if (!config.enabled) {
+      return;
+    }
+    this.idleReaperConfig = config;
+    this.idleReaperTimer = setInterval(() => {
+      void this.reapIdleSessions();
+    }, config.sweepMs);
+    // Never hold the process open for a sweep.
+    this.idleReaperTimer.unref?.();
+    this.logger.info(
+      { idleMs: config.idleMs, sweepMs: config.sweepMs },
+      "agent.manager.idle_reaper.started",
+    );
+  }
+
+  stopIdleSessionReaper(): void {
+    if (this.idleReaperTimer) {
+      clearInterval(this.idleReaperTimer);
+      this.idleReaperTimer = null;
+    }
+  }
+
+  /**
+   * One sweep. Exposed for tests so the policy can be exercised against a real
+   * agent map without waiting on a timer.
+   */
+  async reapIdleSessions(now: Date = new Date()): Promise<string[]> {
+    const config = this.idleReaperConfig;
+    if (!config?.enabled || !this.acceptingAgentRegistrations) {
+      return [];
+    }
+    const candidates: ReapCandidate[] = Array.from(this.agents.values(), (agent) => ({
+      id: agent.id,
+      lifecycle: agent.lifecycle,
+      updatedAt: agent.updatedAt,
+      activeForegroundTurnId: agent.activeForegroundTurnId,
+      activeTurnId: agent.activeTurnId,
+      pendingPermissionCount: agent.pendingPermissions.size,
+    }));
+    const doomed = selectIdleAgentsToReap(candidates, now, config.idleMs);
+    const reaped: string[] = [];
+    for (const agentId of doomed) {
+      // Re-check under the current tick: an agent can start a turn between
+      // selection and close, and closeAgent is async.
+      const agent = this.agents.get(agentId);
+      if (!agent || agent.lifecycle !== "idle" || agent.activeForegroundTurnId !== null) {
+        continue;
+      }
+      try {
+        await this.closeAgent(agentId);
+        reaped.push(agentId);
+        this.logger.info({ agentId }, "agent.manager.idle_reaper.closed");
+      } catch (error) {
+        // A failed reap is not an incident: the agent keeps its session and the
+        // next sweep tries again. Never let one failure stop the sweep.
+        this.logger.warn({ err: error, agentId }, "agent.manager.idle_reaper.close_failed");
+      }
+    }
+    return reaped;
   }
 
   setPaseoToolsEnabled(enabled: boolean): void {
