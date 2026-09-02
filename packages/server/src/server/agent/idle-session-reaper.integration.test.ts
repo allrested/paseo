@@ -150,7 +150,7 @@ test("a provider with no persistence handle is never reaped", async () => {
 });
 
 test("an agent younger than the threshold survives the sweep", async () => {
-  const { manager, client, agent } = await makeAgent(handle());
+  const { manager, client } = await makeAgent(handle());
   manager.startIdleSessionReaper({ enabled: true, idleMs: 60 * 60_000, sweepMs: 30_000 });
 
   // "now" is now: the agent was created moments ago.
@@ -162,7 +162,7 @@ test("an agent younger than the threshold survives the sweep", async () => {
 });
 
 test("a failing close leaves the agent alone rather than aborting the sweep", async () => {
-  const { manager, client, agent } = await makeAgent(handle());
+  const { manager, client } = await makeAgent(handle());
   manager.startIdleSessionReaper({ enabled: true, idleMs: 60_000, sweepMs: 30_000 });
   vi.spyOn(client.sessions[0]!, "close").mockRejectedValue(new Error("provider wedged"));
 
