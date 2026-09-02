@@ -200,6 +200,7 @@ export const en = {
     empty: "Start chatting with this agent...",
     scrollToBottom: "Scroll to bottom",
     historyLoadFailed: "Couldn't load agent history",
+    messageCapped: "This message was capped ({{bytes}} bytes).",
     permission: {
       plan: "Plan",
       required: "Permission Required",
@@ -343,7 +344,6 @@ export const en = {
         added: "Added",
         started: "Started",
         completed: "Completed",
-        reopened: "Reopened",
       },
     },
     compaction: {
@@ -414,6 +414,7 @@ export const en = {
     },
     fileActions: {
       openFile: "Open file",
+      openIn: "Open in {{target}}",
       openToSide: "Open to the side",
       copyPath: "Copy path",
       copyRelativePath: "Copy relative path",
@@ -949,6 +950,16 @@ export const en = {
         accessibility: {
           pullRequest: "Pull request #{{number}}",
           pullRequest_mr: "Merge request !{{number}}",
+          checkStatus: {
+            passed: "Passed",
+            failed: "Failed",
+            warning: "Warning",
+            actionRequired: "Action required",
+            manual: "Manual",
+            pending: "Pending",
+            skipped: "Skipped",
+            cancelled: "Cancelled",
+          },
         },
         states: {
           draft: "Draft",
@@ -1138,6 +1149,14 @@ export const en = {
         serviceRunning: "Service {{name}} running",
         serviceUnhealthy: "Service {{name}} unhealthy",
         creating: "Creating...",
+      },
+      checks: {
+        passed: "Passed: {{count}}",
+        failed: "Failed: {{count}}",
+        warning: "Warnings: {{count}}",
+        actionRequired: "Action required: {{count}}",
+        manual: "Manual: {{count}}",
+        pending: "Pending: {{count}}",
       },
       actions: {
         menu: "Workspace actions",
@@ -1549,6 +1568,10 @@ export const en = {
         title: "Direct connection",
         description: "Local network or VPN.",
       },
+      remoteSsh: {
+        title: "Remote SSH",
+        description: "Connect through the desktop SSH client.",
+      },
       scanQr: {
         title: "Scan QR code",
         description: "Encrypted relay connection.",
@@ -1598,6 +1621,23 @@ export const en = {
           "TLS error. Direct connections use SSL only when a TLS terminator is in front of the daemon.",
         unableToConnect: "Unable to connect. Check the host/port and that the daemon is reachable.",
         details: "Details: {{detail}}",
+      },
+    },
+    remoteSsh: {
+      title: "Remote SSH",
+      helper: "Connect to a Paseo daemon running on the remote host.",
+      fields: {
+        target: "SSH host",
+      },
+      actions: {
+        cancel: "Cancel",
+        connect: "Connect",
+        connecting: "Connecting...",
+      },
+      errors: {
+        targetRequired: "SSH host is required",
+        invalidTarget: "Enter a valid ssh:// host",
+        failedToConnect: "Unable to connect over SSH. {{detail}}",
       },
     },
     link: {
@@ -1874,15 +1914,16 @@ export const en = {
         destinations: {
           main: "Main panel",
           side: "On the side",
+          explorer: "Explorer sidebar",
         },
         sources: {
           explorerFiles: {
             label: "Selecting a file in Explorer",
             description: "Open files selected in the Explorer sidebar beside your work",
           },
-          explorerChanges: {
-            label: "Selecting a change in Explorer",
-            description: "Open diffs selected in the Explorer sidebar beside your work",
+          diffs: {
+            label: "Opening a diff",
+            description: "Open diffs from Explorer and agent conversations beside your work",
           },
           chatFiles: {
             label: "Opening a file from an agent chat",
@@ -1899,10 +1940,6 @@ export const en = {
           pullRequests: {
             label: "Opening a pull request from Changes",
             description: "Open pull request details beside Changes",
-          },
-          changesLinks: {
-            label: "Opening Changes from an agent",
-            description: "Open diff stats and review attachments beside the conversation",
           },
         },
       },
@@ -2326,6 +2363,7 @@ export const en = {
       badges: {
         relay: "Relay",
         local: "Local",
+        remoteSsh: "Remote SSH",
       },
       connections: {
         title: "Connections",
