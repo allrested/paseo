@@ -284,6 +284,48 @@ already does. For the same reason, agents reach their own dev server as
 `http://${INSTANCE_NAME}:3000`; plain `http://paseo:3000` is ambiguous once a
 second instance exists.
 
+## Sharing one browser between instances
+
+Every instance running `docker-compose.yml` starts its own Chromium. That is
+the right default — separate people should not share cookies — but it costs
+roughly a gigabyte of RSS each, and on a host with several instances the
+browsers outweigh the daemons.
+
+`docker-compose.agent.yml` is the same stack **without** `browser` and
+`browser-cdp`. It drives a Chromium another stack already runs:
+
+```sh
+BROWSER_HOST=tatsuya-browser docker compose -f docker-compose.agent.yml up -d
+```
+
+So on a host running three people, the first uses `docker-compose.yml` and the
+other two borrow its browser. Three browsers become one.
+
+**Only share between people who may see each other's sessions.** One browser is
+one set of cookies, logins and tabs: colleagues on the same accounts, yes;
+separate customers, no. Give anyone who needs isolation their own
+`docker-compose.yml` instance.
+
+`BROWSER_HOST` is the browser's **container** name — `${INSTANCE_NAME}-browser`
+in the owning stack. Not the service name: Compose gives every stack's `browser`
+service the same `browser` alias on the shared network, so the service name can
+resolve to the wrong person's Chromium. There is no default; the stack refuses
+to start without it rather than come up with agents that cannot drive anything.
+
+Both stacks must share `dokploy-network` — that is how this one resolves and
+reaches the browser. `BROWSER_CDP_PORT` (9223) must match the `TCP-LISTEN` in
+the owning stack's `browser-cdp` sidecar.
+
+The borrowing stack keeps its own `paseo-cdp`. It looks redundant once the
+browser is remote, but the agents cannot reach CDP over the network: Chrome
+rejects any Host header that is not localhost or an IP, and `/json/version`
+advertises `ws://127.0.0.1:9222/…` which clients follow verbatim. Keeping it
+also means Playwright MCP uses the same `--cdp-endpoint http://127.0.0.1:9222`
+whether the browser is local or borrowed, so nobody's agent config has to differ.
+
+The owning stack is a dependency. Restarting or removing it takes the borrowers'
+browser with it; their daemons stay up and only browser-driving tools fail.
+
 ## Building on Windows
 
 A checkout with `core.autocrlf=true` rewrites `base/rootfs`'s entrypoint to
