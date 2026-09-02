@@ -33,6 +33,21 @@ export interface ReapCandidate {
   activeTurnId: string | null;
   /** Outstanding permission prompts waiting on a human. */
   pendingPermissionCount: number;
+  /**
+   * Whether the provider can rebuild this session later.
+   *
+   * Verified against kiro-cli, which advertises ACP `loadSession: true` and so
+   * replays its history on resume. A provider advertising neither `loadSession`
+   * nor `unstable_resumeSession` makes `initializeResumedSession` throw, so
+   * reaping it would leave the agent unopenable — far worse than the leak.
+   */
+  supportsSessionPersistence: boolean;
+  /**
+   * Whether a persistence handle exists to resume FROM. Without one, agent
+   * loading falls back to `createAgent` with the stored config, which starts a
+   * fresh conversation and silently loses history.
+   */
+  hasPersistenceHandle: boolean;
 }
 
 export interface IdleReaperConfig {
@@ -103,6 +118,12 @@ function isReapable(candidate: ReapCandidate, cutoff: number): boolean {
   // "initializing" is still starting up, "running" is mid-turn, "error" may be
   // inspected by the user, "closed" has no session left to reap.
   if (candidate.lifecycle !== "idle") {
+    return false;
+  }
+  // Only reap what can come back. Reclaiming memory is worth a slower next
+  // prompt; it is never worth an agent the user cannot reopen, or one that
+  // reopens having quietly forgotten the conversation.
+  if (!candidate.supportsSessionPersistence || !candidate.hasPersistenceHandle) {
     return false;
   }
   // Belt and braces: an idle agent should have neither, but the lifecycle field

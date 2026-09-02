@@ -846,6 +846,8 @@ export class AgentManager {
       activeForegroundTurnId: agent.activeForegroundTurnId,
       activeTurnId: agent.activeTurnId,
       pendingPermissionCount: agent.pendingPermissions.size,
+      supportsSessionPersistence: agent.capabilities.supportsSessionPersistence === true,
+      hasPersistenceHandle: agent.persistence !== null,
     }));
     const doomed = selectIdleAgentsToReap(candidates, now, config.idleMs);
     const reaped: string[] = [];

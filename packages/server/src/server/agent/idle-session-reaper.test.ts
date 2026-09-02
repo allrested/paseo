@@ -19,6 +19,8 @@ function candidate(overrides: Partial<ReapCandidate> = {}): ReapCandidate {
     activeForegroundTurnId: null,
     activeTurnId: null,
     pendingPermissionCount: 0,
+    supportsSessionPersistence: true,
+    hasPersistenceHandle: true,
     ...overrides,
   };
 }
@@ -94,6 +96,25 @@ test("selects only the eligible agents out of a mixed set", () => {
 
 test("an empty candidate list is fine", () => {
   expect(selectIdleAgentsToReap([], NOW, HOUR_MS)).toEqual([]);
+});
+
+test("never reaps a provider that cannot rebuild the session", () => {
+  // initializeResumedSession throws for such a provider, so a reaped agent
+  // could not be reopened at all.
+  const noResume = candidate({ supportsSessionPersistence: false });
+  expect(selectIdleAgentsToReap([noResume], NOW, HOUR_MS)).toEqual([]);
+});
+
+test("never reaps an agent with no persistence handle to resume from", () => {
+  // Agent loading would fall back to createAgent and silently start a fresh
+  // conversation, losing the history.
+  const noHandle = candidate({ hasPersistenceHandle: false });
+  expect(selectIdleAgentsToReap([noHandle], NOW, HOUR_MS)).toEqual([]);
+});
+
+test("both resume preconditions are required, not either", () => {
+  const neither = candidate({ supportsSessionPersistence: false, hasPersistenceHandle: false });
+  expect(selectIdleAgentsToReap([neither], NOW, HOUR_MS)).toEqual([]);
 });
 
 // ---- configuration --------------------------------------------------------
