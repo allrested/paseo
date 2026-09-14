@@ -31,6 +31,7 @@ import type { FirstAgentContext } from "@getpaseo/protocol/messages";
 import { runWithGitCommandPriority } from "../utils/run-git-command.js";
 
 export interface CreatePaseoWorktreeInput extends CreateWorktreeCoreInput {
+  workspaceId?: string;
   projectId?: string;
   title?: string;
 }
@@ -93,6 +94,7 @@ async function createPaseoWorktreeWithPriority(
     const workspace = await deps.workspaceProvisioning.createWorkspaceForWorktree({
       sourceCwd: workspaceCwdPlan.inputCwd,
       projectId: input.projectId,
+      workspaceId: input.workspaceId,
       repoRoot: createdWorktree.repoRoot,
       cwd: workspaceCwd,
       worktreeRoot: createdWorktree.worktree.worktreePath,
@@ -100,6 +102,17 @@ async function createPaseoWorktreeWithPriority(
       baseBranch: resolveIntentBaseBranch(createdWorktree.intent),
       title: input.title?.trim() || resolveFirstAgentPromptTitle(input.firstAgentContext),
       expectsInitialAgent: Boolean(input.firstAgentContext),
+      ...(createdWorktree.intent.kind === "checkout-change-request" &&
+      createdWorktree.intent.headRepository
+        ? {
+            untrustedSource: {
+              kind: "change_request" as const,
+              forge: createdWorktree.intent.forge,
+              number: createdWorktree.intent.changeRequestNumber,
+              headRepository: createdWorktree.intent.headRepository,
+            },
+          }
+        : {}),
     });
 
     deps.github.invalidate({ cwd: createdWorktree.worktree.worktreePath });

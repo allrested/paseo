@@ -3,7 +3,6 @@ import path from "node:path";
 import type {
   PluginListItem,
   PluginLogEntry,
-  PluginSourceStatusItem,
   PluginSourceUpdateItem,
 } from "@getpaseo/protocol/messages";
 import {
@@ -34,6 +33,9 @@ const pluginSchema: OutputSchema<PluginListItem> = {
     { header: "PLUGIN", field: "id", width: 20 },
     { header: "STATUS", field: "status", width: 10 },
     { header: "ENABLED", field: (plugin) => (plugin.enabled ? "yes" : "no"), width: 8 },
+    { header: "SOURCE", field: (plugin) => plugin.source ?? "directory", width: 10 },
+    { header: "COMMIT", field: (plugin) => shortCommit(plugin.commit), width: 14 },
+    { header: "REF", field: (plugin) => plugin.ref ?? "-", width: 24 },
     { header: "DIRECTORY", field: "path", width: 40 },
     { header: "ERROR", field: (plugin) => plugin.error ?? "", width: 40 },
   ],
@@ -60,18 +62,6 @@ function shortCommit(commit: string | undefined): string {
   return commit?.slice(0, 12) ?? "-";
 }
 
-const pluginStatusSchema: OutputSchema<PluginSourceStatusItem> = {
-  idField: "id",
-  columns: [
-    { header: "PLUGIN", field: "id", width: 20 },
-    { header: "SOURCE", field: "source", width: 10 },
-    { header: "CURRENT", field: (plugin) => shortCommit(plugin.currentCommit), width: 14 },
-    { header: "LATEST", field: (plugin) => shortCommit(plugin.latestCommit), width: 14 },
-    { header: "COMMITS", field: (plugin) => String(plugin.commitsBehind ?? 0), width: 8 },
-    { header: "REF", field: (plugin) => plugin.ref ?? "-", width: 24 },
-  ],
-};
-
 const pluginUpdateSchema: OutputSchema<PluginSourceUpdateItem> = {
   idField: "id",
   columns: [
@@ -96,10 +86,15 @@ export async function runPluginInitCommand(
 }
 
 export async function runPluginListCommand(
+  pluginId: string | undefined,
   options: PluginOptions,
   _command: Command,
 ): Promise<ListResult<PluginListItem>> {
-  const data = await withPluginManagementClient(options.host, (client) => client.listPlugins());
+  const plugins = await withPluginManagementClient(options.daemonTarget, (client) =>
+    client.listPlugins(),
+  );
+  const data = pluginId ? plugins.filter((plugin) => plugin.id === pluginId) : plugins;
+  if (pluginId && data.length === 0) throw new Error(`Plugin is not configured: ${pluginId}`);
   return { type: "list", data, schema: pluginSchema };
 }
 
@@ -108,7 +103,9 @@ export async function runPluginLogsCommand(
   options: PluginOptions,
   _command: Command,
 ): Promise<ListResult<PluginLogEntry>> {
-  const data = await withPluginLogsClient(options.host, (client) => client.getPluginLogs(pluginId));
+  const data = await withPluginLogsClient(options.daemonTarget, (client) =>
+    client.getPluginLogs(pluginId),
+  );
   return { type: "list", data, schema: pluginLogsSchema };
 }
 
@@ -133,10 +130,10 @@ async function install(
     isExplicitPath && !hasPluginPathSuffix && !options.ref && !options.path;
   const sourceReference = formatPluginSourceReference(source, options.path);
   const data = canUseLegacyDirectoryInstall
-    ? await withPluginManagementClient(options.host, (client) =>
+    ? await withPluginManagementClient(options.daemonTarget, (client) =>
         client.installDirectoryPlugin(source, options.id),
       )
-    : await withPluginSourceClient(options.host, (client) =>
+    : await withPluginSourceClient(options.daemonTarget, (client) =>
         client.installPluginSource({
           source: sourceReference,
           ...(options.id ? { id: options.id } : {}),
@@ -144,17 +141,6 @@ async function install(
         }),
       );
   return { type: "single", data, schema: pluginSchema };
-}
-
-async function status(
-  pluginId: string | undefined,
-  options: PluginOptions,
-  _command: Command,
-): Promise<ListResult<PluginSourceStatusItem>> {
-  const data = await withPluginSourceClient(options.host, (client) =>
-    client.getPluginSourceStatus(pluginId),
-  );
-  return { type: "list", data, schema: pluginStatusSchema };
 }
 
 async function update(
@@ -165,7 +151,7 @@ async function update(
   if ((pluginId === undefined) === (options.all !== true)) {
     throw new Error("Choose one plugin ID or pass --all");
   }
-  const data = await withPluginSourceClient(options.host, (client) =>
+  const data = await withPluginSourceClient(options.daemonTarget, (client) =>
     client.updatePluginSources(pluginId),
   );
   return { type: "list", data, schema: pluginUpdateSchema };
@@ -176,7 +162,7 @@ async function act(
   pluginId: string,
   options: PluginOptions,
 ): Promise<SingleResult<PluginListItem>> {
-  const data = await withPluginManagementClient(options.host, (client) =>
+  const data = await withPluginManagementClient(options.daemonTarget, (client) =>
     client[`${action}Plugin`](pluginId),
   );
   return { type: "single", data, schema: pluginSchema };
@@ -187,7 +173,7 @@ async function remove(
   options: PluginOptions,
   _command: Command,
 ): Promise<SingleResult<PluginListItem>> {
-  const data = await withPluginManagementClient(options.host, async (client) => {
+  const data = await withPluginManagementClient(options.daemonTarget, async (client) => {
     const current = (await client.listPlugins()).find((plugin) => plugin.id === pluginId);
     if (!current) throw new Error(`Plugin is not configured: ${pluginId}`);
     await client.removePlugin(pluginId);
@@ -205,7 +191,10 @@ export function createPluginCommand(): Command {
       .argument("<directory>")
       .option("--id <id>", "Manifest plugin ID (defaults to the directory name)"),
   ).action(withOutput(runPluginInitCommand));
-  addJsonAndDaemonHostOptions(plugin.command("ls").description("List configured plugins")).action(
+  addJsonAndDaemonHostOptions(
+    plugin.command("ls").description("List configured plugins").argument("[id]"),
+  ).action(withOutput(runPluginListCommand));
+  addJsonAndDaemonHostOptions(plugin.command("status", { hidden: true }).argument("[id]")).action(
     withOutput(runPluginListCommand),
   );
   addJsonAndDaemonHostOptions(
@@ -222,12 +211,9 @@ export function createPluginCommand(): Command {
       .option("--path <path>", "Legacy form of the :plugin/path source suffix"),
   ).action(withOutput(install));
   addJsonAndDaemonHostOptions(
-    plugin.command("status").description("Check plugin source updates").argument("[id]"),
-  ).action(withOutput(status));
-  addJsonAndDaemonHostOptions(
     plugin
       .command("update")
-      .description("Update a Git-managed plugin")
+      .description("Fetch and install Git-managed plugin updates")
       .argument("[id]")
       .option("--all", "Update every Git-managed plugin"),
   ).action(withOutput(update));
