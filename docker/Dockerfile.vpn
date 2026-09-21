@@ -9,6 +9,11 @@
 # the wrong trade.
 FROM debian:bookworm-slim
 
+# Links the published package to its repository on GHCR. Defaults to upstream so
+# forks stay mergeable; CI overrides it per repository via --build-arg.
+ARG IMAGE_SOURCE=https://github.com/getpaseo/paseo
+LABEL org.opencontainers.image.source="${IMAGE_SOURCE}"
+
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \

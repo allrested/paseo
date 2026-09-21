@@ -17,6 +17,14 @@
 ARG PASEO_IMAGE=paseo:src
 FROM ${PASEO_IMAGE}
 
+# Links the published package to its repository on GHCR. Without it the image is
+# filed under the account rather than shown on the repo's Packages panel, and
+# provenance has to be inferred from which workflow run happened to succeed.
+# Defaults to upstream so forks stay mergeable; CI overrides it per repository:
+#   --build-arg IMAGE_SOURCE=https://github.com/${{ github.repository }}
+ARG IMAGE_SOURCE=https://github.com/getpaseo/paseo
+LABEL org.opencontainers.image.source="${IMAGE_SOURCE}"
+
 USER root
 # @playwright/mcp is installed but its browsers deliberately are not: it runs
 # with --cdp-endpoint against the `browser` service, so it drives that Chromium

@@ -153,6 +153,7 @@ jobs:
           platforms: ${{ env.PLATFORMS }}
           build-args: |
             PASEO_VERSION=${{ needs.setup.outputs.install_version }}
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
           tags: ${{ needs.setup.outputs.check_tag }}
           push: false
           provenance: false
@@ -164,6 +165,8 @@ jobs:
           context: docker
           file: docker/Dockerfile.vpn
           platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
           push: false
           provenance: false
           cache-from: type=gha,scope=paseo-vpn
@@ -196,6 +199,7 @@ jobs:
           platforms: ${{ env.PLATFORMS }}
           build-args: |
             PASEO_VERSION=${{ needs.setup.outputs.install_version }}
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
           tags: ${{ needs.setup.outputs.publish_tags }}
           push: true
           provenance: false
@@ -235,6 +239,7 @@ jobs:
           platforms: ${{ env.PLATFORMS }}
           build-args: |
             PASEO_IMAGE=${{ needs.setup.outputs.base_ref_tag }}
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
           tags: ${{ needs.setup.outputs.agents_publish_tags }}
           push: true
           provenance: false
@@ -269,6 +274,8 @@ jobs:
           context: docker
           file: docker/Dockerfile.vpn
           platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
           tags: ${{ needs.setup.outputs.vpn_publish_tags }}
           push: true
           provenance: false
