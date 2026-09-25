@@ -1,0 +1,115 @@
+# Paseo daemon + agents, WITHOUT a browser of its own.
+#
+# Same as docker-compose.yml minus the `browser` and `browser-cdp` services:
+# this stack drives a Chromium that some OTHER stack already runs. Two agents
+# that share a browser also share its cookies, logins and tabs, so only put
+# people on one browser when they may legitimately see each other's sessions —
+# colleagues on the same accounts, not separate customers.
+#
+# Saves roughly a gigabyte of RSS per agent that would otherwise run its own
+# Chromium, plus the noVNC port.
+#
+#   BROWSER_HOST=tatsuya-browser docker compose -f docker-compose.agent.yml up -d
+#
+# WHICH FILE TO USE
+#   docker-compose.yml        an instance with its own browser (the first one)
+#   docker-compose.agent.yml  an instance borrowing that browser (every other)
+#
+# So on a host running three people, one uses docker-compose.yml and the other
+# two use this file with BROWSER_HOST pointed at the first one's browser.
+#
+# REQUIREMENTS
+#   - BROWSER_HOST must name the browser's CONTAINER (e.g. `tatsuya-browser`,
+#     which is `${INSTANCE_NAME}-browser` in that stack), not its service name.
+#     On a shared proxy network every stack's `browser` service carries the
+#     same `browser` DNS alias, so the service name could resolve to the wrong
+#     person's Chromium. The container name is unique.
+#   - That container must expose CDP on BROWSER_CDP_PORT (9223 by default),
+#     which its own `browser-cdp` sidecar does.
+#   - Both stacks must share `dokploy-network`, which is how this one resolves
+#     and reaches it.
+#
+# WHY paseo-cdp IS STILL HERE
+#   It looks removable — the browser is remote now, so why proxy? Because the
+#   agents cannot talk to CDP over the network at all:
+#     1. Chrome rejects any Host header that is not localhost or an IP, so
+#        http://tatsuya-browser:9223 answers 500 where http://127.0.0.1:9222
+#        answers 200.
+#     2. /json/version advertises webSocketDebuggerUrl as ws://127.0.0.1:9222/…
+#        and clients follow it verbatim, so that address must be valid where
+#        the client runs.
+#   Keeping it also means every instance's Playwright MCP uses the same
+#   `--cdp-endpoint http://127.0.0.1:9222`, whether its browser is local or
+#   borrowed. Point the MCP at a remote host instead and each person's agent
+#   config has to differ.
+#
+#   http://localhost:${PASEO_PORT}    Paseo web UI
+#   http://localhost:${DEV_PORT}      your dev server
+#   the browser's screen              on the OWNING stack's BROWSER_PORT
+services:
+  paseo:
+    # Pulled, never built — see docker-compose.yml and docker/README.md.
+    image: ${AGENT_IMAGE:-ghcr.io/allrested/paseo-agents:latest}
+    pull_policy: always
+    container_name: ${INSTANCE_NAME:-paseo}
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${PASEO_PORT:-6767}:6767"
+      - "${BIND_ADDRESS:-0.0.0.0}:${DEV_PORT:-6666}:${DEV_PORT_INTERNAL:-3000}"
+    environment:
+      PASEO_PASSWORD: ${PASEO_PASSWORD:-change-me}
+      PASEO_HOSTNAMES: ${PASEO_HOSTNAMES:-}
+      TZ: ${TZ:-Asia/Jakarta}
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-}
+      GIT_COMMITTER_NAME: ${GIT_COMMITTER_NAME:-${GIT_AUTHOR_NAME:-}}
+      GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-${GIT_AUTHOR_EMAIL:-}}
+      BDDEVLAB_API_KEY: ${BDDEVLAB_API_KEY:-}
+      INTERNAL_SSH_HOST: ${INTERNAL_SSH_HOST:-}
+      INTERNAL_SSH_KEY_FILE: ${INTERNAL_SSH_KEY_FILE:-}
+      SSH_KNOWN_HOSTS_EXTRA: ${SSH_KNOWN_HOSTS_EXTRA:-}
+    volumes:
+      # Daemon state and agent credentials. Per-instance, never shared.
+      - ${PASEO_HOME_DIR:-./paseo-home}:/home/paseo
+      # Code visible to Paseo and the agents it launches. Shareable.
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+    networks:
+      - default
+      # Required here, not merely useful: this is how the stack reaches the
+      # browser owned by another stack, as well as how a reverse proxy reaches
+      # this one.
+      - dokploy-network
+
+  # Publishes the borrowed browser's CDP on this daemon's own loopback. Same
+  # role as in docker-compose.yml; only the target differs, and it is the one
+  # thing this file is really about.
+  paseo-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-cdp
+    restart: unless-stopped
+    network_mode: "service:paseo"
+    depends_on:
+      - paseo
+    # BROWSER_HOST has no default on purpose: an unset value would silently
+    # produce a daemon whose agents cannot drive any browser, and the failure
+    # would surface much later as a confusing MCP error.
+    command: >-
+      TCP-LISTEN:9222,fork,reuseaddr,bind=127.0.0.1
+      TCP:${BROWSER_HOST:?set BROWSER_HOST to the browser container to borrow, e.g. tatsuya-browser}:${BROWSER_CDP_PORT:-9223}
+    # Same zombie-netns detection as docker-compose.yml: a sidecar left in a
+    # replaced container's namespace still reports Up while its listener is
+    # gone from where anyone looks for it.
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:6767,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  default: {}
+  # Shared with the stack that owns the browser. Created by the reverse proxy's
+  # stack; on a host without it:
+  #   docker network create dokploy-network
+  dokploy-network:
+    external: true

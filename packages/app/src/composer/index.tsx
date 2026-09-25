@@ -279,30 +279,33 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
   };
 }
 
-function renderContextWindowMeter(
-  contextWindowMaxTokens: number | null,
-  contextWindowUsedTokens: number | null,
-  totalCostUsd: number | null,
-  showPercentage: boolean,
-  serverId: string,
-  provider: string | null,
-  pending: boolean,
-  glyphSize: number,
-): ReactElement | null {
+function renderContextWindowMeter(args: {
+  contextWindowMaxTokens: number | null;
+  contextWindowUsedTokens: number | null;
+  totalCostUsd: number | null;
+  showPercentage: boolean;
+  serverId: string;
+  provider: string | null;
+  model: string | null;
+  pending: boolean;
+  glyphSize: number;
+}): ReactElement | null {
+  const { contextWindowMaxTokens, contextWindowUsedTokens } = args;
   const hasData = contextWindowMaxTokens !== null && contextWindowUsedTokens !== null;
-  if (!hasData && !pending) {
+  if (!hasData && !args.pending) {
     return null;
   }
   return (
     <ContextWindowMeter
       maxTokens={contextWindowMaxTokens}
       usedTokens={contextWindowUsedTokens}
-      totalCostUsd={totalCostUsd}
-      showPercentage={showPercentage}
-      serverId={serverId}
-      provider={provider}
-      pending={pending}
-      glyphSize={glyphSize}
+      totalCostUsd={args.totalCostUsd}
+      showPercentage={args.showPercentage}
+      serverId={args.serverId}
+      provider={args.provider}
+      model={args.model}
+      pending={args.pending}
+      glyphSize={args.glyphSize}
     />
   );
 }
@@ -2080,22 +2083,24 @@ function ComposerContentImpl({
 
   const contextWindowMeter = useMemo(
     () =>
-      renderContextWindowMeter(
+      renderContextWindowMeter({
         contextWindowMaxTokens,
         contextWindowUsedTokens,
-        agentState.totalCostUsd,
-        false,
+        totalCostUsd: agentState.totalCostUsd,
+        showPercentage: false,
         serverId,
-        agentState.provider,
-        contextWindowPending,
-        contextWindowMeterGlyphSize,
-      ),
+        provider: agentState.provider,
+        model: agentState.model,
+        pending: contextWindowPending,
+        glyphSize: contextWindowMeterGlyphSize,
+      }),
     [
       contextWindowMaxTokens,
       contextWindowUsedTokens,
       agentState.totalCostUsd,
       serverId,
       agentState.provider,
+      agentState.model,
       contextWindowPending,
       contextWindowMeterGlyphSize,
     ],
