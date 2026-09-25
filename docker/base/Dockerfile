@@ -29,6 +29,11 @@ RUN set -eux; \
 
 FROM ${NODE_IMAGE}
 
+# Links the published package to its repository on GHCR. Defaults to upstream so
+# forks stay mergeable; CI overrides it per repository via --build-arg.
+ARG IMAGE_SOURCE=https://github.com/getpaseo/paseo
+LABEL org.opencontainers.image.source="${IMAGE_SOURCE}"
+
 ENV HOME=/home/paseo \
     PASEO_HOME=/home/paseo/.paseo \
     PASEO_LISTEN=0.0.0.0:6767 \
