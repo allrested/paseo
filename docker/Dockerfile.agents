@@ -1,0 +1,200 @@
+# syntax=docker/dockerfile:1
+# Child image that adds agent CLIs to the Paseo base image.
+#
+# Defaults to `paseo:src`, a Paseo built from this repo, because the Kiro usage
+# fetcher (services/quota-fetcher/providers/kiro.ts) lives inside
+# @getpaseo/server and cannot be layered on from here. Build the base first:
+#
+#   docker build -f docker/base/Dockerfile -t paseo:src .
+#
+# To go back to the published image — dropping Kiro usage with it:
+#
+#   docker compose build --build-arg PASEO_IMAGE=ghcr.io/getpaseo/paseo:latest
+#
+# docker/docker-compose.yml builds this image directly, so `docker compose up -d
+# --build` is enough for the normal workflow.
+
+ARG PASEO_IMAGE=paseo:src
+FROM ${PASEO_IMAGE}
+
+# Links the published package to its repository on GHCR. Without it the image is
+# filed under the account rather than shown on the repo's Packages panel, and
+# provenance has to be inferred from which workflow run happened to succeed.
+# Defaults to upstream so forks stay mergeable; CI overrides it per repository:
+#   --build-arg IMAGE_SOURCE=https://github.com/${{ github.repository }}
+ARG IMAGE_SOURCE=https://github.com/getpaseo/paseo
+LABEL org.opencontainers.image.source="${IMAGE_SOURCE}"
+
+USER root
+# @playwright/mcp is installed but its browsers deliberately are not: it runs
+# with --cdp-endpoint against the `browser` service, so it drives that Chromium
+# instead of launching its own. That keeps ~500MB of browser binaries out of
+# this image and, more importantly, puts the agents and you in the same browser.
+#
+# The chown belongs in THIS layer, not a later one. These packages are ~1.4 GB;
+# a `chown -R` in a separate RUN rewrites every one of those files into a new
+# layer and grows the image by that much, for a metadata change. Setting the
+# ownership where the files are created costs nothing.
+#
+# It is needed because the install runs as root while Paseo runs agents as
+# `paseo` (uid 1000), and Claude Code's updater writes into the npm prefix:
+# without this, every container built from this image reports that it has no
+# write permission there and can never self-update. Nothing after this step
+# writes into node_modules, so the ownership survives.
+RUN npm install -g \
+  @anthropic-ai/claude-code \
+  @openai/codex \
+  opencode-ai \
+  @playwright/mcp \
+  && chown -R paseo:paseo /usr/local/lib/node_modules
+
+# Kiro CLI has no npm package, so it comes from Amazon's release archive.
+#
+# Two things this has to work around:
+#   * Kiro installs to $HOME/.local/bin by default. HOME is /home/paseo, which
+#     is a mounted volume at runtime, so a build-time install there would be
+#     masked. Q_INSTALL_GLOBAL=1 puts the binaries in /usr/local/bin instead.
+#   * The aarch64 GNU build needs glibc 2.39; this image is bookworm (2.36).
+#     The musl build has no such floor, so arm64 uses that variant.
+#
+# Q_SKIP_SETUP=1 skips the installer's interactive shell-integration setup.
+# One RUN layer keeps the ~560 MB archive out of the image.
+ARG TARGETARCH
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends unzip; \
+    rm -rf /var/lib/apt/lists/*; \
+    case "$TARGETARCH" in \
+      amd64) asset="kirocli-x86_64-linux.zip" ;; \
+      arm64) asset="kirocli-aarch64-linux-musl.zip" ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/kirocli.zip \
+      "https://desktop-release.q.us-east-1.amazonaws.com/latest/${asset}"; \
+    unzip -q /tmp/kirocli.zip -d /tmp; \
+    Q_INSTALL_GLOBAL=1 Q_SKIP_SETUP=1 /tmp/kirocli/install.sh; \
+    rm -rf /tmp/kirocli.zip /tmp/kirocli; \
+    kiro-cli --version
+
+# GitHub CLI, from GitHub's own apt repo. Kept after the Kiro step so editing
+# this does not invalidate that layer and re-download the archive.
+RUN set -eux; \
+    mkdir -p -m 755 /etc/apt/keyrings; \
+    curl -fsSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+      https://cli.github.com/packages/githubcli-archive-keyring.gpg; \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends gh; \
+    rm -rf /var/lib/apt/lists/*; \
+    gh --version
+
+# GitHub's SSH host keys, system-wide.
+#
+# Without this, the first `git clone git@github.com:...` in a fresh container
+# fails with "Host key verification failed" — a per-user known_hosts starts
+# empty, and every new instance gets one. OpenSSH also ignores a known_hosts it
+# does not own, so a clone that runs as root fails even when the paseo user has
+# already trusted the host.
+#
+# Keys come from GitHub's own API over TLS so they stay current through a key
+# rotation, and the ED25519 fingerprint is pinned so a substituted key fails the
+# build instead of being trusted silently. Fingerprint published at
+# https://docs.github.com/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+RUN <<'SCRIPT'
+set -eux
+curl -fsSL https://api.github.com/meta -o /tmp/gh-meta.json
+node -e '
+const meta = require("/tmp/gh-meta.json");
+const keys = meta.ssh_keys;
+if (!Array.isArray(keys) || keys.length === 0) throw new Error("no ssh_keys in api.github.com/meta");
+require("node:fs").writeFileSync(
+  "/etc/ssh/ssh_known_hosts",
+  keys.map((k) => "github.com " + k).join("\n") + "\n",
+);
+'
+chmod 644 /etc/ssh/ssh_known_hosts
+rm -f /tmp/gh-meta.json
+ssh-keygen -lf /etc/ssh/ssh_known_hosts | grep -q "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU"
+SCRIPT
+
+# SSH configuration for an optional private Git server, applied at start from
+# the environment. See docker/docker-compose.vpn.yml.
+COPY agents/rootfs/ /
+RUN set -eux; \
+    sed -i 's/\r$//' /usr/local/bin/paseo-agents-ssh-setup; \
+    chmod +x /usr/local/bin/paseo-agents-ssh-setup; \
+    bash -n /usr/local/bin/paseo-agents-ssh-setup
+
+# The other half of the npm-prefix fix: npm needs write on /usr/local/bin to
+# replace the `claude` symlink it points at the package.
+#
+# Chowned as a directory and NOT recursively, for two reasons. It costs one
+# inode instead of copying the ~1.1 GB of Kiro binaries that live here into a
+# new layer, and the binaries other tools installed keep root ownership. The
+# directory has no sticky bit, so a self-updater that replaces a file — the
+# usual download-then-rename — still works; only one that rewrites a root-owned
+# binary in place would not.
+#
+# Last, after every root-owned install above: npm, the Kiro archive and the
+# rootfs copy. The entrypoint generated below lands here afterwards and stays
+# root-owned, which is correct — root runs it.
+RUN chown paseo:paseo /usr/local/bin
+
+# Paseo launches agents as the non-root `paseo` user (uid 1000), but /home/paseo
+# and /workspace are mounted volumes that survive rebuilds. Anything left
+# root-owned in them — most easily by a bare `docker exec`, which defaults to
+# root, or by Docker creating an empty bind-mount source — breaks agents in ways
+# that give no useful error: Kiro exits silently (code 0, no stderr) when
+# session/new cannot write .kiro/sessions, Codex fails to open its sqlite state
+# under .codex, and a root-owned /workspace refuses `mkdir` with EACCES.
+#
+# The base entrypoint chowns a fixed set of top-level dirs only when they are
+# themselves root-owned, so nested contamination survives. Repair both trees on
+# every start instead. The find only writes when something is actually
+# mis-owned, so the normal path is a read-only walk.
+RUN <<'SCRIPT'
+set -eux
+# A Windows checkout with core.autocrlf=true rewrites the base image's
+# entrypoint to CRLF, so its `#!/usr/bin/env bash` shebang picks up a trailing
+# carriage return and the container dies in a restart loop (exit 127). Strip
+# them with node so there is no shell escaping to get wrong. This is a no-op
+# for an image built from a Linux checkout.
+node -e "const f='/usr/local/bin/paseo-docker-entrypoint';const fs=require('fs');fs.writeFileSync(f,fs.readFileSync(f,'utf8').split(String.fromCharCode(13)).join(''))"
+bash -n /usr/local/bin/paseo-docker-entrypoint
+cat > /usr/local/bin/paseo-agents-entrypoint <<'ENTRY'
+#!/bin/sh
+set -e
+if [ "$(id -u)" = "0" ]; then
+  for tree in /home/paseo /workspace; do
+    [ -d "$tree" ] || continue
+    count=$(find "$tree" \( ! -user paseo -o ! -group paseo \) -print 2>/dev/null | wc -l)
+    if [ "$count" -gt 0 ]; then
+      echo "[agents] repairing ownership on $count path(s) under $tree" >&2
+      find "$tree" \( ! -user paseo -o ! -group paseo \) -exec chown paseo:paseo {} + 2>/dev/null || true
+    fi
+  done
+fi
+/usr/local/bin/paseo-agents-ssh-setup || echo "[agents] WARNING: paseo-agents-ssh-setup failed; continuing without internal SSH config" >&2
+# The stack files cannot omit these when they are unset: `${GIT_AUTHOR_NAME:-}`
+# defines the variable as an empty string, and git rejects an empty ident with
+# "empty ident name" instead of falling back to git config -- so an unconfigured
+# author breaks every commit in the container. Drop only the empties, before
+# exec so every descendant inherits the result. A configured identity still
+# reaches the agent untouched, which is what keeps per-container attribution
+# working on a shared /workspace.
+for var in GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL; do
+  eval "value=\${$var-}"
+  [ -n "$value" ] || unset "$var"
+done
+unset var value
+exec /usr/local/bin/paseo-docker-entrypoint "$@"
+ENTRY
+chmod +x /usr/local/bin/paseo-agents-entrypoint
+SCRIPT
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/paseo-agents-entrypoint"]
+
+# Leave the image user as root. The base entrypoint prepares mounted volumes,
+# then drops the daemon and launched agents to the non-root `paseo` user.

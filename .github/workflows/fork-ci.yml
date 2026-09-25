@@ -1,0 +1,126 @@
+# Fork CI — the checks this fork's own changes can actually break.
+#
+# Upstream's ci.yml is disabled here (`gh workflow disable "CI"`) rather than
+# edited, so merges from getpaseo:main never conflict over it. Re-enable it with
+# `gh workflow enable "CI"` for a full 18-job run when that is worth 25 minutes.
+#
+# This fork changes docker/** plus two usage providers in packages/server
+# (kiro, bddevlab). It does not touch the app, desktop, relay, CLI or SDK, and
+# upstream already proves those on their own runs — so re-testing them here buys
+# nothing and costs ~145 runner-minutes. The four jobs below are the ones that
+# can actually catch a fork-authored mistake.
+#
+# Deliberately not covered:
+#   playwright        browser E2E of packages/app — 4 shards x ~22 min, and each
+#                     shard re-pays the full build + agent-CLI install
+#   desktop-tests     packages/desktop — untouched here
+#   relay-tests       packages/relay — the relay is not deployed
+#   cli/app/sdk       untouched here
+#   server-tests on windows  the deploy target is arm64 linux; this also carries
+#                     a known flake in workspace-git-service.observation.test.ts
+#
+# The image build itself is covered by docker.yml, which is the real integration
+# test: it runs npm ci and packs every workspace.
+name: Fork CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Unlike upstream, cancel superseded runs on push too. Upstream sets this to
+# pull_request-only, which left a push-triggered run queued behind a stale one
+# and made CI look hung.
+concurrency:
+  group: fork-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: Check formatting
+        run: npm run format:check
+
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: Lint lockfile
+        run: npx --yes lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity
+      - name: Verify dependency signatures
+        run: npm audit signatures
+      - name: Lint
+        run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: Build server stack
+        run: npm run build:server
+      - name: Typecheck all packages
+        run: npm run typecheck
+
+  server-tests:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      # Full history: the worktree tests resolve refs against origin/main.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Fetch origin/main (worktree tests)
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: Install agent CLIs for provider tests
+        run: node scripts/npm-retry.mjs install -g @anthropic-ai/claude-code opencode-ai
+      - name: Build server dependencies
+        run: npm run build:server-deps
+      # These secrets are absent on this fork. The suite skips the paths that
+      # need them rather than failing — verified green on a full upstream-CI run.
+      - name: Run server tests
+        run: npm run test --workspace=@getpaseo/server
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

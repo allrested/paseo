@@ -16,6 +16,8 @@ interface ContextWindowMeterProps {
   serverId?: string;
   /** The Paseo provider key, e.g. "claude", "gemini", "codex" */
   provider?: string | null;
+  /** The active model id, e.g. "bddevlab/claude-opus-5" — used to find gateway usage. */
+  model?: string | null;
   /** Reserve the meter footprint and show a loading ring while usage is pending. */
   pending?: boolean;
   /** Optional glyph envelope for icon-toolbar alignment. */
@@ -103,6 +105,7 @@ export function ContextWindowMeter({
   showPercentage = false,
   serverId,
   provider,
+  model,
   pending = false,
   glyphSize,
 }: ContextWindowMeterProps) {
@@ -233,7 +236,11 @@ export function ContextWindowMeter({
               {t("contextWindow.sessionCost", { cost: formattedSessionCost })}
             </Text>
           ) : null}
-          <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
+          <ProviderUsageTooltipSection
+            view={providerUsageView}
+            activeProviderId={provider}
+            activeModel={model}
+          />
         </View>
       </TooltipContent>
     </Tooltip>

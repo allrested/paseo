@@ -3,12 +3,14 @@ import type {
   ProviderUsageFetcherFactoryOptions,
   ProviderUsageFetcherManifestEntry,
 } from "./provider.js";
+import { BdDevLabQuotaProvider } from "./providers/bddevlab.js";
 import { ClaudeQuotaProvider } from "./providers/claude.js";
 import { CodexQuotaProvider } from "./providers/codex.js";
 import { CopilotQuotaProvider } from "./providers/copilot.js";
 import { CursorQuotaProvider } from "./providers/cursor.js";
 import { GrokQuotaProvider } from "./providers/grok.js";
 import { KimiQuotaProvider } from "./providers/kimi.js";
+import { KiroQuotaProvider } from "./providers/kiro.js";
 import { MiniMaxQuotaProvider } from "./providers/minimax.js";
 import { ZaiQuotaProvider } from "./providers/zai.js";
 
@@ -52,6 +54,15 @@ export const PROVIDER_USAGE_FETCHERS: readonly ProviderUsageFetcherManifestEntry
   {
     providerId: "minimax",
     create: (options) => new MiniMaxQuotaProvider({ logger: options.logger, fetch: options.fetch }),
+  },
+  {
+    providerId: "kiro",
+    create: (options) => new KiroQuotaProvider({ logger: options.logger, fetch: options.fetch }),
+  },
+  {
+    providerId: "bddevlab",
+    create: (options) =>
+      new BdDevLabQuotaProvider({ logger: options.logger, fetch: options.fetch }),
   },
 ];
 
