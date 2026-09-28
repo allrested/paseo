@@ -77,10 +77,12 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             install_version="${REF_NAME#v}"
             publish=true
+            # This fork deploys from :latest, so :latest follows whatever tag it
+            # last cut, prerelease included. Upstream leaves :latest alone for a
+            # prerelease; here that would strand the servers on the older build.
+            publish_latest=true
             if [[ "${REF_NAME}" == *-* ]]; then
               prerelease=true
-            else
-              publish_latest=true
             fi
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             if [[ "${INPUT_PUBLISH:-false}" == "true" ]]; then
