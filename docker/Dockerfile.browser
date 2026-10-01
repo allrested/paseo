@@ -1,0 +1,66 @@
+# syntax=docker/dockerfile:1
+# Desktop browser container with Postman, for manual API test evidence.
+#
+# The base image autostarts exactly one application under labwc/selkies and
+# ships no desktop menu to launch anything else, so a Postman installed into a
+# running container is never visible on the VNC session. Installing it here,
+# with a menu and autostart entry, is what makes it reachable.
+ARG BROWSER_BASE=lscr.io/linuxserver/chromium:latest
+FROM ${BROWSER_BASE}
+
+# Links the published package to its repository on GHCR. Defaults to upstream so
+# forks stay mergeable; CI overrides it per repository via --build-arg.
+ARG IMAGE_SOURCE=https://github.com/getpaseo/paseo
+LABEL org.opencontainers.image.source="${IMAGE_SOURCE}"
+
+# Postman publishes a prebuilt Electron tarball per architecture. TARGETARCH
+# comes from buildx, so one build covers both platforms the stack publishes.
+ARG TARGETARCH
+ARG POSTMAN_CHANNEL=latest
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) postman_build=linux64 ;; \
+      arm64) postman_build=linux_arm64 ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    curl -fsSL "https://dl.pstmn.io/download/${POSTMAN_CHANNEL}/${postman_build}" \
+      -o /tmp/postman.tar.gz; \
+    tar -xzf /tmp/postman.tar.gz -C /opt; \
+    rm -f /tmp/postman.tar.gz; \
+    rm -rf /var/lib/apt/lists/*; \
+    test -x /opt/Postman/Postman
+
+COPY browser/rootfs/ /
+
+# A Windows checkout with core.autocrlf=true rewrites these scripts to CRLF, so
+# the shebang picks up a trailing carriage return and the container dies with
+# exit 127. Strip them, then assert each script parses.
+RUN set -eux; \
+    for script in \
+      /usr/local/bin/wrapped-postman \
+      /usr/local/bin/postman-session \
+      /custom-cont-init.d/30-postman-session; \
+    do \
+      sed -i 's/\r$//' "$script"; \
+      bash -n "$script"; \
+      chmod 755 "$script"; \
+    done
+
+# Two paths have to be covered. An existing /config volume never picks up a new
+# default, so /custom-cont-init.d/30-postman-session patches it at runtime; a
+# fresh volume is seeded from /defaults before that script is guaranteed to have
+# run, so the defaults have to carry the entries as well.
+RUN set -eux; \
+    entry='<item label="Postman"><action name="Execute"><command>/usr/local/bin/wrapped-postman</command></action></item>'; \
+    for menu in /defaults/menu.xml /defaults/menu_wayland.xml; do \
+      [ -f "$menu" ] || continue; \
+      sed -i "s|</menu>|${entry}\n</menu>|" "$menu"; \
+      grep -q wrapped-postman "$menu"; \
+    done; \
+    for autostart in /defaults/autostart /defaults/autostart_wayland; do \
+      [ -f "$autostart" ] || continue; \
+      sed -i "/^wrapped-chromium/i /usr/local/bin/postman-session \&" "$autostart"; \
+      grep -q postman-session "$autostart"; \
+    done
