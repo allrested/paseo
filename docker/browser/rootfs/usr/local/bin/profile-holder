@@ -1,0 +1,17 @@
+#!/bin/bash
+# Print the PID of the live process holding a Chromium or Electron profile and
+# succeed, or fail when nothing holds it.
+#
+#   profile-holder <user-data-dir> <process-name>
+#
+# Both mark a profile in use with a SingletonLock symlink to "<hostname>-<pid>".
+# The lock is stale when it was left by an earlier container (another
+# hostname), by a process that has exited, or names a PID since reused by
+# something else. Launching is then safe once the Singleton* files are gone.
+# A live holder means a launch would only hand off to it and exit.
+lock=$(readlink "$1/SingletonLock" 2>/dev/null) || exit 1
+[[ "${lock%-*}" == "${HOSTNAME}" ]] || exit 1
+pid=${lock##*-}
+[[ "${pid}" =~ ^[0-9]+$ ]] || exit 1
+[[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" == "$2" ]] || exit 1
+echo "${pid}"

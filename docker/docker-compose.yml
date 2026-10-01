@@ -127,13 +127,18 @@ services:
     networks:
       - default
       - dokploy-network
-    # noVNC answering says nothing about Chromium: the browser process can
-    # crash or relaunch without its debug listener while the screen still
-    # serves. Agents need CDP, so health means CDP answers. Restarting the
-    # container relaunches Chromium with CHROME_CLI; the profile volume keeps
-    # logins across it.
+    # Health means the desktop answers: nginx on 3000 (its 401 without
+    # credentials still proves it is up) and Selkies behind it on 8082. Traefik
+    # routes only to a healthy container, and this used to probe CDP: when
+    # Chromium came back without its debug port, the desktop - the one place to
+    # fix that from - went offline with it. CDP liveness is browser-cdp's
+    # healthcheck below, and chromium-session relaunches Chromium when it exits.
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9222/json/version"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -so /dev/null http://127.0.0.1:3000/ && curl -so /dev/null http://127.0.0.1:8082/",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -154,7 +159,8 @@ services:
     # running inside the old namespace: docker still reports it Up, but its
     # listener no longer exists where anyone looks for it. Probing Chrome's CDP
     # on loopback only succeeds from the live browser namespace, so a zombie
-    # goes unhealthy instead of silently lying.
+    # goes unhealthy instead of silently lying. It is also where a lost CDP
+    # shows: the browser's own healthcheck watches the desktop.
     healthcheck:
       test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:9222,connect-timeout=2"]
       interval: 30s
@@ -164,6 +170,8 @@ services:
 
   # Postman's CDP, republished exactly like the browser's. Electron also binds
   # it to 127.0.0.1 only, so an agent outside this namespace cannot reach it.
+  # Postman picks its own port; postman-cdp-bridge in the browser image puts it
+  # on POSTMAN_CDP_PORT for this forward.
   postman-cdp:
     image: alpine/socat:latest
     container_name: ${INSTANCE_NAME:-paseo}-postman-cdp

@@ -1,0 +1,60 @@
+#!/usr/bin/with-contenv bash
+# Put Chromium and Postman under their session loops on an already-provisioned
+# desktop, and keep the profile usable by the desktop user.
+#
+# init-selkies-config copies /defaults/autostart and menu*.xml into
+# $HOME/.config only when the file is missing, and restores menu.xml from
+# menu.xml.bak on every start. An existing /config volume therefore never sees
+# a new default, and editing menu.xml alone is undone at the next restart - so
+# patch the backup too, and keep every edit idempotent.
+
+if [[ "${PIXELFLUX_WAYLAND,,}" == "true" ]]; then
+  CONF_DIR="${HOME}/.config/labwc"
+else
+  CONF_DIR="${HOME}/.config/openbox"
+fi
+
+# A root shell (docker exec) leaves root-owned files in the profile, and Postman
+# exits at once when it cannot write its own config dir. Hand anything there
+# back to the desktop user. Runtime state such as .XDG is left alone.
+for dir in .config .cache .local .pki Postman; do
+  [[ -e "${HOME}/${dir}" ]] || continue
+  find "${HOME}/${dir}" -xdev \( ! -user abc -o ! -group abc \) \
+    -exec chown -h abc:abc {} + 2>/dev/null
+done
+
+LAUNCH="/usr/local/bin/wrapped-postman"
+ENTRY="<item label=\"Postman\"><action name=\"Execute\"><command>${LAUNCH}</command></action></item>"
+
+for menu in "${CONF_DIR}/menu.xml" "${CONF_DIR}/menu.xml.bak"; do
+  [[ -f "${menu}" ]] || continue
+  grep -q "wrapped-postman" "${menu}" && continue
+  sed -i "s|</menu>|${ENTRY}\n</menu>|" "${menu}"
+  chown abc:abc "${menu}"
+  echo "[postman] menu entry added to ${menu}"
+done
+
+autostart="${CONF_DIR}/autostart"
+[[ -f "${autostart}" ]] || exit 0
+
+# The base image locks this file to root:abc 550 when RESTART_APP is set.
+owner="$(stat -c '%U:%G' "${autostart}")"
+mode="$(stat -c '%a' "${autostart}")"
+chmod u+w "${autostart}"
+
+# The line that starts the browser becomes the loop that keeps it up. That line
+# is also what holds the session open, so it stays last.
+if grep -q "^wrapped-chromium" "${autostart}"; then
+  sed -i "s|^wrapped-chromium.*|/usr/local/bin/chromium-session|" "${autostart}"
+  echo "[chromium] autostart now runs chromium-session"
+fi
+
+# Postman starts with the session unless asked not to. Its line goes before the
+# browser's: anything after that one only runs once the session ends.
+if [[ "${POSTMAN_AUTOSTART:-true}" == "true" ]] && ! grep -q "postman-session" "${autostart}"; then
+  sed -i "\|^/usr/local/bin/chromium-session|i /usr/local/bin/postman-session \&" "${autostart}"
+  echo "[postman] autostart entry added to ${autostart}"
+fi
+
+chown "${owner}" "${autostart}"
+chmod "${mode}" "${autostart}"

@@ -2,7 +2,26 @@
 # Keep Postman up for the life of the desktop session. An agent attaches to its
 # CDP port, so a crashed Postman means a dead endpoint and a failed capture,
 # not just a missing window.
+#
+# Checked here rather than only when the autostart line is written: a fresh
+# volume is seeded from /defaults, which always carries the line.
+[[ "${POSTMAN_AUTOSTART:-true}" == "true" ]] || exit 0
+
+# One loop per container: rerunning the autostart must not start a second.
+exec 9>"${TMPDIR:-/tmp}/postman-session.lock"
+flock -n 9 || exit 0
+
+PROFILE="${HOME}/.config/Postman"
+
+postman-cdp-bridge 9>&- &
+
 while true; do
-  wrapped-postman
+  # Same reasoning as chromium-session: a Postman opened from the menu holds
+  # the profile, and launching again would only hand off to it and exit.
+  if ! profile-holder "${PROFILE}" postman >/dev/null; then
+    # A lock left by an earlier container makes Postman quit on start.
+    rm -f "${PROFILE}"/Singleton*
+    wrapped-postman 9>&-
+  fi
   sleep 5
 done

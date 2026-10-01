@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Postman
-GenericName=API Client
-Comment=Build, send and capture API requests
-Exec=/usr/local/bin/wrapped-postman
-Terminal=false
-Categories=Development;Network;

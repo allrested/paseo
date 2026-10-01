@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -424,7 +437,9 @@ test("the VPN stack is self-contained: base services plus the VPN services", () 
     "browser-vpn-route",
     "paseo",
     "paseo-cdp",
+    "paseo-postman-cdp",
     "paseo-vpn-route",
+    "postman-cdp",
     "vpn",
   ]);
 });
@@ -451,7 +466,14 @@ test("shared services stay identical between the base stack and the VPN stack", 
   };
   const base = serviceBlocks(baseCompose);
   const vpn = serviceBlocks(vpnStack);
-  for (const name of ["paseo", "browser", "browser-cdp", "paseo-cdp"]) {
+  for (const name of [
+    "paseo",
+    "browser",
+    "browser-cdp",
+    "paseo-cdp",
+    "postman-cdp",
+    "paseo-postman-cdp",
+  ]) {
     assert.deepEqual(
       body(vpn.get(name)),
       body(base.get(name)),
@@ -1082,4 +1104,405 @@ test("agents image hands the npm prefix to the runtime user", () => {
       `the /usr/local/bin chown must come after "${earlier}"`,
     );
   }
+});
+
+// The shared browser. On 2026-10-01 its autostart Chromium exited, the one
+// relaunched from the desktop menu came up without a debug port, the CDP
+// healthcheck failed, and Traefik dropped the desktop's public route - the
+// one place the browser could be relaunched from. Postman's CDP had never
+// reached its fixed port at all. These tests hold each piece of the fix.
+const browserFile = (file) => fileURLToPath(new URL(`docker/browser/rootfs/${file}`, repoRoot));
+const browserDockerfile = readFileSync(
+  fileURLToPath(new URL("docker/Dockerfile.browser", repoRoot)),
+  "utf8",
+).replace(/\r\n/g, "\n");
+
+// A directory of stand-in commands, put first on PATH.
+function stubDir(stubs) {
+  const dir = mkdtempSync(path.join(tmpdir(), "paseo-stubs-"));
+  for (const [name, body] of Object.entries(stubs)) {
+    const file = path.join(dir, name);
+    writeFileSync(file, `#!/bin/bash\n${body}\n`);
+    chmodSync(file, 0o755);
+  }
+  return dir;
+}
+
+// Runs a session loop for a few seconds. `timeout` signals its whole process
+// group, so background stubs die with it.
+function runFor(seconds, scriptPath, env) {
+  return spawnSync("timeout", [String(seconds), "bash", scriptPath], {
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+const readLines = (file) =>
+  existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
+
+// The healthcheck's `test:` value, which the formatter may spread over
+// several lines.
+const healthTest = (block) =>
+  /\n\s+test:([\s\S]*?)\n\s+interval:/.exec(`\n${block.join("\n")}`)?.[1] ?? "";
+
+test("the desktop's health never depends on CDP", () => {
+  // CDP liveness stays visible on browser-cdp; the route follows the desktop.
+  for (const [name, source] of [
+    ["docker-compose.yml", baseCompose],
+    ["docker-compose.vpn.yml", vpnStack],
+  ]) {
+    const services = serviceBlocks(source);
+    const browserTest = healthTest(services.get("browser"));
+    assert.match(
+      browserTest,
+      /127\.0\.0\.1:3000/,
+      `${name}: browser health must probe the desktop`,
+    );
+    assert.doesNotMatch(browserTest, /9222/, `${name}: browser health must not probe CDP`);
+    const cdpTest = healthTest(services.get("browser-cdp"));
+    assert.match(cdpTest, /127\.0\.0\.1:9222/, `${name}: browser-cdp must keep probing CDP`);
+  }
+});
+
+test("every Chromium launch gets CHROME_CLI, not only the autostart one", () => {
+  const dropIn = browserFile("etc/chromium.d/zz-paseo-cdp");
+  const flagsAfterSourcing = (env) =>
+    spawnSync(
+      "sh",
+      ["-c", 'CHROMIUM_FLAGS="--from-debian"; . "$0"; printf %s "$CHROMIUM_FLAGS"', dropIn],
+      {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, ...env },
+      },
+    );
+  const set = flagsAfterSourcing({
+    CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*",
+  });
+  assert.equal(set.status, 0, set.stderr);
+  assert.equal(set.stdout, "--from-debian --remote-debugging-port=9222 --remote-allow-origins=*");
+  const unset = flagsAfterSourcing({});
+  assert.equal(unset.stdout, "--from-debian");
+});
+
+const holderPath = browserFile("usr/local/bin/profile-holder");
+const HOST = "browserhost";
+
+function runHolder(profile, name) {
+  const result = spawnSync("bash", [holderPath, profile, name], {
+    encoding: "utf8",
+    env: { ...process.env, HOSTNAME: HOST },
+  });
+  return { code: result.status, stdout: result.stdout.trim() };
+}
+
+function profileLockedBy(target) {
+  const profile = mkdtempSync(path.join(tmpdir(), "paseo-profile-"));
+  if (target) symlinkSync(target, path.join(profile, "SingletonLock"));
+  return profile;
+}
+
+// /proc/<pid>/comm comes from the executable's file name, so a copy of sleep
+// named "chromium" stands in for the browser.
+function processNamed(name) {
+  const exe = path.join(mkdtempSync(path.join(tmpdir(), "paseo-proc-")), name);
+  copyFileSync(
+    execFileSync("bash", ["-c", 'readlink -f "$(command -v sleep)"'], { encoding: "utf8" }).trim(),
+    exe,
+  );
+  chmodSync(exe, 0o755);
+  return spawn(exe, ["60"], { stdio: "ignore" });
+}
+
+test("profile-holder reports a live holder on this host", async () => {
+  const browser = processNamed("chromium");
+  try {
+    const result = runHolder(profileLockedBy(`${HOST}-${browser.pid}`), "chromium");
+    assert.deepEqual(result, { code: 0, stdout: String(browser.pid) });
+  } finally {
+    browser.kill();
+    await once(browser, "exit");
+  }
+});
+
+test("profile-holder treats a lock from an earlier container as stale", async () => {
+  // A recreated container gets a new hostname; the old lock must not block it.
+  const browser = processNamed("chromium");
+  try {
+    assert.equal(runHolder(profileLockedBy(`oldcontainer-${browser.pid}`), "chromium").code, 1);
+  } finally {
+    browser.kill();
+    await once(browser, "exit");
+  }
+});
+
+test("profile-holder treats a lock from an exited process as stale", async () => {
+  const browser = processNamed("chromium");
+  browser.kill();
+  await once(browser, "exit");
+  assert.equal(runHolder(profileLockedBy(`${HOST}-${browser.pid}`), "chromium").code, 1);
+});
+
+test("profile-holder treats a PID reused by another program as stale", () => {
+  // This test runner is alive, but it is not Chromium.
+  assert.equal(runHolder(profileLockedBy(`${HOST}-${process.pid}`), "chromium").code, 1);
+});
+
+test("profile-holder reports nothing when the profile has no lock", () => {
+  assert.equal(runHolder(profileLockedBy(null), "chromium").code, 1);
+});
+
+const chromiumSessionPath = browserFile("usr/local/bin/chromium-session");
+
+function chromiumSessionFixture(held) {
+  const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
+  const profile = path.join(home, ".config/chromium");
+  mkdirSync(profile, { recursive: true });
+  symlinkSync("oldcontainer-12", path.join(profile, "SingletonLock"));
+  const log = path.join(home, "launches.log");
+  const stubs = stubDir({
+    "profile-holder": held ? "echo 42" : "exit 1",
+    "wrapped-chromium": `echo "$*" >> "${log}"`,
+  });
+  const env = {
+    HOME: home,
+    TMPDIR: home,
+    PATH: `${stubs}:${process.env.PATH}`,
+    CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*",
+  };
+  return { env, log, profile };
+}
+
+test("chromium-session relaunches Chromium, with CHROME_CLI, after it exits", () => {
+  const { env, log, profile } = chromiumSessionFixture(false);
+  runFor(7, chromiumSessionPath, env);
+  const launches = readLines(log);
+  assert.ok(launches.length >= 2, `expected a relaunch, saw ${launches.length} launch(es)`);
+  for (const args of launches) {
+    assert.equal(args, "--remote-debugging-port=9222 --remote-allow-origins=*");
+  }
+  // lstat, not exists: the lock is a dangling symlink, which exists() reports as absent.
+  const lock = lstatSync(path.join(profile, "SingletonLock"), { throwIfNoEntry: false });
+  assert.equal(lock, undefined, "a stale lock must be cleared before launching");
+});
+
+test("chromium-session waits while another Chromium holds the profile", () => {
+  // Launching would only hand a new window to that Chromium, every 5 seconds.
+  const { env, log, profile } = chromiumSessionFixture(true);
+  runFor(3, chromiumSessionPath, env);
+  assert.deepEqual(readLines(log), []);
+  const lock = lstatSync(path.join(profile, "SingletonLock"), { throwIfNoEntry: false });
+  assert.ok(lock, "a live holder's lock must be left alone");
+});
+
+test("chromium-session runs once per container", async () => {
+  const { env } = chromiumSessionFixture(true);
+  const first = spawn("timeout", ["5", "bash", chromiumSessionPath], {
+    env: { ...process.env, ...env },
+    stdio: "ignore",
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const second = runFor(5, chromiumSessionPath, env);
+    assert.equal(second.status, 0, "a second copy must exit at once, not run until the timeout");
+  } finally {
+    first.kill();
+    await once(first, "exit");
+  }
+});
+
+const postmanSessionPath = browserFile("usr/local/bin/postman-session");
+
+test("postman-session starts the CDP bridge and relaunches Postman", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
+  const log = path.join(home, "launches.log");
+  const stubs = stubDir({
+    "profile-holder": "exit 1",
+    "wrapped-postman": `echo postman >> "${log}"`,
+    "postman-cdp-bridge": `echo bridge >> "${log}"`,
+  });
+  runFor(7, postmanSessionPath, { HOME: home, TMPDIR: home, PATH: `${stubs}:${process.env.PATH}` });
+  const lines = readLines(log);
+  assert.equal(lines.filter((line) => line === "bridge").length, 1);
+  assert.ok(lines.filter((line) => line === "postman").length >= 2, `saw: ${lines.join(",")}`);
+});
+
+test("postman-session does nothing when POSTMAN_AUTOSTART is off", () => {
+  // A fresh volume's autostart always carries the line, so the flag is
+  // honoured here as well as when the line is written.
+  const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
+  const log = path.join(home, "launches.log");
+  const stubs = stubDir({
+    "profile-holder": "exit 1",
+    "wrapped-postman": `echo postman >> "${log}"`,
+    "postman-cdp-bridge": `echo bridge >> "${log}"`,
+  });
+  const result = runFor(5, postmanSessionPath, {
+    HOME: home,
+    TMPDIR: home,
+    PATH: `${stubs}:${process.env.PATH}`,
+    POSTMAN_AUTOSTART: "false",
+  });
+  assert.equal(result.status, 0);
+  assert.deepEqual(readLines(log), []);
+});
+
+const bridgePath = browserFile("usr/local/bin/postman-cdp-bridge");
+
+function runBridge(portFileContent) {
+  const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
+  const postman = path.join(home, ".config/Postman");
+  mkdirSync(postman, { recursive: true });
+  if (portFileContent !== null) {
+    writeFileSync(path.join(postman, "DevToolsActivePort"), portFileContent);
+  }
+  const log = path.join(home, "socat.log");
+  const stubs = stubDir({ socat: `echo "$*" >> "${log}"\nexec sleep 30` });
+  runFor(3, bridgePath, {
+    HOME: home,
+    PATH: `${stubs}:${process.env.PATH}`,
+    POSTMAN_CDP_PORT: "9225",
+  });
+  return readLines(log);
+}
+
+test("postman-cdp-bridge republishes the port Postman chose on the fixed port", () => {
+  // Postman 12 forces --remote-debugging-port=0, so the port is random and
+  // recorded only in DevToolsActivePort.
+  assert.deepEqual(runBridge("41234\n/devtools/browser/0b3e\n"), [
+    "TCP-LISTEN:9225,bind=127.0.0.1,fork,reuseaddr TCP:127.0.0.1:41234",
+  ]);
+});
+
+test("postman-cdp-bridge stays out of the way when Postman already holds the fixed port", () => {
+  assert.deepEqual(runBridge("9225\n/devtools/browser/0b3e\n"), []);
+});
+
+test("postman-cdp-bridge waits while Postman has not written its port", () => {
+  assert.deepEqual(runBridge(null), []);
+  assert.deepEqual(runBridge("garbage\n"), []);
+});
+
+const desktopSessionPath = browserFile("custom-cont-init.d/30-desktop-session");
+
+function desktopFixture(autostart, mode = 0o644) {
+  const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
+  const conf = path.join(home, ".config/labwc");
+  mkdirSync(conf, { recursive: true });
+  writeFileSync(path.join(conf, "autostart"), autostart);
+  chmodSync(path.join(conf, "autostart"), mode);
+  writeFileSync(
+    path.join(conf, "menu.xml"),
+    '<openbox_menu><menu id="root">\n</menu></openbox_menu>\n',
+  );
+  return { home, conf };
+}
+
+function runDesktopSession(home, env = {}) {
+  return spawnSync("bash", [desktopSessionPath], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, PIXELFLUX_WAYLAND: "true", ...env },
+  });
+}
+
+// Live autostart files in the deployed volumes predate the current base image
+// and carry its old Wayland flags.
+const DEPLOYED_AUTOSTART = [
+  "#!/bin/bash",
+  "/usr/local/bin/postman-session &",
+  "wrapped-chromium --enable-features=UseOzonePlatform --ozone-platform=wayland ${CHROME_CLI}",
+  "",
+].join("\n");
+
+test("existing volumes get the Chromium session loop", () => {
+  const { home, conf } = desktopFixture(DEPLOYED_AUTOSTART);
+  const result = runDesktopSession(home);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readFileSync(path.join(conf, "autostart"), "utf8").split("\n"), [
+    "#!/bin/bash",
+    "/usr/local/bin/postman-session &",
+    "/usr/local/bin/chromium-session",
+    "",
+  ]);
+});
+
+test("the desktop init script is idempotent and adds Postman's loop once", () => {
+  // The old guard grepped for a string it never inserted, so every container
+  // start added another Postman loop.
+  const { home, conf } = desktopFixture("#!/bin/bash\nwrapped-chromium ${CHROME_CLI}\n");
+  runDesktopSession(home);
+  const afterFirstRun = readFileSync(path.join(conf, "autostart"), "utf8");
+  runDesktopSession(home);
+  runDesktopSession(home);
+  assert.equal(readFileSync(path.join(conf, "autostart"), "utf8"), afterFirstRun);
+  assert.deepEqual(afterFirstRun.split("\n"), [
+    "#!/bin/bash",
+    "/usr/local/bin/postman-session &",
+    "/usr/local/bin/chromium-session",
+    "",
+  ]);
+  const menu = readFileSync(path.join(conf, "menu.xml"), "utf8");
+  assert.equal(menu.split("wrapped-postman").length - 1, 1, "one Postman menu entry");
+});
+
+test("the desktop init script adds no Postman loop when POSTMAN_AUTOSTART is off", () => {
+  const { home, conf } = desktopFixture("#!/bin/bash\nwrapped-chromium ${CHROME_CLI}\n");
+  runDesktopSession(home, { POSTMAN_AUTOSTART: "false" });
+  assert.deepEqual(readFileSync(path.join(conf, "autostart"), "utf8").split("\n"), [
+    "#!/bin/bash",
+    "/usr/local/bin/chromium-session",
+    "",
+  ]);
+});
+
+test("the desktop init script keeps a locked-down autostart locked down", () => {
+  // The base image sets 550 when RESTART_APP is on; the edit must not undo it.
+  const { home, conf } = desktopFixture(DEPLOYED_AUTOSTART, 0o550);
+  runDesktopSession(home);
+  const autostart = path.join(conf, "autostart");
+  assert.equal(statSync(autostart).mode & 0o777, 0o550);
+  assert.match(readFileSync(autostart, "utf8"), /^\/usr\/local\/bin\/chromium-session$/m);
+});
+
+test("fresh volumes get the Chromium session loop from /defaults", () => {
+  assert.match(
+    browserDockerfile,
+    /s\|\^wrapped-chromium\.\*\|\/usr\/local\/bin\/chromium-session\|/,
+  );
+  assert.match(browserDockerfile, /grep -qx \/usr\/local\/bin\/chromium-session/);
+});
+
+test("the image installs socat for the Postman CDP bridge", () => {
+  assert.match(browserDockerfile, /apt-get install[^\n]*\bsocat\b/);
+});
+
+test("every browser rootfs script is CRLF-stripped and syntax-checked in the build", () => {
+  // A script missing from the loop ships unchecked; with CRLF line endings its
+  // shebang fails and the container dies with exit 127.
+  const loop = /for script in \\\n([\s\S]*?); \\\n\s+do/.exec(browserDockerfile)?.[1] ?? "";
+  for (const dir of ["usr/local/bin", "custom-cont-init.d"]) {
+    for (const name of readdirSync(browserFile(dir))) {
+      assert.ok(
+        loop.includes(`/${dir}/${name}`),
+        `/${dir}/${name} is not in the Dockerfile's script loop`,
+      );
+    }
+  }
+  assert.match(browserDockerfile, /sh -n \/etc\/chromium\.d\/zz-paseo-cdp/);
+});
+
+test("Postman's sign-in callback has a handler that receives the URL", () => {
+  // Postman registers exactly "Postman.desktop" for postman:// via xdg-mime.
+  const entry = readFileSync(browserFile("usr/share/applications/Postman.desktop"), "utf8");
+  assert.match(entry, /^MimeType=x-scheme-handler\/postman;$/m);
+  assert.match(entry, /^Exec=\/usr\/local\/bin\/wrapped-postman %U$/m);
+  // /opt/Postman/Postman re-joins arguments for system(), cutting the callback
+  // at its first '&'; the launcher must exec the Electron binary itself.
+  const launcher = readFileSync(browserFile("usr/local/bin/wrapped-postman"), "utf8");
+  assert.match(launcher, /^BIN=\/opt\/Postman\/app\/postman$/m);
+  assert.doesNotMatch(
+    launcher,
+    /rm -f .*DevToolsActivePort/,
+    "the port file is the bridge's only source",
+  );
 });

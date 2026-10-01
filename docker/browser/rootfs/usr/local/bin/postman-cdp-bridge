@@ -1,0 +1,30 @@
+#!/bin/bash
+# Put Postman's CDP on the fixed port the postman-cdp sidecar forwards.
+#
+# Postman 12 sets --remote-debugging-port=0 itself at startup, overriding the
+# port wrapped-postman asks for, so CDP lands on a random port that only
+# DevToolsActivePort records. Republish that port on 127.0.0.1:POSTMAN_CDP_PORT
+# and follow it when a restart picks a new one. Clients still see the fixed
+# port in webSocketDebuggerUrl: Electron builds that URL from the request's
+# Host header, not from the port it bound.
+PORT_FILE="${HOME}/.config/Postman/DevToolsActivePort"
+LISTEN="${POSTMAN_CDP_PORT:-9225}"
+target=""
+relay=""
+
+while true; do
+  port=$(head -n1 "${PORT_FILE}" 2>/dev/null)
+  # A port equal to LISTEN means Postman honoured the requested port itself.
+  if [[ "${port}" =~ ^[0-9]+$ && "${port}" != "${LISTEN}" ]]; then
+    if [[ "${port}" != "${target}" ]] || ! kill -0 "${relay}" 2>/dev/null; then
+      if [[ -n "${relay}" ]]; then
+        kill "${relay}" 2>/dev/null
+        wait "${relay}" 2>/dev/null
+      fi
+      socat "TCP-LISTEN:${LISTEN},bind=127.0.0.1,fork,reuseaddr" "TCP:127.0.0.1:${port}" &
+      relay=$!
+      target=${port}
+    fi
+  fi
+  sleep 2
+done
