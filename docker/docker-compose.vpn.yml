@@ -80,7 +80,7 @@ services:
   # can stop at a captcha or SSO screen, you solve it by hand, and the agent
   # continues in that same session with those same cookies.
   browser:
-    image: lscr.io/linuxserver/chromium:latest
+    image: ${BROWSER_IMAGE:-ghcr.io/allrested/paseo-browser:latest}
     container_name: ${INSTANCE_NAME:-paseo}-browser
     restart: unless-stopped
     # Chromium's sandbox needs these; without them it fails to start under the
@@ -100,6 +100,10 @@ services:
       # controls the browser and every session logged into it. It is never
       # published to the host — see the sidecars below. Do not add a ports entry.
       CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*"
+      # Postman runs in the same desktop session so an agent can drive it
+      # over CDP. Set POSTMAN_AUTOSTART=false to get a plain browser back.
+      POSTMAN_AUTOSTART: ${POSTMAN_AUTOSTART:-true}
+      POSTMAN_CDP_PORT: ${POSTMAN_CDP_PORT:-9225}
     ports:
       # noVNC/KasmVNC web UI — the browser's screen, for manual takeover.
       # See BIND_ADDRESS on the paseo service above.
@@ -139,6 +143,26 @@ services:
     # listener no longer exists where anyone looks for it. Probing Chrome's CDP
     # on loopback only succeeds from the live browser namespace, so a zombie
     # goes unhealthy instead of silently lying.
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:9222,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Postman's CDP, republished exactly like the browser's. Electron also binds
+  # it to 127.0.0.1 only, so an agent outside this namespace cannot reach it.
+  postman-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-postman-cdp
+    restart: unless-stopped
+    network_mode: "service:browser"
+    depends_on:
+      - browser
+    command: TCP-LISTEN:9224,fork,reuseaddr TCP:127.0.0.1:${POSTMAN_CDP_PORT:-9225}
+    # Probes the browser's own CDP, not Postman's: this check exists to catch a
+    # zombie sidecar left in a dead namespace, and tying it to Postman would
+    # also report unhealthy whenever Postman is simply closed.
     healthcheck:
       test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:9222,connect-timeout=2"]
       interval: 30s
@@ -279,6 +303,24 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # The paseo-side half for Postman. Chrome and Electron reject a CDP request
+  # whose Host header is neither localhost nor an IP, so reaching the sidecar
+  # by container name does not work - it has to arrive on paseo's loopback.
+  paseo-postman-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-postman-cdp-client
+    restart: unless-stopped
+    network_mode: "service:paseo"
+    depends_on:
+      - paseo
+    command: TCP-LISTEN:${POSTMAN_CDP_PORT:-9225},fork,reuseaddr,bind=127.0.0.1 TCP:${INSTANCE_NAME:-paseo}-browser:9224
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:6767,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 networks:
   # The stack's own network: container-to-container traffic between these four.

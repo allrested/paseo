@@ -1,0 +1,30 @@
+#!/bin/bash
+# Launch Postman the way the base image launches Chromium: no sandbox, because
+# the container has no user namespaces to drop into; the basic password store,
+# because there is no keyring; and the wayland backend only when labwc is
+# actually up, otherwise Electron falls back to XWayland on its own.
+#
+# CDP is what makes this image useful to an agent: Playwright attaches to it and
+# drives Postman, so a request capture is a screenshot of the real client rather
+# than terminal output. Electron ignores --remote-debugging-address and always
+# binds to 127.0.0.1, so a socat sidecar republishes it - same as the browser.
+
+BIN=/opt/Postman/Postman
+
+if ls -l /dev/dri/* > /dev/null 2>&1; then
+  if pgrep labwc > /dev/null 2>&1; then
+    WAYLAND="--ozone-platform=wayland"
+  fi
+fi
+
+# A crash leaves this behind and the next start then picks a random port, which
+# would silently break the sidecar's fixed forward.
+rm -f "${HOME}/.config/Postman/DevToolsActivePort"
+
+exec ${BIN} \
+  --no-sandbox \
+  --password-store=basic \
+  --remote-debugging-port="${POSTMAN_CDP_PORT:-9225}" \
+  --remote-allow-origins='*' \
+  ${WAYLAND} \
+  "$@" > /dev/null 2>&1

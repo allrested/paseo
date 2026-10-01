@@ -106,6 +106,24 @@ services:
       retries: 3
       start_period: 15s
 
+  # The paseo-side half for Postman. Chrome and Electron reject a CDP request
+  # whose Host header is neither localhost nor an IP, so reaching the sidecar
+  # by container name does not work - it has to arrive on paseo's loopback.
+  paseo-postman-cdp:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-postman-cdp-client
+    restart: unless-stopped
+    network_mode: "service:paseo"
+    depends_on:
+      - paseo
+    command: TCP-LISTEN:${POSTMAN_CDP_PORT:-9225},fork,reuseaddr,bind=127.0.0.1 TCP:${BROWSER_HOST}:${POSTMAN_CDP_BRIDGE_PORT:-9224}
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:6767,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
 networks:
   default: {}
   # Shared with the stack that owns the browser. Created by the reverse proxy's

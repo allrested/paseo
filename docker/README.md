@@ -142,6 +142,39 @@ sidecars exist:
 **Never publish port 9222.** CDP has no authentication: anything that reaches it
 controls the browser and every session logged into it.
 
+### Postman
+
+The browser image also carries Postman, in the same desktop session, for manual
+API test evidence: an agent attaches Playwright to it and screenshots the real
+client, which is auditable in a way a pasted terminal curl is not.
+
+It is wired exactly like Chromium, one port along:
+
+| Where | Chromium | Postman |
+| ----- | -------- | ------- |
+| inside the browser container | `127.0.0.1:9222` | `127.0.0.1:9225` |
+| republished on the compose network | `9223` | `9224` |
+| on paseo's loopback, for clients | `9222` | `9225` |
+
+The loopback port matches the in-container port on purpose. Electron advertises
+`webSocketDebuggerUrl` as `ws://127.0.0.1:9225/…` and clients follow it
+verbatim, so a different number on paseo's side connects once and then fails.
+
+Point Playwright MCP at `--cdp-endpoint http://127.0.0.1:9225`.
+
+Postman's own state — your login, collections, environments and history — lives
+under `BROWSER_CONFIG_DIR`, so signing in once survives restarts, exactly like
+the Chromium profile.
+
+Installing Postman into a *running* container does not work, which is worth
+knowing before trying it: the base image autostarts a single application and
+ships no desktop menu, so the binary is there with nothing to launch it. The
+image adds a menu entry and an autostart line, and because the base image seeds
+`$HOME/.config` from `/defaults` only when a file is missing — and restores
+`menu.xml` from `menu.xml.bak` on every start — both `/defaults` and an
+existing `/config` are patched. Set `POSTMAN_AUTOSTART=false` for a plain
+browser container.
+
 ## Private network access
 
 `docker-compose.vpn.yml` is a complete stack: the same four services as
