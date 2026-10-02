@@ -16,11 +16,13 @@ fi
 
 # A root shell (docker exec) leaves root-owned files in the profile, and Postman
 # exits at once when it cannot write its own config dir. Hand anything there
-# back to the desktop user. Runtime state such as .XDG is left alone.
+# back to the desktop user. Runtime state such as .XDG is left alone, and so is
+# CONF_DIR: under RESTART_APP or HARDEN_* the base image locks its autostart
+# and rc.xml to root:abc on purpose.
 for dir in .config .cache .local .pki Postman; do
   [[ -e "${HOME}/${dir}" ]] || continue
-  find "${HOME}/${dir}" -xdev \( ! -user abc -o ! -group abc \) \
-    -exec chown -h abc:abc {} + 2>/dev/null
+  find "${HOME}/${dir}" -xdev -path "${CONF_DIR}" -prune -o \
+    \( ! -user abc -o ! -group abc \) -exec chown -h abc:abc {} + 2>/dev/null
 done
 
 LAUNCH="/usr/local/bin/wrapped-postman"
@@ -37,22 +39,28 @@ done
 autostart="${CONF_DIR}/autostart"
 [[ -f "${autostart}" ]] || exit 0
 
+# The same line Dockerfile.browser writes into /defaults. In sed, & is the
+# original wrapped-chromium line, kept as the fallback.
+CHROMIUM_LINE='if [ -x /usr/local/bin/chromium-session ]; then /usr/local/bin/chromium-session; else &; fi'
+
 # The base image locks this file to root:abc 550 when RESTART_APP is set.
 owner="$(stat -c '%U:%G' "${autostart}")"
 mode="$(stat -c '%a' "${autostart}")"
 chmod u+w "${autostart}"
 
 # The line that starts the browser becomes the loop that keeps it up. That line
-# is also what holds the session open, so it stays last.
+# is also what holds the session open, so it stays last. The original launch
+# stays as the fallback: this volume outlives the image, and an older image has
+# no chromium-session and nothing that would put the line back.
 if grep -q "^wrapped-chromium" "${autostart}"; then
-  sed -i "s|^wrapped-chromium.*|/usr/local/bin/chromium-session|" "${autostart}"
+  sed -i "s|^wrapped-chromium.*|${CHROMIUM_LINE}|" "${autostart}"
   echo "[chromium] autostart now runs chromium-session"
 fi
 
 # Postman starts with the session unless asked not to. Its line goes before the
 # browser's: anything after that one only runs once the session ends.
 if [[ "${POSTMAN_AUTOSTART:-true}" == "true" ]] && ! grep -q "postman-session" "${autostart}"; then
-  sed -i "\|^/usr/local/bin/chromium-session|i /usr/local/bin/postman-session \&" "${autostart}"
+  sed -i "\|chromium-session|i /usr/local/bin/postman-session \&" "${autostart}"
   echo "[postman] autostart entry added to ${autostart}"
 fi
 

@@ -2,26 +2,59 @@
 # Put Postman's CDP on the fixed port the postman-cdp sidecar forwards.
 #
 # Postman 12 sets --remote-debugging-port=0 itself at startup, overriding the
-# port wrapped-postman asks for, so CDP lands on a random port that only
-# DevToolsActivePort records. Republish that port on 127.0.0.1:POSTMAN_CDP_PORT
-# and follow it when a restart picks a new one. Clients still see the fixed
-# port in webSocketDebuggerUrl: Electron builds that URL from the request's
-# Host header, not from the port it bound.
-PORT_FILE="${HOME}/.config/Postman/DevToolsActivePort"
+# port wrapped-postman asks for, so CDP lands on a random port. Find that port
+# on the Postman that holds the profile, republish it on
+# 127.0.0.1:POSTMAN_CDP_PORT, and follow it when a restart picks a new one.
+# Clients still see the fixed port in webSocketDebuggerUrl: Electron builds that
+# URL from the request's Host header, not from the port it bound.
+#
+# DevToolsActivePort is not used. Every second launch - the desktop menu, or the
+# postman:// sign-in hand-off - binds a port of its own and overwrites the file
+# before it hands off to the running Postman and exits.
+
+# One bridge per container. The relay dies with the bridge, and a relay left by
+# a bridge that was killed outright is cleared here, so nothing keeps the fixed
+# port forwarding to a dead one.
+exec 8>"${TMPDIR:-/tmp}/postman-cdp-bridge.lock"
+flock -n 8 || exit 0
+
+PROFILE="${HOME}/.config/Postman"
 LISTEN="${POSTMAN_CDP_PORT:-9225}"
 target=""
 relay=""
 
+pkill -u "$(id -u)" -f "^socat TCP-LISTEN:${LISTEN},bind=127.0.0.1," 2>/dev/null
+trap '[[ -n "${relay}" ]] && kill "${relay}" 2>/dev/null' EXIT
+trap 'exit 0' TERM INT HUP
+
+answers() {
+  curl -q -sf -m 1 -o /dev/null "http://127.0.0.1:$1/json/version"
+}
+
+# The loopback port on which the profile's holder answers as a DevTools server.
+holder_port() {
+  local pid port
+  pid=$(profile-holder "${PROFILE}" postman) || return 1
+  for port in $(ss -Hltnp src 127.0.0.1 |
+    awk -v owner="pid=${pid}," 'index($0, owner) { sub(/.*:/, "", $4); print $4 }'); do
+    if answers "${port}"; then
+      echo "${port}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 while true; do
-  port=$(head -n1 "${PORT_FILE}" 2>/dev/null)
-  # A port equal to LISTEN means Postman honoured the requested port itself.
-  if [[ "${port}" =~ ^[0-9]+$ && "${port}" != "${LISTEN}" ]]; then
-    if [[ "${port}" != "${target}" ]] || ! kill -0 "${relay}" 2>/dev/null; then
+  if ! kill -0 "${relay}" 2>/dev/null || ! answers "${target}"; then
+    port=$(holder_port)
+    # A port equal to LISTEN means Postman honoured the requested port itself.
+    if [[ -n "${port}" && "${port}" != "${LISTEN}" ]]; then
       if [[ -n "${relay}" ]]; then
         kill "${relay}" 2>/dev/null
         wait "${relay}" 2>/dev/null
       fi
-      socat "TCP-LISTEN:${LISTEN},bind=127.0.0.1,fork,reuseaddr" "TCP:127.0.0.1:${port}" &
+      socat "TCP-LISTEN:${LISTEN},bind=127.0.0.1,fork,reuseaddr" "TCP:127.0.0.1:${port}" 8>&- &
       relay=$!
       target=${port}
     fi

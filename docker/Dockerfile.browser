@@ -61,10 +61,12 @@ RUN set -eux; \
 # default, so /custom-cont-init.d/30-desktop-session patches it at runtime; a
 # fresh volume is seeded from /defaults before that script is guaranteed to have
 # run, so the defaults have to carry the entries as well. The browser line
-# becomes chromium-session, which relaunches Chromium when it exits, and
-# Postman's loop goes before it.
+# runs chromium-session, which relaunches Chromium when it exits, and keeps the
+# original launch as its fallback for an older image on the same volume.
+# Postman's loop goes before it. 30-desktop-session writes the same line.
 RUN set -eux; \
     entry='<item label="Postman"><action name="Execute"><command>/usr/local/bin/wrapped-postman</command></action></item>'; \
+    chromium_line='if [ -x /usr/local/bin/chromium-session ]; then /usr/local/bin/chromium-session; else &; fi'; \
     for menu in /defaults/menu.xml /defaults/menu_wayland.xml; do \
       [ -f "$menu" ] || continue; \
       sed -i "s|</menu>|${entry}\n</menu>|" "$menu"; \
@@ -74,8 +76,9 @@ RUN set -eux; \
       [ -f "$autostart" ] || continue; \
       sed -i \
         -e "/^wrapped-chromium/i /usr/local/bin/postman-session \&" \
-        -e "s|^wrapped-chromium.*|/usr/local/bin/chromium-session|" \
+        -e "s|^wrapped-chromium.*|${chromium_line}|" \
         "$autostart"; \
       grep -q postman-session "$autostart"; \
-      grep -qx /usr/local/bin/chromium-session "$autostart"; \
+      grep -q 'then /usr/local/bin/chromium-session; else wrapped-chromium' "$autostart"; \
+      sh -n "$autostart"; \
     done

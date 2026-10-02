@@ -1141,6 +1141,36 @@ function runFor(seconds, scriptPath, env) {
 const readLines = (file) =>
   existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function until(check, ms = 10_000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (check()) return true;
+    await sleep(100);
+  }
+  return check();
+}
+
+// Starts a loop that never exits on its own, checks that a second copy exits at
+// once, and stops the first.
+async function assertRunsOnce(scriptPath, env) {
+  const first = spawn("timeout", ["8", "bash", scriptPath], {
+    env: { ...process.env, ...env },
+    stdio: "ignore",
+  });
+  const firstExit = once(first, "exit");
+  try {
+    await sleep(500);
+    assert.equal(first.exitCode, null, "the first copy must hold the lock and keep running");
+    const second = runFor(5, scriptPath, env);
+    assert.equal(second.status, 0, "a second copy must exit at once, not run until the timeout");
+  } finally {
+    first.kill();
+    await firstExit;
+  }
+}
+
 // The healthcheck's `test:` value, which the formatter may spread over
 // several lines.
 const healthTest = (block) =>
@@ -1154,12 +1184,18 @@ test("the desktop's health never depends on CDP", () => {
   ]) {
     const services = serviceBlocks(source);
     const browserTest = healthTest(services.get("browser"));
-    assert.match(
-      browserTest,
-      /127\.0\.0\.1:3000/,
-      `${name}: browser health must probe the desktop`,
-    );
+    assert.match(browserTest, /127\.0\.0\.1:3000/, `${name}: browser health must probe nginx`);
+    assert.match(browserTest, /127\.0\.0\.1:8082/, `${name}: browser health must probe Selkies`);
     assert.doesNotMatch(browserTest, /9222/, `${name}: browser health must not probe CDP`);
+    // nginx answers 401 without credentials. -f would turn that into a failure
+    // and take the route down on every password-protected stack.
+    assert.doesNotMatch(
+      browserTest,
+      /\s-[a-zA-Z]*f|--fail/,
+      `${name}: no -f on the desktop probes`,
+    );
+    // Docker kills only the shell on timeout, so each curl needs its own limit.
+    assert.equal(browserTest.match(/ -m \d/g)?.length, 2, `${name}: both curls need -m`);
     const cdpTest = healthTest(services.get("browser-cdp"));
     assert.match(cdpTest, /127\.0\.0\.1:9222/, `${name}: browser-cdp must keep probing CDP`);
   }
@@ -1171,10 +1207,7 @@ test("every Chromium launch gets CHROME_CLI, not only the autostart one", () => 
     spawnSync(
       "sh",
       ["-c", 'CHROMIUM_FLAGS="--from-debian"; . "$0"; printf %s "$CHROMIUM_FLAGS"', dropIn],
-      {
-        encoding: "utf8",
-        env: { PATH: process.env.PATH, ...env },
-      },
+      { encoding: "utf8", env: { PATH: process.env.PATH, ...env } },
     );
   const set = flagsAfterSourcing({
     CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*",
@@ -1206,10 +1239,10 @@ function profileLockedBy(target) {
 // named "chromium" stands in for the browser.
 function processNamed(name) {
   const exe = path.join(mkdtempSync(path.join(tmpdir(), "paseo-proc-")), name);
-  copyFileSync(
-    execFileSync("bash", ["-c", 'readlink -f "$(command -v sleep)"'], { encoding: "utf8" }).trim(),
-    exe,
-  );
+  const sleepBinary = execFileSync("bash", ["-c", 'readlink -f "$(command -v sleep)"'], {
+    encoding: "utf8",
+  }).trim();
+  copyFileSync(sleepBinary, exe);
   chmodSync(exe, 0o755);
   return spawn(exe, ["60"], { stdio: "ignore" });
 }
@@ -1252,6 +1285,10 @@ test("profile-holder reports nothing when the profile has no lock", () => {
   assert.equal(runHolder(profileLockedBy(null), "chromium").code, 1);
 });
 
+// The stale lock is a dangling symlink, which existsSync() reports as absent.
+const lockPresent = (profile) =>
+  lstatSync(path.join(profile, "SingletonLock"), { throwIfNoEntry: false }) !== undefined;
+
 const chromiumSessionPath = browserFile("usr/local/bin/chromium-session");
 
 function chromiumSessionFixture(held) {
@@ -1260,9 +1297,11 @@ function chromiumSessionFixture(held) {
   mkdirSync(profile, { recursive: true });
   symlinkSync("oldcontainer-12", path.join(profile, "SingletonLock"));
   const log = path.join(home, "launches.log");
+  const holderLog = path.join(home, "holder.log");
   const stubs = stubDir({
-    "profile-holder": held ? "echo 42" : "exit 1",
-    "wrapped-chromium": `echo "$*" >> "${log}"`,
+    "profile-holder": `echo "$*" >> "${holderLog}"\n${held ? "echo 42" : "exit 1"}`,
+    // One line per argument, so two flags and one quoted string differ.
+    "wrapped-chromium": `printf '%s\\n' "$@" >> "${log}"\necho --- >> "${log}"`,
   });
   const env = {
     HOME: home,
@@ -1270,117 +1309,284 @@ function chromiumSessionFixture(held) {
     PATH: `${stubs}:${process.env.PATH}`,
     CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*",
   };
-  return { env, log, profile };
+  return { env, log, holderLog, home, profile };
 }
 
-test("chromium-session relaunches Chromium, with CHROME_CLI, after it exits", () => {
-  const { env, log, profile } = chromiumSessionFixture(false);
+test("chromium-session relaunches Chromium, with CHROME_CLI as separate flags, after it exits", () => {
+  const { env, log, holderLog, profile } = chromiumSessionFixture(false);
   runFor(7, chromiumSessionPath, env);
-  const launches = readLines(log);
+  const launches = existsSync(log) ? readFileSync(log, "utf8").split("---\n").filter(Boolean) : [];
   assert.ok(launches.length >= 2, `expected a relaunch, saw ${launches.length} launch(es)`);
-  for (const args of launches) {
-    assert.equal(args, "--remote-debugging-port=9222 --remote-allow-origins=*");
+  for (const launch of launches) {
+    assert.deepEqual(launch.split("\n").filter(Boolean), [
+      "--remote-debugging-port=9222",
+      "--remote-allow-origins=*",
+    ]);
   }
-  // lstat, not exists: the lock is a dangling symlink, which exists() reports as absent.
-  const lock = lstatSync(path.join(profile, "SingletonLock"), { throwIfNoEntry: false });
-  assert.equal(lock, undefined, "a stale lock must be cleared before launching");
+  assert.ok(!lockPresent(profile), "a stale lock must be cleared before launching");
+  assert.equal(readLines(holderLog)[0], `${profile} chromium`);
 });
 
 test("chromium-session waits while another Chromium holds the profile", () => {
   // Launching would only hand a new window to that Chromium, every 5 seconds.
-  const { env, log, profile } = chromiumSessionFixture(true);
+  const { env, log, holderLog, profile } = chromiumSessionFixture(true);
   runFor(3, chromiumSessionPath, env);
   assert.deepEqual(readLines(log), []);
-  const lock = lstatSync(path.join(profile, "SingletonLock"), { throwIfNoEntry: false });
-  assert.ok(lock, "a live holder's lock must be left alone");
+  assert.ok(lockPresent(profile), "a live holder's lock must be left alone");
+  assert.equal(readLines(holderLog)[0], `${profile} chromium`);
 });
 
 test("chromium-session runs once per container", async () => {
-  const { env } = chromiumSessionFixture(true);
-  const first = spawn("timeout", ["5", "bash", chromiumSessionPath], {
-    env: { ...process.env, ...env },
+  await assertRunsOnce(chromiumSessionPath, chromiumSessionFixture(true).env);
+});
+
+test("a Chromium that outlives its chromium-session does not keep the loop's lock", async () => {
+  // Otherwise the next loop exits at once and nothing relaunches Chromium.
+  const { env, home } = chromiumSessionFixture(false);
+  const pidFile = path.join(home, "browser.pid");
+  const stubs = stubDir({
+    "profile-holder": "exit 1",
+    "wrapped-chromium": `echo $$ > "${pidFile}"\nexec sleep 30`,
+  });
+  const loop = spawn("bash", [chromiumSessionPath], {
+    env: { ...process.env, ...env, PATH: `${stubs}:${process.env.PATH}` },
     stdio: "ignore",
   });
+  const loopExit = once(loop, "exit");
+  let browserPid;
   try {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const second = runFor(5, chromiumSessionPath, env);
-    assert.equal(second.status, 0, "a second copy must exit at once, not run until the timeout");
+    assert.ok(await until(() => existsSync(pidFile)), "the loop never launched Chromium");
+    browserPid = Number(readFileSync(pidFile, "utf8"));
+    loop.kill("SIGKILL");
+    await loopExit;
+    const probe = spawnSync("flock", ["-n", path.join(home, "chromium-session.lock"), "true"]);
+    assert.equal(probe.status, 0, "the lock must be free once the loop is gone");
   } finally {
-    first.kill();
-    await once(first, "exit");
+    if (browserPid) process.kill(browserPid);
   }
 });
 
 const postmanSessionPath = browserFile("usr/local/bin/postman-session");
 
-test("postman-session starts the CDP bridge and relaunches Postman", () => {
+function postmanSessionFixture({ held = false } = {}) {
   const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
+  const profile = path.join(home, ".config/Postman");
+  mkdirSync(profile, { recursive: true });
+  symlinkSync("oldcontainer-12", path.join(profile, "SingletonLock"));
   const log = path.join(home, "launches.log");
   const stubs = stubDir({
-    "profile-holder": "exit 1",
+    "profile-holder": `echo "holder $*" >> "${log}"\n${held ? "echo 42" : "exit 1"}`,
     "wrapped-postman": `echo postman >> "${log}"`,
-    "postman-cdp-bridge": `echo bridge >> "${log}"`,
+    "postman-cdp-bridge": `echo bridge >> "${log}"
+trap 'echo bridge-stopped >> "${log}"; exit 0' TERM
+sleep 30 & wait`,
   });
-  runFor(7, postmanSessionPath, { HOME: home, TMPDIR: home, PATH: `${stubs}:${process.env.PATH}` });
+  return {
+    profile,
+    log,
+    env: { HOME: home, TMPDIR: home, PATH: `${stubs}:${process.env.PATH}` },
+  };
+}
+
+test("postman-session starts the CDP bridge and relaunches Postman", () => {
+  const { env, log, profile } = postmanSessionFixture();
+  runFor(7, postmanSessionPath, env);
   const lines = readLines(log);
   assert.equal(lines.filter((line) => line === "bridge").length, 1);
   assert.ok(lines.filter((line) => line === "postman").length >= 2, `saw: ${lines.join(",")}`);
+  assert.ok(lines.includes(`holder ${profile} postman`), `saw: ${lines.join(",")}`);
+  assert.ok(!lockPresent(profile), "a stale lock must be cleared before launching");
+});
+
+test("postman-session waits while another Postman holds the profile", () => {
+  const { env, log, profile } = postmanSessionFixture({ held: true });
+  runFor(3, postmanSessionPath, env);
+  assert.ok(!readLines(log).includes("postman"), "a held profile must not be launched again");
+  assert.ok(lockPresent(profile), "a live holder's lock must be left alone");
+});
+
+test("postman-session runs once per container", async () => {
+  await assertRunsOnce(postmanSessionPath, postmanSessionFixture({ held: true }).env);
+});
+
+test("postman-session stops its bridge when it stops", async () => {
+  // A bridge left behind would keep the fixed port while the next loop's bridge
+  // fails to bind it.
+  const { env, log } = postmanSessionFixture({ held: true });
+  const loop = spawn("bash", [postmanSessionPath], {
+    env: { ...process.env, ...env },
+    stdio: "ignore",
+  });
+  const loopExit = once(loop, "exit");
+  try {
+    assert.ok(await until(() => readLines(log).includes("bridge")), "the bridge never started");
+    loop.kill("SIGTERM");
+    await loopExit;
+    assert.ok(
+      await until(() => readLines(log).includes("bridge-stopped")),
+      "the bridge was left running",
+    );
+  } finally {
+    loop.kill("SIGKILL");
+  }
 });
 
 test("postman-session does nothing when POSTMAN_AUTOSTART is off", () => {
   // A fresh volume's autostart always carries the line, so the flag is
   // honoured here as well as when the line is written.
-  const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
-  const log = path.join(home, "launches.log");
-  const stubs = stubDir({
-    "profile-holder": "exit 1",
-    "wrapped-postman": `echo postman >> "${log}"`,
-    "postman-cdp-bridge": `echo bridge >> "${log}"`,
-  });
-  const result = runFor(5, postmanSessionPath, {
-    HOME: home,
-    TMPDIR: home,
-    PATH: `${stubs}:${process.env.PATH}`,
-    POSTMAN_AUTOSTART: "false",
-  });
+  const { env, log } = postmanSessionFixture();
+  const result = runFor(5, postmanSessionPath, { ...env, POSTMAN_AUTOSTART: "false" });
   assert.equal(result.status, 0);
   assert.deepEqual(readLines(log), []);
 });
 
 const bridgePath = browserFile("usr/local/bin/postman-cdp-bridge");
+const RELAY = "TCP-LISTEN:9225,bind=127.0.0.1,fork,reuseaddr TCP:127.0.0.1:";
 
-function runBridge(portFileContent) {
+// A fake world for the bridge: who holds the profile, which loopback ports each
+// process listens on, and which ports answer as DevTools servers.
+function bridgeWorld({ socatExitsAtOnce = false } = {}) {
   const home = mkdtempSync(path.join(tmpdir(), "paseo-home-"));
-  const postman = path.join(home, ".config/Postman");
-  mkdirSync(postman, { recursive: true });
-  if (portFileContent !== null) {
-    writeFileSync(path.join(postman, "DevToolsActivePort"), portFileContent);
-  }
+  const state = path.join(home, "state");
+  mkdirSync(state);
   const log = path.join(home, "socat.log");
-  const stubs = stubDir({ socat: `echo "$*" >> "${log}"\nexec sleep 30` });
-  runFor(3, bridgePath, {
-    HOME: home,
-    PATH: `${stubs}:${process.env.PATH}`,
-    POSTMAN_CDP_PORT: "9225",
+  const stubs = stubDir({
+    "profile-holder": `cat "${state}/holder" 2>/dev/null || exit 1`,
+    ss: `cat "${state}/ss" 2>/dev/null`,
+    curl: `url="\${@: -1}"; port="\${url#http://127.0.0.1:}"; port="\${port%%/*}"
+grep -qx "$port" "${state}/alive" 2>/dev/null`,
+    socat: socatExitsAtOnce
+      ? `echo "start $*" >> "${log}"`
+      : `echo "start $*" >> "${log}"
+trap 'echo "stop $*" >> "${log}"; exit 0' TERM
+sleep 30 & wait`,
   });
-  return readLines(log);
+  const set = (files) => {
+    for (const [name, content] of Object.entries(files)) {
+      writeFileSync(path.join(state, name), content);
+    }
+  };
+  return {
+    home,
+    log,
+    set,
+    env: {
+      HOME: home,
+      TMPDIR: home,
+      POSTMAN_CDP_PORT: "9225",
+      PATH: `${stubs}:${process.env.PATH}`,
+    },
+  };
 }
 
-test("postman-cdp-bridge republishes the port Postman chose on the fixed port", () => {
-  // Postman 12 forces --remote-debugging-port=0, so the port is random and
-  // recorded only in DevToolsActivePort.
-  assert.deepEqual(runBridge("41234\n/devtools/browser/0b3e\n"), [
-    "TCP-LISTEN:9225,bind=127.0.0.1,fork,reuseaddr TCP:127.0.0.1:41234",
-  ]);
+// The shape of `ss -Hltnp src 127.0.0.1` output.
+const ssLine = (port, pid) =>
+  `LISTEN 0      511        127.0.0.1:${port}       0.0.0.0:*    users:(("postman",pid=${pid},fd=40))\n`;
+
+const starts = (log) => readLines(log).filter((line) => line.startsWith("start "));
+
+test("postman-cdp-bridge republishes the profile holder's DevTools port", () => {
+  const world = bridgeWorld();
+  world.set({ holder: "111\n", ss: ssLine(41234, 111), alive: "41234\n" });
+  runFor(3, bridgePath, world.env);
+  assert.deepEqual(starts(world.log), [`start ${RELAY}41234`]);
 });
 
-test("postman-cdp-bridge stays out of the way when Postman already holds the fixed port", () => {
-  assert.deepEqual(runBridge("9225\n/devtools/browser/0b3e\n"), []);
+test("postman-cdp-bridge ignores the port of a second Postman launch", () => {
+  // The menu or the postman:// sign-in hand-off starts a second Postman, which
+  // binds a port of its own and rewrites DevToolsActivePort before it exits.
+  const world = bridgeWorld();
+  mkdirSync(path.join(world.home, ".config/Postman"), { recursive: true });
+  writeFileSync(
+    path.join(world.home, ".config/Postman/DevToolsActivePort"),
+    "50000\n/devtools/browser/x\n",
+  );
+  world.set({
+    holder: "111\n",
+    ss: ssLine(50000, 222) + ssLine(41234, 111),
+    alive: "50000\n41234\n",
+  });
+  runFor(3, bridgePath, world.env);
+  assert.deepEqual(starts(world.log), [`start ${RELAY}41234`]);
 });
 
-test("postman-cdp-bridge waits while Postman has not written its port", () => {
-  assert.deepEqual(runBridge(null), []);
-  assert.deepEqual(runBridge("garbage\n"), []);
+test("postman-cdp-bridge follows Postman to its new port after a restart", async () => {
+  const world = bridgeWorld();
+  world.set({ holder: "111\n", ss: ssLine(41234, 111), alive: "41234\n" });
+  const bridge = spawn("timeout", ["12", "bash", bridgePath], {
+    env: { ...process.env, ...world.env },
+    stdio: "ignore",
+  });
+  const bridgeExit = once(bridge, "exit");
+  try {
+    assert.ok(await until(() => starts(world.log).length === 1), "no first relay");
+    world.set({ holder: "333\n", ss: ssLine(41999, 333), alive: "41999\n" });
+    assert.ok(
+      await until(() => starts(world.log).includes(`start ${RELAY}41999`)),
+      "the relay never followed Postman",
+    );
+  } finally {
+    bridge.kill();
+    await bridgeExit;
+  }
+  const lines = readLines(world.log);
+  assert.ok(
+    lines.indexOf(`stop ${RELAY}41234`) >= 0 &&
+      lines.indexOf(`stop ${RELAY}41234`) < lines.indexOf(`start ${RELAY}41999`),
+    `the old relay must stop before the new one starts: ${lines.join(" | ")}`,
+  );
+});
+
+test("postman-cdp-bridge restarts a relay that died", () => {
+  const world = bridgeWorld({ socatExitsAtOnce: true });
+  world.set({ holder: "111\n", ss: ssLine(41234, 111), alive: "41234\n" });
+  runFor(7, bridgePath, world.env);
+  const seen = starts(world.log);
+  assert.ok(seen.length >= 2, `saw ${seen.length} start(s)`);
+  assert.ok(
+    seen.every((line) => line === `start ${RELAY}41234`),
+    seen.join(" | "),
+  );
+});
+
+test("postman-cdp-bridge stays out of the way when Postman holds the fixed port itself", () => {
+  const world = bridgeWorld();
+  world.set({ holder: "111\n", ss: ssLine(9225, 111), alive: "9225\n" });
+  runFor(3, bridgePath, world.env);
+  assert.deepEqual(readLines(world.log), []);
+});
+
+test("postman-cdp-bridge waits while no Postman holds the profile", () => {
+  const world = bridgeWorld();
+  world.set({ ss: ssLine(41234, 111), alive: "41234\n" });
+  runFor(3, bridgePath, world.env);
+  assert.deepEqual(readLines(world.log), []);
+});
+
+test("postman-cdp-bridge's relay dies with it", async () => {
+  // An orphaned relay would hold the fixed port, forwarding to a dead one.
+  const world = bridgeWorld();
+  world.set({ holder: "111\n", ss: ssLine(41234, 111), alive: "41234\n" });
+  const bridge = spawn("bash", [bridgePath], {
+    env: { ...process.env, ...world.env },
+    stdio: "ignore",
+  });
+  const bridgeExit = once(bridge, "exit");
+  try {
+    assert.ok(await until(() => starts(world.log).length === 1), "no relay started");
+    bridge.kill("SIGTERM");
+    await bridgeExit;
+    assert.ok(
+      await until(() => readLines(world.log).includes(`stop ${RELAY}41234`)),
+      "the relay outlived the bridge",
+    );
+  } finally {
+    bridge.kill("SIGKILL");
+  }
+});
+
+test("postman-cdp-bridge runs once per container", async () => {
+  await assertRunsOnce(bridgePath, bridgeWorld().env);
 });
 
 const desktopSessionPath = browserFile("custom-cont-init.d/30-desktop-session");
@@ -1405,12 +1611,18 @@ function runDesktopSession(home, env = {}) {
   });
 }
 
+// The rewritten browser line keeps the original launch as its fallback.
+const sessionLine = (original) =>
+  `if [ -x /usr/local/bin/chromium-session ]; then /usr/local/bin/chromium-session; else ${original}; fi`;
+
 // Live autostart files in the deployed volumes predate the current base image
 // and carry its old Wayland flags.
+const DEPLOYED_LAUNCH =
+  "wrapped-chromium --enable-features=UseOzonePlatform --ozone-platform=wayland ${CHROME_CLI}";
 const DEPLOYED_AUTOSTART = [
   "#!/bin/bash",
   "/usr/local/bin/postman-session &",
-  "wrapped-chromium --enable-features=UseOzonePlatform --ozone-platform=wayland ${CHROME_CLI}",
+  DEPLOYED_LAUNCH,
   "",
 ].join("\n");
 
@@ -1418,12 +1630,16 @@ test("existing volumes get the Chromium session loop", () => {
   const { home, conf } = desktopFixture(DEPLOYED_AUTOSTART);
   const result = runDesktopSession(home);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(readFileSync(path.join(conf, "autostart"), "utf8").split("\n"), [
+  const autostart = path.join(conf, "autostart");
+  assert.deepEqual(readFileSync(autostart, "utf8").split("\n"), [
     "#!/bin/bash",
     "/usr/local/bin/postman-session &",
-    "/usr/local/bin/chromium-session",
+    sessionLine(DEPLOYED_LAUNCH),
     "",
   ]);
+  // labwc runs the file with sh.
+  const parse = spawnSync("sh", ["-n", autostart], { encoding: "utf8" });
+  assert.equal(parse.status, 0, parse.stderr);
 });
 
 test("the desktop init script is idempotent and adds Postman's loop once", () => {
@@ -1438,7 +1654,7 @@ test("the desktop init script is idempotent and adds Postman's loop once", () =>
   assert.deepEqual(afterFirstRun.split("\n"), [
     "#!/bin/bash",
     "/usr/local/bin/postman-session &",
-    "/usr/local/bin/chromium-session",
+    sessionLine("wrapped-chromium ${CHROME_CLI}"),
     "",
   ]);
   const menu = readFileSync(path.join(conf, "menu.xml"), "utf8");
@@ -1450,7 +1666,7 @@ test("the desktop init script adds no Postman loop when POSTMAN_AUTOSTART is off
   runDesktopSession(home, { POSTMAN_AUTOSTART: "false" });
   assert.deepEqual(readFileSync(path.join(conf, "autostart"), "utf8").split("\n"), [
     "#!/bin/bash",
-    "/usr/local/bin/chromium-session",
+    sessionLine("wrapped-chromium ${CHROME_CLI}"),
     "",
   ]);
 });
@@ -1461,15 +1677,39 @@ test("the desktop init script keeps a locked-down autostart locked down", () => 
   runDesktopSession(home);
   const autostart = path.join(conf, "autostart");
   assert.equal(statSync(autostart).mode & 0o777, 0o550);
-  assert.match(readFileSync(autostart, "utf8"), /^\/usr\/local\/bin\/chromium-session$/m);
+  assert.match(readFileSync(autostart, "utf8"), /then \/usr\/local\/bin\/chromium-session; else/);
 });
 
-test("fresh volumes get the Chromium session loop from /defaults", () => {
-  assert.match(
-    browserDockerfile,
-    /s\|\^wrapped-chromium\.\*\|\/usr\/local\/bin\/chromium-session\|/,
-  );
-  assert.match(browserDockerfile, /grep -qx \/usr\/local\/bin\/chromium-session/);
+test("an older image on the same volume still starts Chromium", (t) => {
+  // The volume outlives the image. An image without chromium-session must fall
+  // back to the original launch, or nothing starts the browser.
+  if (existsSync("/usr/local/bin/chromium-session")) {
+    t.skip("this machine has /usr/local/bin/chromium-session");
+    return;
+  }
+  const { home, conf } = desktopFixture(DEPLOYED_AUTOSTART);
+  runDesktopSession(home);
+  const log = path.join(home, "launches.log");
+  const stubs = stubDir({ "wrapped-chromium": `echo "$*" >> "${log}"` });
+  spawnSync("sh", [path.join(conf, "autostart")], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${stubs}:${process.env.PATH}`,
+      CHROME_CLI: "--remote-debugging-port=9222",
+    },
+  });
+  assert.deepEqual(readLines(log), [
+    "--enable-features=UseOzonePlatform --ozone-platform=wayland --remote-debugging-port=9222",
+  ]);
+});
+
+test("fresh and existing volumes get the same Chromium session line", () => {
+  const fromDockerfile = /chromium_line='([^']+)'/.exec(browserDockerfile)?.[1];
+  const fromInit = /^CHROMIUM_LINE='([^']+)'$/m.exec(readFileSync(desktopSessionPath, "utf8"))?.[1];
+  assert.ok(fromDockerfile, "Dockerfile.browser defines no chromium_line");
+  assert.equal(fromDockerfile, fromInit);
+  assert.match(browserDockerfile, /s\|\^wrapped-chromium\.\*\|\$\{chromium_line\}\|/);
 });
 
 test("the image installs socat for the Postman CDP bridge", () => {
@@ -1497,12 +1737,9 @@ test("Postman's sign-in callback has a handler that receives the URL", () => {
   assert.match(entry, /^MimeType=x-scheme-handler\/postman;$/m);
   assert.match(entry, /^Exec=\/usr\/local\/bin\/wrapped-postman %U$/m);
   // /opt/Postman/Postman re-joins arguments for system(), cutting the callback
-  // at its first '&'; the launcher must exec the Electron binary itself.
+  // at its first '&'; the launcher must exec the Electron binary itself and
+  // pass the URL on.
   const launcher = readFileSync(browserFile("usr/local/bin/wrapped-postman"), "utf8");
   assert.match(launcher, /^BIN=\/opt\/Postman\/app\/postman$/m);
-  assert.doesNotMatch(
-    launcher,
-    /rm -f .*DevToolsActivePort/,
-    "the port file is the bridge's only source",
-  );
+  assert.match(launcher, /^exec \$\{BIN\}[\s\S]*?"\$@"/m);
 });

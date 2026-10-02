@@ -169,10 +169,12 @@ It is wired exactly like Chromium, one port along:
 | republished on the compose network | `9223`           | `9224`           |
 | on paseo's loopback, for clients   | `9222`           | `9225`           |
 
-Postman 12 picks its own CDP port at startup, whatever it is launched with, and
-records it only in `DevToolsActivePort`. `postman-cdp-bridge` republishes that
-port on `127.0.0.1:9225` inside the browser container, and follows it when
-Postman restarts. Electron builds `webSocketDebuggerUrl` from the request's
+Postman 12 picks its own CDP port at startup, whatever it is launched with.
+`postman-cdp-bridge` finds that port on the Postman that holds the profile,
+republishes it on `127.0.0.1:9225` inside the browser container, and follows it
+when Postman restarts. It does not trust `DevToolsActivePort`: a second launch,
+from the menu or the sign-in hand-off, overwrites that file with its own port
+just before it exits. Electron builds `webSocketDebuggerUrl` from the request's
 `Host` header, so a client that connects to `127.0.0.1:9225` is handed
 `ws://127.0.0.1:9225/…` back.
 
@@ -191,9 +193,10 @@ desktop user at the next start; Postman exits at once when it cannot write
 them.
 
 Installing Postman into a _running_ container does not work, which is worth
-knowing before trying it: the base image autostarts a single application and
-ships no desktop menu, so the binary is there with nothing to launch it. The
-image adds a menu entry and an autostart line, and because the base image seeds
+knowing before trying it: the base image autostarts only Chromium, and its
+right-click menu offers only a terminal and Chromium, so the binary is there
+with nothing to launch it. The image adds a menu entry and an autostart line,
+and because the base image seeds
 `$HOME/.config` from `/defaults` only when a file is missing — and restores
 `menu.xml` from `menu.xml.bak` on every start — both `/defaults` and an
 existing `/config` are patched. `postman-session` relaunches Postman when it

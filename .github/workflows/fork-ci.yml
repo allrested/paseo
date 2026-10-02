@@ -7,7 +7,7 @@
 # This fork changes docker/** plus two usage providers in packages/server
 # (kiro, bddevlab). It does not touch the app, desktop, relay, CLI or SDK, and
 # upstream already proves those on their own runs — so re-testing them here buys
-# nothing and costs ~145 runner-minutes. The four jobs below are the ones that
+# nothing and costs ~145 runner-minutes. The five jobs below are the ones that
 # can actually catch a fork-authored mistake.
 #
 # Deliberately not covered:
@@ -124,3 +124,17 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+  # docker/** is most of this fork, and its scripts and compose files are
+  # covered only by this node:test suite. It needs no npm install. Without it a
+  # change to the browser's healthcheck or session scripts merges untested, and
+  # every instance auto-deploys from main.
+  docker-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run docker script and compose tests
+        run: node --test scripts/vpn-overlay.test.mjs

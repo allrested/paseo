@@ -81,8 +81,10 @@ reach the desktop, whatever happens to either application:
 ### Health and routing
 
 - The browser container's healthcheck probes the desktop instead: nginx on 3000
-  (a 401 without credentials still proves it is up) and Selkies on 8082. That is
-  what Traefik routes to, so the route now follows what a human needs.
+  (a 401 without credentials still proves it is up, so no `-f`) and Selkies on 8082. That is what Traefik routes to, so the route now follows what a human
+  needs. Each `curl` has `-m 2`: the check is shell-form, Docker kills only the
+  shell on timeout, and an unbounded `curl` against a hung Selkies would be left
+  behind on every probe. `-S` puts the failing half in the health log.
 - CDP liveness stays where it already was, in `browser-cdp`'s healthcheck, which
   connects to `127.0.0.1:9222`. A CDP outage still shows in Dokploy, on the
   sidecar, without taking the desktop offline.
@@ -94,12 +96,22 @@ reach the desktop, whatever happens to either application:
 
 ### Postman
 
-- `postman-cdp-bridge` reads the port from `DevToolsActivePort` and
-  republishes it with `socat` on `127.0.0.1:${POSTMAN_CDP_PORT}`, following it
-  across restarts. `socat` is added to the image. The compose sidecars are
-  unchanged. Clients still see the fixed port in `webSocketDebuggerUrl`,
-  because Chrome and Electron build that URL from the request's `Host` header
-  (checked against Chrome 154).
+- `postman-cdp-bridge` finds the port on the process that holds Postman's
+  profile (`profile-holder`, then that pid's loopback listener in `ss` that
+  answers `/json/version`), and republishes it with `socat` on
+  `127.0.0.1:${POSTMAN_CDP_PORT}`. It keeps the relay while the target answers
+  and follows Postman when a restart picks a new port. `socat` is added to the
+  image. The compose sidecars are unchanged. Clients still see the fixed port in
+  `webSocketDebuggerUrl`, because Chrome and Electron build that URL from the
+  request's `Host` header (checked against Chrome 154).
+- `DevToolsActivePort` is not used. A second launch - the menu, or the
+  `postman://` sign-in hand-off - starts its own DevTools server before it
+  quits on the single-instance lock, and overwrites the file with a port that
+  dies a moment later. A bridge that followed the file broke Postman's CDP every
+  time someone signed in (reproduced with Electron 37.10.3).
+- The bridge takes a `flock`, kills its relay on exit, and clears a relay left
+  by a bridge that was killed outright. `postman-session` stops the bridge when
+  it stops. Either leftover would hold the fixed port, forwarding to a dead one.
 - `wrapped-postman` runs `/opt/Postman/app/postman` directly and no longer
   deletes `DevToolsActivePort`.
 - `Postman.desktop` replaces `postman.desktop`, with
@@ -118,9 +130,15 @@ reach the desktop, whatever happens to either application:
 
 - hands files under `.config`, `.cache`, `.local`, `.pki` and `~/Postman` that
   are not owned by `abc` back to it. Runtime state such as `.XDG` is left alone.
-- rewrites the `wrapped-chromium` autostart line to `chromium-session`, and
-  inserts `postman-session &` before it once, using a guard that actually
-  matches what it inserts.
+- rewrites the `wrapped-chromium` autostart line to
+  `if [ -x /usr/local/bin/chromium-session ]; then …; else <original line>; fi`,
+  and inserts `postman-session &` before it once, using a guard that actually
+  matches what it inserts. The fallback matters because the volume outlives the
+  image: an older image has no `chromium-session` and nothing that would put
+  the line back. `Dockerfile.browser` writes the same line into `/defaults`.
+- skips `CONF_DIR` in the ownership repair, because under `RESTART_APP` or
+  `HARDEN_*` the base image locks its `autostart` and `rc.xml` to `root:abc`
+  on purpose.
 - keeps the Postman menu entry, as before.
 
 ## Testing
@@ -130,17 +148,28 @@ reach the desktop, whatever happens to either application:
 - the drop-in;
 - `profile-holder`: a live holder, a stale host, a dead pid, a reused pid, no
   lock;
-- the session loops: launch, wait and single-instance cases, with stubbed
-  launchers;
-- the bridge, with a stubbed `socat`;
+- both session loops: launch with `CHROME_CLI` as separate flags, the
+  arguments passed to `profile-holder`, waiting on a held profile, stale lock
+  cleanup, single instance, a surviving app not keeping the lock, and the
+  bridge stopping with `postman-session`;
+- the bridge, against stubbed `profile-holder`, `ss`, `curl` and `socat`:
+  the holder's port, ignoring a second launch's port, following a restart,
+  respawning a dead relay, Postman on the fixed port, no holder, the relay
+  dying with the bridge, single instance;
 - the init script: rewrite, idempotence, `POSTMAN_AUTOSTART=false`, mode
-  preserved;
-- the healthcheck no longer touching CDP;
-- the Postman handler;
+  preserved, the line valid under `sh`, and an older image on the same volume
+  falling back to the original launch;
+- the healthcheck: probes nginx and Selkies, never CDP, no `-f`, `-m` on both
+  `curl`s;
+- the Postman handler, including `wrapped-postman` passing the URL on;
+- `Dockerfile.browser` and the init script writing the same Chromium line;
 - every rootfs script appearing in the Dockerfile's CRLF and `bash -n` loop.
 
-It also fixes a stale assertion: the Postman sidecars were never added to the
-expected service list.
+Each of these was checked against a mutant of the code it guards. Fork CI runs
+the file in a new `docker-tests` job; before, it ran only in upstream's CI,
+which this fork disables. It also fixes two older problems in the suite: the
+Postman sidecars were never added to the expected service list, and the VPN
+scripts lacked their executable bit in git, which failed six route tests.
 
 ## Rollout
 
@@ -151,3 +180,7 @@ is deployed from the branch, and only then is the change merged. A recreated
 browser can come back on a new `dokploy-network` address, so clients should use
 the `paseo-cdp` relay (`127.0.0.1:9222`), which resolves the browser by
 container name, rather than a pinned IP.
+
+Rolling back to the previous image needs no cleanup. The rewritten autostart
+falls back to its original `wrapped-chromium` line, and the old healthcheck
+works with either image.

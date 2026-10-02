@@ -115,17 +115,19 @@ services:
     networks:
       - default
       - dokploy-network
-    # Health means the desktop answers: nginx on 3000 (its 401 without
-    # credentials still proves it is up) and Selkies behind it on 8082. Traefik
-    # routes only to a healthy container, and this used to probe CDP: when
-    # Chromium came back without its debug port, the desktop - the one place to
-    # fix that from - went offline with it. CDP liveness is browser-cdp's
-    # healthcheck below, and chromium-session relaunches Chromium when it exits.
+    # Health means the desktop answers: nginx on 3000 and Selkies behind it on
+    # 8082. Traefik routes only to a healthy container, and this used to probe
+    # CDP: when Chromium came back without its debug port, the desktop - the one
+    # place to fix that from - went offline with it. CDP liveness is
+    # browser-cdp's healthcheck below, and chromium-session relaunches Chromium
+    # when it exits. No -f: nginx answers 401 without credentials, which still
+    # proves it is up. -m keeps a hung server from leaving a curl behind each
+    # probe, since Docker kills only the shell.
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -so /dev/null http://127.0.0.1:3000/ && curl -so /dev/null http://127.0.0.1:8082/",
+          "curl -q -sS -m 2 -o /dev/null http://127.0.0.1:3000/ && curl -q -sS -m 2 -o /dev/null http://127.0.0.1:8082/",
         ]
       interval: 30s
       timeout: 5s
