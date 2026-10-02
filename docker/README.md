@@ -184,7 +184,13 @@ You don't need to sign in. Choose the lightweight API client on Postman's start
 screen: requests go out from the browser container, VPN routes included, and
 nothing syncs to Postman's cloud. Signing in works too. The sign-in opens in
 Chromium and hands back to Postman through `postman://`, which
-`Postman.desktop` registers.
+`Postman.desktop` registers. Signed in, Postman sends through a runtime that
+needs `libsecret`, which the image installs; Postman Vault also needs a Secret
+Service, which the container does not run, so Vault secrets are unavailable.
+
+`localhost` in Postman is the browser container, as it is for agents driving
+Chromium. Reach a service in the paseo container by its container name, for
+example `http://<INSTANCE_NAME>:9999`.
 
 Postman's own state — your login, collections, environments and history — lives
 under `BROWSER_CONFIG_DIR`, so signing in once survives restarts, exactly like

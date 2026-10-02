@@ -16,7 +16,11 @@ LABEL org.opencontainers.image.source="${IMAGE_SOURCE}"
 # Postman publishes a prebuilt Electron tarball per architecture. TARGETARCH
 # comes from buildx, so one build covers both platforms the stack publishes.
 # socat republishes Postman's CDP, which lands on a random port: see
-# postman-cdp-bridge.
+# postman-cdp-bridge. libsecret is what Postman's bundled keytar links against.
+# Signed in, Postman sends requests from a runtime that loads keytar on start,
+# so without it every Send fails with "libsecret-1.so.0: cannot open shared
+# object file". Vault's keychain calls still need a Secret Service, which this
+# container does not run; they fail only when Vault is used.
 ARG TARGETARCH
 ARG POSTMAN_CHANNEL=latest
 RUN set -eux; \
@@ -26,7 +30,7 @@ RUN set -eux; \
       *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl socat; \
+    apt-get install -y --no-install-recommends ca-certificates curl socat libsecret-1-0; \
     curl -fsSL "https://dl.pstmn.io/download/${POSTMAN_CHANNEL}/${postman_build}" \
       -o /tmp/postman.tar.gz; \
     tar -xzf /tmp/postman.tar.gz -C /opt; \

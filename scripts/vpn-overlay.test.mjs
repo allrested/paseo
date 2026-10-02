@@ -1716,6 +1716,12 @@ test("the image installs socat for the Postman CDP bridge", () => {
   assert.match(browserDockerfile, /apt-get install[^\n]*\bsocat\b/);
 });
 
+test("the image installs libsecret, without which signed-in Postman cannot send", () => {
+  // Postman's request runtime loads keytar, which links libsecret-1.so.0, when
+  // it starts. The lightweight client does not, so it hides the gap.
+  assert.match(browserDockerfile, /apt-get install[^\n]*\blibsecret-1-0\b/);
+});
+
 test("every browser rootfs script is CRLF-stripped and syntax-checked in the build", () => {
   // A script missing from the loop ships unchecked; with CRLF line endings its
   // shebang fails and the container dies with exit 127.
