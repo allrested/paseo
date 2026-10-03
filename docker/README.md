@@ -142,6 +142,19 @@ sidecars exist:
 **Never publish port 9222.** CDP has no authentication: anything that reaches it
 controls the browser and every session logged into it.
 
+Chromium keeps its debug port however it starts. `/etc/chromium.d/zz-paseo-cdp`
+adds `CHROME_CLI` to every launch through `/usr/bin/chromium`: the autostart,
+the desktop menu, and links opened from other apps. Close the window and
+`chromium-session` relaunches it five seconds later. A Chromium you open from
+the menu in the meantime is left alone, because launching a second one would
+only hand it a new window.
+
+The browser container's health means the desktop answers (nginx on 3000 and
+Selkies behind it), and that is what Traefik routes on. A lost CDP shows on
+`browser-cdp` instead. If the browser's own health followed CDP, losing it
+would take the desktop's URL offline, and with it the one place you can fix
+CDP from.
+
 ### Postman
 
 The browser image also carries Postman, in the same desktop session, for manual
@@ -150,30 +163,51 @@ client, which is auditable in a way a pasted terminal curl is not.
 
 It is wired exactly like Chromium, one port along:
 
-| Where | Chromium | Postman |
-| ----- | -------- | ------- |
-| inside the browser container | `127.0.0.1:9222` | `127.0.0.1:9225` |
-| republished on the compose network | `9223` | `9224` |
-| on paseo's loopback, for clients | `9222` | `9225` |
+| Where                              | Chromium         | Postman          |
+| ---------------------------------- | ---------------- | ---------------- |
+| inside the browser container       | `127.0.0.1:9222` | `127.0.0.1:9225` |
+| republished on the compose network | `9223`           | `9224`           |
+| on paseo's loopback, for clients   | `9222`           | `9225`           |
 
-The loopback port matches the in-container port on purpose. Electron advertises
-`webSocketDebuggerUrl` as `ws://127.0.0.1:9225/…` and clients follow it
-verbatim, so a different number on paseo's side connects once and then fails.
+Postman 12 picks its own CDP port at startup, whatever it is launched with.
+`postman-cdp-bridge` finds that port on the Postman that holds the profile,
+republishes it on `127.0.0.1:9225` inside the browser container, and follows it
+when Postman restarts. It does not trust `DevToolsActivePort`: a second launch,
+from the menu or the sign-in hand-off, overwrites that file with its own port
+just before it exits. Electron builds `webSocketDebuggerUrl` from the request's
+`Host` header, so a client that connects to `127.0.0.1:9225` is handed
+`ws://127.0.0.1:9225/…` back.
 
 Point Playwright MCP at `--cdp-endpoint http://127.0.0.1:9225`.
 
+You don't need to sign in. Choose the lightweight API client on Postman's start
+screen: requests go out from the browser container, VPN routes included, and
+nothing syncs to Postman's cloud. Signing in works too. The sign-in opens in
+Chromium and hands back to Postman through `postman://`, which
+`Postman.desktop` registers. Signed in, Postman sends through a runtime that
+needs `libsecret`, which the image installs; Postman Vault also needs a Secret
+Service, which the container does not run, so Vault secrets are unavailable.
+
+`localhost` in Postman is the browser container, as it is for agents driving
+Chromium. Reach a service in the paseo container by its container name, for
+example `http://<INSTANCE_NAME>:9999`.
+
 Postman's own state — your login, collections, environments and history — lives
 under `BROWSER_CONFIG_DIR`, so signing in once survives restarts, exactly like
-the Chromium profile.
+the Chromium profile. Files a root shell leaves there are handed back to the
+desktop user at the next start; Postman exits at once when it cannot write
+them.
 
-Installing Postman into a *running* container does not work, which is worth
-knowing before trying it: the base image autostarts a single application and
-ships no desktop menu, so the binary is there with nothing to launch it. The
-image adds a menu entry and an autostart line, and because the base image seeds
+Installing Postman into a _running_ container does not work, which is worth
+knowing before trying it: the base image autostarts only Chromium, and its
+right-click menu offers only a terminal and Chromium, so the binary is there
+with nothing to launch it. The image adds a menu entry and an autostart line,
+and because the base image seeds
 `$HOME/.config` from `/defaults` only when a file is missing — and restores
 `menu.xml` from `menu.xml.bak` on every start — both `/defaults` and an
-existing `/config` are patched. Set `POSTMAN_AUTOSTART=false` for a plain
-browser container.
+existing `/config` are patched. `postman-session` relaunches Postman when it
+exits, the same way Chromium is kept up. Set `POSTMAN_AUTOSTART=false` for a
+plain browser container.
 
 ## Private network access
 

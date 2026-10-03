@@ -15,6 +15,12 @@ LABEL org.opencontainers.image.source="${IMAGE_SOURCE}"
 
 # Postman publishes a prebuilt Electron tarball per architecture. TARGETARCH
 # comes from buildx, so one build covers both platforms the stack publishes.
+# socat republishes Postman's CDP, which lands on a random port: see
+# postman-cdp-bridge. libsecret is what Postman's bundled keytar links against.
+# Signed in, Postman sends requests from a runtime that loads keytar on start,
+# so without it every Send fails with "libsecret-1.so.0: cannot open shared
+# object file". Vault's keychain calls still need a Secret Service, which this
+# container does not run; they fail only when Vault is used.
 ARG TARGETARCH
 ARG POSTMAN_CHANNEL=latest
 RUN set -eux; \
@@ -24,36 +30,47 @@ RUN set -eux; \
       *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl; \
+    apt-get install -y --no-install-recommends ca-certificates curl socat libsecret-1-0; \
     curl -fsSL "https://dl.pstmn.io/download/${POSTMAN_CHANNEL}/${postman_build}" \
       -o /tmp/postman.tar.gz; \
     tar -xzf /tmp/postman.tar.gz -C /opt; \
     rm -f /tmp/postman.tar.gz; \
     rm -rf /var/lib/apt/lists/*; \
-    test -x /opt/Postman/Postman
+    test -x /opt/Postman/app/postman
 
 COPY browser/rootfs/ /
 
 # A Windows checkout with core.autocrlf=true rewrites these scripts to CRLF, so
 # the shebang picks up a trailing carriage return and the container dies with
-# exit 127. Strip them, then assert each script parses.
+# exit 127. Strip them, then assert each script parses. The chromium.d drop-in
+# is sourced by /bin/sh and the desktop entry is not a script, so they are only
+# stripped.
 RUN set -eux; \
     for script in \
       /usr/local/bin/wrapped-postman \
       /usr/local/bin/postman-session \
-      /custom-cont-init.d/30-postman-session; \
+      /usr/local/bin/postman-cdp-bridge \
+      /usr/local/bin/chromium-session \
+      /usr/local/bin/profile-holder \
+      /custom-cont-init.d/30-desktop-session; \
     do \
       sed -i 's/\r$//' "$script"; \
       bash -n "$script"; \
       chmod 755 "$script"; \
-    done
+    done; \
+    sed -i 's/\r$//' /etc/chromium.d/zz-paseo-cdp /usr/share/applications/Postman.desktop; \
+    sh -n /etc/chromium.d/zz-paseo-cdp
 
 # Two paths have to be covered. An existing /config volume never picks up a new
-# default, so /custom-cont-init.d/30-postman-session patches it at runtime; a
+# default, so /custom-cont-init.d/30-desktop-session patches it at runtime; a
 # fresh volume is seeded from /defaults before that script is guaranteed to have
-# run, so the defaults have to carry the entries as well.
+# run, so the defaults have to carry the entries as well. The browser line
+# runs chromium-session, which relaunches Chromium when it exits, and keeps the
+# original launch as its fallback for an older image on the same volume.
+# Postman's loop goes before it. 30-desktop-session writes the same line.
 RUN set -eux; \
     entry='<item label="Postman"><action name="Execute"><command>/usr/local/bin/wrapped-postman</command></action></item>'; \
+    chromium_line='if [ -x /usr/local/bin/chromium-session ]; then /usr/local/bin/chromium-session; else &; fi'; \
     for menu in /defaults/menu.xml /defaults/menu_wayland.xml; do \
       [ -f "$menu" ] || continue; \
       sed -i "s|</menu>|${entry}\n</menu>|" "$menu"; \
@@ -61,6 +78,11 @@ RUN set -eux; \
     done; \
     for autostart in /defaults/autostart /defaults/autostart_wayland; do \
       [ -f "$autostart" ] || continue; \
-      sed -i "/^wrapped-chromium/i /usr/local/bin/postman-session \&" "$autostart"; \
+      sed -i \
+        -e "/^wrapped-chromium/i /usr/local/bin/postman-session \&" \
+        -e "s|^wrapped-chromium.*|${chromium_line}|" \
+        "$autostart"; \
       grep -q postman-session "$autostart"; \
+      grep -q 'then /usr/local/bin/chromium-session; else wrapped-chromium' "$autostart"; \
+      sh -n "$autostart"; \
     done
