@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Health means the private network answers through the tunnel. A ppp0 that
+# exists while routing nowhere is not healthy, and reporting it as healthy hides
+# the failure this stack most needs to see.
+set -euo pipefail
+
+target=${VPN_HEALTH_TARGET:-}
+
+if [ -z "$target" ]; then
+  if [ -n "${PASEO_VPN_DRY_RUN:-}" ]; then
+    printf 'ip -4 addr show ppp0\n'
+    exit 0
+  fi
+  ip -4 addr show ppp0 | grep -q 'inet '
+  exit 0
+fi
+
+case "$target" in
+  *:*) ;;
+  *)
+    printf 'paseo-vpn: VPN_HEALTH_TARGET must be host:port\n' >&2
+    exit 1
+    ;;
+esac
+
+host=${target%:*}
+port=${target##*:}
+
+if [ -n "${PASEO_VPN_DRY_RUN:-}" ]; then
+  printf 'nc -z -w 5 %s %s\n' "$host" "$port"
+  exit 0
+fi
+
+nc -z -w 5 "$host" "$port"

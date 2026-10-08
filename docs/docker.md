@@ -174,6 +174,19 @@ environment:
 
 IPs and `localhost` are allowed by default.
 
+## Private network access
+
+`docker-compose.vpn.yml` is a complete alternative to `docker-compose.yml`: the
+same stack plus an SSL-VPN client in its own container, so `paseo` and `browser`
+can reach a private network — a corporate git server, for example. Deploy an
+instance from that file instead of the base one; instances that do not need the
+VPN are unaffected.
+
+See [Private network access in docker/README.md](../docker/README.md#private-network-access)
+for the command, the environment variables, the host's `ppp_generic`
+prerequisite, why the shared services are duplicated, and route sidecar
+recovery.
+
 ## Security
 
 - Set `PASEO_PASSWORD` for any published port or network-reachable deployment.

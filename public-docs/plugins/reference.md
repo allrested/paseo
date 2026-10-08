@@ -410,6 +410,8 @@ Built-in session routes:
 | Codex                  | `codex`                                       | `CODEX_HOME/auth.json`, or the default                                                         |
 | Codex                  | `pi`, `opencode`, `omp` with `openai/…` model | That harness's OpenAI login store                                                              |
 | Muse                   | `muse`                                        | That session's own Muse launch/config                                                          |
+| Kiro CLI               | `kiro`                                        | That session's `~/.local/share/kiro-cli/data.sqlite3`                                          |
+| BDDevLab               | Any, with `bddevlab/…` model                  | `BDDEVLAB_API_KEY` in the daemon environment                                                   |
 | Other built-in sources | Any                                           | No session discovery                                                                           |
 
 Claude excludes Bedrock, Vertex, and foreign `ANTHROPIC_BASE_URL` sessions. Codex excludes sessions
