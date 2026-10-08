@@ -499,7 +499,10 @@ export default function contribute(server: PluginServerContext) {
 ```
 
 Built-in Claude discovery prefers the macOS Keychain login and uses the Claude Code credential
-file only when Keychain is empty. `CLAUDE_CONFIG_DIR` selects that file's directory. Fresh tokens
+file only when Keychain is empty. `CLAUDE_CONFIG_DIR` selects that file's directory. Global discovery
+also reads every `.claude*` directory in the home as a Claude profile, so a login made with
+`CLAUDE_CONFIG_DIR=~/.claude-work claude` gets its own card; a profile without a login is skipped,
+and one whose account has no email is labeled with its directory name. Fresh tokens
 use the OAuth profile's account and organization IDs; expired or rejected profiles use a locator
 hash. Codex prefers Codex CLI, OpenCode, Pi, then OMP and groups by the ChatGPT account ID from stored
 metadata or JWT claims. Pi and OMP logins remain discoverable when expired. OMP requires
