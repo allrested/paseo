@@ -93,3 +93,10 @@ app.json
 
 # Heap snapshots dumped by --heapsnapshot-near-heap-limit; keep them for debugging.
 *.heapsnapshot
+
+/docker/paseo-home
+/docker/workspace
+/docker/browser-config
+
+# SDD scratch workspace (subagent-driven-development)
+.superpowers/

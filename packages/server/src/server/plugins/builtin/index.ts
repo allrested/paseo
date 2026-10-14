@@ -4,12 +4,14 @@ import { fileURLToPath } from "node:url";
 
 export const builtinPlugins = [
   "antigravity-provider",
+  "bddevlab-usage-source",
   "claude-usage-source",
   "codex-usage-source",
   "copilot-usage-source",
   "cursor-usage-source",
   "grok-usage-source",
   "kimi-usage-source",
+  "kiro-usage-source",
   "minimax-usage-source",
   "muse-provider",
   "opencode-go-usage-source",
