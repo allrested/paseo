@@ -70,7 +70,7 @@ test("#7142: host usage retains distinct Cursor accounts after their individual 
 
 function source(input: {
   id: string;
-  discover?: () => Promise<Array<{ key: string; label?: string; input: unknown }>>;
+  discover?: (scope?: unknown) => Promise<Array<{ key: string; label?: string; input: unknown }>>;
   fetch?: (value: unknown) => Promise<unknown>;
 }) {
   return {
@@ -494,6 +494,34 @@ test("#6155: agent reports use only their session login despite host and sibling
   expect((await registry.listReports({ agentId: "codex-agent" }))[0]?.report).toEqual(codexError);
 });
 
+test("host usage shows a login once after an agent pinned it before its account was known", async () => {
+  const sessions = new Map([["work-agent", { provider: "claude", env: {}, sessionKey: "launch" }]]);
+  const registry = new UsageSourceRegistry(Date.now, 300_000, undefined, {
+    hasAgent: (id) => sessions.has(id),
+    usageSession: (id) => sessions.get(id) ?? null,
+  });
+  let identified = false;
+  const login = { route: { store: "claude", path: "/home/me/.claude-work/.credentials.json" } };
+  registry.register(
+    source({
+      id: "claude",
+      discover: async () => [
+        identified
+          ? { key: "account.org", label: "me@example.test", input: login }
+          : { key: "route-hash", label: "claude-work", input: login },
+      ],
+    }),
+  );
+  expect((await registry.listReports({ agentId: "work-agent" })).map((entry) => entry.id)).toEqual([
+    "claude:route-hash",
+  ]);
+  identified = true;
+  const host = await registry.listReports();
+  expect(host.map((entry) => [entry.id, entry.account.label])).toEqual([
+    ["claude:account.org", "me@example.test"],
+  ]);
+});
+
 test("all failed host logins retain each source-supplied harness and remedy", async () => {
   const registry = new UsageSourceRegistry();
   const failures = [
@@ -827,4 +855,28 @@ test("failed discovery preserves history until discovery confirms account remova
   expect(await registry.listReports()).toEqual([]);
   present = true;
   expect((await registry.listReports())[0]?.lastSuccessful).toBeUndefined();
+});
+
+test("listReportsForScope reports usage for a provider/env without a live agent", async () => {
+  const registry = new UsageSourceRegistry();
+  registry.register(
+    source({
+      id: "claude",
+      discover: async (scope) =>
+        (scope as { kind: string }).kind === "session" &&
+        (scope as { env: Record<string, string> }).env.CLAUDE_CONFIG_DIR === "/w"
+          ? [{ key: "work", label: "work@example.test", input: { dir: "/w" } }]
+          : [],
+      fetch: async () => ({
+        status: "available",
+        windows: [{ id: "five_hour", label: "Session", usedPct: 100 }],
+      }),
+    }),
+  );
+  const [entry] = await registry.listReportsForScope({
+    provider: "claude",
+    env: { CLAUDE_CONFIG_DIR: "/w" },
+  });
+  expect(entry?.account.label).toBe("work@example.test");
+  expect(entry?.report.status).toBe("available");
 });

@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { runModeCommand } from "./mode.js";
 import { addArchiveOptions, runArchiveCommand } from "./archive.js";
+import { addMoveBackOptions, addMoveOptions, runMoveBackCommand, runMoveCommand } from "./move.js";
 import { addDeleteOptions, runDeleteCommand } from "./delete.js";
 import { addLsOptions, runLsCommand } from "./ls.js";
 import { addRunOptions, runRunCommand } from "./run.js";
@@ -81,6 +82,14 @@ export function createAgentCommand(): Command {
 
   addJsonAndDaemonHostOptions(addArchiveOptions(agent.command("archive"))).action(
     withOutput(runArchiveCommand),
+  );
+
+  addJsonAndDaemonHostOptions(addMoveOptions(agent.command("move"))).action(
+    withOutput(runMoveCommand),
+  );
+
+  addJsonAndDaemonHostOptions(addMoveBackOptions(agent.command("move-back"))).action(
+    withOutput(runMoveBackCommand),
   );
 
   addJsonAndDaemonHostOptions(addReloadOptions(agent.command("reload"))).action(

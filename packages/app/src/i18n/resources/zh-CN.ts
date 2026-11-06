@@ -682,6 +682,7 @@ export const zhCN: TranslationResources = {
         moveToMain: "移至主面板",
         reloadAgent: "重新加载 Agent",
         reloadAgentTooltip: "重新加载 Agent 以更新 skills、MCPs 或登录状态。",
+        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "关闭",
         renameTerminal: "重命名 Terminal",
         renameAgent: "重命名 Agent",
@@ -1958,6 +1959,7 @@ export const zhCN: TranslationResources = {
       stop: "停止 realtime voice 并中断 turn",
     },
   },
+  sessionMove: en.sessionMove,
   rewind: {
     tooltip: "回退到此消息",
     warning: "此操作无法撤销",

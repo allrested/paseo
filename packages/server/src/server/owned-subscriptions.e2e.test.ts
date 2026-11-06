@@ -2024,3 +2024,40 @@ test.each([
     }
   },
 );
+
+test("agent.moved reaches subscribed clients, never for internal agents nor legacy sockets", async () => {
+  const daemon = await createTestPaseoDaemon({ mcpEnabled: false });
+  const peers: SubscriptionPeer[] = [];
+  const movedFrames = (peer: SubscriptionPeer) =>
+    peer.frames.flatMap((frame) =>
+      frame.type === "session" && frame.message.type === "agent.moved"
+        ? [{ from: frame.message.payload.fromAgentId, to: frame.message.payload.toAgentId }]
+        : [],
+    );
+  try {
+    const modern = await SubscriptionPeer.connect(daemon.port, "moved-modern");
+    const legacy = await SubscriptionPeer.connect(daemon.port, "moved-legacy", {
+      owned_subscriptions: false,
+    });
+    peers.push(modern, legacy);
+    await modern.request({
+      type: "session.events.set_subscription.request",
+      requestId: "moved-events",
+      events: ["agent.moved"],
+    });
+    const manager = daemon.daemon.agentManager;
+
+    // Dispatch is synchronous and ordered, so the internal event would land before the other.
+    manager.notifyAgentMoved("internal-from", "internal-to", { internal: true });
+    manager.notifyAgentMoved("from", "to", { internal: false });
+
+    await expect
+      .poll(() => movedFrames(modern), { timeout: 10_000 })
+      .toEqual([{ from: "from", to: "to" }]);
+    await legacy.request({ type: "ping", requestId: "moved-barrier", clientSentAt: 1 });
+    expect(movedFrames(legacy)).toEqual([]);
+  } finally {
+    for (const peer of peers) peer.close();
+    await daemon.close();
+  }
+});
