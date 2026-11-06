@@ -17,6 +17,7 @@ export const builtinPlugins = [
   "minimax-usage-source",
   "muse-provider",
   "opencode-go-usage-source",
+  "shared-mcp",
   "worktree-include",
   "zai-usage-source",
 ] as const;
