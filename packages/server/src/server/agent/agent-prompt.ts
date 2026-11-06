@@ -5,6 +5,7 @@ import type { AgentPromptInput, AgentRunOptions } from "./agent-sdk-types.js";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentStorage } from "./agent-storage.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
+import { takePendingMovePrompt } from "./session-move/pending-context.js";
 import { isStaleProviderSessionError } from "./stale-provider-session-error.js";
 import type { ActiveTurnBehavior } from "@getpaseo/protocol/messages";
 
@@ -357,7 +358,14 @@ export async function sendPreparedPromptToAgent(
     await params.agentManager.setAgentMode(params.agentId, params.sessionMode);
   }
 
-  return await startAgentRun(params.agentManager, params.agentId, params.prompt, params.logger, {
+  // Cleared before the run starts: a failed start must not resend the history twice.
+  const prompt = await takePendingMovePrompt({
+    agentStorage: params.agentStorage,
+    agentId: params.agentId,
+    prompt: params.prompt,
+  });
+
+  return await startAgentRun(params.agentManager, params.agentId, prompt, params.logger, {
     replaceRunning: true,
     onDispatch: params.onDispatch,
     activeTurnBehavior: params.activeTurnBehavior,

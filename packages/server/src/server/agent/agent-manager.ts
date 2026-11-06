@@ -73,8 +73,15 @@ import {
   foldHookFeatureValues,
   type ProviderOptionsPatch,
 } from "./option-controls.js";
+import { isUsageLimitError } from "./session-move/limit-matcher.js";
 import type { StoredAgentRecord, AgentStorage } from "./agent-storage.js";
 import type { AgentOwner } from "./agent-owner.js";
+import {
+  idleReaperConfigFromEnv,
+  selectIdleAgentsToReap,
+  type IdleReaperConfig,
+  type ReapCandidate,
+} from "./idle-session-reaper.js";
 import {
   InMemoryAgentTimelineStore,
   type SeedAgentTimelineOptions,
@@ -271,6 +278,7 @@ export type {
 export type AgentManagerEvent =
   | { type: "agent_state"; agent: ManagedAgent }
   | { type: "agent_removed"; agentId: string; workspaceId?: string; internal: boolean }
+  | { type: "agent_moved"; fromAgentId: string; toAgentId: string; internal: boolean }
   | { type: "provider_subagent"; event: ProviderSubagentStoreEvent }
   | { type: "background_work"; agentId: string; items: AgentBackgroundWorkItem[] }
   | { type: "timeline_replacement"; agentId: string; epoch: string }
@@ -425,6 +433,16 @@ export type AttentionState =
       attentionTimestamp: Date;
     };
 
+/**
+ * Fork delta (session move): a resumed agent keeps the limit its stored record carried, so the
+ * move banner survives a reload or daemon restart; a new agent starts with none.
+ */
+function initialLimitReached(
+  options: { limitReached?: ManagedAgent["limitReached"] } | undefined,
+): ManagedAgent["limitReached"] {
+  return options?.limitReached ?? null;
+}
+
 /** Private helpers and background agents report to their creator, never to the user. */
 function raisesAttention(agent: Pick<ManagedAgent, "internal" | "background">): boolean {
   return !agent.internal && !agent.background;
@@ -496,6 +514,7 @@ interface ManagedAgentBase {
   activeTurnStartedAt: Date | null;
   lastUsage?: AgentUsage;
   lastError?: string;
+  limitReached?: { at: string; message: string } | null;
   attention: AttentionState;
   foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
   finalizedForegroundTurnIds: Set<string>;
@@ -837,6 +856,8 @@ export class AgentManager {
   private readonly providerEnabled = new Map<AgentProvider, boolean>();
   private readonly providerDefinitions = new Map<AgentProvider, ProviderEnabledFlag>();
   private readonly agents = new Map<string, LiveManagedAgent>();
+  private idleReaperTimer: ReturnType<typeof setInterval> | null = null;
+  private idleReaperConfig: IdleReaperConfig | null = null;
   private readonly timelineStore: InMemoryAgentTimelineStore;
   private readonly providerSubagents = new ProviderSubagentStore();
   private readonly backgroundWork = new AgentBackgroundWorkStore();
@@ -977,6 +998,84 @@ export class AgentManager {
 
   prepareForShutdown(): void {
     this.acceptingAgentRegistrations = false;
+    this.stopIdleSessionReaper();
+  }
+
+  /**
+   * Start closing sessions that have gone idle past the configured threshold.
+   *
+   * A provider session is deliberately kept warm between turns, but until this
+   * existed that warmth had no ceiling: `session.close()` ran only on an
+   * explicit close, archive or delete, so every agent ever prompted pinned its
+   * provider process for the life of the daemon. One production sandbox held 11
+   * live `kiro-cli` pairs (~2.5 GiB) after five days and took its host to 95%
+   * memory.
+   *
+   * Opt-in via `PASEO_IDLE_SESSION_REAP_MINUTES`; a no-op when unset.
+   */
+  startIdleSessionReaper(config = idleReaperConfigFromEnv(process.env)): void {
+    this.stopIdleSessionReaper();
+    if (!config.enabled) {
+      return;
+    }
+    this.idleReaperConfig = config;
+    this.idleReaperTimer = setInterval(() => {
+      void this.reapIdleSessions();
+    }, config.sweepMs);
+    // Never hold the process open for a sweep.
+    this.idleReaperTimer.unref?.();
+    this.logger.info(
+      { idleMs: config.idleMs, sweepMs: config.sweepMs },
+      "agent.manager.idle_reaper.started",
+    );
+  }
+
+  stopIdleSessionReaper(): void {
+    if (this.idleReaperTimer) {
+      clearInterval(this.idleReaperTimer);
+      this.idleReaperTimer = null;
+    }
+  }
+
+  /**
+   * One sweep. Exposed for tests so the policy can be exercised against a real
+   * agent map without waiting on a timer.
+   */
+  async reapIdleSessions(now: Date = new Date()): Promise<string[]> {
+    const config = this.idleReaperConfig;
+    if (!config?.enabled || !this.acceptingAgentRegistrations) {
+      return [];
+    }
+    const candidates: ReapCandidate[] = Array.from(this.agents.values(), (agent) => ({
+      id: agent.id,
+      lifecycle: agent.lifecycle,
+      updatedAt: agent.updatedAt,
+      activeForegroundTurnId: agent.activeForegroundTurnId,
+      activeTurnId: agent.activeTurnId,
+      pendingPermissionCount: agent.pendingPermissions.size,
+      supportsSessionPersistence: agent.capabilities.supportsSessionPersistence === true,
+      hasPersistenceHandle: agent.persistence !== null,
+    }));
+    const doomed = selectIdleAgentsToReap(candidates, now, config.idleMs);
+    const reaped: string[] = [];
+    for (const agentId of doomed) {
+      // Re-check under the current tick: an agent can start a turn between
+      // selection and close, and closeAgent is async.
+      const agent = this.agents.get(agentId);
+      if (!agent || agent.lifecycle !== "idle" || agent.activeForegroundTurnId !== null) {
+        continue;
+      }
+      try {
+        await this.closeAgent(agentId);
+        reaped.push(agentId);
+        this.logger.info({ agentId }, "agent.manager.idle_reaper.closed");
+      } catch (error) {
+        // A failed reap is not an incident: the agent keeps its session and the
+        // next sweep tries again. Never let one failure stop the sweep.
+        this.logger.warn({ err: error, agentId }, "agent.manager.idle_reaper.close_failed");
+      }
+    }
+    return reaped;
   }
 
   setPaseoToolsEnabled(enabled: boolean): void {
@@ -1619,6 +1718,7 @@ export class AgentManager {
       owner?: AgentOwner;
       background?: boolean;
       attention?: AttentionState;
+      limitReached?: { at: string; message: string } | null;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1653,6 +1753,7 @@ export class AgentManager {
       owner?: AgentOwner;
       background?: boolean;
       attention?: AttentionState;
+      limitReached?: { at: string; message: string } | null;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1856,6 +1957,7 @@ export class AgentManager {
     const preservedHistoryPrimed = existing.historyPrimed;
     const preservedLastUsage = existing.lastUsage;
     const preservedLastError = existing.lastError;
+    const preservedLimitReached = existing.limitReached;
     const preservedAttention = existing.attention;
     const handle = existing.persistence;
     const provider = handle?.provider ?? existing.provider;
@@ -1942,6 +2044,7 @@ export class AgentManager {
         historyPrimed: rehydrateFromDisk ? false : preservedHistoryPrimed,
         lastUsage: preservedLastUsage,
         lastError: preservedLastError,
+        limitReached: preservedLimitReached,
         attention: preservedAttention,
         restoring: true,
       });
@@ -2398,6 +2501,7 @@ export class AgentManager {
         lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
         lastUsage: undefined,
         lastError: record.lastError ?? undefined,
+        limitReached: record.limitReached ?? null,
         attention,
         internal: record.internal,
         background: record.background,
@@ -2636,7 +2740,8 @@ export class AgentManager {
     this.emitState(agent, { persist: false });
   }
 
-  async setLabels(agentId: string, labels: Record<string, string>): Promise<void> {
+  /** A null value removes that label. */
+  async setLabels(agentId: string, labels: AgentLabelPatch): Promise<void> {
     await this.runLifecycleMutation(agentId, async () => {
       const agent = this.requireAgent(agentId);
       await this.writeLabels(agent.id, labels);
@@ -3980,6 +4085,26 @@ export class AgentManager {
     });
   }
 
+  /**
+   * Fork delta (session move): move back clears the limit on the agent it returns to, and a
+   * failed move back puts it back. Not activity in the agent, so updatedAt stays.
+   */
+  async setLimitReached(
+    agentId: string,
+    limitReached: ManagedAgent["limitReached"],
+  ): Promise<void> {
+    await this.runLifecycleMutation(agentId, async () => {
+      const agent = this.requireAgent(agentId);
+      agent.limitReached = limitReached ?? null;
+      await this.persistSnapshot(agent);
+      this.emitState(agent, { persist: false });
+    });
+  }
+
+  notifyAgentMoved(fromAgentId: string, toAgentId: string, options: { internal: boolean }): void {
+    this.dispatch({ type: "agent_moved", fromAgentId, toAgentId, internal: options.internal });
+  }
+
   async deleteCommittedTimeline(agentId: string): Promise<void> {
     await this.durableTimelineStore?.deleteAgent(agentId);
   }
@@ -4228,6 +4353,7 @@ export class AgentManager {
       historyPrimed?: boolean;
       lastUsage?: AgentUsage;
       lastError?: string;
+      limitReached?: { at: string; message: string } | null;
       attention?: AttentionState;
       /**
        * Bringing a known agent back, rather than starting a new one. Its timestamps and
@@ -4283,6 +4409,8 @@ export class AgentManager {
         background: options?.background === true,
         options,
       });
+
+      managed.limitReached = initialLimitReached(options);
 
       // Read history before publishing the agent: a provider failure must leave the
       // session unregistered so the registration catch closes it.
@@ -5316,6 +5444,7 @@ export class AgentManager {
     // data accumulated during streaming isn't lost when the provider omits
     // it from the completion event.
     agent.lastError = undefined;
+    agent.limitReached = null;
     if (
       !isForegroundEvent &&
       !agent.activeForegroundTurnId &&
@@ -5357,6 +5486,10 @@ export class AgentManager {
       agent.lifecycle = "error";
     }
     agent.lastError = event.error;
+    // Fork delta (session move): offer a move when the provider's quota ran out.
+    agent.limitReached = isUsageLimitError(event.error)
+      ? { at: new Date().toISOString(), message: event.error }
+      : (agent.limitReached ?? null);
     await this.appendSystemErrorTimelineMessage(
       agent,
       event.provider,
@@ -5915,6 +6048,14 @@ export class AgentManager {
         subscriber.agentId &&
         event.type === "agent_state" &&
         subscriber.agentId !== event.agent.id
+      ) {
+        continue;
+      }
+      if (
+        subscriber.agentId &&
+        event.type === "agent_moved" &&
+        subscriber.agentId !== event.fromAgentId &&
+        subscriber.agentId !== event.toAgentId
       ) {
         continue;
       }

@@ -149,6 +149,37 @@ describe("buildWorkspaceTabMenuEntries", () => {
     );
   });
 
+  it("adds the move entry for agent tabs only when moving is supported", () => {
+    const baseInput = {
+      surface: "desktop" as const,
+      tab: createAgentTab(),
+      index: 0,
+      tabCount: 1,
+      menuTestIDBase: "workspace-tab-context-agent_123",
+      onCopyResumeCommand: vi.fn(),
+      onCopyAgentId: vi.fn(),
+      onCopyTerminalId: vi.fn(),
+      onCopyFilePath: vi.fn(),
+      onReloadAgent: vi.fn(),
+      onRenameTab: vi.fn(),
+      onCloseTab: vi.fn(),
+      onCloseTabsBefore: vi.fn(),
+      onCloseTabsAfter: vi.fn(),
+      onCloseOtherTabs: vi.fn(),
+    };
+    const isMoveEntry = (entry: { kind: string; key: string }) =>
+      entry.kind === "item" && entry.key === "move-agent";
+
+    expect(buildWorkspaceTabMenuEntries(baseInput).some(isMoveEntry)).toBe(false);
+
+    const onMoveAgent = vi.fn();
+    const moveEntry = buildWorkspaceTabMenuEntries({ ...baseInput, onMoveAgent }).find(isMoveEntry);
+    if (!moveEntry || moveEntry.kind !== "item") throw new Error("Move entry missing");
+    expect(moveEntry.icon).toBe("arrow-left-right");
+    moveEntry.onSelect();
+    expect(onMoveAgent).toHaveBeenCalledWith("agent-123");
+  });
+
   it("invokes onRenameTab when the rename entry is selected for agent tabs", () => {
     const onRenameTab = vi.fn();
     const tab = createAgentTab();

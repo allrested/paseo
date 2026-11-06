@@ -491,6 +491,21 @@ describe("toAgentPayload", () => {
     ).not.toHaveProperty("lastError");
   });
 
+  it("carries a stored limitReached onto the payload and omits it when absent", () => {
+    const limitReached = { at: "2026-01-01T00:00:00.000Z", message: "usage limit reached" };
+    const record = toStoredAgentRecord(
+      createManagedAgent({ provider: "codex", config: { provider: "codex" }, limitReached }),
+    );
+
+    expect(buildStoredAgentPayload(record, ["codex"]).limitReached).toEqual(limitReached);
+    expect(
+      buildStoredAgentPayload({ ...record, limitReached: null }, ["codex"]),
+    ).not.toHaveProperty("limitReached");
+    expect(
+      buildStoredAgentPayload({ ...record, limitReached: undefined }, ["codex"]),
+    ).not.toHaveProperty("limitReached");
+  });
+
   it("omits lastUsage when not available", () => {
     const agent = createManagedAgent({ lastUsage: undefined });
     const payload = toAgentPayload(agent);

@@ -689,6 +689,7 @@ export const ru: TranslationResources = {
         moveToMain: "Переместить на основную панель",
         reloadAgent: "Перезагрузить агента",
         reloadAgentTooltip: "Перезагрузите агента, чтобы обновить навыки, MCP или статус входа.",
+        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "Закрыть",
         renameTerminal: "Переименовать терминал",
         renameAgent: "Переименовать агента",
@@ -2015,6 +2016,7 @@ export const ru: TranslationResources = {
       stop: "Остановить голосовой режим реального времени и прервать текущий ответ",
     },
   },
+  sessionMove: en.sessionMove,
   rewind: {
     tooltip: "Вернуться к этому сообщению",
     warning: "Это действие нельзя отменить.",

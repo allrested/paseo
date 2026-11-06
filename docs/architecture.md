@@ -166,7 +166,7 @@ traffic. Workspace assignments stay on the workspace directory sequence.
 
 Commander.js CLI with Docker-style commands. Common agent operations are also exposed at the top level (e.g. `paseo ls`, `paseo run`).
 
-- `paseo agent ls/run/import/attach/logs/stop/delete/send/inspect/wait/archive/reload/update/mode`
+- `paseo agent ls/run/import/attach/logs/stop/delete/send/inspect/wait/archive/move/move-back/reload/update/mode`
 - `paseo daemon start/run/stop/restart/status/reload/config/pair/set-password`
 - `paseo terminal ls/create/capture/send-keys/kill`
 - `paseo script ls/start/stop`

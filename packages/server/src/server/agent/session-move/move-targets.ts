@@ -1,0 +1,102 @@
+import type { ProviderSnapshotEntry } from "../agent-sdk-types.js";
+import type { ProviderLaunchInfo } from "../provider-snapshot-manager.js";
+
+export interface MoveTarget {
+  provider: string;
+  label: string;
+  family: string;
+  available: boolean;
+  current: boolean;
+  usedPct: number | null;
+  resetsAt: string | null;
+}
+
+export interface UsageWindowLike {
+  usedPct?: number | null;
+  remainingPct?: number | null;
+  resetsAt?: string | null;
+}
+
+export interface MoveTargetInput {
+  info: ProviderLaunchInfo;
+  /** The provider's snapshot status in the agent's workspace; null when it has no entry yet. */
+  status: ProviderSnapshotEntry["status"] | null;
+  currentProvider: string;
+  windows: readonly UsageWindowLike[] | null;
+}
+
+function usedPctOf(window: UsageWindowLike): number | null {
+  if (typeof window.usedPct === "number") return window.usedPct;
+  return typeof window.remainingPct === "number" ? 100 - window.remainingPct : null;
+}
+
+/** The tightest window decides whether a target has room. */
+export function toMoveTarget(input: MoveTargetInput): MoveTarget {
+  let usedPct: number | null = null;
+  let resetsAt: string | null = null;
+  for (const window of input.windows ?? []) {
+    const windowUsedPct = usedPctOf(window);
+    if (windowUsedPct !== null && (usedPct === null || windowUsedPct > usedPct)) {
+      usedPct = windowUsedPct;
+      resetsAt = window.resetsAt ?? null;
+    }
+  }
+  return {
+    provider: input.info.providerId,
+    label: input.info.label,
+    family: input.info.family,
+    // A loading target stays selectable: the move waits for it and refuses it if it fails.
+    available: input.info.enabled && input.status !== "unavailable" && input.status !== "error",
+    current: input.info.providerId === input.currentProvider,
+    usedPct,
+    resetsAt,
+  };
+}
+
+export interface UsageLookupOptions {
+  ttlMs?: number;
+  timeoutMs?: number;
+  now?: () => number;
+}
+
+/**
+ * Wraps a usage lookup so the move dialog stays fast: a result is reused for `ttlMs`, and a
+ * lookup slower than `timeoutMs` resolves to null (unknown usage) instead of holding the dialog.
+ * A slow lookup that finishes later still fills the cache. Concurrent callers for one key share
+ * the lookup in flight. Failures are not cached.
+ */
+// ponytail: process-wide map keyed by provider id with no size cap; the provider list is small.
+export function createUsageLookup<T>(
+  options: UsageLookupOptions = {},
+): (key: string, load: () => Promise<T>) => Promise<T | null> {
+  const ttlMs = options.ttlMs ?? 60_000;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const now = options.now ?? Date.now;
+  const entries = new Map<string, { at: number; value: T }>();
+  const inFlight = new Map<string, Promise<T>>();
+  return async (key, load) => {
+    const hit = entries.get(key);
+    if (hit && now() - hit.at < ttlMs) return hit.value;
+    let loaded = inFlight.get(key);
+    if (!loaded) {
+      loaded = load()
+        .then((value) => {
+          entries.set(key, { at: now(), value });
+          return value;
+        })
+        .finally(() => inFlight.delete(key));
+      inFlight.set(key, loaded);
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    // The race below only observes `loaded`; this keeps a late rejection from going unhandled.
+    loaded.catch(() => undefined);
+    try {
+      return await Promise.race([loaded, timedOut]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}

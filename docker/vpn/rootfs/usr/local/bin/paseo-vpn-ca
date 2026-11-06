@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Installs an extra CA certificate into the trust store before the client runs.
+#
+# Some networks terminate and re-sign TLS at an inspecting proxy, so the VPN
+# gateway's certificate arrives signed by a private root the image does not
+# trust. openfortivpn then refuses the connection and never reaches PPP, which
+# looks identical to a wrong password: the tunnel simply never comes up.
+#
+# The certificate arrives base64-encoded because .env parsing across compose
+# versions does not carry PEM newlines reliably. --root redirects writes for
+# tests.
+set -euo pipefail
+
+root=/
+if [ "${1:-}" = "--root" ]; then
+  root=${2:-}
+  [ -n "$root" ] || {
+    printf 'paseo-vpn-ca: --root requires a path argument\n' >&2
+    exit 1
+  }
+fi
+
+[ -n "${VPN_CA_CERT_B64:-}" ] || exit 0
+
+anchors="${root%/}/usr/local/share/ca-certificates"
+mkdir -p "$anchors"
+target="$anchors/paseo-vpn-extra.crt"
+
+if ! printf '%s' "$VPN_CA_CERT_B64" | base64 -d > "$target" 2>/dev/null; then
+  printf 'paseo-vpn-ca: VPN_CA_CERT_B64 is not valid base64\n' >&2
+  exit 1
+fi
+
+# A truncated or wrong-format value would otherwise install silently and the
+# connection would keep failing for a reason nothing reports.
+if ! grep -q 'BEGIN CERTIFICATE' "$target"; then
+  printf 'paseo-vpn-ca: decoded VPN_CA_CERT_B64 is not a PEM certificate\n' >&2
+  rm -f "$target"
+  exit 1
+fi
+chmod 644 "$target"
+
+if [ "$root" = "/" ]; then
+  update-ca-certificates > /dev/null
+fi
+printf 'paseo-vpn-ca: installed extra CA into the trust store\n' >&2
