@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { Socket } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { probeMcp } from "./probe.js";
 
@@ -15,6 +16,8 @@ interface RecordedRequest {
 interface TestServer {
   port: number;
   requests: RecordedRequest[];
+  // One promise per request, settled when the connection that carried it closes.
+  closed: Promise<void>[];
 }
 
 type Respond = (request: RecordedRequest, res: ServerResponse) => void;
@@ -31,6 +34,10 @@ const INITIALIZE_BODY = {
     clientInfo: { name: "paseo-shared-mcp-probe", version: "1.0.0" },
   },
 };
+
+// How long a test waits for a connection to close. A swapping host can stall a socket event for
+// seconds; a leaked connection costs the whole wait before the test fails.
+const CLOSE_WAIT_MS = 10_000;
 
 const servers: Server[] = [];
 
@@ -79,8 +86,34 @@ async function closeServer(server: Server): Promise<void> {
   });
 }
 
+function connectionClosed(socket: Socket): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (socket.destroyed) resolve();
+    else socket.once("close", () => resolve());
+  });
+}
+
+async function allClosed(closed: Promise<void>[]): Promise<boolean> {
+  await Promise.all(closed);
+  return true;
+}
+
+// True once every connection has closed, false if one is still open after timeoutMs.
+async function closedWithin(closed: Promise<void>[], timeoutMs: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+  });
+  try {
+    return await Promise.race([allClosed(closed), timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function startServer(respond: Respond): Promise<TestServer> {
   const requests: RecordedRequest[] = [];
+  const closed: Promise<void>[] = [];
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let request: RecordedRequest;
     try {
@@ -94,10 +127,11 @@ async function startServer(respond: Respond): Promise<TestServer> {
     respond(request, res);
   }
   const server = createServer((req, res) => {
+    closed.push(connectionClosed(req.socket));
     void handle(req, res);
   });
   servers.push(server);
-  return { port: await listen(server, 0), requests };
+  return { port: await listen(server, 0), requests, closed };
 }
 
 // Bound once to learn a free port number, then released, so nothing listens on it.
@@ -189,6 +223,25 @@ describe("probeMcp", () => {
     expect(result).toEqual({ ok: true, status: 200 });
     expect(server.requests).toEqual([initializeRequest(), deleteRequest()]);
   });
+
+  it(
+    "closes the connection of the initialize stream and of the DELETE",
+    async () => {
+      const server = await startServer(withSession(respondWith(200)));
+
+      // The long timeout keeps the request's own timeout abort from closing the sockets, so only
+      // the probe's destroy can.
+      const result = await probeMcp(
+        { port: server.port, healthPath: "/mcp" },
+        { timeoutMs: 10 * CLOSE_WAIT_MS },
+      );
+
+      expect(result).toEqual({ ok: true, status: 200 });
+      expect(server.requests).toEqual([initializeRequest(), deleteRequest()]);
+      expect(await closedWithin(server.closed, CLOSE_WAIT_MS)).toBe(true);
+    },
+    2 * CLOSE_WAIT_MS,
+  );
 
   it("sends the bearer token on the initialize and on the session DELETE", async () => {
     const server = await startServer(withSession(respondWith(200)));
