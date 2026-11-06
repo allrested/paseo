@@ -682,6 +682,7 @@ export const ar: TranslationResources = {
         moveToMain: "Move to main panel",
         reloadAgent: "إعادة تحميل الوكيل",
         reloadAgentTooltip: "قم بإعادة تحميل الوكيل لتحديث المهارات أو MCPs أو حالة تسجيل الدخول.",
+        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "يغلق",
         renameTerminal: "إعادة تسمية المحطة",
         renameAgent: "إعادة تسمية الوكيل",
@@ -1981,6 +1982,7 @@ export const ar: TranslationResources = {
       stop: "إيقاف الصوت في الوقت الحقيقي ومقاطعة الدوران",
     },
   },
+  sessionMove: en.sessionMove,
   rewind: {
     tooltip: "الترجيع إلى هذه الرسالة",
     warning: "لا يمكن التراجع عن هذا الإجراء",
