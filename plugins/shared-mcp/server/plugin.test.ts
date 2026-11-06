@@ -10,7 +10,7 @@ import type {
   PluginSettingsState,
 } from "@getpaseo/plugin/server";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import type { input as ZodInput, output as ZodOutput } from "zod";
+import { parse, type input as ZodInput, type output as ZodOutput } from "zod";
 import contribute from "../index.server.js";
 import { restartRpc, statusRpc, type ServerStatus } from "../shared/rpc.js";
 import { sharedMcpSettings, type ServerDefinition } from "../shared/settings.js";
@@ -32,6 +32,7 @@ vi.mock("./procfs.js", async (importOriginal) => {
 });
 
 type SettingsState = PluginSettingsState<typeof sharedMcpSettings.schema>;
+type ReadySettingsState = Extract<SettingsState, { status: "ready" }>;
 type SettingsListener = (state: SettingsState) => void | Promise<void>;
 type RpcHandler = (input: unknown, context: object) => unknown;
 type OpenHook = (
@@ -147,7 +148,7 @@ function deferred<Value>(): Deferred<Value> {
   };
 }
 
-function ready(servers: object[]): SettingsState {
+function ready(servers: object[]): ReadySettingsState {
   const values = sharedMcpSettings.schema.parse({ servers });
   return { status: "ready", revision: "test", values };
 }
@@ -273,11 +274,16 @@ function createFakeServer(initial?: SettingsState): FakeServer {
     emit(state) {
       for (const listener of listeners) void listener(state);
     },
-    async call(contract, input) {
+    // Inferred from contract.output, parse sees only the ZodType constraint and returns unknown,
+    // so the method names Contract and passes it to parse explicitly.
+    async call<Contract extends PluginRpcContract>(
+      contract: Contract,
+      input: ZodInput<Contract["input"]>,
+    ): Promise<ZodOutput<Contract["output"]>> {
       const handler = rpcs.get(contract.name);
       if (handler === undefined) throw new Error(`No handler for ${contract.name}`);
       const output = await handler(contract.input.parse(input), {});
-      return contract.output.parse(output);
+      return parse<Contract["output"]>(contract.output, output);
     },
     openAgent(request) {
       const hook = hooks.get("agent.open.before");
@@ -515,14 +521,17 @@ describe("createSharedMcp", () => {
       return reclaimed.promise;
     });
     const server = start(ready([serverDef("alpha", 18_101)]), fakeDeps().deps);
-    await vi.waitFor(() => expect(reclaimOrphan).toHaveBeenCalledTimes(2));
-    expect(reclaimOrphan).toHaveBeenCalledWith(join(run, "alpha.pid"), expect.any(Function));
-    expect(reclaimOrphan).toHaveBeenCalledWith(join(run, "beta.pid"), expect.any(Function));
-    await server.openAgent(openRequest());
-    expect(apply).not.toHaveBeenCalled();
-    reclaimed.resolve(true);
+    try {
+      await vi.waitFor(() => expect(reclaimOrphan).toHaveBeenCalledTimes(2));
+      expect(reclaimOrphan).toHaveBeenCalledWith(join(run, "alpha.pid"), expect.any(Function));
+      expect(reclaimOrphan).toHaveBeenCalledWith(join(run, "beta.pid"), expect.any(Function));
+      await server.openAgent(openRequest());
+      expect(apply).not.toHaveBeenCalled();
+    } finally {
+      // A failure above must not leave cleanup waiting on a reclaim that never settles.
+      reclaimed.resolve(true);
+    }
     await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
-    // Asserted after the reclaim settles, so a failure cannot leave cleanup waiting on it.
     expect(error).toHaveBeenCalledTimes(2);
     expect(error).toHaveBeenCalledWith(
       `shared-mcp: reclaim ${join(run, "alpha.pid")}: ${WALK_FAILED}`,
@@ -608,6 +617,27 @@ describe("createSharedMcp", () => {
     );
     expect(await server.openAgent(openRequest())).toBeUndefined();
     expect(error).toHaveBeenCalledWith("shared-mcp: token unavailable", expect.any(Error));
+  });
+
+  it("loads the token again at the next agent open after a failure", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(noop);
+    writeFileSync(home, "a file where the home directory should be");
+    const server = start(
+      ready([serverDef("gitlab", 18_103, { bearerToken: GITLAB_BEARER })]),
+      fakeDeps().deps,
+    );
+    const request = openRequest();
+    expect(await server.openAgent(request)).toBeUndefined();
+    expect(error).toHaveBeenCalledWith("shared-mcp: token unavailable", expect.any(Error));
+    // The apply fails on the same file and nothing re-applies, so only the next open can retry.
+    await vi.waitFor(() =>
+      expect(error).toHaveBeenCalledWith("shared-mcp: applying servers failed", expect.any(Error)),
+    );
+    rmSync(home);
+    const reopened = await server.openAgent(request);
+    // Compared without printing the token, even on failure.
+    expect(Object.keys(reopened?.env ?? {})).toEqual(["SHARED_MCP_TOKEN"]);
+    expect(reopened?.env.SHARED_MCP_TOKEN === readToken(home)).toBe(true);
   });
 
   it("reports no RSS instead of failing the status RPC when /proc cannot be read", async () => {
