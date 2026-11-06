@@ -314,8 +314,8 @@ function holdWhileRunning(
   function release(): void {
     if (owned.get(id) === proc) owned.delete(id);
   }
-  // exited never rejects (process-runner.ts), and release cannot throw.
-  void proc.exited.then(release);
+  // release runs whether exited resolves or rejects, and cannot throw, so this promise never rejects.
+  void proc.exited.then(release, release);
   return {
     pid: proc.pid,
     exited: proc.exited,
