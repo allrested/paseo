@@ -723,6 +723,25 @@ describe("createSharedMcp", () => {
     expect(spawned).toEqual([]);
   });
 
+  it("keeps the daemon up when a process's exited promise rejects", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const { deps } = fakeDeps();
+      deps.spawn = () => ({
+        pid: FAKE_PID_BASE,
+        exited: Promise.reject(new Error("exited rejected")),
+        stop: async () => undefined,
+      });
+      const server = start(ready([serverDef("alpha", 18_101)]), deps);
+      await waitForServer(server, "alpha", (status) => status.lastError === "exited rejected");
+      await nextMacrotask();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("sends the token only to a server process it started and still holds", async () => {
     const recorder = await startRecordingServer();
     try {

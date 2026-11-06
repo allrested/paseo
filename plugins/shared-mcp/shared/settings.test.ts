@@ -3,6 +3,9 @@ import { ServerDefinitionSchema, sharedMcpSettings } from "./settings.js";
 
 const SERVER_ID_MESSAGE =
   "Server id must start with a lowercase letter and use only lowercase letters, digits, and dashes";
+const ENV_NAME_MESSAGE = "Use letters, digits and underscores, not starting with a digit";
+const RESERVED_ENV_MESSAGE =
+  "PATH, HOME, NODE_OPTIONS and names starting with PASEO_, LD_ or DYLD_ are reserved";
 
 const context7 = {
   id: "context7",
@@ -66,6 +69,39 @@ describe("sharedMcpSettings", () => {
   it.each(["Context7", "7up", "has_underscore", "-dash", ""])("rejects the id %j", (id) => {
     expect(settingsIssues({ servers: [{ ...context7, id }] })).toEqual([
       { path: ["servers", 0, "id"], message: SERVER_ID_MESSAGE },
+    ]);
+  });
+
+  it("accepts bearer token variable names", () => {
+    const bearerToken = { serverEnv: "STREAMABLE_HTTP_AUTH_TOKEN", agentEnv: "SHARED_MCP_TOKEN" };
+
+    expect(settingsIssues({ servers: [{ ...gitlab, bearerToken }] })).toEqual([]);
+  });
+
+  it.each(["PATH", "HOME", "NODE_OPTIONS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "PASEO_HOME"])(
+    "rejects the reserved agentEnv %j",
+    (agentEnv) => {
+      const bearerToken = { serverEnv: "STREAMABLE_HTTP_AUTH_TOKEN", agentEnv };
+
+      expect(settingsIssues({ servers: [{ ...gitlab, bearerToken }] })).toEqual([
+        { path: ["servers", 0, "bearerToken", "agentEnv"], message: RESERVED_ENV_MESSAGE },
+      ]);
+    },
+  );
+
+  it.each(["", "A=B", "1TOKEN", "HAS SPACE", "A\u0000B"])("rejects the agentEnv %j", (agentEnv) => {
+    const bearerToken = { serverEnv: "STREAMABLE_HTTP_AUTH_TOKEN", agentEnv };
+
+    expect(settingsIssues({ servers: [{ ...gitlab, bearerToken }] })).toEqual([
+      { path: ["servers", 0, "bearerToken", "agentEnv"], message: ENV_NAME_MESSAGE },
+    ]);
+  });
+
+  it("rejects a reserved serverEnv", () => {
+    const bearerToken = { serverEnv: "PATH", agentEnv: "SHARED_MCP_TOKEN" };
+
+    expect(settingsIssues({ servers: [{ ...gitlab, bearerToken }] })).toEqual([
+      { path: ["servers", 0, "bearerToken", "serverEnv"], message: RESERVED_ENV_MESSAGE },
     ]);
   });
 });
