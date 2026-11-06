@@ -43,8 +43,8 @@ interface StatusUnavailableProps {
 }
 
 function restartBlockedReason(state: ServerStatus["state"]): string | undefined {
-  if (state === "external") return "Paseo did not start this server, so it leaves it alone.";
-  if (state === "disabled") return "Turn the server on to start it.";
+  if (state === "external") return "Paseo did not start this server, so it leaves it alone";
+  if (state === "disabled") return "Turn the server on to start it";
   return undefined;
 }
 
@@ -100,7 +100,7 @@ function ServerCard({ server, definitions, settings, now, styles }: ServerCardPr
         label="Restart server"
         hint={blockedReason}
         error={restartError}
-        actionLabel={restart.isPending ? "Restarting…" : "Restart"}
+        actionLabel={restart.isPending ? "Restarting..." : "Restart"}
         disabled={!canRestart}
         onPress={restartServer}
       />
@@ -146,7 +146,7 @@ export function ServersScreen({ theme }: PluginSurfaceProps) {
     if (status.isError) {
       return <StatusUnavailable message={status.error.message} onRetry={retry} styles={styles} />;
     }
-    return <Text style={styles.muted}>Loading servers…</Text>;
+    return <Text style={styles.muted}>Loading servers...</Text>;
   }
   const definitions = settings.status === "ready" ? settings.values.servers : NO_DEFINITIONS;
   const refreshError = status.isError ? `Status refresh failed: ${status.error.message}` : null;

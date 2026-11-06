@@ -18,10 +18,10 @@ type InvalidSettings = Extract<SharedMcpSettingsState, { status: "invalid" }>;
 const EDITOR_INFO =
   "A JSON array of server definitions. Saving starts, restarts, or stops servers to match.";
 const STALE_HINT = "The saved definitions changed after you started editing. Discard to load them.";
-const RESET_HINT = "Replaces the stored file with an empty server list, which stops every server.";
+const RESET_HINT = "Replaces the stored file with an empty server list, which stops every server";
 // The plugin SDK has no confirm dialog, so Reset asks for a second press within this window.
 const RESET_CONFIRM_MS = 5_000;
-const RESET_CONFIRM_HINT = `Press again within ${RESET_CONFIRM_MS / 1000} s to remove every server definition and stop every server.`;
+const RESET_CONFIRM_HINT = `Press again within ${RESET_CONFIRM_MS / 1000} s to remove every server definition and stop every server`;
 
 interface Draft {
   text: string;
@@ -113,7 +113,7 @@ function DefinitionsEditor({ settings, styles }: DefinitionsEditorProps) {
           label="Save definitions"
           hint={stale ? STALE_HINT : undefined}
           error={settings.saveError}
-          actionLabel={settings.saving ? "Saving…" : "Save"}
+          actionLabel={settings.saving ? "Saving..." : "Save"}
           disabled={!canSave}
           onPress={save}
         />
@@ -132,7 +132,7 @@ export function DefinitionsScreen({ theme }: PluginSurfaceProps) {
   const styles = useScreenStyles(theme);
   const settings = useSettings(sharedMcpSettings);
   if (settings.status === "loading") {
-    return <Text style={styles.muted}>Loading definitions…</Text>;
+    return <Text style={styles.muted}>Loading definitions...</Text>;
   }
   if (settings.status === "ready") return <DefinitionsEditor settings={settings} styles={styles} />;
   return (
