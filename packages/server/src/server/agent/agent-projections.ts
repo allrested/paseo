@@ -103,6 +103,7 @@ export function toStoredAgentRecord(
     controls: normalizeControls(agent.controls),
     persistence,
     lastError: agent.lastError ?? undefined,
+    limitReached: agent.limitReached ?? undefined,
     requiresAttention: agent.attention.requiresAttention,
     attentionReason: agent.attention.requiresAttention ? agent.attention.attentionReason : null,
     attentionTimestamp: agent.attention.requiresAttention
@@ -169,6 +170,10 @@ export function toAgentPayload(
 
   if (agent.lastError !== undefined) {
     payload.lastError = agent.lastError;
+  }
+
+  if (agent.limitReached) {
+    payload.limitReached = agent.limitReached;
   }
 
   // Handle attention state
@@ -249,6 +254,12 @@ function buildStoredOptionControls(
   };
 }
 
+function buildStoredLimitReachedField(
+  record: StoredAgentRecord,
+): Pick<AgentSnapshotPayload, "limitReached"> {
+  return record.limitReached ? { limitReached: record.limitReached } : {};
+}
+
 export function buildStoredAgentPayload(
   record: StoredAgentRecord,
   validProviders: Iterable<AgentProvider>,
@@ -308,6 +319,7 @@ export function buildStoredAgentPayload(
     labels: normalizeLabels(record.labels),
     metadata: record.metadata,
     ...(typeof record.lastError === "string" ? { lastError: record.lastError } : {}),
+    ...buildStoredLimitReachedField(record),
     ...(providerAvailable ? {} : { providerUnavailable: true }),
   };
 }

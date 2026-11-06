@@ -689,6 +689,7 @@ export const ja: TranslationResources = {
         reloadAgent: "エージェントを再読み込み",
         reloadAgentTooltip:
           "スキル、MCP、ログイン状態を更新するためにエージェントを再読み込みします。",
+        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "閉じる",
         renameTerminal: "ターミナルの名前を変更",
         renameAgent: "エージェントの名前を変更",
@@ -2000,6 +2001,7 @@ export const ja: TranslationResources = {
       stop: "リアルタイム音声を停止してターンを中断",
     },
   },
+  sessionMove: en.sessionMove,
   rewind: {
     tooltip: "このメッセージに巻き戻す",
     warning: "この操作は元に戻せません",

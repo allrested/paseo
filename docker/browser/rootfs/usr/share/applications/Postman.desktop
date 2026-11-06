@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Postman
+GenericName=API Client
+Comment=Build, send and capture API requests
+# Postman registers this exact file name for postman:// with xdg-mime, and its
+# browser sign-in hands the login back through that scheme, so the callback
+# URL has to reach the app as an argument.
+Exec=/usr/local/bin/wrapped-postman %U
+MimeType=x-scheme-handler/postman;
+Terminal=false
+Categories=Development;Network;

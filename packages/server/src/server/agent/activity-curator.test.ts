@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentForkContextAttachment, curateAgentActivity } from "./activity-curator.js";
+import {
+  buildAgentForkContextAttachment,
+  curateAgentActivity,
+  curateForkContextEntries,
+} from "./activity-curator.js";
 import type { AgentTimelineItem } from "./agent-sdk-types.js";
 import type { AgentTimelineRow } from "./agent-timeline-store-types.js";
 import { formatAgentMessage, projectAgentMessages } from "./agent-messages/index.js";
@@ -571,4 +575,29 @@ it("preserves every message in fork history below the character budget", () => {
   expect(result.attachment.text).toBe(
     `<chat-history-summary>\nChat history from a previous Paseo agent.\n\n[User] ${text}\n</chat-history-summary>`,
   );
+});
+
+it("puts prior entries before the curated rows and drops them first over the budget", () => {
+  const rows = [row(1, { type: "assistant_message", text: "Newest answer." })];
+  const small = buildAgentForkContextAttachment({ rows, priorEntries: ["[Agent] Claude", "OLD"] });
+  expect(small.attachment.text).toContain("[Agent] Claude\nOLD\n[Assistant] Newest answer.");
+
+  const large = buildAgentForkContextAttachment({
+    rows,
+    priorEntries: ["PRIOR " + "x".repeat(150_000)],
+  });
+  expect(large.attachment.text).toContain("[Earlier chat history omitted]");
+  expect(large.attachment.text).toContain("[Assistant] Newest answer.");
+  expect(large.attachment.text).not.toContain("PRIOR");
+});
+
+it("curates fork context entries the same way the fork attachment does", () => {
+  const rows = [
+    row(1, { type: "user_message", text: "Ship the thing" }),
+    row(2, { type: "reasoning", text: "private chain of thought" }),
+    row(3, { type: "assistant_message", text: "Done." }),
+  ];
+  const entries = curateForkContextEntries(rows);
+  expect(entries).toEqual(["[User] Ship the thing", "[Assistant] Done."]);
+  expect(buildAgentForkContextAttachment({ rows }).attachment.text).toContain(entries.join("\n"));
 });
