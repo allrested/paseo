@@ -6,6 +6,18 @@ import { z } from "zod";
 const SERVER_ID_MESSAGE =
   "Server id must start with a lowercase letter and use only lowercase letters, digits, and dashes";
 
+// agentEnv replaces that variable in every agent Paseo launches.
+const RESERVED_ENV_NAME = /^(PATH|HOME|NODE_OPTIONS)$|^(PASEO_|LD_|DYLD_)/;
+const EnvNameSchema = z
+  .string()
+  .regex(
+    /^[A-Za-z_][A-Za-z0-9_]*$/,
+    "Use letters, digits and underscores, not starting with a digit",
+  )
+  .refine((name) => !RESERVED_ENV_NAME.test(name), {
+    message: "PATH, HOME, NODE_OPTIONS and names starting with PASEO_, LD_ or DYLD_ are reserved",
+  });
+
 export const ServerDefinitionSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]*$/, SERVER_ID_MESSAGE),
   label: z.string().min(1),
@@ -17,7 +29,7 @@ export const ServerDefinitionSchema = z.object({
   healthPath: z.string().startsWith("/").default("/mcp"),
   // Paths that must exist before the server starts.
   requires: z.array(z.string()).default([]),
-  bearerToken: z.object({ serverEnv: z.string().min(1), agentEnv: z.string().min(1) }).optional(),
+  bearerToken: z.object({ serverEnv: EnvNameSchema, agentEnv: EnvNameSchema }).optional(),
   enabled: z.boolean().default(true),
 });
 
