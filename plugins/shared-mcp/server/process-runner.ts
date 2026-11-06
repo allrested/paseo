@@ -50,7 +50,9 @@ const STRIPPED_ENV_KEYS = new Set([
 // apart from a later process that reuses its pid. Both are null where /proc does not exist. A pgid
 // of 1 or less parses, so reclaimOrphan can drop the file as stale. pidNamespace and bootId say
 // which processes the pids name: after a container restart (a fresh pid namespace) or a reboot the
-// same pids name others. A record without them is stale too.
+// same pids name others. initStartTime is the start time of the namespace's pid 1: a namespace
+// inode can be reissued to a restarted container on the same boot, and that container's pid 1
+// always starts later. A record without any of them is stale too.
 const PidRecordSchema = z.object({
   pgid: z.number().int(),
   startTime: z.number().int().nullable(),
@@ -58,12 +60,14 @@ const PidRecordSchema = z.object({
   ownerStartTime: z.number().int().nullable(),
   pidNamespace: z.string().nullish(),
   bootId: z.string().nullish(),
+  initStartTime: z.number().int().nullish(),
 });
 type PidRecord = z.output<typeof PidRecordSchema>;
 
 interface PidSpace {
   pidNamespace: string | null;
   bootId: string | null;
+  initStartTime: number | null;
 }
 
 type ServerChild = ChildProcessByStdio<null, Readable, Readable>;
@@ -417,25 +421,29 @@ function parseJson(text: string): unknown {
   }
 }
 
-// The pid namespace (`pid:[<inode>]`) and the boot this process runs in. Each is null without /proc.
+// The pid namespace (`pid:[<inode>]`), the boot this process runs in and the start time of the
+// namespace's pid 1. Each is null without /proc.
 function readPidSpace(procRoot: string): PidSpace {
   return {
     pidNamespace: readOrNull(() => readlinkSync(join(procRoot, "self", "ns", "pid"))),
     bootId: readOrNull(() =>
       readFileSync(join(procRoot, "sys", "kernel", "random", "boot_id"), "utf8").trim(),
     ),
+    initStartTime: readStartTime(1, procRoot),
   };
 }
 
-// False when the record comes from another pid namespace or boot, does not say, or this process
-// cannot tell its own.
+// False when the record comes from another pid namespace, boot or container run, does not say, or
+// this process cannot tell its own.
 function isCurrentPidSpace(record: PidRecord, procRoot: string): boolean {
   const current = readPidSpace(procRoot);
   return (
     current.pidNamespace !== null &&
     current.bootId !== null &&
+    current.initStartTime !== null &&
     record.pidNamespace === current.pidNamespace &&
-    record.bootId === current.bootId
+    record.bootId === current.bootId &&
+    record.initStartTime === current.initStartTime
   );
 }
 
@@ -459,8 +467,8 @@ function ownerIsAlive(record: PidRecord, procRoot: string): boolean {
 // to be the recorded one, which holds only if the group never emptied since: the kernel does not
 // reuse a pid while a group with that id exists. Once it empties, a later process can get the pid,
 // lead a group of its own and exit while that group lives on, and this kills that group. The
-// pid-space check rules out the likely case, a container restart whose fresh pid namespace hands
-// out the same low pids; within one namespace and boot the pids have to wrap around first.
+// pid-space check makes the likely case read as stale: a container restart that hands out the same
+// low pids. Within one container run the pids have to wrap around first.
 function isRecordedGroup(record: PidRecord, procRoot: string): boolean {
   if (record.startTime === null || !sendSignal(-record.pgid, 0)) return false;
   const leaderStartTime = readStartTime(record.pgid, procRoot);
