@@ -6,7 +6,9 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -79,9 +81,35 @@ function startGroup(command: string): ChildProcess {
   return child;
 }
 
+// A pid names a process only within one pid namespace and one boot, so the pid file records both.
+function currentPidSpace(): { pidNamespace: string; bootId: string } {
+  return {
+    pidNamespace: readlinkSync("/proc/self/ns/pid"),
+    bootId: readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(),
+  };
+}
+
+// Written from this pid namespace and boot unless the record says otherwise.
 function writePidRecord(record: object): void {
   mkdirSync(dirname(pidFile()), { recursive: true });
-  writeFileSync(pidFile(), JSON.stringify(record));
+  writeFileSync(pidFile(), JSON.stringify({ ...currentPidSpace(), ...record }));
+}
+
+// A /proc stand-in with this pid namespace, this boot and the leader's stat, plus one pid whose stat
+// is a directory: reading it fails with EISDIR, so walkProcessTree throws, for root too.
+function walkFailingProcRoot(leader: number): string {
+  const root = join(dir, "proc");
+  mkdirSync(join(root, "self", "ns"), { recursive: true });
+  symlinkSync(readlinkSync("/proc/self/ns/pid"), join(root, "self", "ns", "pid"));
+  mkdirSync(join(root, "sys", "kernel", "random"), { recursive: true });
+  writeFileSync(
+    join(root, "sys", "kernel", "random", "boot_id"),
+    readFileSync("/proc/sys/kernel/random/boot_id"),
+  );
+  mkdirSync(join(root, String(leader)));
+  writeFileSync(join(root, String(leader), "stat"), readFileSync(`/proc/${leader}/stat`));
+  mkdirSync(join(root, "999999", "stat"), { recursive: true });
+  return root;
 }
 
 // A pid that just exited and was reaped stands in for a dead daemon or a stale server.
@@ -194,6 +222,7 @@ describe.runIf(onLinux)("spawnServer", () => {
       startTime: startTimeOf(proc.pid),
       ownerPid: process.pid,
       ownerStartTime: startTimeOf(process.pid),
+      ...currentPidSpace(),
     });
     await proc.stop();
     expect(existsSync(pidFile())).toBe(false);
@@ -447,6 +476,52 @@ describe.runIf(onLinux)("reclaimOrphan", () => {
     },
     15_000,
   );
+
+  // The record names a live group with its real start time, so only the pid-space check keeps
+  // reclaim from signalling. The owner start time makes the owner check read /proc.
+  it.each([
+    ["another pid namespace", { pidNamespace: "pid:[1]" }],
+    ["another boot", { bootId: "00000000-0000-0000-0000-000000000000" }],
+    ["no pid namespace", { pidNamespace: undefined }],
+    ["no boot id", { bootId: undefined }],
+  ])(
+    "treats a pid file as stale and signals nothing when it names %s",
+    async (_, pidSpace) => {
+      const leader = startGroup(LONG_SLEEP);
+      writePidRecord({
+        pgid: leader.pid,
+        startTime: startTimeOf(leader.pid!),
+        ownerPid: deadPid(),
+        ownerStartTime: 1,
+        ...pidSpace,
+      });
+      const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+      expect(await reclaimOrphan(pidFile())).toBe(false);
+      expect(kill).not.toHaveBeenCalled();
+      expect(existsSync(pidFile())).toBe(false);
+    },
+    15_000,
+  );
+
+  it("reports a walk error through onLine and still kills the group", async () => {
+    const leader = startGroup(`${LONG_SLEEP} & ${LONG_SLEEP}`);
+    const procRoot = walkFailingProcRoot(leader.pid!);
+    writePidRecord({
+      pgid: leader.pid,
+      startTime: startTimeOf(leader.pid!),
+      ownerPid: deadPid(),
+      ownerStartTime: null,
+    });
+    const lines: string[] = [];
+
+    expect(await reclaimOrphan(pidFile(), (line) => lines.push(line), procRoot)).toBe(true);
+    expect(isAlive(-leader.pid!)).toBe(false);
+    expect(existsSync(pidFile())).toBe(false);
+    expect(lines).toEqual([
+      "process tree walk failed, signalling the group only: EISDIR: illegal operation on a directory, read",
+    ]);
+  }, 15_000);
 
   it("does not kill a process that reused the recorded pid", async () => {
     const leader = startGroup(LONG_SLEEP);
