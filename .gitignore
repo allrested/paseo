@@ -98,3 +98,10 @@ app.json
 
 # Project-local Serena configuration and memories.
 .serena/
+
+/docker/paseo-home
+/docker/workspace
+/docker/browser-config
+
+# SDD scratch workspace (subagent-driven-development)
+.superpowers/

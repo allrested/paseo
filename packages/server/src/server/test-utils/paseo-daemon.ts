@@ -63,6 +63,7 @@ interface TestPaseoDaemonOptions {
 export interface TestPaseoDaemon {
   config: PaseoDaemonConfig;
   daemon: Awaited<ReturnType<typeof createPaseoDaemon>>;
+  logger: Parameters<typeof createPaseoDaemon>[1];
   port: number;
   paseoHome: string;
   staticDir: string;
@@ -134,6 +135,7 @@ export async function createTestPaseoDaemon(
       return {
         config,
         daemon,
+        logger,
         port: listenTarget.port,
         paseoHome,
         staticDir,

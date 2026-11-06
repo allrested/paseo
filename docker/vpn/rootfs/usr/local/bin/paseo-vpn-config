@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Renders the openfortivpn config to stdout.
+#
+# Separate from the entrypoint so it can be tested directly, and so the
+# credential never reaches a command line: the entrypoint redirects this into a
+# 0600 file, and `ps` inside the container shows no password.
+set -euo pipefail
+
+fail() {
+  printf 'paseo-vpn: %s\n' "$1" >&2
+  exit 1
+}
+
+require() {
+  local name=$1
+  [ -n "${!name:-}" ] || fail "$name is required"
+}
+
+require VPN_GATEWAY
+require VPN_PORT
+require VPN_USERNAME
+require VPN_PASSWORD
+
+printf 'host = %s\n' "$VPN_GATEWAY"
+printf 'port = %s\n' "$VPN_PORT"
+printf 'username = %s\n' "$VPN_USERNAME"
+printf 'password = %s\n' "$VPN_PASSWORD"
+
+# Absent on the very first connect: the client refuses the unknown certificate
+# and prints the digest to pin here. Leaving it unset permanently gives up
+# machine-in-the-middle protection.
+if [ -n "${VPN_TRUSTED_CERT:-}" ]; then
+  printf 'trusted-cert = %s\n' "$VPN_TRUSTED_CERT"
+fi
+
+# Realm-scoped portals reject an otherwise valid credential in a way that looks
+# like a bad password, so this is set only when the portal actually uses one.
+if [ -n "${VPN_REALM:-}" ]; then
+  printf 'realm = %s\n' "$VPN_REALM"
+fi

@@ -83,6 +83,7 @@ import {
   sendPromptToAgent,
   waitForAgentRunStartWithTimeout,
 } from "../agent-prompt.js";
+import { moveAgent, moveAgentBack } from "../session-move/move-agent.js";
 import { respondToAgentPermission } from "../permission-response.js";
 import {
   archiveAgentCommand,
@@ -198,6 +199,28 @@ const WorkspaceAutomationSummarySchema = z.object({
   title: z.string().nullable(),
   background: z.boolean().optional(),
 });
+
+type MoveToolTarget =
+  | { back: true; toAgentId?: string }
+  | { back: false; provider: string; model?: string };
+
+/** Refuses inputs that mix a forward move and a move back, so none is silently dropped. */
+function parseMoveToolTarget(input: {
+  provider?: string;
+  model?: string;
+  back?: boolean;
+  toAgentId?: string;
+}): MoveToolTarget {
+  if (input.back) {
+    if (input.provider !== undefined || input.model !== undefined) {
+      throw new Error("provider and model apply to a forward move; omit them with back=true");
+    }
+    return { back: true, ...(input.toAgentId !== undefined ? { toAgentId: input.toAgentId } : {}) };
+  }
+  if (input.toAgentId !== undefined) throw new Error("toAgentId requires back=true");
+  if (!input.provider) throw new Error("provider is required unless back=true");
+  return { back: false, provider: input.provider, ...(input.model ? { model: input.model } : {}) };
+}
 
 function toWorkspaceAutomationSummary(workspace: PersistedWorkspaceRecord) {
   return {
@@ -2262,6 +2285,52 @@ function createToolCatalog(
         content: [],
         structuredContent: ensureValidJson({ success: true }),
       };
+    },
+  );
+
+  registerTool(
+    "move_agent",
+    {
+      title: "Move agent",
+      description:
+        "Move an agent to another provider or account (e.g. when its quota is exhausted) without calling its model. " +
+        "The original is archived and linked. Set back=true to move a moved agent back to its original, " +
+        "or to an earlier agent in its move chain with toAgentId.",
+      inputSchema: {
+        agentId: z.string(),
+        provider: z.string().optional().describe("Forward move only"),
+        model: z.string().optional().describe("Forward move only"),
+        back: z.boolean().optional(),
+        toAgentId: z
+          .string()
+          .optional()
+          .describe("With back=true: an earlier agent in the move chain to return to"),
+        continueWork: z.boolean().optional(),
+      },
+      outputSchema: {
+        agentId: z.string(),
+        strategy: z.enum(["native", "handoff"]),
+        fellBackFromNative: z.boolean(),
+      },
+    },
+    async ({ agentId, provider, model, back, toAgentId, continueWork }) => {
+      const target = parseMoveToolTarget({ provider, model, back, toAgentId });
+      const deps = { agentManager, agentStorage, providerSnapshotManager, logger: childLogger };
+      const result = target.back
+        ? await moveAgentBack(deps, {
+            agentId,
+            continueWork: continueWork ?? true,
+            ...(target.toAgentId !== undefined ? { toAgentId: target.toAgentId } : {}),
+          })
+        : await moveAgent(deps, {
+            agentId,
+            target: {
+              provider: target.provider,
+              ...(target.model ? { model: target.model } : {}),
+            },
+            continueWork: continueWork ?? true,
+          });
+      return { content: [], structuredContent: ensureValidJson(result) };
     },
   );
 
