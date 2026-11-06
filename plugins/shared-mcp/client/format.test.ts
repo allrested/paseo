@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { ServerStatus } from "../shared/rpc.js";
 import { describeServer, formatBytes, formatLogTail, formatUptime } from "./format.js";
 
-const healthy = {
+const healthy: ServerStatus = {
   id: "context7",
   label: "Context7",
   port: 8932,
@@ -53,7 +54,7 @@ describe("describeServer", () => {
   });
 
   it("shows the retry countdown and no uptime while backing off", () => {
-    const backoff = {
+    const backoff: ServerStatus = {
       ...healthy,
       state: "backoff",
       pid: null,
