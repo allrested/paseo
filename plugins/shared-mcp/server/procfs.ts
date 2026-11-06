@@ -112,12 +112,6 @@ export function walkProcessTree(pgid: number, procRoot = "/proc"): ProcessTreeEn
   return [...tree].map(({ pid, startTime }) => ({ pid, startTime }));
 }
 
-// The pids of walkProcessTree. The walk ends before the promise is returned, so a caller can
-// signal the group on the next line and still get the tree as it was before the signal.
-export async function listProcessTree(pgid: number, procRoot = "/proc"): Promise<number[]> {
-  return walkProcessTree(pgid, procRoot).map((entry) => entry.pid);
-}
-
 // null when no process of the tree could be read. A zombie or a kernel thread has no VmRSS line
 // and adds 0.
 export async function readProcessGroupRss(

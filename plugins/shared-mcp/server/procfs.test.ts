@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  listProcessTree,
   parseStat,
   parseVmRssBytes,
   ProcStatParseError,
@@ -201,40 +200,12 @@ describe("process tree over a fake /proc", () => {
     expect(walkProcessTree(500, join(procRoot, "missing"))).toEqual([]);
   });
 
-  it("throws on a filesystem error that is not a vanished entry; the async readers reject", async () => {
+  it("throws on a filesystem error that is not a vanished entry; the RSS reader rejects", async () => {
     // A directory where the stat file should be: readFileSync fails with EISDIR.
     mkdirSync(join(procRoot, "507", "stat"), { recursive: true });
 
     expect(() => walkProcessTree(500, procRoot)).toThrow(/EISDIR/);
-    await expect(listProcessTree(500, procRoot)).rejects.toThrow(/EISDIR/);
     await expect(readProcessGroupRss(500, procRoot)).rejects.toThrow(/EISDIR/);
-  });
-
-  it("lists the group's members and their descendants in other groups", async () => {
-    expect((await listProcessTree(500, procRoot)).toSorted(ascending)).toEqual([
-      500, 501, 502, 503, 505, 600, 601,
-    ]);
-    expect((await listProcessTree(700, procRoot)).toSorted(ascending)).toEqual([700, 701]);
-  });
-
-  it("scans before it returns, so a signal sent on the next line cannot hide a child", async () => {
-    const pending = listProcessTree(500, procRoot);
-    // What a SIGTERM to group 500 can do before a scan that yields gets there: 501 exits, and its
-    // setsid'd child 600 is reparented to init.
-    rmSync(join(procRoot, "501"), { recursive: true });
-    writeProcess(procRoot, "600", {
-      pid: 600,
-      comm: "uvx",
-      ppid: 1,
-      pgrp: 600,
-      state: "S",
-      rssKb: 40000,
-    });
-    expect((await pending).toSorted(ascending)).toEqual([500, 501, 502, 503, 505, 600, 601]);
-    // A scan that starts after the signal no longer reaches 600 and 601.
-    expect((await listProcessTree(500, procRoot)).toSorted(ascending)).toEqual([
-      500, 502, 503, 505,
-    ]);
   });
 
   it("sums VmRSS over the tree; members without VmRSS or already gone add zero", async () => {
@@ -249,13 +220,11 @@ describe("process tree over a fake /proc", () => {
   });
 
   it("returns null for a group with no process", async () => {
-    expect(await listProcessTree(800, procRoot)).toEqual([]);
     expect(await readProcessGroupRss(800, procRoot)).toBeNull();
   });
 
   it("returns null when the /proc root does not exist", async () => {
     const missing = join(procRoot, "missing");
-    expect(await listProcessTree(500, missing)).toEqual([]);
     expect(await readProcessGroupRss(500, missing)).toBeNull();
   });
 });
@@ -269,7 +238,6 @@ describe("process tree over the real /proc", () => {
       pid: process.pid,
       startTime: own.startTime,
     });
-    expect(await listProcessTree(own.pgrp)).toContain(process.pid);
     const rss = await readProcessGroupRss(own.pgrp);
     expect(rss).toBeGreaterThan(0);
     expect((rss ?? Number.NaN) % 1024).toBe(0);
