@@ -52,6 +52,6 @@ export function describeServer(server: ServerStatus, now: number): string {
 
 /** The last `limit` lines of a server's output, or a note that it has written none. */
 export function formatLogTail(lines: readonly string[], limit: number): string {
-  if (lines.length === 0) return "No output yet.";
+  if (lines.length === 0) return "No output yet";
   return lines.slice(-limit).join("\n");
 }
