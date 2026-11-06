@@ -1,0 +1,1 @@
+{ "id": "shared-mcp", "requirements": { "paseo": ">=0.15.0" } }
