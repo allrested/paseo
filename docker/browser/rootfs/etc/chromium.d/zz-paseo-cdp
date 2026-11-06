@@ -1,0 +1,11 @@
+# Sourced by /usr/bin/chromium on every launch, after Debian's own files.
+#
+# The desktop autostart is not the only way Chromium starts: the right-click
+# menu, chromium.desktop and xdg-open all run /usr/bin/chromium without
+# CHROME_CLI. A Chromium started that way has no debug port, so agents lose
+# CDP until someone restarts the container. Appending it here gives every
+# launch the same port. The autostart passes it too; identical repeated flags
+# are harmless.
+if [ -n "${CHROME_CLI:-}" ]; then
+  export CHROMIUM_FLAGS="$CHROMIUM_FLAGS $CHROME_CLI"
+fi

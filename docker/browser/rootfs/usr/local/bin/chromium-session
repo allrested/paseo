@@ -1,0 +1,27 @@
+#!/bin/bash
+# Keep Chromium up for the life of the desktop session. The base image starts
+# it exactly once, so a closed window used to mean no browser - and no CDP -
+# until someone restarted the container. This relaunches it a few seconds
+# after it exits.
+#
+# A Chromium opened from the desktop menu in the meantime holds the profile.
+# Launching then would only hand that process a new window and exit, every few
+# seconds, so wait for it to exit instead. /etc/chromium.d/zz-paseo-cdp gives
+# that one the debug port too.
+
+# One loop per container: rerunning the autostart must not start a second.
+exec 9>"${TMPDIR:-/tmp}/chromium-session.lock"
+flock -n 9 || exit 0
+
+PROFILE="${HOME}/.config/chromium"
+
+while true; do
+  if ! profile-holder "${PROFILE}" chromium >/dev/null; then
+    # A lock left by an earlier container makes Chromium refuse the profile.
+    rm -f "${PROFILE}"/Singleton*
+    # CHROME_CLI is unquoted on purpose: it holds several flags.
+    # shellcheck disable=SC2086
+    wrapped-chromium ${CHROME_CLI} 9>&-
+  fi
+  sleep 5
+done

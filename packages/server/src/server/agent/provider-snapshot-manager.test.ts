@@ -336,6 +336,51 @@ describe("ProviderSnapshotManager public surface", () => {
     }
   });
 
+  test("getProviderLaunchInfo resolves a derived provider's family and env", () => {
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      providerOverrides: {
+        "claude-work": {
+          extends: "claude",
+          label: "Claude (work)",
+          env: { CLAUDE_CONFIG_DIR: "/home/me/.claude-work" },
+        },
+      },
+    });
+    try {
+      expect(manager.getProviderLaunchInfo("claude-work")).toEqual({
+        providerId: "claude-work",
+        family: "claude",
+        label: "Claude (work)",
+        enabled: true,
+        env: { CLAUDE_CONFIG_DIR: "/home/me/.claude-work" },
+      });
+      expect(manager.getProviderLaunchInfo("claude")).toMatchObject({
+        family: "claude",
+        enabled: true,
+        env: {},
+      });
+      expect(manager.getProviderLaunchInfo("missing")).toBeNull();
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("getProviderLaunchInfo reports a disabled provider", () => {
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      providerOverrides: { codex: { enabled: false } },
+    });
+    try {
+      expect(manager.getProviderLaunchInfo("codex")).toMatchObject({
+        providerId: "codex",
+        enabled: false,
+      });
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("hasProvider reflects the built-in set and providerOverrides additions", () => {
     const manager = new ProviderSnapshotManager({
       logger: createTestLogger(),

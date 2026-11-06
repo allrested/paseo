@@ -18,6 +18,7 @@ import {
   CopyX,
   ArrowLeftToLine,
   ArrowRightToLine,
+  ArrowLeftRight,
   Copy,
   Pencil,
   RotateCw,
@@ -95,6 +96,7 @@ import {
   useHorizontalScrollBoundary,
 } from "@/components/ui/horizontal-scroll-boundary";
 import { useSessionStore } from "@/stores/session-store";
+import { useMoveAgentMenuAction, useTabMoveAgentAction } from "@/session-move/move-dialog";
 
 const DROPDOWN_WIDTH = 220;
 const DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH = 36;
@@ -133,6 +135,7 @@ const ThemedCopy = withUnistyles(Copy);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedArrowLeftToLine = withUnistyles(ArrowLeftToLine);
 const ThemedArrowRightToLine = withUnistyles(ArrowRightToLine);
+const ThemedArrowLeftRight = withUnistyles(ArrowLeftRight);
 const ThemedCopyX = withUnistyles(CopyX);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedPlus = withUnistyles(Plus);
@@ -435,6 +438,8 @@ function TabContextMenuItem({
         return <ThemedArrowLeftToLine size={16} uniProps={mutedColorMapping} />;
       case "arrow-right-to-line":
         return <ThemedArrowRightToLine size={16} uniProps={mutedColorMapping} />;
+      case "arrow-left-right":
+        return <ThemedArrowLeftRight size={16} uniProps={mutedColorMapping} />;
       case "copy-x":
         return <ThemedCopyX size={16} uniProps={mutedColorMapping} />;
       case "pencil":
@@ -1106,6 +1111,7 @@ function ResolvedWorkspaceDesktopTabsRow({
   onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
   const { t } = useTranslation();
+  const onMoveAgent = useMoveAgentMenuAction(normalizedServerId, normalizedWorkspaceId);
   const isCompact = useIsCompactFormFactor();
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
@@ -1180,6 +1186,7 @@ function ResolvedWorkspaceDesktopTabsRow({
       closeOthers: t("workspace.tabs.menu.closeOthers"),
       reloadAgent: t("workspace.tabs.menu.reloadAgent"),
       reloadAgentTooltip: t("workspace.tabs.menu.reloadAgentTooltip"),
+      moveAgent: t("workspace.tabs.menu.moveAgent"),
       close: t("workspace.tabs.menu.close"),
     }),
     [t],
@@ -1347,6 +1354,7 @@ function ResolvedWorkspaceDesktopTabsRow({
           onCopyTerminalId={onCopyTerminalId}
           onCopyFilePath={onCopyFilePath}
           onReloadAgent={onReloadAgent}
+          onMoveAgent={onMoveAgent}
           onRenameTab={onRenameTab}
           onCloseTabsToLeft={onCloseTabsToLeft}
           onCloseTabsToRight={onCloseTabsToRight}
@@ -1382,6 +1390,7 @@ function ResolvedWorkspaceDesktopTabsRow({
       onCopyResumeCommand,
       onNavigateTab,
       onReloadAgent,
+      onMoveAgent,
       onRenameTab,
       rail,
       setHoveredCloseTabKey,
@@ -1505,6 +1514,7 @@ function ResolvedDesktopTabChip({
   onCopyTerminalId,
   onCopyFilePath,
   onReloadAgent,
+  onMoveAgent,
   onRenameTab,
   onCloseTabsToLeft,
   onCloseTabsToRight,
@@ -1533,6 +1543,7 @@ function ResolvedDesktopTabChip({
   onCopyTerminalId: (terminalId: string) => Promise<void> | void;
   onCopyFilePath: (path: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onMoveAgent: ((agentId: string) => void) | undefined;
   onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTabsToLeft: (tabId: string) => Promise<void> | void;
   onCloseTabsToRight: (tabId: string) => Promise<void> | void;
@@ -1551,6 +1562,7 @@ function ResolvedDesktopTabChip({
 }) {
   const { t } = useTranslation();
   const presentation = item.presentation;
+  const onMoveTabAgent = useTabMoveAgentAction(serverId, item.tab, onMoveAgent);
   const resolvedTab = useMemo(
     () =>
       buildWorkspaceDesktopTabActions({
@@ -1562,6 +1574,7 @@ function ResolvedDesktopTabChip({
         onCopyTerminalId,
         onCopyFilePath,
         onReloadAgent,
+        onMoveAgent: onMoveTabAgent,
         onRenameTab,
         onCloseTab,
         onCloseTabsToLeft,
@@ -1582,6 +1595,7 @@ function ResolvedDesktopTabChip({
       onCopyResumeCommand,
       labels,
       onReloadAgent,
+      onMoveTabAgent,
       onRenameTab,
       tabCount,
     ],

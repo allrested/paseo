@@ -92,6 +92,8 @@ Agent-scoped `create_agent` defaults `notifyOnFinish` to true. Set it to `false`
 
 **`archive_agent`** — `{ agentId }`. Interrupts if running, removes from active list.
 
+**`move_agent`** — `{ agentId, provider?, model?, back?, toAgentId?, continueWork? }`. Moves an agent whose account is out of quota to another provider or account without calling its model; the original is archived. `provider` is a provider ID such as `codex` or `claude-work`, not the `provider/model` form `create_agent` takes; pass `model` separately. `provider` is required unless `back: true`. `back: true` moves the agent back along its move chain and takes only `toAgentId`, an earlier agent to return to. `continueWork` defaults to true. Pass the agent that holds the session now: an archived one is refused, and the error names the agent it moved to. Use it when the user asks you to move a stuck agent.
+
 ## Agent profiles and provider discovery
 
 **`list_profiles`** — named launch bundles configured by the human. Before choosing how to launch a delegated agent, call this tool and read every profile's `notes`. Pick a named profile the user requested, or the profile whose notes best match the work.

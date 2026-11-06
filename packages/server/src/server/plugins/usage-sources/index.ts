@@ -117,6 +117,19 @@ export class UsageSourceRegistry {
     );
   }
 
+  /** Usage for a launch scope that has no agent yet, e.g. a session-move target. */
+  async listReportsForScope(scope: {
+    provider: string;
+    env: Record<string, string>;
+  }): Promise<UsageReportEntry[]> {
+    const reports = await this.discover({
+      kind: "session",
+      provider: scope.provider,
+      env: scope.env,
+    });
+    return Promise.all([...reports].map(([id, known]) => this.fetchId(id, known)));
+  }
+
   private pruneAgents(): void {
     for (const id of this.byAgent.keys()) {
       if (!this.agents.hasAgent(id)) this.byAgent.delete(id);
@@ -158,22 +171,36 @@ export class UsageSourceRegistry {
 
   private mergeKnown(): void {
     this.known.clear();
+    // One login is one account. An agent keeps the mapping from its first discovery, which can
+    // predate its account being known (e.g. an expired token gets a per-login fallback key), so
+    // a login already shown under another ID stays there. Host discovery is newest, so it wins.
+    const owners = new Map<string, string>();
     for (const reports of [
       this.defaults,
       ...[...this.byAgent.values()].map((agent) => agent.reports),
     ]) {
+      const claimed: Array<[string, string]> = [];
       for (const [id, report] of reports) {
         if (this.sources.get(report.source.id) !== report.source) continue;
+        const logins = report.logins.filter((login) => {
+          const input = `${report.source.id}:${loginKey({ input: login.input, harness: "" })}`;
+          const owner = owners.get(input);
+          claimed.push([input, owner ?? id]);
+          return owner === undefined || owner === id;
+        });
+        const [first, ...rest] = logins;
+        if (!first) continue;
         const known = this.known.get(id);
         if (!known) {
-          this.known.set(id, { ...report, logins: [...report.logins] });
+          this.known.set(id, { ...report, logins: [first, ...rest] });
           continue;
         }
-        for (const login of report.logins) {
+        for (const login of logins) {
           if (!known.logins.some((existing) => loginKey(existing) === loginKey(login)))
             known.logins.push(login);
         }
       }
+      for (const [input, id] of claimed) if (!owners.has(input)) owners.set(input, id);
     }
     // Fetch freshness expires independently of successful snapshots. Retain only live identities.
     const active = this.activeCacheKeys();

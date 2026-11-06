@@ -126,6 +126,19 @@ describe("SessionAuthorization", () => {
     expect(authorization.allowsOutbound(outboundMessage("agent_update"))).toBe(false);
   });
 
+  test("move targets need provider authority, like the provider and usage reads they combine", () => {
+    const workspace = new SessionAuthorization(["workspace.read", "workspace.write"]);
+    expect(workspace.allowsInbound(inboundMessage("agent.move_targets.list.request"))).toBe(false);
+    expect(workspace.allowsOutbound(outboundMessage("agent.move_targets.list.response"))).toBe(
+      false,
+    );
+    expect(workspace.allowsInbound(inboundMessage("agent.move.request"))).toBe(true);
+
+    const daemon = new SessionAuthorization(["daemon.read"]);
+    expect(daemon.allowsInbound(inboundMessage("agent.move_targets.list.request"))).toBe(true);
+    expect(daemon.allowsOutbound(outboundMessage("agent.move_targets.list.response"))).toBe(true);
+  });
+
   test("correlated authorization errors can always be emitted", () => {
     const authorization = new SessionAuthorization([]);
 

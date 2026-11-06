@@ -318,6 +318,23 @@ function buildForkContextText(input: {
   return `<chat-history-summary>\n${header.join("\n")}\n\n${input.body}\n</chat-history-summary>`;
 }
 
+// Fork delta (session move): shared by the fork attachment and the move history, which curates
+// each agent's rows once and renders them later.
+const FORK_CONTEXT_CURATION: ActivityCuratorOptions = {
+  maxItems: 0,
+  labelAssistantMessages: true,
+  includeKinds: FORK_CONTEXT_KINDS,
+  includeExternalToolInput: false,
+};
+
+// Fork delta (session move).
+export function curateForkContextEntries(rows: readonly AgentTimelineRow[]): string[] {
+  const selected = selectForkContextRows({ rows });
+  return curateProjectedActivityEntries(selected.items, FORK_CONTEXT_CURATION).map(
+    (entry) => entry.text,
+  );
+}
+
 function fitForkContextEntries(entries: ActivityEntry[], budget: number): string {
   const length = entries.reduce((total, entry) => total + entry.text.length + 1, -1);
   if (length <= budget) return entries.map((entry) => entry.text).join("\n");
@@ -348,6 +365,9 @@ export function buildAgentForkContextAttachment(input: {
   boundaryMessageId?: string | null;
   agentTitle?: string | null;
   cwd?: string | null;
+  // Fork delta (session move): entries curated earlier, placed before the rows' entries so the
+  // budget drops them first.
+  priorEntries?: readonly string[];
 }): {
   attachment: TextAgentAttachment;
   itemCount: number;
@@ -359,12 +379,10 @@ export function buildAgentForkContextAttachment(input: {
     cursorBoundary: input.cursorBoundary,
     boundaryMessageId: input.boundaryMessageId,
   });
-  const entries = curateProjectedActivityEntries(selected.items, {
-    maxItems: 0,
-    labelAssistantMessages: true,
-    includeKinds: FORK_CONTEXT_KINDS,
-    includeExternalToolInput: false,
-  });
+  const entries = [
+    ...(input.priorEntries ?? []).map(activityEntry),
+    ...curateProjectedActivityEntries(selected.items, FORK_CONTEXT_CURATION),
+  ];
   const metadata = { agentTitle: input.agentTitle, cwd: input.cwd };
   const budget = MAX_FORK_CONTEXT_CHARS - buildForkContextText({ body: "", ...metadata }).length;
   const body =
