@@ -86,6 +86,7 @@ interface FakeAgentSessionOptions {
   onInterrupt?: () => void;
   beforeSetMode?: (modeId: string) => Promise<void>;
   historyEvents?: readonly AgentStreamEvent[];
+  failureMessage?: string;
 }
 
 export interface TestAgentClientOptions {
@@ -99,6 +100,9 @@ export interface TestAgentClientOptions {
   beforeSetMode?: (modeId: string) => Promise<void>;
   supportsMcpServers?: boolean;
   historyEvents?: readonly AgentStreamEvent[];
+  failureMessage?: string;
+  /** False reports the CLI as not installed, so the provider snapshot marks it unavailable. */
+  available?: boolean;
 }
 
 function createDeferred<T>(): Deferred<T> {
@@ -376,6 +380,7 @@ class FakeAgentSession implements AgentSession {
   private readonly onStartTurn: TestAgentClientOptions["onStartTurn"];
   private readonly beforeTurnComplete: ((prompt: AgentPromptInput) => Promise<void>) | undefined;
   private readonly historyEvents: readonly AgentStreamEvent[] | undefined;
+  private readonly failureMessage: string;
 
   constructor(options: FakeAgentSessionOptions) {
     this.capabilities = {
@@ -393,6 +398,7 @@ class FakeAgentSession implements AgentSession {
     this.onStartTurn = options.onStartTurn;
     this.beforeTurnComplete = options.beforeTurnComplete;
     this.historyEvents = options.historyEvents;
+    this.failureMessage = options.failureMessage ?? "Requested fake provider failure";
     this.historyPath = path.join(
       tmpdir(),
       "paseo-fake-provider-history",
@@ -838,10 +844,12 @@ class FakeAgentSession implements AgentSession {
       }
 
       if (textPrompt.toLowerCase().includes("emit a turn failure")) {
+        // "Emit a turn failure: <message>" fails with that message instead of the configured one.
+        const message = /emit a turn failure: (.+)/i.exec(textPrompt)?.[1];
         const failed: AgentStreamEvent = {
           type: "turn_failed",
           provider: this.providerName,
-          error: "Requested fake provider failure",
+          error: message ?? this.failureMessage,
         };
         await this.appendHistoryEvent(failed);
         this.notifySubscribers(failed);
@@ -1318,6 +1326,7 @@ class FakeAgentClient implements AgentClient {
       onInterrupt: this.options.onInterrupt,
       beforeSetMode: this.options.beforeSetMode,
       historyEvents: this.options.historyEvents,
+      failureMessage: this.options.failureMessage,
     });
   }
 
@@ -1349,6 +1358,7 @@ class FakeAgentClient implements AgentClient {
       onInterrupt: this.options.onInterrupt,
       beforeSetMode: this.options.beforeSetMode,
       historyEvents: this.options.historyEvents,
+      failureMessage: this.options.failureMessage,
     });
   }
 
@@ -1372,7 +1382,7 @@ class FakeAgentClient implements AgentClient {
   }
 
   async isAvailable(): Promise<boolean> {
-    return true;
+    return this.options.available ?? true;
   }
 }
 

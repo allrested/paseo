@@ -149,6 +149,7 @@ import type {
   AgentSkillSelection,
   AgentSkillsStatus,
   AgentSkillsSaveResult,
+  AgentMoveTarget,
 } from "@getpaseo/protocol/messages";
 import type {
   AgentOptionControl,
@@ -1396,6 +1397,32 @@ function buildFetchAgentsRequest(
       ? { includeBackground: options.includeBackground }
       : {}),
   });
+}
+
+interface MoveAgentOutcome {
+  agentId: string;
+  strategy: "native" | "handoff";
+  fellBackFromNative: boolean;
+}
+
+function unwrapMoveResult(
+  payload: {
+    ok: boolean;
+    agentId: string | null;
+    strategy: "native" | "handoff" | null;
+    fellBackFromNative: boolean;
+    error: string | null;
+  },
+  fallback: string,
+): MoveAgentOutcome {
+  if (!payload.ok || !payload.agentId || !payload.strategy) {
+    throw new Error(payload.error ?? fallback);
+  }
+  return {
+    agentId: payload.agentId,
+    strategy: payload.strategy,
+    fellBackFromNative: payload.fellBackFromNative,
+  };
 }
 
 export class DaemonClient {
@@ -4328,6 +4355,58 @@ export class DaemonClient {
       throw new Error(payload.error ?? "Agent rewind failed");
     }
     return payload;
+  }
+
+  async moveAgent(
+    agentId: string,
+    target: { provider: string; model?: string },
+    options: { continueWork: boolean },
+  ): Promise<MoveAgentOutcome> {
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "agent.move.request",
+        requestId,
+        agentId,
+        target,
+        continueWork: options.continueWork,
+      },
+      responseType: "agent.move.response",
+      timeout: 120_000,
+    });
+    return unwrapMoveResult(payload, "Agent move failed");
+  }
+
+  async moveAgentBack(
+    agentId: string,
+    options: { continueWork: boolean; toAgentId?: string },
+  ): Promise<MoveAgentOutcome> {
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "agent.move_back.request",
+        requestId,
+        agentId,
+        continueWork: options.continueWork,
+        ...(options.toAgentId !== undefined ? { toAgentId: options.toAgentId } : {}),
+      },
+      responseType: "agent.move_back.response",
+      timeout: 120_000,
+    });
+    return unwrapMoveResult(payload, "Agent move back failed");
+  }
+
+  async listMoveTargets(agentId: string): Promise<AgentMoveTarget[]> {
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "agent.move_targets.list.request", requestId, agentId },
+      responseType: "agent.move_targets.list.response",
+    });
+    if (payload.error) throw new Error(payload.error);
+    return payload.targets;
   }
 
   async cancelAgent(agentId: string): Promise<void> {

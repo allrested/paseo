@@ -1,0 +1,227 @@
+import { useCallback, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { View } from "react-native";
+import { StyleSheet } from "react-native-unistyles";
+import { useShallow } from "zustand/shallow";
+import { useRetainedPanelActive } from "@/components/retained-panel";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { useFetchQuery } from "@/data/query";
+import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+import { useSessionStore } from "@/stores/session-store";
+import { formatResetLabel } from "@/usage/format";
+import { useRelativeTimeTick } from "@/usage/use-relative-time-tick";
+import { storeFetchedAgentDetail } from "@/utils/fetched-agent-detail";
+import {
+  selectMoveBannerFacts,
+  selectMovedFromAgentToFetch,
+  type MoveBannerFacts,
+} from "./move-banner-facts";
+import {
+  resolveMoveBannerKind,
+  resolveMoveBannerView,
+  upcomingLimitReset,
+  type MoveBannerKind,
+} from "./move-banner-view";
+import { openMoveDialog } from "./move-dialog-store";
+import { useAgentMove, useSupportsAgentMove } from "./use-agent-move";
+
+/**
+ * Loads the agent this one was moved from into the session when it is missing, as after an app
+ * restart, so the banner can name its account and check its usage.
+ */
+function useLoadMovedFromAgent(serverId: string, movedFromAgentId: string | null): void {
+  const client = useHostRuntimeClient(serverId);
+  const isConnected = useHostRuntimeIsConnected(serverId);
+  useFetchQuery({
+    queryKey: ["moved-from-agent", serverId, movedFromAgentId] as const,
+    queryFn: async () => {
+      if (!client || !movedFromAgentId) return false;
+      const result = await client.fetchAgent({ agentId: movedFromAgentId });
+      if (result) storeFetchedAgentDetail({ serverId, result });
+      return result !== null;
+    },
+    enabled: Boolean(client && isConnected && movedFromAgentId),
+    dataShape: "value",
+    // Fetched again each time the original drops out of the session: a move back makes it live,
+    // and archiving it again evicts it from the session.
+    staleTimeMs: 0,
+    retry: false,
+  });
+}
+
+interface MoveBannerProps {
+  serverId: string;
+  workspaceId: string;
+  agentId: string;
+}
+
+/**
+ * The notice above an agent's composer about moving it: its account hit a limit, or it was moved
+ * here from another account it can go back to. Nothing on hosts that cannot move agents.
+ */
+export function MoveBanner(props: MoveBannerProps) {
+  const supported = useSupportsAgentMove(props.serverId);
+  if (!supported) return null;
+  return <SupportedMoveBanner {...props} />;
+}
+
+function SupportedMoveBanner({ serverId, workspaceId, agentId }: MoveBannerProps) {
+  const facts = useSessionStore(
+    useShallow((state) => selectMoveBannerFacts(state.sessions[serverId], agentId)),
+  );
+  useLoadMovedFromAgent(serverId, selectMovedFromAgentToFetch(facts));
+  const kind = resolveMoveBannerKind(facts);
+  if (kind === "none") return null;
+  // Keyed by kind, so a Move back notice that turns into a limit mounts a new targets observer,
+  // which reads the targets again instead of naming a reset from the last Move back fetch.
+  return (
+    <MoveBannerNotice
+      key={kind}
+      serverId={serverId}
+      workspaceId={workspaceId}
+      agentId={agentId}
+      facts={facts}
+      kind={kind}
+    />
+  );
+}
+
+function MoveBannerNotice({
+  serverId,
+  workspaceId,
+  agentId,
+  facts,
+  kind,
+}: MoveBannerProps & { facts: MoveBannerFacts; kind: MoveBannerKind }) {
+  const isPanelActive = useRetainedPanelActive();
+  // A hidden tab fetches nothing, and only a Move back on screen polls the original's account.
+  const isMoveBackOnScreen = kind === "moved-from" && isPanelActive;
+  const movedFromProvider = facts.kind === "live" ? facts.movedFromProvider : null;
+  const { canMove, targets, moveBack, status } = useAgentMove({
+    serverId,
+    agentId,
+    targetsEnabled: isPanelActive,
+    recheckProvider: isMoveBackOnScreen ? movedFromProvider : null,
+  });
+  const openDialog = useCallback(
+    () => openMoveDialog({ serverId, workspaceId, agentId }),
+    [agentId, serverId, workspaceId],
+  );
+  const moveBackAndContinue = useCallback(() => moveBack({ continueWork: true }), [moveBack]);
+  const view = resolveMoveBannerView({ facts, targets });
+
+  if (view.kind === "limit") {
+    return (
+      <LimitReachedNotice account={view.account} resetsAt={view.resetsAt} onMove={openDialog} />
+    );
+  }
+  if (view.kind === "moved-from") {
+    return (
+      <MovedFromNotice
+        label={view.label}
+        highlighted={view.highlighted}
+        canMoveBack={canMove}
+        isMovingBack={status.kind === "loading"}
+        error={status.kind === "error" ? status.message : null}
+        onMoveBack={moveBackAndContinue}
+      />
+    );
+  }
+  return null;
+}
+
+function LimitReachedNotice({
+  account,
+  resetsAt,
+  onMove,
+}: {
+  account: string;
+  resetsAt: string | null;
+  onMove: () => void;
+}) {
+  const { t } = useTranslation();
+  const now = useRelativeTimeTick({ enabled: resetsAt !== null });
+  const reset = formatResetLabel(upcomingLimitReset(resetsAt, now), false, now);
+  const message = reset
+    ? t("sessionMove.banner.limitReachedResets", { account, reset })
+    : t("sessionMove.banner.limitReached", { account });
+  return (
+    <NoticeRail>
+      <Alert size="sm" variant="warning" description={message} testID="move-banner-limit">
+        <Button variant="outline" onPress={onMove} testID="move-banner-move">
+          {t("sessionMove.banner.moveTo")}
+        </Button>
+      </Alert>
+    </NoticeRail>
+  );
+}
+
+function MovedFromNotice({
+  label,
+  highlighted,
+  canMoveBack,
+  isMovingBack,
+  error,
+  onMoveBack,
+}: {
+  label: string | null;
+  highlighted: boolean;
+  canMoveBack: boolean;
+  isMovingBack: boolean;
+  error: string | null;
+  onMoveBack: () => void;
+}) {
+  const { t } = useTranslation();
+  const message = label
+    ? t("sessionMove.banner.movedFrom", { label })
+    : t("sessionMove.banner.movedFromUnknown");
+  return (
+    <NoticeRail>
+      <Alert
+        size="sm"
+        variant={error ? "error" : "default"}
+        title={error ? message : undefined}
+        description={error ?? message}
+        testID="move-banner-moved-from"
+      >
+        {/* The highlight is accent text on the standard outline action. The composer's send button
+            owns the surface's accent fill (docs/design.md §3). */}
+        <Button
+          variant="outline"
+          textStyle={highlighted ? styles.highlightedText : undefined}
+          onPress={onMoveBack}
+          disabled={!canMoveBack}
+          loading={isMovingBack}
+          testID="move-banner-move-back"
+        >
+          {isMovingBack ? t("sessionMove.banner.movingBack") : t("sessionMove.banner.moveBack")}
+        </Button>
+      </Alert>
+    </NoticeRail>
+  );
+}
+
+function NoticeRail({ children }: { children: ReactNode }) {
+  return (
+    <View style={styles.rail}>
+      <View style={styles.content}>{children}</View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create((theme) => ({
+  rail: {
+    width: "100%",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing[4],
+    paddingTop: theme.spacing[2],
+  },
+  content: {
+    width: "100%",
+    maxWidth: theme.contentMaxWidth,
+  },
+  highlightedText: {
+    color: theme.colors.accent,
+  },
+}));

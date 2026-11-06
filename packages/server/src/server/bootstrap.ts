@@ -144,6 +144,7 @@ import { createSpeechService } from "./speech/speech-runtime.js";
 import { createSpeechSettingsOwner } from "./speech/speech-settings.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
+import type { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import {
@@ -496,6 +497,7 @@ export interface PaseoDaemon {
   config: PaseoDaemonConfig;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
+  providerSnapshotManager: ProviderSnapshotManager;
   terminalManager: TerminalManager;
   serviceProxy: ServiceProxySubsystem;
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
@@ -1618,6 +1620,9 @@ export async function createPaseoDaemon(
   agentManager.setPaseoToolCatalogFactory(createAgentToolCatalog);
   agentManager.setPaseoToolsEnabled(config.mcpInjectIntoAgents !== false);
   setAgentProviderToolsEnabled(config.mcpEnabled !== false && config.mcpInjectIntoAgents !== false);
+  // No-op unless PASEO_IDLE_SESSION_REAP_MINUTES is set. See
+  // agent/idle-session-reaper.ts for why unbounded warm sessions are a problem.
+  agentManager.startIdleSessionReaper();
 
   let mcpEnabled = config.mcpEnabled ?? true;
   let agentMcpBaseUrl: string | null = null;
@@ -2056,6 +2061,7 @@ export async function createPaseoDaemon(
     config,
     agentManager,
     agentStorage,
+    providerSnapshotManager,
     terminalManager,
     serviceProxy,
     scriptRuntimeStore,
