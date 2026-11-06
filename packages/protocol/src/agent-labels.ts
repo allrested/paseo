@@ -51,3 +51,19 @@ export function getParentAddressFromLabels(
 export function parentAddressLabels(parent: AgentAddress): Record<string, string> {
   return { [PARENT_AGENT_ID_LABEL]: parent.agentId, [PARENT_SERVER_ID_LABEL]: parent.serverId };
 }
+
+export const MOVED_FROM_AGENT_ID_LABEL = "paseo.moved-from-agent-id";
+export const MOVED_TO_AGENT_ID_LABEL = "paseo.moved-to-agent-id";
+
+function readLabel(labels: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = labels?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function getMovedFromAgentId(labels: Record<string, unknown> | null | undefined) {
+  return readLabel(labels, MOVED_FROM_AGENT_ID_LABEL);
+}
+
+export function getMovedToAgentId(labels: Record<string, unknown> | null | undefined) {
+  return readLabel(labels, MOVED_TO_AGENT_ID_LABEL);
+}

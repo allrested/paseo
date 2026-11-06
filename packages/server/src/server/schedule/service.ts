@@ -9,6 +9,7 @@ import type { AgentStorage } from "../agent/agent-storage.js";
 import { curateAgentActivity } from "../agent/activity-curator.js";
 import { ensureAgentLoaded } from "../agent/agent-loading.js";
 import { startAgentRun, type AgentRunController } from "../agent/agent-prompt.js";
+import { takePendingMovePrompt } from "../agent/session-move/pending-context.js";
 import { resolveCreateAgentTitles } from "../agent/create-agent-title.js";
 import { type BoundCreateAgentCommand, formatProviderModel } from "../agent/create-agent/create.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
@@ -947,7 +948,13 @@ export class ScheduleService {
       if (this.agentManager.hasInFlightRun(agent.id)) {
         throw new Error(`Agent ${agent.id} already has an active run`);
       }
-      await startAgentRun(this.agentManager, agent.id, wrappedPrompt, this.logger, {
+      // Fork delta (session move): a moved agent's first turn may be a schedule fire.
+      const prompt = await takePendingMovePrompt({
+        agentStorage: this.agentStorage,
+        agentId: agent.id,
+        prompt: wrappedPrompt,
+      });
+      await startAgentRun(this.agentManager, agent.id, prompt, this.logger, {
         replaceRunning: true,
         activeTurnBehavior: "steer",
       });
