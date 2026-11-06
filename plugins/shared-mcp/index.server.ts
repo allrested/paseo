@@ -1,7 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { sharedMcpSettings } from "./shared/settings.js";
+import { sharedMcpHome } from "./server/paths.js";
+import { createSharedMcp } from "./server/plugin.js";
 
 export default function contribute(server: PluginServerContext) {
-  server.registerSettings(sharedMcpSettings);
-  return () => {};
+  return createSharedMcp({ server, home: sharedMcpHome() });
 }
