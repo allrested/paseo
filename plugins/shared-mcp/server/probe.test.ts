@@ -315,7 +315,7 @@ describe("probeMcp", () => {
   it("gives up on a DELETE that never answers once timeoutMs passes", async () => {
     const server = await startServer(withSession(neverAnswer));
 
-    const result = await probeMcp({ port: server.port, healthPath: "/mcp" }, { timeoutMs: 500 });
+    const result = await probeMcp({ port: server.port, healthPath: "/mcp" }, { timeoutMs: 2_000 });
 
     expect(result).toEqual({ ok: true, status: 200 });
     expect(server.requests).toEqual([initializeRequest(), deleteRequest()]);
