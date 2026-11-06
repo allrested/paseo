@@ -75,6 +75,6 @@ describe("formatLogTail", () => {
   });
 
   it("says when the server has written nothing", () => {
-    expect(formatLogTail([], 20)).toBe("No output yet.");
+    expect(formatLogTail([], 20)).toBe("No output yet");
   });
 });
