@@ -709,6 +709,35 @@ describe("Supervisor", () => {
     });
   });
 
+  it("restart(id) waits for a pending unhealthy kill before it starts the server again", async () => {
+    const { clock, world, deps, supervisor } = createHarness();
+    await supervisor.apply([definition()]);
+    await clock.advance(TIMING.startupProbeMs);
+    const old = latest(world);
+    const finishKill = holdStop(old);
+    old.answering = false;
+    await clock.advance(2 * TIMING.probeIntervalMs);
+    expect(old.stop).toHaveBeenCalledWith(TIMING.stopGraceMs);
+
+    const restarting = supervisor.restart("ctx");
+    await flush();
+    expect(deps.spawn).toHaveBeenCalledTimes(1);
+
+    old.exit({ code: null, signal: "SIGKILL" });
+    finishKill();
+    await restarting;
+    await clock.advance(TIMING.backoffStartMs);
+    expect(deps.spawn).toHaveBeenCalledTimes(2);
+    expect(old.stop).toHaveBeenCalledTimes(1);
+    expect(await statusOf(supervisor)).toMatchObject({
+      state: "healthy",
+      pid: 4001,
+      restarts: 1,
+      lastError: null,
+      nextRetryAt: null,
+    });
+  });
+
   it("restart(id) refuses unknown, external and disabled servers", async () => {
     const { world, deps, supervisor } = createHarness();
     world.externalPorts.add(8931);
@@ -781,5 +810,24 @@ describe("Supervisor", () => {
     await clock.advance(TIMING.failingRetryMs);
     expect(deps.spawn).toHaveBeenCalledTimes(3);
     expect(deps.probe).toHaveBeenCalledTimes(13);
+  });
+
+  it("stopAll resolves and reports lastError when shortening a pending stop rejects", async () => {
+    const { clock, world, supervisor } = createHarness();
+    await supervisor.apply([definition()]);
+    await clock.advance(TIMING.startupProbeMs);
+    const old = latest(world);
+    const finishRestart = holdStop(old);
+    const restarting = supervisor.restart("ctx");
+    await flush();
+    old.stop.mockRejectedValueOnce(new Error("kill EPERM"));
+
+    await expect(supervisor.stopAll()).resolves.toBeUndefined();
+    expect(old.stop).toHaveBeenLastCalledWith(TIMING.shutdownGraceMs);
+    expect((await statusOf(supervisor)).lastError).toBe(
+      "Stopping process group 4000 failed: kill EPERM",
+    );
+    finishRestart();
+    await restarting;
   });
 });
