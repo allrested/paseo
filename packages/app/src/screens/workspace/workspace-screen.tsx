@@ -230,6 +230,8 @@ import {
   type WorkspaceFileOpenRequest,
 } from "@/workspace/file-open";
 import { RenderProfile } from "@/utils/render-profiler";
+import { MoveDialogHost } from "@/session-move/move-dialog";
+import { useFollowMovedAgents } from "@/session-move/use-follow-moved-agents";
 import { useWorkspaceCheckoutStatus } from "@/screens/workspace/use-workspace-checkout-status";
 import { useWorkspacePullRequestDiscovery } from "@/panels/pull-request";
 
@@ -1334,6 +1336,7 @@ function WorkspaceScreenContent({
     () => (workspaceLayout ? collectAllTabs(workspaceLayout.root) : EMPTY_UI_TABS),
     [workspaceLayout],
   );
+  useFollowMovedAgents(normalizedServerId, persistenceKey);
   useOpenAgentTabLabels({
     client,
     serverId: normalizedServerId,
@@ -3848,6 +3851,11 @@ function WorkspaceScreenContent({
           renamingTab={isRouteFocused ? renamingTab : null}
           onSubmit={handleRenameModalSubmit}
           onClose={handleRenameModalClose}
+        />
+        <MoveDialogHost
+          serverId={normalizedServerId}
+          workspaceId={normalizedWorkspaceId}
+          enabled={isRouteFocused}
         />
       </View>
     </RenderProfile>

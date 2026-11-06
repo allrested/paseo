@@ -8,6 +8,12 @@ import { AgentFeatureSchema, AgentStatusSchema } from "../messages.js";
 import { toStoredAgentRecord } from "./agent-projections.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type { AgentSessionConfig } from "./agent-sdk-types.js";
+import {
+  MoveHistorySchema,
+  PendingMoveContextSchema,
+  type MoveHistory,
+  type PendingMoveContext,
+} from "./session-move/pending-context.js";
 import { AgentOwnerSchema, daemonExecutionKey, type DaemonAgentOwner } from "./agent-owner.js";
 
 const SERIALIZABLE_CONFIG_SCHEMA = z
@@ -71,6 +77,11 @@ const STORED_AGENT_SCHEMA = z.object({
   features: z.array(AgentFeatureSchema).optional(),
   persistence: PERSISTENCE_HANDLE_SCHEMA,
   lastError: z.string().nullable().optional(),
+  limitReached: z.object({ at: z.string(), message: z.string() }).nullable().optional(),
+  // Fork delta (session move): history waiting for the moved agent's next prompt, and the
+  // session's move chain as it stood when this agent took it over.
+  pendingMoveContext: PendingMoveContextSchema.nullable().optional(),
+  moveHistory: MoveHistorySchema.nullable().optional(),
   requiresAttention: z.boolean().optional(),
   attentionReason: z.enum(["finished", "error", "permission"]).nullable().optional(),
   attentionTimestamp: z.string().nullable().optional(),
@@ -276,7 +287,7 @@ export class AgentStorage {
 
   private queueRecordMutation(
     agentId: string,
-    mutate: (existing: StoredAgentRecord | null) => StoredAgentRecord,
+    mutate: (existing: StoredAgentRecord | null) => StoredAgentRecord | null,
   ): Promise<void> {
     const prev = this.pendingWrites.get(agentId) ?? Promise.resolve();
     const next = prev.then(async () => {
@@ -285,6 +296,9 @@ export class AgentStorage {
       }
 
       const record = mutate(this.cache.get(agentId) ?? null);
+      if (!record) {
+        return undefined;
+      }
       await this.writeRecord(record);
       return undefined;
     });
@@ -384,10 +398,57 @@ export class AgentStorage {
       }
       // Background is fixed at creation; a runtime opened without it cannot clear it.
       if (existing?.background) record.background = true;
+      carryMoveState(record, existing);
       record.resumeOnStartup =
         existing?.resumeOnStartup && agent.lifecycle !== "idle" && agent.lifecycle !== "error";
       return record;
     });
+  }
+
+  /**
+   * Atomically reads and clears the history waiting for the moved agent's next prompt.
+   * Runs inside the per-agent write queue so concurrent takers see it exactly once and
+   * the write cannot overwrite a newer snapshot.
+   */
+  async takePendingMoveContext(agentId: string): Promise<PendingMoveContext | null> {
+    await this.load();
+    let taken: PendingMoveContext | null = null;
+    await this.queueRecordMutation(agentId, (existing) => {
+      if (!existing?.pendingMoveContext) {
+        return null;
+      }
+      taken = existing.pendingMoveContext;
+      return { ...existing, pendingMoveContext: null };
+    });
+    return taken;
+  }
+
+  /**
+   * Stores (or clears, with null) the history the moved agent's next prompt will carry and its
+   * move chain. Only the keys present are written. Runs inside the per-agent write queue so it
+   * cannot race a snapshot flush.
+   */
+  async setMoveState(
+    agentId: string,
+    patch: { pendingMoveContext?: PendingMoveContext | null; moveHistory?: MoveHistory | null },
+  ): Promise<void> {
+    await this.load();
+    let found = false;
+    // Throwing inside the queue would reject every write chained behind this one.
+    await this.queueRecordMutation(agentId, (existing) => {
+      if (!existing) {
+        return null;
+      }
+      found = true;
+      return {
+        ...existing,
+        ...("pendingMoveContext" in patch ? { pendingMoveContext: patch.pendingMoveContext } : {}),
+        ...("moveHistory" in patch ? { moveHistory: patch.moveHistory } : {}),
+      };
+    });
+    if (!found) {
+      throw new Error(`Agent ${agentId} not found`);
+    }
   }
 
   async setTitle(agentId: string, title: string): Promise<void> {
@@ -546,6 +607,16 @@ export class AgentStorage {
 
   private async waitForPendingWrite(agentId: string): Promise<void> {
     await (this.pendingWrites.get(agentId) ?? Promise.resolve()).catch(() => undefined);
+  }
+}
+
+/** Fork delta (session move): the projection is rebuilt from the live agent, which does not carry these fields. */
+function carryMoveState(record: StoredAgentRecord, existing: StoredAgentRecord | null): void {
+  if (existing?.pendingMoveContext !== undefined) {
+    record.pendingMoveContext = existing.pendingMoveContext;
+  }
+  if (existing?.moveHistory !== undefined) {
+    record.moveHistory = existing.moveHistory;
   }
 }
 

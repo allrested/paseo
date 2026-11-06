@@ -354,6 +354,24 @@ paseo agent detach <id>        # Make a subagent top-level
 
 解除父子关系是一个显式的生命周期操作，而不是创建时的参数。Agent 会继续运行；只有它与父 Agent 的关系发生变化。
 
+## 移动 Agent {#moving-agents}
+
+把 Agent 移到另一个 Provider 或账号，例如在它的账号用完配额时。移动不会调用该 Agent 的模型；新 Agent 就绪后，Paseo 才会归档原 Agent。
+
+```bash
+paseo agent move <id> --to codex                        # Move to another provider
+paseo agent move <id> --to claude-work --model <model>  # Move to another account and model
+paseo agent move <id> --to codex --no-continue          # Wait for your next message
+paseo agent move-back <id>                              # Return to the agent it was moved from
+paseo agent move-back <id> --to <agent-id>              # Return to an earlier agent in the chain
+```
+
+`--to` 接受 Provider ID，包括 `claude-work` 这样的[自定义 Provider](/docs/custom-providers#multiple-profiles)。在两个 Claude Provider 之间移动会恢复同一个 Claude 会话；无法复制会话记录时会改用 `handoff` 策略。其他移动会让新 Agent 带着会话的文本历史启动，其中包括该会话经过的每个 Agent 的工作。默认情况下，新 Agent 会从原 Agent 停下的地方继续；使用 `--no-continue` 时它会等待，历史会随它收到的下一条消息一起发送。`move-back` 会重新打开之前的 Agent，而不是创建新的 Agent，并把会话离开它之后完成的工作交给它。
+
+两个命令都要传入当前持有该会话的 Agent：已归档的 Agent 会被拒绝，错误信息会给出它移到的 Agent。`move-back` 不会回到已重新活动的 Agent；需先将其归档。已禁用或不可用的目标会在任何改动之前被拒绝。输出会显示移出的 Agent、现在持有该会话的 Agent、所用策略（`native` 或 `handoff`），以及两个 Claude Provider 之间的移动是否改用了 `handoff`。
+
+在应用中，使用 Agent 标签页菜单里的 **Move session…**。Agent 使用 [`move_agent`](/docs/mcp#agents) 工具。
+
 ## 管理 daemon {#daemon-management}
 
 定义一次实例，然后启动它保存的配置：

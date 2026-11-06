@@ -100,6 +100,7 @@ export function toStoredAgentRecord(
     features: normalizeFeatures(agent.features),
     persistence,
     lastError: agent.lastError ?? undefined,
+    limitReached: agent.limitReached ?? undefined,
     requiresAttention: agent.attention.requiresAttention,
     attentionReason: agent.attention.requiresAttention ? agent.attention.attentionReason : null,
     attentionTimestamp: agent.attention.requiresAttention
@@ -162,6 +163,10 @@ export function toAgentPayload(
     payload.lastError = agent.lastError;
   }
 
+  if (agent.limitReached) {
+    payload.limitReached = agent.limitReached;
+  }
+
   // Handle attention state
   payload.requiresAttention = agent.attention.requiresAttention;
   if (agent.attention.requiresAttention) {
@@ -216,6 +221,12 @@ function visibilityFlags(agent: {
     ...(agent.internal ? { internal: true } : {}),
     ...(agent.background ? { background: true } : {}),
   };
+}
+
+function buildStoredLimitReachedField(
+  record: StoredAgentRecord,
+): Pick<AgentSnapshotPayload, "limitReached"> {
+  return record.limitReached ? { limitReached: record.limitReached } : {};
 }
 
 export function buildStoredAgentPayload(
@@ -273,6 +284,7 @@ export function buildStoredAgentPayload(
     ...visibilityFlags(record),
     labels: normalizeLabels(record.labels),
     ...(typeof record.lastError === "string" ? { lastError: record.lastError } : {}),
+    ...buildStoredLimitReachedField(record),
     ...(providerAvailable ? {} : { providerUnavailable: true }),
   };
 }

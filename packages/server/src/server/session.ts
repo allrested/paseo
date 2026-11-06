@@ -116,7 +116,10 @@ import {
 
 import { AgentManager, AgentRunCancellationError } from "./agent/agent-manager.js";
 import { buildTimelinePromptIndex } from "./agent/timeline-prompt-index.js";
-import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
+import {
+  ProviderSnapshotManager,
+  type ProviderLaunchInfo,
+} from "./agent/provider-snapshot-manager.js";
 import type {
   AgentManagerEvent,
   AgentTimelineCursor,
@@ -144,6 +147,18 @@ import { buildStoredAgentPayload, toAgentPayload } from "./agent/agent-projectio
 import { assertPluginTimelineDataSize } from "./agent/agent-timeline-content.js";
 import { parsePluginClientId } from "./plugins/plugin-session-identity.js";
 import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
+import {
+  moveAgent,
+  moveAgentBack,
+  runMove,
+  type MoveAgentDeps,
+} from "./agent/session-move/move-agent.js";
+import {
+  createUsageLookup,
+  toMoveTarget,
+  type MoveTarget,
+  type UsageWindowLike,
+} from "./agent/session-move/move-targets.js";
 import { buildAgentPrompt } from "./agent/prompt-attachments.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
 import {
@@ -295,6 +310,9 @@ import {
 import { runGitCommand } from "../utils/run-git-command.js";
 import { CreateAgentLifecycleDispatch } from "./agent/create-agent-lifecycle-dispatch.js";
 import { resolveWorktreeSourceCwd } from "./workspace-source.js";
+
+// Shared by every session: usage is daemon-wide, and the move dialog asks for it on each open.
+const moveTargetUsage = createUsageLookup<UsageReportEntry[]>();
 
 type ProviderSubagentManagerEvent = Extract<
   AgentManagerEvent,
@@ -551,6 +569,10 @@ export interface SessionOptions {
       reportIds?: string[];
     }): Promise<UsageReportEntry[]>;
     listLegacyUsage(): Promise<{ fetchedAt: string; providers: ProviderUsage[] }>;
+    listUsageReportsForScope?(scope: {
+      provider: string;
+      env: Record<string, string>;
+    }): Promise<UsageReportEntry[]>;
   };
   orchestrationSkills?: import("./orchestration-skills/index.js").OrchestrationSkills;
   mcpBaseUrl?: string | null;
@@ -1756,7 +1778,8 @@ export class Session {
       this.wantsEvent("agent_attention_required") ||
       this.wantsEvent("agent_permission_request") ||
       this.wantsEvent("agent_permission_resolved") ||
-      this.wantsEvent("agent.provider_subagents.update");
+      this.wantsEvent("agent.provider_subagents.update") ||
+      this.wantsEvent("agent.moved");
     if (agents && !this.unsubscribeAgentEvents) this.subscribeToAgentEvents();
     if (!agents) {
       this.unsubscribeAgentEvents?.();
@@ -2041,20 +2064,7 @@ export class Session {
         }
 
         if (event.type === "agent_removed") {
-          if (event.internal) return;
-          void this.agentUpdates
-            .removeAgent(event.agentId)
-            .then(() => {
-              if (event.workspaceId)
-                return this.emitWorkspaceUpdateForWorkspaceId(event.workspaceId);
-              return undefined;
-            })
-            .catch((error) => {
-              this.sessionLogger.error(
-                { err: error, agentId: event.agentId },
-                "Failed to emit agent removal",
-              );
-            });
+          this.forwardAgentRemoved(event);
           return;
         }
 
@@ -2082,6 +2092,11 @@ export class Session {
           if (this.agentManager.getAgent(parentAgentId)?.internal) return;
           this.emitProviderSubagentWorkspaceUpdate(event.event);
           this.forwardProviderSubagentUpdate(event.event);
+          return;
+        }
+
+        if (event.type === "agent_moved") {
+          this.forwardAgentMoved(event);
           return;
         }
 
@@ -2526,6 +2541,7 @@ export class Session {
   ): Promise<void> | undefined {
     return (
       this.dispatchAgentRewindMessage(msg, source) ??
+      this.dispatchAgentMoveMessage(msg, source) ??
       this.dispatchAgentRelationshipMessage(msg) ??
       this.dispatchAgentTimelineMessage(msg, source)
     );
@@ -2926,6 +2942,139 @@ export class Session {
       default:
         return undefined;
     }
+  }
+
+  private dispatchAgentMoveMessage(
+    msg: SessionInboundMessage,
+    source?: object,
+  ): Promise<void> | undefined {
+    switch (msg.type) {
+      case "agent.move.request":
+        return this.handleAgentMoveRequest(msg, source);
+      case "agent.move_back.request":
+        return this.handleAgentMoveBackRequest(msg, source);
+      case "agent.move_targets.list.request":
+        return this.handleAgentMoveTargetsRequest(msg, source);
+      default:
+        return undefined;
+    }
+  }
+
+  private moveDeps(): MoveAgentDeps {
+    return {
+      agentManager: this.agentManager,
+      agentStorage: this.agentStorage,
+      providerSnapshotManager: this.providerSnapshotManager,
+      logger: this.sessionLogger,
+      paseoHome: this.paseoHome,
+      worktreesRoot: this.worktreesRoot,
+    };
+  }
+
+  private async handleAgentMoveRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.move.request" }>,
+    source?: object,
+  ): Promise<void> {
+    const payload = await runMove(() =>
+      moveAgent(this.moveDeps(), {
+        agentId: msg.agentId,
+        target: msg.target,
+        continueWork: msg.continueWork,
+      }),
+    );
+    this.emitForSource(
+      { type: "agent.move.response", payload: { requestId: msg.requestId, ...payload } },
+      source,
+    );
+  }
+
+  private async handleAgentMoveBackRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.move_back.request" }>,
+    source?: object,
+  ): Promise<void> {
+    const payload = await runMove(() =>
+      moveAgentBack(this.moveDeps(), {
+        agentId: msg.agentId,
+        continueWork: msg.continueWork,
+        ...(msg.toAgentId !== undefined ? { toAgentId: msg.toAgentId } : {}),
+      }),
+    );
+    this.emitForSource(
+      { type: "agent.move_back.response", payload: { requestId: msg.requestId, ...payload } },
+      source,
+    );
+  }
+
+  private async handleAgentMoveTargetsRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.move_targets.list.request" }>,
+    source?: object,
+  ): Promise<void> {
+    let targets: MoveTarget[] = [];
+    let error: string | null = null;
+    try {
+      targets = await this.listMoveTargets(msg.agentId);
+    } catch (err) {
+      this.sessionLogger.warn({ err, agentId: msg.agentId }, "move targets: request failed");
+      error = err instanceof Error ? err.message : String(err);
+    }
+    this.emitForSource(
+      {
+        type: "agent.move_targets.list.response",
+        payload: { requestId: msg.requestId, targets, error },
+      },
+      source,
+    );
+  }
+
+  private async listMoveTargets(agentId: string): Promise<MoveTarget[]> {
+    const agent = this.agentManager.getAgent(agentId) ?? (await this.agentStorage.get(agentId));
+    if (!agent) throw new Error(`Agent not found: ${agentId}`);
+    const usageEnabled = this.daemonConfigStore.get().usage?.enabled !== false;
+    // Does not wait: a provider still loading stays selectable, and the move itself waits.
+    const statuses = new Map(
+      this.providerSnapshotManager
+        .getSnapshot(agent.cwd)
+        .records.map(({ entry }) => [entry.provider, entry.status]),
+    );
+    return Promise.all(
+      this.providerSnapshotManager.listRegisteredProviderIds().flatMap((providerId) => {
+        const info = this.providerSnapshotManager.getProviderLaunchInfo(providerId);
+        if (!info) return [];
+        return [
+          (async () => {
+            const windows = usageEnabled
+              ? await this.moveTargetUsageWindows(providerId, info)
+              : null;
+            return toMoveTarget({
+              info,
+              status: statuses.get(providerId) ?? null,
+              currentProvider: agent.provider,
+              windows,
+            });
+          })(),
+        ];
+      }),
+    );
+  }
+
+  /** Usage windows for one target, or null when unknown (no source, failed or too slow). */
+  private async moveTargetUsageWindows(
+    providerId: string,
+    info: ProviderLaunchInfo,
+  ): Promise<UsageWindowLike[] | null> {
+    const listReports = this.pluginRuntime?.listUsageReportsForScope;
+    if (!listReports) return null;
+    // Agents run the family CLI with the profile env, so usage is keyed by family.
+    const reports = await moveTargetUsage(providerId, () =>
+      listReports.call(this.pluginRuntime, { provider: info.family, env: info.env }),
+    ).catch((err: unknown) => {
+      this.sessionLogger.warn({ err, providerId }, "move targets: usage lookup failed");
+      return null;
+    });
+    if (!reports || reports.length === 0) return null;
+    return reports.flatMap((entry) =>
+      entry.report.status === "available" ? entry.report.windows : [],
+    );
   }
 
   private dispatchAgentRelationshipMessage(msg: SessionInboundMessage): Promise<void> | undefined {
@@ -5090,6 +5239,31 @@ export class Session {
     } finally {
       this.rewindInitiators.delete(msg.agentId);
     }
+  }
+
+  private forwardAgentMoved(event: Extract<AgentManagerEvent, { type: "agent_moved" }>): void {
+    // Internal agents stay hidden from clients, as in forwardAgentRemoved.
+    if (event.internal) return;
+    this.emit({
+      type: "agent.moved",
+      payload: { fromAgentId: event.fromAgentId, toAgentId: event.toAgentId },
+    });
+  }
+
+  private forwardAgentRemoved(event: Extract<AgentManagerEvent, { type: "agent_removed" }>): void {
+    if (event.internal) return;
+    void this.agentUpdates
+      .removeAgent(event.agentId)
+      .then(() => {
+        if (event.workspaceId) return this.emitWorkspaceUpdateForWorkspaceId(event.workspaceId);
+        return undefined;
+      })
+      .catch((error) => {
+        this.sessionLogger.error(
+          { err: error, agentId: event.agentId },
+          "Failed to emit agent removal",
+        );
+      });
   }
 
   private deliverTimelineReplacement(agentId: string, initiatingSource?: object): void {
@@ -9086,6 +9260,7 @@ function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubs
     case "activity_log":
     case "hub.execution.agent.update":
     case "hub.execution.agent.stream":
+    case "agent.moved":
       return message.type;
     case "status":
       switch (message.payload.status) {
@@ -9120,6 +9295,9 @@ function legacyWantsEvent(
       return !capabilities.has(CLIENT_CAPS.explicitEventSubscriptions);
     case "agent.provider_subagents.update":
       return capabilities.has(CLIENT_CAPS.providerSubagents);
+    case "agent.moved":
+      // Added with session move; clients from before owned subscriptions do not know it.
+      return false;
     default:
       return true;
   }

@@ -111,6 +111,14 @@ export interface ProviderSnapshotTransition {
 
 type ProviderSnapshotChangeListener = (transition: ProviderSnapshotTransition) => void;
 
+export interface ProviderLaunchInfo {
+  providerId: string;
+  family: string;
+  label: string;
+  enabled: boolean;
+  env: Record<string, string>;
+}
+
 export interface ProviderSnapshotManagerOptions {
   logger: Logger;
   runtimeSettings?: AgentProviderRuntimeSettingsMap;
@@ -354,6 +362,18 @@ export class ProviderSnapshotManager {
 
   getProviderLabel(provider: AgentProvider): string {
     return this.generation.definitions[provider]?.label ?? provider;
+  }
+
+  getProviderLaunchInfo(providerId: string): ProviderLaunchInfo | null {
+    const definition = this.generation.definitions[providerId];
+    if (!definition) return null;
+    return {
+      providerId,
+      family: definition.derivedFromProviderId ?? providerId,
+      label: this.getProviderLabel(providerId),
+      enabled: definition.enabled,
+      env: { ...definition.configuration?.runtimeSettings?.env },
+    };
   }
 
   getAgentManagerProviderState(): AgentManagerProviderState {

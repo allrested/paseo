@@ -1,6 +1,6 @@
 # Agent lifecycle
 
-How an agent is created, runs, becomes a subagent, gets archived, and disappears from the UI. The model spans the daemon (lifecycle, archive) and the client (tabs, the subagents track).
+How an agent is created, runs, becomes a subagent, gets archived or moved to another account, and disappears from the UI. The model spans the daemon (lifecycle, archive) and the client (tabs, the subagents track).
 
 ## States
 
@@ -282,6 +282,97 @@ Provider session connection owns every process it spawns until the session is re
 `connect()` must dispose that process before rethrowing; the manager cannot clean up a session it never
 received.
 
+### Moving a session
+
+**Move session…** in the tab menu, `paseo agent move`, and the `move_agent` tool hand an agent to
+another provider or account without calling the agent's own model, so a session whose account ran
+out of quota can continue elsewhere. The code is in `packages/server/src/server/agent/session-move/`.
+Paseo never moves an agent by itself: a turn that fails with a usage-limit error only sets
+`limitReached` on the agent, which offers a move in the app until a later turn completes.
+
+A move or move back is refused before anything changes when the agent is archived, because the
+session lives on in the agent it moved to (the error names it), and when the target provider is
+disabled or not ready in the agent's `cwd` (CLI missing, catalog failed). The readiness check
+waits for the target's provider snapshot, as creating an agent does. The move then stops the
+agent's running turn. If the interrupt is not acknowledged, the move is refused (see
+[Cancellation](#cancellation)). It then creates a successor in the same workspace and `cwd` and
+archives the original:
+
+- The successor gets `paseo.moved-from-agent-id=<original>`, and the original gets
+  `paseo.moved-to-agent-id=<successor>`. Never link them with `paseo.parent-agent-id`: archive
+  cascades to children, so archiving the original would archive its successor.
+- The successor copies the original's other labels, including its own parent and open-tab labels,
+  so a moved subagent stays in its parent's track. The app moves the tab to the successor on
+  `agent.moved`, and a tab restored onto an archived agent follows `paseo.moved-to-agent-id` to the
+  live end of the chain.
+- The original's live subagents are re-parented to the successor before the archive, so they follow
+  the session.
+
+The response names the strategy:
+
+- **Native** — both providers are Claude Code and the original has a session id. Claude resumes a
+  session only from its own config dir (`CLAUDE_CONFIG_DIR`, default `~/.claude`), so the daemon
+  copies the transcript into the target login's `projects/` folder and resumes the same session id
+  under the target provider. The copy replaces a transcript already there only when that file is a
+  byte prefix of the source; one with turns the source lacks is left alone. Claude providers that
+  share a config dir need no copy.
+- **History handoff** — every other pair, and a move between two Claude providers whose transcript
+  is missing, cannot be copied, or has diverged in the target login (`fellBackFromNative`). The
+  successor is a new session that gets a text history of the session, built without a model. The
+  target reads that history as text and loses tool-level fidelity. A handoff between two providers
+  of the same CLI keeps the agent's mode, when the target offers it, and its feature values; a
+  handoff to another CLI starts in that CLI's default mode.
+
+Paseo keeps no timeline for an archived agent: archive drops the in-memory timeline, and reading it
+back means resuming the provider. So each move records the session's history on the live agent's
+stored record as `moveHistory`: the first typed task and one curated segment per agent that held the
+session, oldest first, capped at 96k characters by dropping the oldest entries. The cap sits under
+the fork builder's 100k budget so the builder never trims a history and cuts a segment off its
+`[Agent]` line. A handoff sends
+those segments plus the rows of the agent you leave, so an agent several hops down sees the first
+agent's work and task. The live timeline records only the typed prompt (`submittedPromptText` drops
+blocks with a `mimeType`), but a Claude receiver's transcript keeps the history block, so the block
+reappears in a user message whenever the timeline is rebuilt from disk; the move strips it before it
+curates the rows. `moveHistory.sinceSeq` marks where an agent's own rows start, so a native successor
+never resends the turns it replayed from its predecessor's transcript. It is a seq because a
+replayed row without a provider timestamp gets the replay time.
+
+The history to deliver waits in `pendingMoveContext` on the receiving agent's stored record, so it
+survives a daemon restart. Whatever starts the agent's next turn takes it and prepends it
+(`takePendingMovePrompt` in `session-move/pending-context.ts`): the daemon's `Continue where the
+previous agent stopped.` when continue is on (the default), otherwise your next message, an agent
+message, a finish notification or a schedule fire. Permission follow-ups run inside a turn that
+already took it. It is taken before the run starts and never restored, because a turn that fails
+after dispatch may already be stored by the provider; nothing is lost, since `moveHistory` keeps the
+work for the next move. A native successor's transcript lacks a history its predecessor never
+delivered, so a native move carries that `pendingMoveContext` over as is.
+
+**Move back** (`paseo agent move-back`, or `move_agent` with `back: true`) returns to an earlier agent
+in the move chain: the one in `paseo.moved-from-agent-id` by default, or any agent further back with
+`--to` / `toAgentId`. The target must still be archived; one that is active again has its own session
+going on, so it is refused as busy. Move back unarchives the target and clears its
+`paseo.moved-to-agent-id` instead of creating a successor. It sets the target's
+`paseo.moved-from-agent-id` to the agent you leave, so the target can move back again. That replaces
+an older moved-from: the agent it named leaves move-back reach, and its work stays in `moveHistory`.
+Move back also clears the target's `limitReached`, because you chose that login again. The agent you
+leave is archived the way a forward move archives the original, with `paseo.moved-to-agent-id`
+pointing at the target. Move back is native only when both agents run the same Claude session id and
+the target login's transcript is a byte prefix of the newer one: the daemon copies the newer
+transcript back and the target reloads it from disk. Otherwise the target resumes its own session
+and gets, as `pendingMoveContext`, the work done since the session left it, by every agent after it.
+A target that never delivered the history it inherited gets the whole chain.
+
+The original is archived last. The successor is created, and started when continue is on, before the
+re-parenting, linking and archive run. A failure at any step deletes the successor, removes a
+transcript the move created or truncates one it replaced back to its old length, and undoes the
+re-parenting, linking and archive, so the original stays as it was. A failed move back re-archives
+the target with its previous labels, move state and `limitReached`. A daemon restart mid-move
+therefore leaves at worst two live agents and no lost work. One move runs per agent at a time; a
+second request is refused as busy.
+
+Schedules and heartbeats aimed at the agent you move are completed when the move archives it, and
+finish notifications addressed to it stop. Move back restores neither.
+
 ## Tabs vs archive
 
 These are two distinct concepts that used to be conflated:
@@ -396,12 +487,16 @@ $PASEO_HOME/agents/{cwd-with-dashes}/{agent-id}.json
 
 Each agent is a single JSON file. Fields relevant to this doc:
 
-| Field                                        | Type          | Meaning                                                                            |
-| -------------------------------------------- | ------------- | ---------------------------------------------------------------------------------- |
-| `id`                                         | `string`      | Stable identifier                                                                  |
-| `archivedAt`                                 | `string?`     | Soft-delete timestamp (ISO 8601)                                                   |
-| `labels["paseo.parent-agent-id"]`            | `string?`     | Parent agent ID, set automatically for agent-scoped creation and removed by detach |
-| `labels["paseo.open-agent-tab.<client-id>"]` | `string?`     | `"true"` protects an open tab on that client; detach clears every matching label   |
-| `lastStatus`                                 | `AgentStatus` | `initializing` / `idle` / `running` / `error` / `closed`                           |
+| Field                                        | Type               | Meaning                                                                            |
+| -------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `id`                                         | `string`           | Stable identifier                                                                  |
+| `archivedAt`                                 | `string?`          | Soft-delete timestamp (ISO 8601)                                                   |
+| `labels["paseo.parent-agent-id"]`            | `string?`          | Parent agent ID, set automatically for agent-scoped creation and removed by detach |
+| `labels["paseo.open-agent-tab.<client-id>"]` | `string?`          | `"true"` protects an open tab on that client; detach clears every matching label   |
+| `labels["paseo.moved-from-agent-id"]`        | `string?`          | The agent this one was [moved](#moving-a-session) from                             |
+| `labels["paseo.moved-to-agent-id"]`          | `string?`          | On an archived agent, the agent it was moved to                                    |
+| `pendingMoveContext`                         | `{ text, title }?` | Handoff history waiting for the agent's next prompt                                |
+| `moveHistory`                                | `object?`          | The session's move chain: its first task and one curated segment per earlier agent |
+| `lastStatus`                                 | `AgentStatus`      | `initializing` / `idle` / `running` / `error` / `closed`                           |
 
 See [`docs/data-model.md`](./data-model.md) for the full agent record.

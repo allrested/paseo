@@ -1,0 +1,31 @@
+#!/bin/bash
+# Launch Postman the way the base image launches Chromium: no sandbox, because
+# the container has no user namespaces to drop into; the basic password store,
+# because there is no keyring; and the wayland backend only when labwc is
+# actually up, otherwise Electron falls back to XWayland on its own.
+#
+# The Electron binary is run directly. /opt/Postman/Postman re-joins its
+# arguments into one string for system(), so the shell cuts a postman://
+# sign-in callback at its first '&' and the login never completes.
+#
+# CDP is what makes this image useful to an agent: Playwright attaches to it and
+# drives Postman, so a request capture is a screenshot of the real client rather
+# than terminal output. Postman 12 picks its own CDP port whatever is asked
+# here, and postman-cdp-bridge republishes it on POSTMAN_CDP_PORT; the port is
+# still requested so a Postman that honours it needs no bridge.
+
+BIN=/opt/Postman/app/postman
+
+if ls -l /dev/dri/* > /dev/null 2>&1; then
+  if pgrep labwc > /dev/null 2>&1; then
+    WAYLAND="--ozone-platform=wayland"
+  fi
+fi
+
+exec ${BIN} \
+  --no-sandbox \
+  --password-store=basic \
+  --remote-debugging-port="${POSTMAN_CDP_PORT:-9225}" \
+  --remote-allow-origins='*' \
+  ${WAYLAND} \
+  "$@" > /dev/null 2>&1

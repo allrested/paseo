@@ -373,6 +373,24 @@ paseo agent detach <id>        # Make a subagent top-level
 
 Detaching is an explicit lifecycle action, not a creation flag. The agent keeps running; only its relationship to its parent changes.
 
+## Moving agents
+
+Move an agent to another provider or account, for example when its account runs out of quota. Paseo does not call the agent's model to do it, and archives the original only after the new agent is ready.
+
+```bash
+paseo agent move <id> --to codex                        # Move to another provider
+paseo agent move <id> --to claude-work --model <model>  # Move to another account and model
+paseo agent move <id> --to codex --no-continue          # Wait for your next message
+paseo agent move-back <id>                              # Return to the agent it was moved from
+paseo agent move-back <id> --to <agent-id>              # Return to an earlier agent in the chain
+```
+
+`--to` takes a provider ID, including a [custom provider](/docs/custom-providers#multiple-profiles) such as `claude-work`. A move between two Claude providers resumes the same Claude session, or falls back to a handoff when the transcript cannot be copied. Any other move starts the new agent with a text history of the session, including the work of every agent it was moved through. By default the new agent continues where the original stopped; with `--no-continue` it waits, and the history goes with the next message it receives. `move-back` reopens the earlier agent instead of creating one, and gives it the work done since the session left it.
+
+Both commands take the agent that holds the session now: an archived agent is refused, and the error names the agent it moved to. `move-back` refuses to return to an agent that is active again; archive it first. A disabled or unavailable target is refused before anything changes. The output shows the agent you moved from, the agent that now holds the session, the strategy (`native` or `handoff`), and whether a move between two Claude providers fell back to a handoff.
+
+In the app, use **Move session…** in the agent tab's menu. Agents use the [`move_agent`](/docs/mcp#agents) tool.
+
 ## Daemon management
 
 Define an instance once, then start its saved configuration:
