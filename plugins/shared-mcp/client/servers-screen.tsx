@@ -66,12 +66,15 @@ function ServerCard({ server, definitions, settings, now, styles }: ServerCardPr
   const { mutate } = restart;
   const restartServer = useCallback(() => mutate(), [mutate]);
   const changeEnabled = useCallback(
-    (next: boolean) => {
+    async (next: boolean) => {
       if (settings.status !== "ready") return;
       const servers = withServerEnabled(settings.values.servers, server.id, next);
-      void settings.save({ ...settings.values, servers }, settings.revision);
+      const saved = await settings.save({ ...settings.values, servers }, settings.revision);
+      // Refetch now so the switch and the state line do not disagree until the next poll.
+      // save() never throws; false means nothing was saved, so the status is unchanged.
+      if (saved) await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     },
-    [settings, server.id],
+    [settings, server.id, queryClient],
   );
   const definition = definitions.find((candidate) => candidate.id === server.id);
   // Until the definition loads, or once it is removed, the switch mirrors the process state.
