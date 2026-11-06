@@ -1,6 +1,6 @@
 # Shared MCP plugin — design
 
-Date: 2026-11-06. Status: approved design; not yet planned.
+Date: 2026-11-06. Status: implemented; rollout pending.
 
 ## Problem
 
@@ -80,13 +80,15 @@ Each server has one state: `starting`, `healthy`, `unhealthy`, `backoff`, `faili
 - A server spawns in its own process group so `npx` and `uvx` children die with it. Some children
   leave the group: Serena starts each language server in a session of its own. Stopping lists the
   server's process tree before the first signal, sends SIGTERM to the group and to every listed
-  process outside it, then SIGKILL to the same set after 5 s. Disabling or removing the plugin
-  stops every server it started; `external` servers are left alone.
+  process outside it, then SIGKILL to the same set after 5 s. Stopping the daemon stops every
+  server it started; `external` servers are left alone.
 - Each started server's group id goes to a pid file. A daemon that died without cleanup leaves
   detached groups behind; on start the plugin kills the group named by a leftover pid file before
   starting its own, instead of adopting it as `external`. The pid file records the owning daemon
   pid and the leader's start time, and a group is killed only when that daemon is gone and the start
   time still matches, so a test run against the same home never kills a live daemon's servers.
+  It also records the pid namespace, the boot id and the start time of the namespace's pid 1; a
+  file from another namespace, boot or container run is removed without a signal.
 - stdout and stderr go to a 200-line ring buffer per server and to a log file in the plugin's data
   directory.
 - RSS is the sum over the server's process tree, read from `/proc`: every member of its process
@@ -133,6 +135,6 @@ These files live outside the repository and are changed on each instance:
 - Unit: the state machine against a fake process and clock (start, probe failure, backoff, the
   `failing` threshold, `blocked`, `external`, stop).
 - Integration: a small real HTTP server in a temp directory, covering start, health, crash and
-  restart, and the process-group kill.
+  restart, and the process-tree kill.
 - Manual: two Claude agents and one Kiro agent on the shared servers, with RSS measured before and
   after; kill one server mid-session and confirm the agents recover.

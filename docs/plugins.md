@@ -105,32 +105,43 @@ before setup and agents, through `worktree.create.after`.
 
 The `shared-mcp` built-in runs each MCP server in its settings once, over HTTP on the server's own
 port, so agents connect to one copy instead of each starting its own. A server that already
-answers on its port shows as `external` and keeps running when the daemon stops. A definition with
-`bearerToken` gets the plugin's token in the server's env, and every agent gets the same token in
-its env under the `agentEnv` name, for configs that send `Authorization: Bearer ${VAR}`. Claude
-Code and Kiro CLI both expand that header. An agent receives the token only when its session
-opens, so after adding a `bearerToken` definition or renaming an `agentEnv`, reload the agents
-that were already running. Built-ins have no row in Settings > Plugins, so the settings screens
-open from the "Shared MCP servers" Command Center item, which appears once a workspace on that
-host is open. Nothing watches `$PASEO_HOME/plugin-settings/shared-mcp/servers.json`, so a hand
-edit applies at the next daemon start. Each server's output goes to
-`$PASEO_HOME/shared-mcp/logs/<id>.log`, and its tail to the Servers tab. The plugin's own
-messages go to the daemon log, not to `paseo plugin logs shared-mcp`. Local runs of
-`scripts/builtin-plugins-dist.test.mjs` and
-`packages/server/src/server/plugins/lifecycle.e2e.test.ts` start this built-in in process, so give
-them `PASEO_HOME=$(mktemp -d)`; otherwise it works in the real `$PASEO_HOME/shared-mcp`. Probe,
-restart, and backoff rules are in the
+answers on its port shows as `external` and keeps running when the daemon stops. Orphan reclaim
+and RSS read Linux `/proc`. Without it, a server left running by a crashed daemon comes back as
+`external`. Probe, restart, and backoff rules are in the
 [design](superpowers/specs/2026-11-06-shared-mcp-plugin-design.md#supervisor).
+
+A definition with `bearerToken` puts the plugin's token in the server's env under the `serverEnv`
+name, and in every agent's env under the `agentEnv` name, for configs that send
+`Authorization: Bearer ${VAR}`. Claude Code and Kiro CLI both expand that header. An agent
+receives the token only when its session opens, so after you add a `bearerToken` definition or
+rename an `agentEnv`, reload the agents that were already running. Agents get the token for a
+disabled bearer server too, so switching one on needs no agent reload. Shells Paseo did not open
+as an agent, such as Paseo terminals and SSH sessions, do not get the token. Read it from
+`$PASEO_HOME/shared-mcp/token` (mode 0600) in your shell profile.
+
+Built-ins have no row in Settings > Plugins, so open the settings screens from the "Shared MCP
+servers" Command Center item, which appears once a workspace on that host is open. Saving a change
+to `command`, `cwd`, `env`, `port`, `requires`, `bearerToken.serverEnv`, or `enabled` restarts
+that server, as Restart does. That server's agent sessions drop and the agents reconnect on their
+own. `label`, `healthPath`, and `agentEnv` apply in place (`needsRestart` in
+`plugins/shared-mcp/server/supervisor.ts`). Nothing watches
+`$PASEO_HOME/plugin-settings/shared-mcp/servers.json`, so a hand edit applies at the next daemon
+start.
+
+Each server's output goes to `$PASEO_HOME/shared-mcp/logs/<id>.log`, and its tail to the Servers
+tab. The plugin's own messages go to the daemon log, not to `paseo plugin logs shared-mcp`.
+
+Local runs of `scripts/builtin-plugins-dist.test.mjs` and
+`packages/server/src/server/plugins/lifecycle.e2e.test.ts` start this built-in in process, so give
+them `PASEO_HOME=$(mktemp -d)`; otherwise it works in the real `$PASEO_HOME/shared-mcp`.
 
 Desktop packaging ships the entire built-in plugin directory as an external resource,
 including declarations. The external esbuild compiler cannot read Electron's `app.asar`
 filesystem, and packaging dependencies excludes `.d.ts` files needed for import validation.
-Built-ins can import only host modules. Server code may import `@getpaseo/plugin`,
-`@getpaseo/plugin/server*`, `zod`, and Node built-ins. Client code may import `@getpaseo/plugin`,
-`@getpaseo/plugin/client`, `@getpaseo/plugin/client/ui`, `zod`, `react`, `react-native`, and
-`@tanstack/react-query`. Shared code may import `@getpaseo/plugin` and `zod`. Outside the archive,
-nothing resolves an npm dependency, and the dist build test cannot catch one because it resolves
-through the repository's `node_modules`.
+Built-ins can import only the host modules in
+[runtime modules](../public-docs/plugins/reference.md#runtime-modules), and only server code may
+import Node built-ins. Outside the archive, nothing resolves an npm dependency, and the dist build
+test cannot catch one because it resolves through the repository's `node_modules`.
 The packaged-app smoke check requires every listed built-in to start without relying on
 account credentials.
 
