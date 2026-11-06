@@ -52,7 +52,7 @@ const STRIPPED_ENV_KEYS = new Set([
 // which processes the pids name: after a container restart (a fresh pid namespace) or a reboot the
 // same pids name others. initStartTime is the start time of the namespace's pid 1: a namespace
 // inode can be reissued to a restarted container on the same boot, and that container's pid 1
-// always starts later. A record without any of them is stale too.
+// always starts later. A record that lacks any one of them is stale too.
 const PidRecordSchema = z.object({
   pgid: z.number().int(),
   startTime: z.number().int().nullable(),
@@ -247,9 +247,10 @@ export async function killProcessGroup(
 }
 
 // A daemon that died without cleanup leaves its groups running with their pid files. Kill such a
-// group only when the file comes from this pid namespace and boot, the daemon that wrote it is gone
-// and the group is still the one it started. A walk error goes to onLine, as in killProcessGroup.
-// Rejects after removing a pid file that does not parse, and on any other file error.
+// group only when the file comes from this pid namespace, boot and container run, the daemon that
+// wrote it is gone and the group is still the one it started. A walk error goes to onLine, as in
+// killProcessGroup. Rejects after removing a pid file that does not parse, and on any other file
+// error.
 export async function reclaimOrphan(
   pidFile: string,
   onLine: (line: string) => void = () => undefined,
@@ -258,7 +259,7 @@ export async function reclaimOrphan(
   const record = await readPidRecord(pidFile);
   if (record === null) return false;
   // spawnServer never records a group of 1 or less, and terminate() would not signal one. Pids from
-  // another pid namespace or boot name other processes here.
+  // another pid namespace, boot or container run name other processes here.
   if (record.pgid <= 1 || !isCurrentPidSpace(record, procRoot)) {
     await rm(pidFile, { force: true });
     return false;

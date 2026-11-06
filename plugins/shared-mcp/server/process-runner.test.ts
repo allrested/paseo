@@ -91,7 +91,7 @@ function currentPidSpace(): { pidNamespace: string; bootId: string; initStartTim
   };
 }
 
-// Written from this pid namespace and boot unless the record says otherwise.
+// Written from this pid namespace, boot and container run unless the record says otherwise.
 function writePidRecord(record: object): void {
   mkdirSync(dirname(pidFile()), { recursive: true });
   writeFileSync(pidFile(), JSON.stringify({ ...currentPidSpace(), ...record }));
