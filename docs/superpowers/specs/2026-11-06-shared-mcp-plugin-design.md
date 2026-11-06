@@ -30,15 +30,15 @@ credentials.
 
 ## Decisions
 
-| Question              | Decision                                                                                                                               |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Where agents find it  | `/workspace/.agent-tools/mcp.json` (linked as `/workspace/.mcp.json` and both Kiro configs) lists HTTP URLs; OpenCode's config too.    |
-| Server definitions    | Plugin settings, per instance. The plugin code carries no M-DAQ paths, ports, or commands.                                             |
-| Secrets               | Commands keep calling `read-mcp-env.js`, so no credential lands in settings.                                                           |
-| Server auth           | A server with `bearerToken` gets the plugin's token in its env; every agent gets it through `agent.open.before`; configs use `${VAR}`. |
-| Ports                 | playwright 8931, context7 8932, gitlab 8933; serena 8000, graphify 8080, and pia-mcp 8090 keep theirs. All bound to 127.0.0.1.         |
-| A port already in use | The supervisor adopts a server that already answers its health check as `external` and does not start a second one.                    |
-| Blast radius          | One crashed server affects every agent until it restarts. Accepted for the memory saved; the supervisor restarts within seconds.       |
+| Question              | Decision                                                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Where agents find it  | `/workspace/.agent-tools/mcp.json` (linked as `/workspace/.mcp.json` and both Kiro configs) lists HTTP URLs; OpenCode's config too.                                                                                |
+| Server definitions    | Plugin settings, per instance. The plugin code carries no M-DAQ paths, ports, or commands.                                                                                                                         |
+| Secrets               | Commands keep calling `read-mcp-env.js`, so no credential lands in settings.                                                                                                                                       |
+| Server auth           | A server with `bearerToken` gets the plugin's token in its env; every agent gets it through `agent.open.before`; configs use `${VAR}`.                                                                             |
+| Ports                 | playwright 8931, context7 8932, gitlab 8933; serena 8000, graphify 8080, and pia-mcp 8090 keep theirs. All on 127.0.0.1; context7 4.0.4 has no host option and binds `[::]`, which the container does not publish. |
+| A port already in use | The supervisor adopts a server that already answers its health check as `external` and does not start a second one.                                                                                                |
+| Blast radius          | One crashed server affects every agent until it restarts. Accepted for the memory saved; the supervisor restarts within seconds.                                                                                   |
 
 ## Components
 
@@ -67,9 +67,11 @@ Each server has one state: `starting`, `healthy`, `unhealthy`, `backoff`, `faili
 `external`, or `disabled`.
 
 - Health is an MCP `initialize` POST to `http://127.0.0.1:<port><healthPath>` with a 5 s timeout,
-  every 30 s. Any HTTP answer below 500 counts as alive: playwright-mcp answers 403 to a
-  `127.0.0.1` Host header, and an auth-guarded server answers 401. A returned `mcp-session-id` is
-  closed with `DELETE` so probes never pile up sessions. Two failed probes in a row kill the server
+  every 30 s. Any HTTP answer below 500 except 404 counts as alive: an auth-guarded server answers
+  401 and a host check answers 403 or 421, while a 404 means a wrong `healthPath` or another
+  service on the port. A returned `mcp-session-id` is
+  closed with `DELETE`, resending the probe's `Authorization` header, so probes never pile up
+  sessions. Two failed probes in a row kill the server
   and restart it.
 - A missing `requires` path sets `blocked` with the path as the reason. It is checked again on the
   next probe, without restarting anything.
@@ -79,8 +81,10 @@ Each server has one state: `starting`, `healthy`, `unhealthy`, `backoff`, `faili
   SIGTERM to the group, then SIGKILL after 5 s. Disabling or removing the plugin stops every server
   it started; `external` servers are left alone.
 - Each started server's group id goes to a pid file. A daemon that died without cleanup leaves
-  detached groups behind; on start the plugin kills any group named by a leftover pid file before
-  starting its own, instead of adopting it as `external`.
+  detached groups behind; on start the plugin kills the group named by a leftover pid file before
+  starting its own, instead of adopting it as `external`. The pid file records the owning daemon
+  pid and the leader's start time, and a group is killed only when that daemon is gone and the start
+  time still matches, so a test run against the same home never kills a live daemon's servers.
 - stdout and stderr go to a 200-line ring buffer per server and to a log file in the plugin's data
   directory.
 - RSS is the sum over the process group, read from `/proc`. The Resource Manager plugin reuses this
@@ -89,7 +93,8 @@ Each server has one state: `starting`, `healthy`, `unhealthy`, `backoff`, `faili
 ## Screen and RPCs
 
 The settings screen lists each server with its state, uptime, restart count, RSS, last error, and
-log tail, plus **Restart** and an enable switch. Server definitions are edited on the same screen.
+log tail, plus **Restart** and an enable switch. Server definitions are edited on a second tab of the same
+settings page. Built-ins have no row in Settings → Plugins, so a Command Center item opens the page.
 
 - `shared-mcp.status.request` returns every server's state. The screen polls it every 5 s while it
   is open.
@@ -100,7 +105,8 @@ log tail, plus **Restart** and an enable switch. Server definitions are edited o
 These files live outside the repository and are changed on each instance:
 
 - `/workspace/.agent-tools/mcp.json`: playwright, context7, and gitlab become HTTP entries.
-- The Claude user-scope playwright entry is removed.
+- The Claude user-scope playwright entry points at the shared HTTP URL, so agents outside
+  `/workspace` (no `.mcp.json`) keep playwright.
 - `/workspace/.agent-tools/opencode/opencode.jsonc`: the same three become remote entries.
 - `~/.claude/settings.json`: the three `SessionStart` autostart hooks are removed.
 - `/workspace/paseo.json`: the serena, graphify, and pia-mcp scripts are removed; `auth-proxy`
@@ -113,8 +119,8 @@ These files live outside the repository and are changed on each instance:
 - mcp-gitlab 2.1.52 serves HTTP with `STREAMABLE_HTTP=true`, `PORT`, `HOST`, and requires
   `STREAMABLE_HTTP_AUTH_TOKEN`; clients send `Authorization: Bearer`. Claude Code and Kiro expand
   `${VAR}` in that header.
-- playwright-mcp 0.0.81 bound to `127.0.0.1` rejects a `127.0.0.1` Host header with 403; clients
-  use `http://localhost:8931/mcp`.
+- playwright-mcp 0.0.81 bound to `127.0.0.1` rejects a `127.0.0.1` Host header with 403 unless it runs
+  with `--allowed-hosts localhost:8931,127.0.0.1:8931`; with that flag clients may use either host.
 - In CDP mode two playwright sessions share one page. Two stdio processes do the same today, so the
   shared server changes nothing there.
 - Claude Code and Kiro both reconnect after the server is killed and restarted mid-session.
