@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { useSettings, type PluginSurfaceProps, type SettingsState } from "@getpaseo/plugin/client";
 import {
@@ -11,12 +11,17 @@ import { sharedMcpSettings } from "../shared/settings.js";
 import { formatDefinitions, parseDefinitions } from "./definitions.js";
 import { useScreenStyles, type ScreenStyles } from "./styles.js";
 
-type ReadySettings = Extract<SettingsState<typeof sharedMcpSettings.schema>, { status: "ready" }>;
+type SharedMcpSettingsState = SettingsState<typeof sharedMcpSettings.schema>;
+type ReadySettings = Extract<SharedMcpSettingsState, { status: "ready" }>;
+type InvalidSettings = Extract<SharedMcpSettingsState, { status: "invalid" }>;
 
 const EDITOR_INFO =
   "A JSON array of server definitions. Saving starts, restarts, or stops servers to match.";
 const STALE_HINT = "The saved definitions changed after you started editing. Discard to load them.";
 const RESET_HINT = "Replaces the stored file with an empty server list, which stops every server.";
+// The plugin SDK has no confirm dialog, so Reset asks for a second press within this window.
+const RESET_CONFIRM_MS = 5_000;
+const RESET_CONFIRM_HINT = `Press again within ${RESET_CONFIRM_MS / 1000} s to remove every server definition and stop every server.`;
 
 interface Draft {
   text: string;
@@ -27,6 +32,38 @@ interface Draft {
 interface DefinitionsEditorProps {
   settings: ReadySettings;
   styles: ScreenStyles;
+}
+
+interface ResetActionProps {
+  settings: InvalidSettings;
+}
+
+function ResetAction({ settings }: ResetActionProps) {
+  // The first press arms the reset; the timer, an unmount, or the reset itself disarms it.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return undefined;
+    const timer = setTimeout(() => setArmed(false), RESET_CONFIRM_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+  const press = useCallback(() => {
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    void settings.reset();
+  }, [armed, settings]);
+  return (
+    <SettingsAction
+      label="Restore defaults"
+      hint={armed ? RESET_CONFIRM_HINT : RESET_HINT}
+      error={settings.saveError}
+      actionLabel={armed ? "Confirm reset" : "Reset"}
+      disabled={settings.saving}
+      onPress={press}
+    />
+  );
 }
 
 function DefinitionsEditor({ settings, styles }: DefinitionsEditorProps) {
@@ -108,16 +145,7 @@ export function DefinitionsScreen({ theme }: PluginSurfaceProps) {
         actionLabel="Reload"
         onPress={settings.reload}
       />
-      {settings.status === "invalid" ? (
-        <SettingsAction
-          label="Restore defaults"
-          hint={RESET_HINT}
-          error={settings.saveError}
-          actionLabel="Reset"
-          disabled={settings.saving}
-          onPress={settings.reset}
-        />
-      ) : null}
+      {settings.status === "invalid" ? <ResetAction settings={settings} /> : null}
     </SettingsSection>
   );
 }
