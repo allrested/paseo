@@ -72,14 +72,17 @@ interface ServerEntry {
   // older epoch drops its result instead of acting on a server that has moved on.
   epoch: number;
   cancelTimer: (() => void) | null;
+  // The guarded stop() of the process this entry let go of, until it settles. Never rejects.
+  pendingStop: Promise<void> | null;
   log: LogRing;
 }
 
 export class Supervisor {
   private entries = new Map<string, ServerEntry>();
-  // Groups whose stop() has not settled. An entry lets go of its process before stopping it, so
-  // this is the only place stopAll() can still find them.
-  private stopping = new Set<RunningProcess>();
+  // Groups whose stop() has not settled, each with the entry that reports a failed stop. An entry
+  // lets go of its process before stopping it, so this is the only place stopAll() can still find
+  // them.
+  private stopping = new Map<RunningProcess, ServerEntry>();
   private queue: Promise<void> = Promise.resolve();
   private stopped = false;
 
@@ -104,7 +107,9 @@ export class Supervisor {
   // apply() cannot hold shutdown back.
   async stopAll(): Promise<void> {
     this.stopped = true;
-    const inFlight = [...this.stopping].map((child) => child.stop(TIMING.shutdownGraceMs));
+    const inFlight = [...this.stopping].map(([child, entry]) =>
+      this.guardedStop(entry, child, TIMING.shutdownGraceMs),
+    );
     const owned = [...this.entries.values()].map((entry) =>
       this.stopEntry(entry, TIMING.shutdownGraceMs),
     );
@@ -335,21 +340,36 @@ export class Supervisor {
     await this.stopProcess(entry, graceMs);
   }
 
-  // Lets go of the entry's process, then stops its whole group. stop() is not expected to reject,
-  // but a rejection here would either exit the daemon or leave the server with no process and no
-  // retry, so it becomes lastError instead.
+  // Lets go of the entry's process, then stops its whole group. With no process, it waits for the
+  // stop a kill may still have pending, so a restart or a changed definition never starts a second
+  // copy beside the old one. stopAll() waits on its own shortened call to that group instead.
   private async stopProcess(entry: ServerEntry, graceMs: number): Promise<void> {
     const child = entry.child;
-    if (child === null) return;
+    if (child === null) {
+      if (entry.pendingStop !== null && !this.stopped) await entry.pendingStop;
+      return;
+    }
     entry.child = null;
     entry.stoppedOwnChild = true;
-    this.stopping.add(child);
+    this.stopping.set(child, entry);
+    const pending = this.guardedStop(entry, child, graceMs);
+    entry.pendingStop = pending;
+    await pending;
+    this.stopping.delete(child);
+    if (entry.pendingStop === pending) entry.pendingStop = null;
+  }
+
+  // stop() is not expected to reject, but a rejection here would either exit the daemon or leave
+  // the server with no process and no retry, so it becomes lastError instead.
+  private async guardedStop(
+    entry: ServerEntry,
+    child: RunningProcess,
+    graceMs: number,
+  ): Promise<void> {
     try {
       await child.stop(graceMs);
     } catch (error) {
       entry.lastError = `Stopping process group ${child.pid} failed: ${errorMessage(error)}`;
-    } finally {
-      this.stopping.delete(child);
     }
   }
 
@@ -420,6 +440,7 @@ function createEntry(def: ServerDefinition): ServerEntry {
     backoffMs: TIMING.backoffStartMs,
     epoch: 0,
     cancelTimer: null,
+    pendingStop: null,
     log: new LogRing(),
   };
 }
