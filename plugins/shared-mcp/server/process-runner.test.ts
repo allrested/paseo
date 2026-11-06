@@ -81,11 +81,13 @@ function startGroup(command: string): ChildProcess {
   return child;
 }
 
-// A pid names a process only within one pid namespace and one boot, so the pid file records both.
-function currentPidSpace(): { pidNamespace: string; bootId: string } {
+// A pid names a process only within one pid namespace, one boot and one container run, so the pid
+// file records all three.
+function currentPidSpace(): { pidNamespace: string; bootId: string; initStartTime: number } {
   return {
     pidNamespace: readlinkSync("/proc/self/ns/pid"),
     bootId: readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(),
+    initStartTime: startTimeOf(1),
   };
 }
 
@@ -95,8 +97,9 @@ function writePidRecord(record: object): void {
   writeFileSync(pidFile(), JSON.stringify({ ...currentPidSpace(), ...record }));
 }
 
-// A /proc stand-in with this pid namespace, this boot and the leader's stat, plus one pid whose stat
-// is a directory: reading it fails with EISDIR, so walkProcessTree throws, for root too.
+// A /proc stand-in with this pid namespace, this boot, the stat of pid 1 and the leader's, plus one
+// pid whose stat is a directory: reading it fails with EISDIR, so walkProcessTree throws, for root
+// too.
 function walkFailingProcRoot(leader: number): string {
   const root = join(dir, "proc");
   mkdirSync(join(root, "self", "ns"), { recursive: true });
@@ -106,6 +109,8 @@ function walkFailingProcRoot(leader: number): string {
     join(root, "sys", "kernel", "random", "boot_id"),
     readFileSync("/proc/sys/kernel/random/boot_id"),
   );
+  mkdirSync(join(root, "1"));
+  writeFileSync(join(root, "1", "stat"), readFileSync("/proc/1/stat"));
   mkdirSync(join(root, String(leader)));
   writeFileSync(join(root, String(leader), "stat"), readFileSync(`/proc/${leader}/stat`));
   mkdirSync(join(root, "999999", "stat"), { recursive: true });
@@ -484,6 +489,8 @@ describe.runIf(onLinux)("reclaimOrphan", () => {
     ["another boot", { bootId: "00000000-0000-0000-0000-000000000000" }],
     ["no pid namespace", { pidNamespace: undefined }],
     ["no boot id", { bootId: undefined }],
+    ["another container run", { initStartTime: -1 }],
+    ["no init start time", { initStartTime: undefined }],
   ])(
     "treats a pid file as stale and signals nothing when it names %s",
     async (_, pidSpace) => {
