@@ -3,6 +3,7 @@ import {
   createWriteStream,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -47,14 +48,23 @@ const STRIPPED_ENV_KEYS = new Set([
 // startTime is field 22 of /proc/<pid>/stat. With ownerPid it tells a pid file left by a dead
 // daemon apart from one a live daemon (or a test pointed at the same home) still owns, and a group
 // apart from a later process that reuses its pid. Both are null where /proc does not exist. A pgid
-// of 1 or less parses, so reclaimOrphan can drop the file as stale.
+// of 1 or less parses, so reclaimOrphan can drop the file as stale. pidNamespace and bootId say
+// which processes the pids name: after a container restart (a fresh pid namespace) or a reboot the
+// same pids name others. A record without them is stale too.
 const PidRecordSchema = z.object({
   pgid: z.number().int(),
   startTime: z.number().int().nullable(),
   ownerPid: z.number().int().positive(),
   ownerStartTime: z.number().int().nullable(),
+  pidNamespace: z.string().nullish(),
+  bootId: z.string().nullish(),
 });
 type PidRecord = z.output<typeof PidRecordSchema>;
+
+interface PidSpace {
+  pidNamespace: string | null;
+  bootId: string | null;
+}
 
 type ServerChild = ChildProcessByStdio<null, Readable, Readable>;
 
@@ -221,26 +231,37 @@ function watchChild(
 }
 
 // SIGTERM to the group and to the processes outside it that descend from its members, SIGKILL to
-// the same set after graceMs. Resolves once none is left, or KILL_WAIT_MS after the SIGKILL.
-// A walk error has nowhere to go from here; the group is signalled all the same.
-export async function killProcessGroup(pgid: number, graceMs = DEFAULT_GRACE_MS): Promise<void> {
-  await terminate(pgid, graceMs, DEFAULT_PROC_ROOT, () => undefined).done;
+// the same set after graceMs. Resolves once none is left, or KILL_WAIT_MS after the SIGKILL. A walk
+// error goes to onLine, and the group is signalled all the same.
+export async function killProcessGroup(
+  pgid: number,
+  graceMs = DEFAULT_GRACE_MS,
+  onLine: (line: string) => void = () => undefined,
+  procRoot = DEFAULT_PROC_ROOT,
+): Promise<void> {
+  await terminate(pgid, graceMs, procRoot, onLine).done;
 }
 
 // A daemon that died without cleanup leaves its groups running with their pid files. Kill such a
-// group only when the daemon that wrote the file is gone and the group is still the one it started.
+// group only when the file comes from this pid namespace and boot, the daemon that wrote it is gone
+// and the group is still the one it started. A walk error goes to onLine, as in killProcessGroup.
 // Rejects after removing a pid file that does not parse, and on any other file error.
-export async function reclaimOrphan(pidFile: string): Promise<boolean> {
+export async function reclaimOrphan(
+  pidFile: string,
+  onLine: (line: string) => void = () => undefined,
+  procRoot = DEFAULT_PROC_ROOT,
+): Promise<boolean> {
   const record = await readPidRecord(pidFile);
   if (record === null) return false;
-  // spawnServer never records a group of 1 or less, and terminate() would not signal one.
-  if (record.pgid <= 1) {
+  // spawnServer never records a group of 1 or less, and terminate() would not signal one. Pids from
+  // another pid namespace or boot name other processes here.
+  if (record.pgid <= 1 || !isCurrentPidSpace(record, procRoot)) {
     await rm(pidFile, { force: true });
     return false;
   }
-  if (ownerIsAlive(record)) return false;
-  const orphan = isRecordedGroup(record);
-  if (orphan) await killProcessGroup(record.pgid);
+  if (ownerIsAlive(record, procRoot)) return false;
+  const orphan = isRecordedGroup(record, procRoot);
+  if (orphan) await killProcessGroup(record.pgid, DEFAULT_GRACE_MS, onLine, procRoot);
   await rm(pidFile, { force: true });
   return orphan;
 }
@@ -355,6 +376,7 @@ function writePidFile(spec: SpawnSpec, pgid: number, procRoot: string): void {
     startTime: readStartTime(pgid, procRoot),
     ownerPid: process.pid,
     ownerStartTime: readStartTime(process.pid, procRoot),
+    ...readPidSpace(procRoot),
   };
   const tmpFile = `${spec.pidFile}.tmp`;
   try {
@@ -395,19 +417,53 @@ function parseJson(text: string): unknown {
   }
 }
 
-// The same pid as this process means an earlier plugin run in this daemon, or a dead daemon whose
-// pid this one reused: both are gone.
-function ownerIsAlive(record: PidRecord): boolean {
-  if (record.ownerPid === process.pid) return false;
-  if (record.ownerStartTime === null) return sendSignal(record.ownerPid, 0);
-  return readStartTime(record.ownerPid, DEFAULT_PROC_ROOT) === record.ownerStartTime;
+// The pid namespace (`pid:[<inode>]`) and the boot this process runs in. Each is null without /proc.
+function readPidSpace(procRoot: string): PidSpace {
+  return {
+    pidNamespace: readOrNull(() => readlinkSync(join(procRoot, "self", "ns", "pid"))),
+    bootId: readOrNull(() =>
+      readFileSync(join(procRoot, "sys", "kernel", "random", "boot_id"), "utf8").trim(),
+    ),
+  };
 }
 
-// The kernel does not reuse a pid while a process group with that id exists, so a live group whose
-// leader has exited is still the recorded one. A live leader must match the recorded start time.
-function isRecordedGroup(record: PidRecord): boolean {
+// False when the record comes from another pid namespace or boot, does not say, or this process
+// cannot tell its own.
+function isCurrentPidSpace(record: PidRecord, procRoot: string): boolean {
+  const current = readPidSpace(procRoot);
+  return (
+    current.pidNamespace !== null &&
+    current.bootId !== null &&
+    record.pidNamespace === current.pidNamespace &&
+    record.bootId === current.bootId
+  );
+}
+
+function readOrNull(read: () => string): string | null {
+  try {
+    return read();
+  } catch {
+    return null;
+  }
+}
+
+// The same pid as this process means an earlier plugin run in this daemon, or a dead daemon whose
+// pid this one reused: both are gone.
+function ownerIsAlive(record: PidRecord, procRoot: string): boolean {
+  if (record.ownerPid === process.pid) return false;
+  if (record.ownerStartTime === null) return sendSignal(record.ownerPid, 0);
+  return readStartTime(record.ownerPid, procRoot) === record.ownerStartTime;
+}
+
+// A live leader must match the recorded start time. A live group whose leader has exited is taken
+// to be the recorded one, which holds only if the group never emptied since: the kernel does not
+// reuse a pid while a group with that id exists. Once it empties, a later process can get the pid,
+// lead a group of its own and exit while that group lives on, and this kills that group. The
+// pid-space check rules out the likely case, a container restart whose fresh pid namespace hands
+// out the same low pids; within one namespace and boot the pids have to wrap around first.
+function isRecordedGroup(record: PidRecord, procRoot: string): boolean {
   if (record.startTime === null || !sendSignal(-record.pgid, 0)) return false;
-  const leaderStartTime = readStartTime(record.pgid, DEFAULT_PROC_ROOT);
+  const leaderStartTime = readStartTime(record.pgid, procRoot);
   return leaderStartTime === null || leaderStartTime === record.startTime;
 }
 
