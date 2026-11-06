@@ -45,7 +45,7 @@ credentials.
 `plugins/shared-mcp/`, laid out like `plugins/kiro-usage-source`:
 
 - `shared/`: the settings schema (`defineSettings`) and the RPC contracts.
-- `index.server.ts` and `server/`: the supervisor, the health probe, process-group RSS, and log
+- `index.server.ts` and `server/`: the supervisor, the health probe, process-tree RSS, and log
   capture.
 - `index.client.tsx` and `client/`: the settings screen.
 
@@ -77,9 +77,11 @@ Each server has one state: `starting`, `healthy`, `unhealthy`, `backoff`, `faili
   next probe, without restarting anything.
 - Restarts back off from 2 s, doubling to 60 s, and the backoff resets after 10 minutes healthy.
   Five crashes in 10 minutes set `failing`, which retries every 5 minutes.
-- A server spawns in its own process group so `npx` and `uvx` children die with it. Stopping sends
-  SIGTERM to the group, then SIGKILL after 5 s. Disabling or removing the plugin stops every server
-  it started; `external` servers are left alone.
+- A server spawns in its own process group so `npx` and `uvx` children die with it. Some children
+  leave the group: Serena starts each language server in a session of its own. Stopping lists the
+  server's process tree before the first signal, sends SIGTERM to the group and to every listed
+  process outside it, then SIGKILL to the same set after 5 s. Disabling or removing the plugin
+  stops every server it started; `external` servers are left alone.
 - Each started server's group id goes to a pid file. A daemon that died without cleanup leaves
   detached groups behind; on start the plugin kills the group named by a leftover pid file before
   starting its own, instead of adopting it as `external`. The pid file records the owning daemon
@@ -87,8 +89,9 @@ Each server has one state: `starting`, `healthy`, `unhealthy`, `backoff`, `faili
   time still matches, so a test run against the same home never kills a live daemon's servers.
 - stdout and stderr go to a 200-line ring buffer per server and to a log file in the plugin's data
   directory.
-- RSS is the sum over the process group, read from `/proc`. The Resource Manager plugin reuses this
-  reader.
+- RSS is the sum over the server's process tree, read from `/proc`: every member of its process
+  group plus their descendants by parent pid in other groups, such as Serena's language servers.
+  The Resource Manager plugin reuses this reader.
 
 ## Screen and RPCs
 
