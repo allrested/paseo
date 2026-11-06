@@ -121,9 +121,10 @@ as an agent, such as Paseo terminals and SSH sessions, do not get the token. Rea
 
 Built-ins have no row in Settings > Plugins, so open the settings screens from the "Shared MCP
 servers" Command Center item, which appears once a workspace on that host is open. Saving a change
-to `command`, `cwd`, `env`, `port`, `requires`, `bearerToken.serverEnv`, or `enabled` restarts
-that server, as Restart does. That server's agent sessions drop and the agents reconnect on their
-own. `label`, `healthPath`, and `agentEnv` apply in place (`needsRestart` in
+to `command`, `cwd`, `env`, `requires`, or `bearerToken.serverEnv` restarts that server, as Restart
+does. That server's agent sessions drop and the agents reconnect on their own. Turning `enabled`
+off stops the server. After a `port` change, agents reconnect only once their MCP configs name the
+new port. `label`, `healthPath`, and `agentEnv` apply in place (`needsRestart` in
 `plugins/shared-mcp/server/supervisor.ts`). Nothing watches
 `$PASEO_HOME/plugin-settings/shared-mcp/servers.json`, so a hand edit applies at the next daemon
 start.
