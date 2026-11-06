@@ -370,6 +370,88 @@ describe("AgentStorage", () => {
     expect(updatedRecord?.lastStatus).toBe("running");
   });
 
+  test("applySnapshot preserves pendingMoveContext", async () => {
+    const agentId = "agent-pending-move";
+    await storage.applySnapshot(createManagedAgent({ id: agentId, lifecycle: "idle" }));
+    const record = await storage.get(agentId);
+    const pendingMoveContext = { text: "HANDOFF", title: "Chat history" };
+    await storage.upsert({ ...record!, pendingMoveContext });
+
+    await storage.applySnapshot(createManagedAgent({ id: agentId, lifecycle: "running" }));
+
+    expect((await storage.get(agentId))?.pendingMoveContext).toEqual(pendingMoveContext);
+  });
+
+  test("takePendingMoveContext returns the context to exactly one concurrent caller", async () => {
+    const agentId = "agent-take-pending";
+    await storage.applySnapshot(createManagedAgent({ id: agentId, lifecycle: "idle" }));
+    const record = await storage.get(agentId);
+    const pendingMoveContext = { text: "HANDOFF", title: "Chat history" };
+    await storage.upsert({ ...record!, pendingMoveContext });
+
+    const results = await Promise.all([
+      storage.takePendingMoveContext(agentId),
+      storage.takePendingMoveContext(agentId),
+    ]);
+
+    expect(results.filter((result) => result !== null)).toEqual([pendingMoveContext]);
+    const after = await storage.get(agentId);
+    expect(after).toEqual({ ...record, pendingMoveContext: null });
+    expect(await storage.takePendingMoveContext("missing-agent")).toBeNull();
+  });
+
+  test("applySnapshot preserves moveHistory", async () => {
+    const agentId = "agent-move-history";
+    await storage.applySnapshot(createManagedAgent({ id: agentId, lifecycle: "idle" }));
+    const record = await storage.get(agentId);
+    const moveHistory = { originalTask: "Fix it", sinceSeq: 2, segments: [] };
+    await storage.upsert({ ...record!, moveHistory });
+
+    await storage.applySnapshot(createManagedAgent({ id: agentId, lifecycle: "running" }));
+
+    expect((await storage.get(agentId))?.moveHistory).toEqual(moveHistory);
+  });
+
+  test("setMoveState writes, clears and keeps each key without losing a concurrent snapshot", async () => {
+    const agentId = "agent-set-move-state";
+    await storage.applySnapshot(createManagedAgent({ id: agentId, lifecycle: "idle" }));
+    const pendingMoveContext = { text: "HANDOFF", title: "Chat history" };
+    const moveHistory = {
+      originalTask: "Fix it",
+      sinceSeq: 3,
+      segments: [
+        {
+          agentId: "agent-a",
+          label: "Claude",
+          entries: ["[Assistant] done"],
+          files: ["a.ts"],
+          openTodos: null,
+          lastError: null,
+        },
+      ],
+    };
+
+    await Promise.all([
+      storage.setMoveState(agentId, { pendingMoveContext, moveHistory }),
+      storage.applySnapshot(createManagedAgent({ id: agentId, lifecycle: "running" })),
+    ]);
+    const written = await storage.get(agentId);
+    expect(written?.pendingMoveContext).toEqual(pendingMoveContext);
+    expect(written?.moveHistory).toEqual(moveHistory);
+    expect(written?.lastStatus).toBe("running");
+
+    await storage.setMoveState(agentId, { pendingMoveContext: null });
+    const cleared = await storage.get(agentId);
+    expect(cleared?.pendingMoveContext).toBeNull();
+    expect(cleared?.moveHistory).toEqual(moveHistory);
+
+    await storage.setMoveState(agentId, { moveHistory: null });
+    expect((await storage.get(agentId))?.moveHistory).toBeNull();
+    await expect(
+      storage.setMoveState("missing-agent", { pendingMoveContext: null }),
+    ).rejects.toThrow("Agent missing-agent not found");
+  });
+
   test("applySnapshot preserves archivedAt (soft-delete) status", async () => {
     const agentId = "agent-archived";
     await storage.applySnapshot(

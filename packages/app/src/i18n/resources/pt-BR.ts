@@ -682,6 +682,7 @@ export const ptBR: TranslationResources = {
         moveToMain: "Mover para o painel principal",
         reloadAgent: "Recarregar agente",
         reloadAgentTooltip: "Recarregue o agente para atualizar skills, MCPs ou status de login.",
+        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "Fechar",
         renameTerminal: "Renomear terminal",
         renameAgent: "Renomear agente",
@@ -2008,6 +2009,7 @@ export const ptBR: TranslationResources = {
       stop: "Parar voz em tempo real e interromper a resposta",
     },
   },
+  sessionMove: en.sessionMove,
   rewind: {
     tooltip: "Voltar para esta mensagem",
     warning: "Esta ação não pode ser desfeita",

@@ -679,6 +679,7 @@ export const ko: TranslationResources = {
         reloadAgent: "에이전트 다시 로드",
         reloadAgentTooltip:
           "스킬, MCP 또는 로그인 상태를 업데이트하려면 에이전트를 다시 로드하세요.",
+        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "닫기",
         renameTerminal: "터미널 이름 변경",
         renameAgent: "에이전트 이름 변경",
@@ -1985,6 +1986,7 @@ export const ko: TranslationResources = {
       stop: "실시간 음성 중지 및 턴 중단",
     },
   },
+  sessionMove: en.sessionMove,
   rewind: {
     tooltip: "이 메시지로 되감기",
     warning: "이 작업은 되돌릴 수 없습니다",

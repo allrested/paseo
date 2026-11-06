@@ -756,6 +756,44 @@ describe("ScheduleService", () => {
     ]);
   });
 
+  test("carries a moved agent's pending history on an agent-target schedule fire", async () => {
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    await agentStorage.setMoveState(agent.id, {
+      pendingMoveContext: { text: "MARKER", title: "Chat history" },
+    });
+    const steerOrReplace = vi.spyOn(manager, "steerOrReplaceActiveTurn");
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+    });
+    const schedule = await service.create({
+      prompt: "Check scheduled work",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+    });
+
+    await service.runOnce(schedule.id);
+
+    expect(steerOrReplace).toHaveBeenCalledTimes(1);
+    const prompt = steerOrReplace.mock.calls[0]?.[1];
+    expect(Array.isArray(prompt) && prompt[0]).toMatchObject({
+      text: "MARKER",
+      contextKind: "chat_history",
+    });
+    expect((await agentStorage.get(agent.id))?.pendingMoveContext).toBeNull();
+  });
+
   test("titles scheduled new agents from the schedule prompt", async () => {
     const manager = new AgentManager({
       logger: createTestLogger(),

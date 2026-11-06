@@ -883,6 +883,7 @@ export const AgentSnapshotPayloadSchema = z.object({
   runtimeInfo: AgentRuntimeInfoSchema.optional(),
   lastUsage: AgentUsageSchema.optional(),
   lastError: z.string().optional(),
+  limitReached: z.object({ at: z.string(), message: z.string() }).optional(),
   title: z.string().nullable(),
   labels: z.record(z.string(), z.string()).default({}),
   requiresAttention: z.boolean().optional(),
@@ -2161,6 +2162,72 @@ export const AgentRewindResponseMessageSchema = z.object({
   }),
 });
 
+const AgentMoveResultPayloadSchema = z.object({
+  requestId: z.string(),
+  ok: z.boolean(),
+  agentId: z.string().nullable(),
+  strategy: z.enum(["native", "handoff"]).nullable(),
+  fellBackFromNative: z.boolean(),
+  error: z.string().nullable(),
+});
+
+export const AgentMoveRequestMessageSchema = z.object({
+  type: z.literal("agent.move.request"),
+  requestId: z.string(),
+  agentId: z.string(),
+  target: z.object({ provider: z.string(), model: z.string().optional() }),
+  continueWork: z.boolean(),
+});
+
+export const AgentMoveResponseMessageSchema = z.object({
+  type: z.literal("agent.move.response"),
+  payload: AgentMoveResultPayloadSchema,
+});
+
+export const AgentMoveBackRequestMessageSchema = z.object({
+  type: z.literal("agent.move_back.request"),
+  requestId: z.string(),
+  agentId: z.string(),
+  continueWork: z.boolean(),
+  // An earlier agent in the move chain; the direct moved-from agent when absent.
+  toAgentId: z.string().min(1).optional(),
+});
+
+export const AgentMoveBackResponseMessageSchema = z.object({
+  type: z.literal("agent.move_back.response"),
+  payload: AgentMoveResultPayloadSchema,
+});
+
+export const AgentMoveTargetSchema = z.object({
+  provider: z.string(),
+  label: z.string(),
+  family: z.string(),
+  available: z.boolean(),
+  current: z.boolean(),
+  usedPct: z.number().nullable(),
+  resetsAt: z.string().nullable(),
+});
+
+export const AgentMoveTargetsRequestMessageSchema = z.object({
+  type: z.literal("agent.move_targets.list.request"),
+  requestId: z.string(),
+  agentId: z.string(),
+});
+
+export const AgentMoveTargetsResponseMessageSchema = z.object({
+  type: z.literal("agent.move_targets.list.response"),
+  payload: z.object({
+    requestId: z.string(),
+    targets: z.array(AgentMoveTargetSchema),
+    error: z.string().nullable().optional(),
+  }),
+});
+
+export const AgentMovedMessageSchema = z.object({
+  type: z.literal("agent.moved"),
+  payload: z.object({ fromAgentId: z.string(), toAgentId: z.string() }),
+});
+
 export const UpdateAgentResponseMessageSchema = z.object({
   type: z.literal("update_agent_response"),
   payload: AgentActionResponsePayloadSchema,
@@ -3312,6 +3379,7 @@ export const SessionEventSubscriptionSchema = z.enum([
   "activity_log",
   "hub.execution.agent.update",
   "hub.execution.agent.stream",
+  "agent.moved",
 ]);
 export type SessionEventSubscription = z.infer<typeof SessionEventSubscriptionSchema>;
 export const SessionEventsSetSubscriptionRequestSchema = z.object({
@@ -3465,6 +3533,9 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentConfigApplyRequestMessageSchema,
   AgentDetachRequestMessageSchema,
   AgentRewindRequestMessageSchema,
+  AgentMoveRequestMessageSchema,
+  AgentMoveBackRequestMessageSchema,
+  AgentMoveTargetsRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
   CheckoutStatusRequestSchema,
   CheckoutDiffGetRequestSchema,
@@ -3761,6 +3832,8 @@ export const ServerInfoStatusPayloadSchema = z
         providersSnapshot: z.boolean().optional(),
         connectedHosts: z.boolean().optional(),
         hostMultiplexing: z.boolean().optional(),
+        // Fork delta (session move): the agent.move* and agent.move_targets RPCs, agent.moved.
+        agentMove: z.boolean().optional(),
         // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
         usageSetting: z.boolean().optional(),
         usageSources: z.boolean().optional(),
@@ -7319,6 +7392,10 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentConfigApplyResponseMessageSchema,
   AgentDetachResponseMessageSchema,
   AgentRewindResponseMessageSchema,
+  AgentMoveResponseMessageSchema,
+  AgentMoveBackResponseMessageSchema,
+  AgentMoveTargetsResponseMessageSchema,
+  AgentMovedMessageSchema,
   UpdateAgentResponseMessageSchema,
   ProjectRenameResponseSchema,
   ProjectIconSetResponseSchema,
@@ -7525,6 +7602,11 @@ export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureRespo
 export type AgentConfigApplyResponseMessage = z.infer<typeof AgentConfigApplyResponseMessageSchema>;
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
+export type AgentMoveResponseMessage = z.infer<typeof AgentMoveResponseMessageSchema>;
+export type AgentMoveBackResponseMessage = z.infer<typeof AgentMoveBackResponseMessageSchema>;
+export type AgentMoveTargetsResponseMessage = z.infer<typeof AgentMoveTargetsResponseMessageSchema>;
+export type AgentMoveTarget = z.infer<typeof AgentMoveTargetSchema>;
+export type AgentMovedMessage = z.infer<typeof AgentMovedMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
 export type ProjectRenameResponse = z.infer<typeof ProjectRenameResponseSchema>;
 export type ProjectIconSetResponse = z.infer<typeof ProjectIconSetResponseSchema>;

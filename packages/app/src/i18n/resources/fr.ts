@@ -684,6 +684,7 @@ export const fr: TranslationResources = {
         reloadAgent: "Recharger l’agent",
         reloadAgentTooltip:
           "Rechargez l’agent pour mettre à jour les skills, les MCP ou l’état de connexion.",
+        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "Fermer",
         renameTerminal: "Renommer le terminal",
         renameAgent: "Renommer l’agent",
@@ -2022,6 +2023,7 @@ export const fr: TranslationResources = {
       stop: "Arrêter la voix en temps réel et interrompre le tour",
     },
   },
+  sessionMove: en.sessionMove,
   rewind: {
     tooltip: "Revenir à ce message",
     warning: "Cette action est irréversible",
