@@ -6,8 +6,16 @@ import {
   useUsageHeadsUpStore,
 } from "./usage-heads-up-store";
 
-const AT_WARNING: UsageHeadsUpDismissal = { level: 1, resetsAt: "2026-11-06T09:00:00.000Z" };
-const AT_DANGER: UsageHeadsUpDismissal = { level: 2, resetsAt: "2026-11-06T09:00:00.000Z" };
+const AT_WARNING: UsageHeadsUpDismissal = {
+  level: 1,
+  tone: "warning",
+  resetsAt: "2026-11-06T09:00:00.000Z",
+};
+const AT_DANGER: UsageHeadsUpDismissal = {
+  level: 2,
+  tone: "danger",
+  resetsAt: "2026-11-06T09:00:00.000Z",
+};
 const WEEKLY = "claude-work\nWeekly";
 
 function dismissalFor(serverId: string, windowKey: string | null) {
