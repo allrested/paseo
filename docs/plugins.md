@@ -133,8 +133,8 @@ Each server's output goes to `$PASEO_HOME/shared-mcp/logs/<id>.log`, and its tai
 tab. The plugin's own messages go to the daemon log, not to `paseo plugin logs shared-mcp`.
 
 The `heavy-command-gate` built-in queues the memory-heavy commands that agents start, such as
-typechecks, test suites and installs. By default one runs at a time, and only while free memory
-covers its estimate plus a 1 GB reserve. At every start the plugin writes
+typechecks, test suites and installs. By default one runs at a time, when free memory covers its
+estimate plus a 1 GB reserve. At every start the plugin writes
 `$PASEO_HOME/heavy-command-gate/gate.mjs`, links it as `npm`, `npx`, `pnpm`, `tsc`, `tsgo`,
 `vitest`, `jest`, `gradle`, `gradlew` and `pytest` in `bin/`, and puts that directory first on the
 `PATH` of every agent session that opens. A shim asks the plugin over `gate.sock` before a heavy
@@ -143,9 +143,11 @@ the slot. When nothing answers on the socket, the command runs at once after one
 Admission rules are in the
 [design](superpowers/specs/2026-11-06-heavy-command-gate-design.md#admission).
 
-Every process of a heavy command that a shim started carries `PASEO_HEAVY_GATE_HELD=1`, whether
-the gate admitted it or did not answer. A shim that sees it runs straight through, and other tools
-can find held commands by it in `/proc/<pid>/environ`. The shim that asked does not carry it.
+Every process of a heavy command that a shim let through after asking the gate carries
+`PASEO_HEAVY_GATE_HELD=1`, whether the gate admitted it or did not answer. A shim that sees it runs
+straight through, and other tools can find held commands by it in `/proc/<pid>/environ`. The shim
+that asked does not carry it. With the switch off, or when a shim cannot read its config or classify
+the command, the command runs without asking and without the flag.
 Agents get the shim directory only when their session opens, so reload the agents that were
 running before the first daemon start with this built-in. While the gate is available, a `PATH` set
 in a provider's `env` is replaced by the daemon's `PATH` with the shim directory first, so put such
@@ -164,8 +166,8 @@ matches `pnpm build`.
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
 `packages/server/src/server/plugins/lifecycle.e2e.test.ts` start `shared-mcp` and
 `heavy-command-gate` in process, so give them `PASEO_HOME=$(mktemp -d)`. Otherwise they work in the
-real `$PASEO_HOME/shared-mcp` and `$PASEO_HOME/heavy-command-gate`, and can rewrite the shims that
-live agents use.
+real `$PASEO_HOME/shared-mcp` and `$PASEO_HOME/heavy-command-gate`, and write the gate's shims,
+config and socket there when no daemon owns `gate.sock`.
 
 Desktop packaging ships the entire built-in plugin directory as an external resource,
 including declarations. The external esbuild compiler cannot read Electron's `app.asar`
