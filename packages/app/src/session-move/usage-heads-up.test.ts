@@ -126,10 +126,17 @@ describe("resolveUsageHeadsUp", () => {
       ),
     ).toMatchObject({ best: null });
   });
+
+  it("hands each target's run-out to the best-target choice", () => {
+    const onPace: AgentMoveTarget = { ...KIRO, usedPct: 10, runsOutAt: IN_TWO_HOURS };
+    expect(resolveUsageHeadsUp(ready(current(), onPace, CLAUDE), NOW)).toMatchObject({
+      best: CLAUDE,
+    });
+  });
 });
 
 describe("isUsageHeadsUpDismissed", () => {
-  const dismissedAtWarning: UsageHeadsUpDismissal = { level: 1, resetsAt: RESETS };
+  const dismissedAtWarning: UsageHeadsUpDismissal = { level: 1, tone: "warning", resetsAt: RESETS };
 
   it("hides a dismissed heads-up until the window reaches the next level", () => {
     expect(
@@ -148,11 +155,25 @@ describe("isUsageHeadsUpDismissed", () => {
     expect(
       isUsageHeadsUpDismissed({
         headsUp: headsUp(),
-        dismissal: { level: 1, resetsAt: PASSED },
+        dismissal: { level: 1, tone: "warning", resetsAt: PASSED },
         now: NOW,
       }),
     ).toBe(false);
     expect(isUsageHeadsUpDismissed({ headsUp: headsUp(), dismissal: null, now: NOW })).toBe(false);
+  });
+
+  it("shows a dismissed warning again when its run-out turns to danger", () => {
+    const nearRunOut = headsUp({ tone: "danger", runsOutAt: IN_TWENTY_MINUTES });
+    expect(
+      isUsageHeadsUpDismissed({ headsUp: nearRunOut, dismissal: dismissedAtWarning, now: NOW }),
+    ).toBe(false);
+    expect(
+      isUsageHeadsUpDismissed({
+        headsUp: nearRunOut,
+        dismissal: { ...dismissedAtWarning, tone: "danger" },
+        now: NOW,
+      }),
+    ).toBe(true);
   });
 });
 
