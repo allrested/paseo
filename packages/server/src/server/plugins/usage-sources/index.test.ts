@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { UsageSourceRegistry } from "./index.js";
+import type { ProviderUsageWindow, UsageReportEntry } from "@getpaseo/protocol/messages";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -879,4 +880,68 @@ test("listReportsForScope reports usage for a provider/env without a live agent"
   });
   expect(entry?.account.label).toBe("work@example.test");
   expect(entry?.report.status).toBe("available");
+});
+
+const PACE_RESETS_AT = "2026-11-06T14:00:00.000Z";
+
+/** A Claude account whose weekly usage takes the next value of `usedPcts` on every fetch. */
+function risingSource(usedPcts: number[]) {
+  return source({
+    id: "claude",
+    discover: async () => [{ key: "work", input: {} }],
+    fetch: async () => ({
+      status: "available",
+      windows: [
+        { id: "weekly", label: "Weekly", usedPct: usedPcts.shift(), resetsAt: PACE_RESETS_AT },
+      ],
+    }),
+  });
+}
+
+function firstWindow(entries: UsageReportEntry[]): ProviderUsageWindow | undefined {
+  const report = entries[0]?.report;
+  if (report?.status !== "available") throw new Error("Expected an available usage report");
+  return report.windows[0];
+}
+
+test("fills a rising window's run-out from its fetch history", async () => {
+  let now = Date.parse("2026-11-06T10:00:00.000Z");
+  const registry = new UsageSourceRegistry(() => now);
+  registry.register(risingSource([50, 60]));
+
+  expect(firstWindow(await registry.listReports())).toEqual({
+    id: "weekly",
+    label: "Weekly",
+    usedPct: 50,
+    resetsAt: PACE_RESETS_AT,
+  });
+  now += 20 * 60_000;
+  expect(firstWindow(await registry.listReports({ forceRefresh: true }))).toEqual({
+    id: "weekly",
+    label: "Weekly",
+    usedPct: 60,
+    resetsAt: PACE_RESETS_AT,
+    runsOutAt: "2026-11-06T11:40:00.000Z",
+    shortfallPct: 70,
+  });
+});
+
+test("a re-registered source starts its pace over", async () => {
+  let now = Date.parse("2026-11-06T10:00:00.000Z");
+  const usedPcts = [50, 60, 70];
+  const registry = new UsageSourceRegistry(() => now);
+  registry.register(risingSource(usedPcts));
+  await registry.listReports();
+  now += 20 * 60_000;
+  await registry.listReports({ forceRefresh: true });
+
+  registry.unregister("claude");
+  registry.register(risingSource(usedPcts));
+  now += 20 * 60_000;
+  expect(firstWindow(await registry.listReports())).toEqual({
+    id: "weekly",
+    label: "Weekly",
+    usedPct: 70,
+    resetsAt: PACE_RESETS_AT,
+  });
 });
