@@ -11,6 +11,7 @@ export const builtinPlugins = [
   "cursor-usage-source",
   "fx-provider",
   "grok-usage-source",
+  "heavy-command-gate",
   "hoplite-provider",
   "kimi-usage-source",
   "kiro-usage-source",
