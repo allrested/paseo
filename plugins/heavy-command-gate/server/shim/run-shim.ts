@@ -90,13 +90,14 @@ export function runShim(deps: ShimDeps): void {
   // is a shim, of this gate home or of another one on PATH, and never the tool: two shims that
   // took each other for it would run each other without end. A relative entry such as "." is
   // resolved, so the path handed to exec is not a bare name that spawn would look up on PATH again.
+  // With the working directory deleted it cannot be resolved: the entry is skipped.
   function findRealBinary(): string | null {
     const shimDirectory = realpathOrNull(path.dirname(scriptPath));
     const shimScript = realpathOrNull(scriptPath);
     for (const entry of (env.PATH ?? "").split(path.delimiter)) {
       if (entry === "" || realpathOrNull(entry) === shimDirectory) continue;
-      const candidate = path.resolve(entry, invokedAs);
-      if (!isExecutableFile(candidate)) continue;
+      const candidate = readOrNull(() => path.resolve(entry, invokedAs));
+      if (candidate === null || !isExecutableFile(candidate)) continue;
       const resolved = realpathOrNull(candidate);
       if (resolved === shimScript) continue;
       if (resolved !== null && path.basename(resolved) === "gate.mjs") continue;
