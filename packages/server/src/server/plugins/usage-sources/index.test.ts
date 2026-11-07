@@ -926,6 +926,31 @@ test("fills a rising window's run-out from its fetch history", async () => {
   });
 });
 
+test("listReportsForScope fills a rising window's run-out from the scope's fetch history", async () => {
+  let now = Date.parse("2026-11-06T10:00:00.000Z");
+  const registry = new UsageSourceRegistry(() => now);
+  registry.register(risingSource([40, 50]));
+  const scope = { provider: "claude", env: {} };
+
+  expect(firstWindow(await registry.listReportsForScope(scope))).toEqual({
+    id: "weekly",
+    label: "Weekly",
+    usedPct: 40,
+    resetsAt: PACE_RESETS_AT,
+  });
+  now += 20 * 60_000;
+  // 40% to 50% in 20 minutes is 0.5% a minute: the 50% left lasts 100 minutes, to 12:00, and the
+  // 220 minutes to the 14:00 reset add 110% to the 50%.
+  expect(firstWindow(await registry.listReportsForScope(scope))).toEqual({
+    id: "weekly",
+    label: "Weekly",
+    usedPct: 50,
+    resetsAt: PACE_RESETS_AT,
+    runsOutAt: "2026-11-06T12:00:00.000Z",
+    shortfallPct: 60,
+  });
+});
+
 test("a re-registered source starts its pace over", async () => {
   let now = Date.parse("2026-11-06T10:00:00.000Z");
   const usedPcts = [50, 60, 70];

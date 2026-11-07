@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import type { AgentMoveTarget } from "@getpaseo/protocol/messages";
+import { usageHeadsUpTone } from "@getpaseo/protocol/usage-heads-up";
 import type { StatusBadgeVariant } from "@/components/ui/status-badge";
 import { i18n } from "@/i18n/i18next";
 import { formatDisplayPct, formatResetLabel } from "@/usage/format";
@@ -117,6 +118,26 @@ const TONE_BADGE_VARIANT: Record<UsageTone, StatusBadgeVariant> = {
   default: "muted",
 };
 
+/**
+ * The badge colour for a target's tightest window: its usage tone, raised to the heads-up tone
+ * while the window is on pace to run out, so a window at 30% that runs out soon shows a warning.
+ */
+function usageBadgeVariant(input: {
+  target: AgentMoveTarget;
+  usedPct: number;
+  now: number;
+}): StatusBadgeVariant {
+  const { target, usedPct, now } = input;
+  const variant = TONE_BADGE_VARIANT[usedPctTone(usedPct)];
+  if (!target.runsOutAt) return variant;
+  const headsUp = usageHeadsUpTone(
+    { usedPct, resetsAt: target.resetsAt ?? null, runsOutAt: target.runsOutAt },
+    now,
+  );
+  if (headsUp === "danger" || variant === "error") return "error";
+  return headsUp === "warning" ? "warning" : variant;
+}
+
 function describeBadge(
   target: AgentMoveTarget,
   options: { now: number; locale?: string; t: TFunction },
@@ -130,7 +151,7 @@ function describeBadge(
     target.usedPct >= USAGE_LIMIT_PCT ? formatResetLabel(target.resetsAt, false, now, t) : null;
   return {
     label: reset ? t("sessionMove.dialog.usage", { used, reset }) : used,
-    variant: TONE_BADGE_VARIANT[usedPctTone(target.usedPct)],
+    variant: usageBadgeVariant({ target, usedPct: target.usedPct, now }),
   };
 }
 
