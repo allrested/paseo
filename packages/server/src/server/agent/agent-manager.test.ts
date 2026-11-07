@@ -14414,3 +14414,64 @@ test("closeRuntimeIfIdle refuses an agent without a saved session to resume", as
   expect(closes).toBe(0);
   expect(manager.getAgent(agent.id)).not.toBeNull();
 });
+
+test("closeRuntimeIfIdle refuses a busy agent without asking its provider", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-close-busy-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let probes = 0;
+  class ProbedSession extends TestAgentSession {
+    async canStopRuntime(): Promise<boolean> {
+      probes++;
+      return true;
+    }
+  }
+  const sessions: ProbedSession[] = [];
+  const client = new (class extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      const session = new ProbedSession(config);
+      sessions.push(session);
+      return session;
+    }
+  })();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  onTestFinished(async () => {
+    await Promise.all(manager.listAgents().map((agent) => manager.closeAgent(agent.id)));
+    await storage.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  sessions[0]?.pushEvent({
+    type: "provider_subagent",
+    provider: "codex",
+    event: { type: "upsert", id: "worker", title: "Worker", status: "running" },
+  });
+  await vi.waitFor(() => expect(manager.listProviderSubagents(agent.id)).toHaveLength(1));
+
+  expect(await manager.closeRuntimeIfIdle(agent.id)).toBe(
+    "Agent is busy; close it once it is idle",
+  );
+  expect(probes).toBe(0);
+  expect(manager.getAgent(agent.id)).not.toBeNull();
+});
+
+test("closeRuntimeIfIdle answers closed when another close released the runtime during the probe", async () => {
+  const h = idleCleanupHarness();
+  const agent = await h.create();
+  const entered = deferred<void>();
+  const probe = deferred<boolean>();
+  h.probes[0] = () => {
+    entered.resolve();
+    return probe.promise;
+  };
+
+  const close = h.manager.closeRuntimeIfIdle(agent.id);
+  await entered.promise;
+  await h.manager.closeAgent(agent.id);
+  probe.resolve(true);
+
+  expect(await close).toBeNull();
+  expect(h.closes).toBe(1);
+  expect(h.manager.getAgent(agent.id)).toBeNull();
+});

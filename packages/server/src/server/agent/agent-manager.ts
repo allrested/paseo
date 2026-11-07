@@ -882,6 +882,14 @@ export class AgentManager {
   private readonly historySessions = new WeakSet<AgentSession>();
   private readonly reloadedSessionCloses = new WeakMap<AgentSession, Promise<void>>();
   private readonly runtimeCleanupIdentities = new WeakMap<AgentSession, object>();
+  // The prompt barrier for a runtime that closes while idle. A prompt or out-of-band command for an
+  // agent in this set waits for the close and then resumes the agent, and runtimeHasNoPendingWork
+  // reads the agent's pending lifecycle mutation as the close itself. Two writers share it: idle
+  // collection's closeIfEligible (getRuntimeCleanupCandidates) and closeRuntimeIfIdle. Each adds
+  // the id, awaits its close in the lifecycle lane inside try, and deletes the id only in finally;
+  // deleting it before the lane settles would let a prompt reach a closing runtime. The set does
+  // not count holders, so when the two overlap the later one can refuse an idle agent as busy,
+  // which keeps the runtime open.
   private readonly collectingRuntimes = new Set<string>();
   private readonly lifecycleMutationTails = new Map<string, Promise<void>>();
   private readonly agentStreamCoalescer: AgentStreamCoalescer;
