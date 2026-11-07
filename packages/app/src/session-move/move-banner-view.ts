@@ -60,7 +60,7 @@ export function resolveMoveBannerView(input: MoveBannerViewInput): MoveBannerVie
       resetsAt: limitResetsAt(current),
     };
   }
-  // Fork delta (usage heads-up): after the limit, ahead of "Moved from".
+  // After the limit, ahead of "Moved from".
   if (headsUp) return { kind: "heads-up", headsUp };
   if (kind === "moved-from") {
     const original = findTargetByProvider(targets, facts.movedFromProvider);
