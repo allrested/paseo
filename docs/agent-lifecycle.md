@@ -95,6 +95,14 @@ Provider checks follow the signals their runtimes expose:
 These checks do not discover arbitrary detached processes or work hidden by third-party
 extensions. A provider plugin adds its own veto through the [runtime safety contract](../public-docs/plugins/providers.md#permit-idle-runtime-cleanup).
 
+`agent.runtime.close.request` closes one agent's runtime on request, without the idle hour. It
+makes collection's checks on that runtime alone: a saved session, the daemon baseline, the provider
+veto, and the recheck in the lifecycle lane, so a racing prompt is handled as it is during
+collection. A refused close answers with the reason and stops nothing. Managed children, queued
+deliveries and finish subscriptions are not checked: a child keeps its own runtime, and a delivery
+or finish notice resumes the closed agent the way a prompt does. The SDK exposes it as
+`closeRuntime()` on an agent handle, behind `server_info.features.agentRuntimeClose`.
+
 A provider runtime can still die on its own — crash, OOM kill, host suspend. Work the agent parked
 inside that process dies with it: Claude Code's background Bash shells, `Monitor` watches, and
 workflows all live in the CLI process, and the completion notification that would have woken the
