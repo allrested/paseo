@@ -29,7 +29,7 @@ import { join } from "path";
 import { getHostName } from "./host-name.js";
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import type { AgentManager, AgentMetricsSnapshot } from "./agent/agent-manager.js";
+import type { AgentManager, AgentMetricsSnapshot, ManagedAgent } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
 import type { DownloadTokenStore } from "./file-download/token-store.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
@@ -102,7 +102,10 @@ import {
 import {
   buildAgentAttentionNotificationPayload,
   findLatestPermissionRequest,
+  type AgentAttentionNotificationPayload,
+  type AgentAttentionReason,
 } from "@getpaseo/protocol/agent-attention-notification";
+import type { UsageNotice } from "./agent/session-move/usage-watch.js";
 import { createGitHubService } from "../services/github-service.js";
 import type { ForgeService } from "../services/forge-service.js";
 import {
@@ -206,6 +209,27 @@ type WebSocketRuntimeDiagnosticPayload = WebSocketRuntimeDiagnosticSnapshot<
 type WebSocketRuntimeMetricsLogPayload = Omit<WebSocketRuntimeDiagnosticPayload, "collectedAt">;
 
 type TerminalAttentionReason = "finished" | "needs_input";
+
+/**
+ * One attention notice for an agent. Fork delta (usage heads-up): the usage watch sends reason
+ * "usage" through the same delivery as an agent's own turn.
+ */
+type AgentAttentionDelivery = {
+  agentId: string;
+  agent: ManagedAgent;
+  provider: AgentProvider;
+} & (
+  | {
+      reason: AgentAttentionReason;
+      pushEligible: boolean;
+      notification: AgentAttentionNotificationPayload<AgentAttentionReason>;
+    }
+  | {
+      reason: "usage";
+      pushEligible: true;
+      notification: AgentAttentionNotificationPayload<"usage">;
+    }
+);
 
 function resolveTerminalAttentionReason(input: {
   attentionReason?: TerminalActivity["attentionReason"];
@@ -2909,16 +2933,72 @@ export class VoiceAssistantWebSocketServer {
     if (!agent?.workspaceId) {
       return;
     }
+    const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
+    const notification = buildAgentAttentionNotificationPayload({
+      reason: params.reason,
+      serverId: this.serverId,
+      workspaceId: agent.workspaceId,
+      agentId: params.agentId,
+      assistantMessage,
+      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
+    });
+    await this.deliverAgentAttention({
+      agentId: params.agentId,
+      agent,
+      provider: params.provider,
+      reason: params.reason,
+      pushEligible: isPushEligibleAttentionReason(params.reason),
+      notification,
+    });
+  }
+
+  /**
+   * Fork delta (usage heads-up): an agent's account crossed a usage level. In the app it reaches
+   * only clients that advertise usage_notifications; otherwise it is pushed.
+   */
+  async broadcastUsageAttention(notice: UsageNotice): Promise<void> {
+    const agent = this.agentManager.getAgent(notice.agentId);
+    if (!agent?.workspaceId) {
+      return;
+    }
+    await this.deliverAgentAttention({
+      agentId: notice.agentId,
+      agent,
+      provider: notice.provider,
+      reason: "usage",
+      pushEligible: true,
+      notification: {
+        title: notice.title,
+        body: notice.body,
+        data: {
+          serverId: this.serverId,
+          workspaceId: agent.workspaceId,
+          agentId: notice.agentId,
+          reason: "usage",
+        },
+      },
+    });
+  }
+
+  private async deliverAgentAttention(delivery: AgentAttentionDelivery): Promise<void> {
     const clientEntries: Array<{
       ws: WebSocketLike;
       state: ClientPresenceState;
     }> = [];
 
     for (const [ws, connection] of this.sessions) {
+      // COMPAT(usageNotifications): added after v0.15.3, remove the gate after 2027-05-07 once
+      // client floor > v0.15.3. A client that cannot read the usage reason neither gets it nor
+      // counts as present for it.
+      if (
+        delivery.reason === "usage" &&
+        !connection.session.supportsForSource(CLIENT_CAPS.usageNotifications, ws)
+      )
+        continue;
       if (
         connection.session.delivery.isModern(ws)
           ? !connection.session.wantsSourceEvent(ws, "agent_attention_required")
-          : !(await connection.session.subscribesToAgent(agent, ws))
+          : !(await connection.session.subscribesToAgent(delivery.agent, ws))
       )
         continue;
       clientEntries.push({
@@ -2930,28 +3010,16 @@ export class VoiceAssistantWebSocketServer {
     const notificationEntries = clientEntries.filter(({ ws }) =>
       this.sessions.get(ws)?.session.wantsSourceNotification(ws, "agent_attention_required"),
     );
-    const allStates = notificationEntries.map((e) => e.state);
-    const nowMs = Date.now();
-    const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
-    const notification = buildAgentAttentionNotificationPayload({
-      reason: params.reason,
-      serverId: this.serverId,
-      workspaceId: agent.workspaceId,
-      agentId: params.agentId,
-      assistantMessage,
-      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
-    });
-
     const plan = computeNotificationPlan({
-      allStates,
-      focusTarget: { kind: "agent", id: params.agentId },
-      pushEligible: isPushEligibleAttentionReason(params.reason),
-      nowMs,
+      allStates: notificationEntries.map((entry) => entry.state),
+      focusTarget: { kind: "agent", id: delivery.agentId },
+      pushEligible: delivery.pushEligible,
+      nowMs: Date.now(),
     });
 
     if (plan.shouldPush) {
-      void this.pushNotificationSender.send(notification).catch((err) => {
-        this.logger.warn({ err, agentId: params.agentId }, "Failed to send push notification");
+      void this.pushNotificationSender.send(delivery.notification).catch((err) => {
+        this.logger.warn({ err, agentId: delivery.agentId }, "Failed to send push notification");
       });
     }
 
@@ -2959,43 +3027,62 @@ export class VoiceAssistantWebSocketServer {
       const shouldNotify =
         plan.inAppRecipientIndex !== null &&
         notificationEntries[plan.inAppRecipientIndex]?.ws === ws;
-      const timestamp = new Date().toISOString();
-      const connection = this.sessions.get(ws);
-      const attentionPayload = {
-        agentId: params.agentId,
-        reason: params.reason,
-        timestamp,
-        shouldNotify,
-        notification,
-      };
       const message = wrapSessionMessage(
-        connection?.session.delivery.isModern(ws) ||
-          connection?.session.supportsForSource(CLIENT_CAPS.selectiveAgentTimeline, ws)
-          ? {
-              type: "agent_attention_required",
-              payload: attentionPayload,
-            }
-          : {
-              type: "agent_stream",
-              payload: {
-                agentId: params.agentId,
-                event: {
-                  type: "attention_required",
-                  provider: params.provider,
-                  reason: params.reason,
-                  timestamp,
-                  shouldNotify,
-                  notification,
-                },
-                timestamp,
-              },
-            },
+        this.agentAttentionMessage({
+          delivery,
+          ws,
+          shouldNotify,
+          timestamp: new Date().toISOString(),
+        }),
       );
-
-      if (message.type === "session" && this.sessions.get(ws)?.session.delivery.isModern(ws))
-        this.sessions.get(ws)!.session.publishToSource(ws, message.message);
+      const session = this.sessions.get(ws)?.session;
+      if (message.type === "session" && session?.delivery.isModern(ws))
+        session.publishToSource(ws, message.message);
       else this.sendToClient(ws, message);
     }
+  }
+
+  private agentAttentionMessage(input: {
+    delivery: AgentAttentionDelivery;
+    ws: WebSocketLike;
+    shouldNotify: boolean;
+    timestamp: string;
+  }): SessionOutboundMessage {
+    const { delivery, ws, shouldNotify, timestamp } = input;
+    const session = this.sessions.get(ws)?.session;
+    // The usage reason exists only on the dedicated message, which every client that advertises
+    // usage_notifications reads.
+    if (
+      delivery.reason === "usage" ||
+      session?.delivery.isModern(ws) ||
+      session?.supportsForSource(CLIENT_CAPS.selectiveAgentTimeline, ws)
+    ) {
+      return {
+        type: "agent_attention_required",
+        payload: {
+          agentId: delivery.agentId,
+          reason: delivery.reason,
+          timestamp,
+          shouldNotify,
+          notification: delivery.notification,
+        },
+      };
+    }
+    return {
+      type: "agent_stream",
+      payload: {
+        agentId: delivery.agentId,
+        event: {
+          type: "attention_required",
+          provider: delivery.provider,
+          reason: delivery.reason,
+          timestamp,
+          shouldNotify,
+          notification: delivery.notification,
+        },
+        timestamp,
+      },
+    };
   }
 
   private async broadcastTerminalAttention(params: {
