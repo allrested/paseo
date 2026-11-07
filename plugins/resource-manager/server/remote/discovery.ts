@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 
-// Finds every ssh-mcp entry in the Claude configs the daemon can read. A config holds passwords
-// and keys in its args and env, so nothing here logs or returns a config's text: a file that does
-// not parse is reported by path only, and the RPC layer returns id, name and source only.
+// Finds every ssh-mcp entry in the Claude configs the daemon can read, taking a .mcp.json only
+// where Claude Code trusts its folder. A config holds passwords and keys in its args and env, so
+// nothing here logs or returns a config's text: a file that does not parse is reported by path
+// only, and the RPC layer returns id, name and source only.
 
 export interface SshServer {
   /** sha256(source key NUL entry name), first 16 hex characters: stable and free of secrets. */
@@ -60,6 +61,8 @@ const ProjectSchema = z.object({ mcpServers: ServerMapSchema.optional() });
 
 const McpJsonSchema = z.object({ mcpServers: ServerMapSchema.optional() });
 
+const TrustSchema = z.object({ hasTrustDialogAccepted: z.literal(true) });
+
 // Claude Code's syntax: ${VAR} and ${VAR:-default}.
 const VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
 const SSH_MCP = "ssh-mcp";
@@ -109,8 +112,10 @@ export function expandVariables(
   missing: Set<string>,
 ): string {
   return value.replace(VARIABLE, (_match: string, name: string, fallback: string | undefined) => {
+    // Object.prototype's members (constructor, __proto__) are never strings, so a variable named
+    // after one counts as unset.
     const set = env[name];
-    if (set !== undefined) return set;
+    if (typeof set === "string") return set;
     if (fallback !== undefined) return fallback;
     missing.add(name);
     return "";
@@ -158,6 +163,52 @@ function toServer(
   };
 }
 
+// A .mcp.json comes with the repository, so its commands are the repository's code. As in Claude
+// Code, they run only for a folder trusted there: hasTrustDialogAccepted on the folder or a parent
+// in ~/.claude.json, which Claude Code sets when its trust dialog is accepted.
+function isTrusted(projects: Record<string, unknown> | undefined, dir: string): boolean {
+  for (let path = dir; ; path = dirname(path)) {
+    if (TrustSchema.safeParse(projects?.[path]).success) return true;
+    if (dirname(path) === path) return false;
+  }
+}
+
+function listsSshMcp(source: ConfigSource, env: NodeJS.ProcessEnv): boolean {
+  return Object.entries(source.servers).some(
+    ([name, raw]) => toServer(source, name, raw, env) !== null,
+  );
+}
+
+// null when the folder has no usable .mcp.json, or Claude Code does not trust the folder. An
+// untrusted folder's ssh-mcp entries are named in one problem, so the user learns why they are
+// missing.
+async function readMcpJsonSource(
+  dir: string,
+  projects: Record<string, unknown> | undefined,
+  env: NodeJS.ProcessEnv,
+  problems: string[],
+): Promise<ConfigSource | null> {
+  const file = join(dir, ".mcp.json");
+  const json = await readJson(file, problems);
+  if (json === undefined) return null;
+  const parsed = McpJsonSchema.safeParse(json);
+  if (!parsed.success) {
+    problems.push(`${file}: not an MCP config`);
+    return null;
+  }
+  if (parsed.data.mcpServers === undefined) return null;
+  const source: ConfigSource = {
+    key: `project:${file}`,
+    label: file,
+    servers: parsed.data.mcpServers,
+  };
+  if (isTrusted(projects, dir)) return source;
+  if (listsSshMcp(source, env)) {
+    problems.push(`${file}: ssh-mcp entries skipped, Claude Code does not trust ${dir}`);
+  }
+  return null;
+}
+
 async function collectSources(input: DiscoveryInput, problems: string[]): Promise<ConfigSource[]> {
   const sources: ConfigSource[] = [];
   const json = await readJson(input.claudeConfigFile, problems);
@@ -179,20 +230,16 @@ async function collectSources(input: DiscoveryInput, problems: string[]): Promis
         servers: project.data.mcpServers,
       });
     }
-    const file = join(dir, ".mcp.json");
-    const mcpJson = await readJson(file, problems);
-    if (mcpJson === undefined) continue;
-    const parsed = McpJsonSchema.safeParse(mcpJson);
-    if (!parsed.success) problems.push(`${file}: not an MCP config`);
-    else if (parsed.data.mcpServers !== undefined) {
-      sources.push({ key: `project:${file}`, label: file, servers: parsed.data.mcpServers });
-    }
+    const mcpJson = await readMcpJsonSource(dir, claude?.projects, input.env, problems);
+    if (mcpJson !== null) sources.push(mcpJson);
   }
   return sources;
 }
 
 // User scope first, then each workspace's local and project scope in the order Paseo lists them.
 // Entries with the same expanded command, args and env are one server, under its first source.
+// Unset variables expand to "", so they are part of the key: entries that differ only in which
+// variables are unset stay apart.
 export async function discoverSshServers(input: DiscoveryInput): Promise<Discovery> {
   const problems: string[] = [];
   const servers: SshServer[] = [];
@@ -200,8 +247,10 @@ export async function discoverSshServers(input: DiscoveryInput): Promise<Discove
   for (const source of await collectSources(input, problems)) {
     for (const [name, raw] of Object.entries(source.servers)) {
       const server = toServer(source, name, raw, input.env);
-      if (server === null || seen.has(server.fingerprint)) continue;
-      seen.add(server.fingerprint);
+      if (server === null) continue;
+      const key = `${server.fingerprint}\0${server.missingVariables.join(",")}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       servers.push(server);
     }
   }
