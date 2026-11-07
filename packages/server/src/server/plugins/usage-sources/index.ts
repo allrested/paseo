@@ -10,6 +10,7 @@ import {
   type UsageProblem,
   type UsageReport,
 } from "@getpaseo/protocol/messages";
+// Fork delta (usage heads-up): projects run-outs from fetch history.
 import { createUsagePace } from "./pace.js";
 
 export interface UsageSource {
@@ -88,6 +89,7 @@ export class UsageSourceRegistry {
     for (const key of this.successful.keys())
       if (key.startsWith(`${id}:`)) this.successful.delete(key);
     for (const key of this.pending.keys()) if (key.startsWith(`${id}:`)) this.pending.delete(key);
+    // Fork delta (usage heads-up): a removed source drops its fetch samples.
     this.pace.forget(`${id}:`);
   }
 
@@ -302,6 +304,7 @@ export class UsageSourceRegistry {
     const pending = this.pending.get(cacheKey);
     if (pending) return pending;
     const request = (async () => {
+      // Fork delta (usage heads-up): the projection samples usage at the fetch's start.
       const startedAt = this.now();
       const fetchedAt = new Date(startedAt).toISOString();
       const outcome = await this.fetchWithFallback(known);

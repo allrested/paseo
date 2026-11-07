@@ -147,6 +147,7 @@ export const DEFAULT_CLIENT_CAPABILITIES = {
   [CLIENT_CAPS.pluginBinaryPayloads]: true,
   [CLIENT_CAPS.backgroundAgents]: true,
   [CLIENT_CAPS.explicitEventSubscriptions]: true,
+  // Fork delta (usage heads-up): advertise usage_notifications, so the daemon sends usage notices.
   [CLIENT_CAPS.usageNotifications]: true,
 } satisfies Record<Exclude<ClientCapability, typeof CLIENT_CAPS.browserHost>, true>;
 
