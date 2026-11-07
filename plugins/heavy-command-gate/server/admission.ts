@@ -38,23 +38,40 @@ export interface AdmissionDecision {
 }
 
 /**
- * Admits waiters in queue order while a slot is free and free memory covers the estimate plus the
- * reserve. Free memory is a reading of what processes use now, so memory promised to a running
- * command that it has not touched yet (its estimate minus its RSS) is kept back, as is the whole
- * estimate of a command admitted in this pass. A waiter that has waited at least the starvation
- * time starts when nothing holds a slot: the memory is then held by something the gate cannot free.
+ * Free memory less what running commands were promised and have not touched yet: each one's
+ * estimate minus its RSS, never below zero, or its whole estimate when its RSS is unknown. Free
+ * memory is a reading of what processes use now, and a command still growing into its estimate
+ * will take the rest. Null when there is no reading.
+ */
+export function availableBytes(
+  freeBytes: number | null,
+  held: readonly HeldCommand[],
+): number | null {
+  if (freeBytes === null) return null;
+  let promised = 0;
+  for (const command of held) {
+    promised += Math.max(0, command.estimateBytes - (command.rssBytes ?? 0));
+  }
+  return Math.max(0, freeBytes - promised);
+}
+
+/**
+ * Admits waiters in queue order while a slot is free and the available memory (availableBytes)
+ * covers the estimate plus the reserve. A command admitted in this pass has used nothing yet, so
+ * its whole estimate is kept back from the ones behind it. A waiter that has waited at least the
+ * starvation time starts when nothing holds a slot: the memory is then held by something the gate
+ * cannot free.
  */
 export function decideAdmission(input: AdmissionInput): AdmissionDecision {
   const admitted: Admission[] = [];
   let holders = input.held.length;
+  const available = availableBytes(input.freeBytes, input.held);
+  // Promised to the commands admitted in this pass.
   let promised = 0;
-  for (const command of input.held) {
-    promised += Math.max(0, command.estimateBytes - (command.rssBytes ?? 0));
-  }
   for (const command of input.queue) {
     if (holders >= input.slots) return { admitted, blockedOn: "slot" };
     const needed = command.estimateBytes + input.reserveBytes;
-    const fits = input.freeBytes === null || input.freeBytes - promised >= needed;
+    const fits = available === null || available - promised >= needed;
     const starved = holders === 0 && input.now - command.queuedAt >= input.starvationMs;
     if (!fits && !starved) return { admitted, blockedOn: "memory" };
     admitted.push({ id: command.id, forced: !fits });
