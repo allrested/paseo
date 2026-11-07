@@ -10,6 +10,7 @@ export const builtinPlugins = [
   "copilot-usage-source",
   "cursor-usage-source",
   "grok-usage-source",
+  "heavy-command-gate",
   "hoplite-provider",
   "kimi-usage-source",
   "kiro-usage-source",
