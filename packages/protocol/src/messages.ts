@@ -1972,6 +1972,14 @@ export const UsageListReportsRequestMessageSchema = z.object({
   forceRefresh: z.boolean().optional(),
 });
 
+// Fork delta (claude accounts): one provider's usage, read through its launch scope as the move
+// dialog reads a target's.
+export const UsageProviderListReportsRequestMessageSchema = z.object({
+  type: z.literal("usage.provider.list_reports.request"),
+  requestId: z.string(),
+  provider: z.string(),
+});
+
 export const ResumeAgentRequestMessageSchema = z.object({
   type: z.literal("resume_agent_request"),
   handle: AgentPersistenceHandleSchema,
@@ -3678,6 +3686,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProviderDiagnosticRequestMessageSchema,
   ProviderUsageListRequestMessageSchema,
   UsageListReportsRequestMessageSchema,
+  UsageProviderListReportsRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -4005,6 +4014,9 @@ export const ServerInfoStatusPayloadSchema = z
         hostMultiplexing: z.boolean().optional(),
         // Fork delta (session move): the agent.move* and agent.move_targets RPCs, agent.moved.
         agentMove: z.boolean().optional(),
+        // Fork delta (claude accounts): the usage.provider.list_reports RPC.
+        // COMPAT(usageProviderReports): added in v0.15.3, remove gate after 2027-05-07.
+        usageProviderReports: z.boolean().optional(),
         // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel, and usage
         // windows a projected run-out.
         usageHeadsUp: z.boolean().optional(),
@@ -6945,6 +6957,27 @@ export const UsageListReportsResponseMessageSchema = z.object({
   type: z.literal("usage.list_reports.response"),
   payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
 });
+// Fork delta (claude accounts): the window closest to running out across the reports, ranked as
+// the move dialog ranks a target's (chooseTightestWindow in usage-heads-up.ts).
+export const UsageTightestWindowSchema = z.object({
+  label: z.string(),
+  usedPct: z.number(),
+  resetsAt: z.string().nullable(),
+  // The window's usage heads-up tone (UsageHeadsUpTone in usage-heads-up.ts), not a source's own
+  // window tone.
+  tone: z.enum(["none", "warning", "danger"]),
+});
+// Fork delta (claude accounts): the reply to usage.provider.list_reports.request.
+export const UsageProviderListReportsResponseMessageSchema = z.object({
+  type: z.literal("usage.provider.list_reports.response"),
+  payload: z.object({
+    requestId: z.string(),
+    provider: z.string(),
+    reports: z.array(UsageReportEntrySchema),
+    tightest: UsageTightestWindowSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
 
 const AgentSlashCommandSchema = z.object({
   name: z.string(),
@@ -7686,6 +7719,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProviderUsageListResponseMessageSchema,
   UsageListReportsUpdateMessageSchema,
   UsageListReportsResponseMessageSchema,
+  UsageProviderListReportsResponseMessageSchema,
   ListCommandsResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
@@ -7880,6 +7914,10 @@ export type UsageProblem = z.infer<typeof UsageProblemSchema>;
 export type UsageReport = z.infer<typeof UsageReportSchema>;
 export type UsageReportEntry = z.infer<typeof UsageReportEntrySchema>;
 export type UsageListReportsResponseMessage = z.infer<typeof UsageListReportsResponseMessageSchema>;
+export type UsageTightestWindow = z.infer<typeof UsageTightestWindowSchema>;
+export type UsageProviderListReportsResponseMessage = z.infer<
+  typeof UsageProviderListReportsResponseMessageSchema
+>;
 export type ProviderUsageStatus = z.infer<typeof ProviderUsageStatusSchema>;
 export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
 export type ProviderUsageWindow = z.infer<typeof ProviderUsageWindowSchema>;
