@@ -103,8 +103,9 @@ export function ownerIsAlive(record: PidRecord, procRoot: string, selfPid = proc
 }
 
 // A live leader must match the recorded start time. A live group whose leader has exited is taken
-// to be the recorded one: the kernel does not reuse a pid while a group with that id exists. Same
-// rule as shared-mcp's isRecordedGroup (process-runner.ts:472-476).
+// to be the recorded one: the kernel does not reuse a pid while a group with that id exists, so
+// this holds only while the group has never emptied. Same rule, and same limit, as shared-mcp's
+// isRecordedGroup in process-runner.ts.
 export function isRecordedGroup(record: PidRecord, procRoot: string): boolean {
   if (record.startTime === null || !sendSignal(-record.pgid, 0)) return false;
   const leaderStartTime = readStartTime(record.pgid, procRoot);
@@ -142,6 +143,7 @@ export function readPidRecord(file: string): PidRecord | null {
   return record.success ? record.data : null;
 }
 
+// Throws when an existing file cannot be removed (EACCES, or a directory named *.pid).
 export function removePidFile(file: string): void {
   rmSync(file, { force: true });
 }
@@ -156,9 +158,10 @@ export function listPidFiles(dir: string): string[] {
   return names.filter((name) => PID_FILE.test(name)).sort();
 }
 
-// SIGTERM to the group, then SIGKILL once graceMs passes with a member left. Group 0 is every
-// kernel thread and group 1 the init tree, so those are never signalled. The waits are unref'd,
-// so a pending kill never holds the daemon open.
+// SIGTERM to the group, then SIGKILL once graceMs passes with a member left. A pgid of 1 or less
+// is never signalled: kill(-0) would reach this daemon's own group, kill(-1) every process the
+// daemon may signal, and a negative pgid a single pid. The waits are unref'd, so a pending kill
+// never holds the daemon open.
 export async function killGroup(pgid: number, graceMs = KILL_GRACE_MS): Promise<void> {
   if (pgid <= 1 || !sendSignal(-pgid, "SIGTERM")) return;
   const deadline = Date.now() + graceMs;
@@ -174,6 +177,7 @@ export async function killGroup(pgid: number, graceMs = KILL_GRACE_MS): Promise<
 // A file from another pid space, or naming no live recorded group, is stale and only removed. A
 // file whose owner is dead and whose group is still the recorded one gets the group killed first.
 // A file whose owner lives is left alone: another daemon on the same PASEO_HOME owns it.
+// Rejects when the file cannot be removed (removePidFile).
 export async function reclaimPidFile(
   file: string,
   procRoot: string,

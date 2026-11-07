@@ -4,6 +4,9 @@ import { join } from "node:path";
 // Builds a /proc-shaped directory for tests: <root>/<pid>/{stat,status,cmdline,environ}, plus
 // self/ns/pid and sys/kernel/random/boot_id when a pid space is given. Typed, so tests that use
 // it are checked even though test files are not.
+// Pass the space on the first call for a root only: a second call with one throws EEXIST on the
+// self/ns/pid symlink. A later call rewrites the pids it lists and leaves the rest, including an
+// environ file whose entry now has env: null.
 
 export interface FakeProcess {
   pid: number;
