@@ -85,8 +85,8 @@ function SupportedMoveBanner({ serverId, workspaceId, agentId }: MoveBannerProps
     useShallow((state) => selectMoveBannerFacts(state.sessions[serverId], agentId)),
   );
   useLoadMovedFromAgent(serverId, selectMovedFromAgentToFetch(facts));
-  // Fork delta (usage heads-up): a host that reports run-outs keeps the banner mounted for every
-  // live agent, so it can read the agent's own account.
+  // A host that reports run-outs keeps the banner mounted for every live agent, so it can read
+  // the agent's own account.
   const headsUpSupported = useHostFeature(serverId, "usageHeadsUp");
   const kind = resolveMoveBannerKind(facts);
   if (facts.kind === "inactive") return null;
@@ -241,7 +241,7 @@ interface UsageHeadsUpNoticeProps {
   onDismiss: () => void;
 }
 
-/** Fork delta (usage heads-up): the agent's account is about to run out. */
+/** The agent's account is about to run out. */
 function UsageHeadsUpNotice({
   headsUp,
   now,
