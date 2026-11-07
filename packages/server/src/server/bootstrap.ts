@@ -2007,6 +2007,9 @@ export async function createPaseoDaemon(
       speechService.start();
       scriptHealthMonitor.start();
     } catch (error) {
+      // Fork delta (usage heads-up): a start that fails after the usage watch began stops it.
+      stopUsageWatch?.();
+      stopUsageWatch = null;
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
       unsubscribePluginProviders();

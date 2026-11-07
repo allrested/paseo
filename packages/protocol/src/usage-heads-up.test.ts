@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   RUN_OUT_DANGER_MS,
   RUN_OUT_HEADS_UP_MS,
+  USAGE_FULL_PCT,
   chooseBestMoveTarget,
   chooseTightestWindow,
   msUntilRunOut,
@@ -134,6 +135,22 @@ describe("chooseBestMoveTarget", () => {
     ).toBeNull();
   });
 
+  it("offers no used-up target while the current account's usage is unknown", () => {
+    const unknown = target({ provider: "claude-work", current: true, usedPct: null });
+    expect(
+      chooseBestMoveTarget([
+        unknown,
+        target({ provider: "kiro", family: "kiro", usedPct: USAGE_FULL_PCT }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("offers a target below the limit while the current account's usage is unknown", () => {
+    const unknown = target({ provider: "claude-work", current: true, usedPct: null });
+    const kiro = target({ provider: "kiro", family: "kiro", usedPct: USAGE_FULL_PCT - 1 });
+    expect(chooseBestMoveTarget([unknown, kiro])).toBe(kiro);
+  });
+
   it("gives a tie to the current account's family, because that move is native", () => {
     const personal = target({ provider: "claude-personal", usedPct: 12 });
     expect(
@@ -162,6 +179,17 @@ describe("chooseBestMoveTarget", () => {
     });
     expect(chooseBestMoveTarget([current, pacing, steady])).toBe(steady);
     expect(chooseBestMoveTarget([current, pacing])).toBe(pacing);
+  });
+
+  it("ranks a target on pace to run out before one with unknown usage", () => {
+    const opencode = target({ provider: "opencode", family: "opencode", usedPct: null });
+    const pacing = target({
+      provider: "kiro",
+      family: "kiro",
+      usedPct: 12,
+      runsOutAt: at(20 * MINUTE),
+    });
+    expect(chooseBestMoveTarget([current, opencode, pacing])).toBe(pacing);
   });
 
   it("moves an account on pace to run out to a fuller steady target below the heads-up level", () => {
@@ -213,6 +241,22 @@ describe("chooseTightestWindow", () => {
       runsOutAt: at(20 * MINUTE),
     });
     expect(chooseTightestWindow([weekly, session], NOW)).toEqual({
+      window: session,
+      usedPct: 60,
+      resetsAt: at(240 * MINUTE),
+      runsOutAt: at(20 * MINUTE),
+      tone: "danger",
+    });
+  });
+
+  it("ranks a danger above a warning, though the warning window is fuller", () => {
+    const fuller = usageWindow("Weekly", { usedPct: 85, resetsAt: LATE_RESET });
+    const session = usageWindow("Session", {
+      usedPct: 60,
+      resetsAt: at(240 * MINUTE),
+      runsOutAt: at(20 * MINUTE),
+    });
+    expect(chooseTightestWindow([fuller, session], NOW)).toEqual({
       window: session,
       usedPct: 60,
       resetsAt: at(240 * MINUTE),
