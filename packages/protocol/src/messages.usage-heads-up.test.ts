@@ -63,4 +63,20 @@ describe("usage attention (usage heads-up)", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("parses the same legacy agent stream event once its reason is finished", () => {
+    expect(
+      AgentStreamEventPayloadSchema.safeParse({
+        type: "attention_required",
+        provider: "claude",
+        reason: "finished",
+        timestamp: "2026-11-06T10:00:00.000Z",
+        shouldNotify: false,
+        notification: {
+          ...USAGE_NOTIFICATION,
+          data: { ...USAGE_NOTIFICATION.data, reason: "finished" },
+        },
+      }).success,
+    ).toBe(true);
+  });
 });
