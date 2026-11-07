@@ -112,7 +112,7 @@ describe("readAgentFacts", () => {
     expect(agents.asked).toEqual([]);
   });
 
-  it("lets a failed snapshot read reject, so the card retries on its next poll", async () => {
+  it("lets a failed snapshot read reject, so the call fails instead of reporting a missing agent", async () => {
     const agents = failingDirectory(new Error("daemon connection closed"));
     await expect(readAgentFacts(agents, "agent-claude")).rejects.toThrow(
       "daemon connection closed",

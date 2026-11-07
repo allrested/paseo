@@ -109,6 +109,11 @@ interface AgentRow {
 async function readRun(files: RunFiles, input: ReadRunInput): Promise<LoadedRun> {
   const { location } = input;
   const { journal } = files;
+  // The record first: a run that ends between the two reads then shows Running for one more
+  // poll, where the other order shows Completed with its last agent stopped and stops polling.
+  const record = await readRecordFacts(
+    join(location.sessionDir, "workflows", `${input.runId}.json`),
+  );
   const journalPath = join(location.runDir, "journal.jsonl");
   const sink = journalSink(journal);
   const { mtimeMs } = await readNewLines({ path: journalPath, cursor: journal.cursor, sink });
@@ -120,13 +125,10 @@ async function readRun(files: RunFiles, input: ReadRunInput): Promise<LoadedRun>
     const file = await refreshAgent({ files, runDir: location.runDir, agentId: agent.agentId });
     rows.push({ agent, file });
   }
-  const record = await readRecordFacts(
-    join(location.sessionDir, "workflows", `${input.runId}.json`),
-  );
   // Until the newest agent writes, its start is known only from the journal.
   const newest = rows.at(-1);
   const startedBy = newest?.file.fold.firstActivityAt ?? journal.mtimeMs;
-  // The session the run was found in, which may be one the agent has left (Decision 5).
+  // The session the run was found in, which may be one the agent has left.
   const query = {
     configDir: location.configDir,
     sessionId: location.sessionId,

@@ -42,8 +42,8 @@ export function parentAgentId(agentId: string): string | null {
 
 /**
  * The agent's Claude session id and cwd, from its snapshot; an archived agent still has one. A
- * snapshot read that throws rejects: that is a failed call, which the card retries on its next
- * poll, not a missing agent.
+ * snapshot read that throws rejects: that is a failed call, not a missing agent. A loaded card
+ * keeps polling through it; a card with nothing loaded yet tries again on its next mount.
  */
 export async function readAgentFacts(agents: AgentDirectory, agentId: string): Promise<AgentFacts> {
   const id = parentAgentId(agentId);
@@ -52,6 +52,8 @@ export async function readAgentFacts(agents: AgentDirectory, agentId: string): P
   // fetch_agent also resolves id prefixes and titles; only the agent with this exact id counts.
   if (agent?.id !== id) return { kind: "unavailable", reason: "agent-not-found" };
   const { persistence, cwd } = agent;
+  // "not-claude" means no session handle. The provider is not compared: derived Claude providers
+  // carry their own ids, and a run is only found inside a Claude config dir.
   if (persistence === null) return { kind: "unavailable", reason: "not-claude" };
   return { kind: "claude", sessionId: persistence.sessionId, cwd };
 }

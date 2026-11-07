@@ -179,16 +179,16 @@ matches `pnpm build`. A command whose arguments before `--` include `--version` 
 heavy.
 
 The `claude-workflows` built-in replaces the card of Claude Code's `Workflow` tool with a live card
-once the tool result names a run: the run's state and, for each agent inside it, its phase, state,
-tool calls, last tool, tokens and last activity. The card no longer shows the workflow script. A
-Running card polls `claude-workflows.run.request` every 3 s and stops once the run is not Running;
-the daemon runs no timer or watcher for it. The plugin reads Claude Code's undocumented files as of
-2.1.x, so after an update that changes them you get a partial card or Unavailable. It looks for runs
-under the daemon's `CLAUDE_CONFIG_DIR`, `~/.claude` and each `~/.claude-<name>`; a provider profile
-that points `CLAUDE_CONFIG_DIR` elsewhere is not searched, so its cards read "Run files not found".
-Running needs a live Claude process for the run's session, found through Linux `/proc`; elsewhere a
-run without a record shows Stopped. A client without `daemon.manage` loads no plugin code and keeps
-the plain card. File formats and state rules are in the
+once the tool result names a run. The card shows the run's state and, for each agent inside it, its
+phase, state, tool calls, last tool, tokens and last activity. The card no longer shows the workflow
+script. A Running card polls `claude-workflows.run.request` every 3 s and stops once the run is not
+Running; the daemon runs no timer or watcher for it. The plugin reads Claude Code's undocumented
+files as of 2.1.x, so after an update that changes them you get a partial card or Unavailable. It
+looks for runs under the daemon's `CLAUDE_CONFIG_DIR`, `~/.claude` and each `~/.claude-<name>`; a
+provider profile that points `CLAUDE_CONFIG_DIR` elsewhere is not searched, so its cards read
+"Run files not found". Running needs a live Claude process for the run's session, found through
+Linux `/proc`; on other systems a run shows Stopped until it completes or is killed. A client
+without `daemon.manage` loads no plugin code and keeps the plain card. File formats are in the
 [design](superpowers/specs/2026-11-07-claude-workflows-design.md#where-the-data-lives).
 
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
