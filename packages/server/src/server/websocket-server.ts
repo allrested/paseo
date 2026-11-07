@@ -2027,6 +2027,8 @@ export class VoiceAssistantWebSocketServer {
         connectedHosts: true,
         hostMultiplexing: true,
         agentMove: true,
+        // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel.
+        usageHeadsUp: true,
         // COMPAT(relayProtectedSecurity): added in v0.13.0, remove gate after 2027-04-21.
         relayProtectedSecurity: true,
         usageSetting: true,
