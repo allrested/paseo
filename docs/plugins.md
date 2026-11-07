@@ -945,6 +945,11 @@ must be at most 64 KiB; the daemon rejects a larger append instead of storing a 
 be rendered intact. The daemon advertises this RPC through
 `server_info.features.pluginTimelineItems`.
 
+In the **Collapse turns** chat display, the app's default, a finished turn folds its work into one
+summary line but keeps plugin rows in view, rows that replace a tool call or reasoning included, so
+their components stay mounted. A row that replaces an assistant message counts as that message: the
+turn's last one stays in view as its reply, and earlier ones fold.
+
 ## Contribute client slash commands
 
 `addSlashCommand` registers an agent- or workspace-context command in the composer. The
