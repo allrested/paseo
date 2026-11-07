@@ -151,6 +151,44 @@ describe("chooseBestMoveTarget", () => {
     expect(chooseBestMoveTarget([current, opencode, kiro])).toBe(kiro);
     expect(chooseBestMoveTarget([current, opencode])).toBe(opencode);
   });
+
+  it("ranks a target on pace to run out after a steady one, and offers it when nothing else has room", () => {
+    const steady = target({ provider: "codex", family: "codex", usedPct: 40 });
+    const pacing = target({
+      provider: "kiro",
+      family: "kiro",
+      usedPct: 12,
+      runsOutAt: at(20 * MINUTE),
+    });
+    expect(chooseBestMoveTarget([current, pacing, steady])).toBe(steady);
+    expect(chooseBestMoveTarget([current, pacing])).toBe(pacing);
+  });
+
+  it("moves an account on pace to run out to a fuller steady target below the heads-up level", () => {
+    const running = target({
+      provider: "claude-work",
+      current: true,
+      usedPct: 60,
+      runsOutAt: at(20 * MINUTE),
+    });
+    const weekly = target({ provider: "codex", family: "codex", usedPct: 70 });
+    expect(chooseBestMoveTarget([running, weekly])).toBe(weekly);
+    expect(
+      chooseBestMoveTarget([
+        target({ provider: "claude-work", current: true, usedPct: 60 }),
+        weekly,
+      ]),
+    ).toBeNull();
+    expect(
+      chooseBestMoveTarget([running, target({ provider: "kiro", family: "kiro", usedPct: 80 })]),
+    ).toBeNull();
+    expect(
+      chooseBestMoveTarget([
+        running,
+        target({ provider: "kiro", family: "kiro", usedPct: 70, runsOutAt: at(40 * MINUTE) }),
+      ]),
+    ).toBeNull();
+  });
 });
 
 describe("chooseTightestWindow", () => {
