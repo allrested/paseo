@@ -97,6 +97,9 @@ export function classifyCommand(
     "up",
     "why",
   ]);
+  // A version or help probe is light for every command. -v and -h are left out: -v means verbose
+  // for pytest.
+  const PROBE_OPTIONS = new Set(["--version", "--help"]);
 
   function isOption(token: string): boolean {
     return token.length > 1 && token.startsWith("-");
@@ -191,6 +194,11 @@ export function classifyCommand(
     if (prefix.length === 0 || prefix.length > words.length) return false;
     return prefix.every((word, index) => words[index] === word);
   }
+
+  // After "--" the arguments belong to another program, such as the script `npm test` runs.
+  const separatorAt = args.indexOf("--");
+  const ownArgs = separatorAt < 0 ? args : args.slice(0, separatorAt);
+  if (ownArgs.some((arg) => PROBE_OPTIONS.has(arg))) return null;
 
   const words = commandWords();
   let best: PatternRule | null = null;
