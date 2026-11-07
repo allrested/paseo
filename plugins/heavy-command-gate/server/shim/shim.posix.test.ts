@@ -39,6 +39,18 @@ const LOGGING_TOOL = [
 const SLEEPING_TOOL = "#!/bin/sh\nexec sleep 30\n";
 // Logs its start with $0, the path the shim handed to exec.
 const INVOCATION_TOOL = '#!/bin/sh\necho "start $0 $*" >> "$GATE_TEST_LOG"\n';
+// Logs its start with its script path and arguments. A node script, because a shell that starts
+// in a deleted directory complains on stderr and node does not. Node makes argv[1] absolute, which
+// is why INVOCATION_TOOL is a shell script.
+const NODE_INVOCATION_TOOL = [
+  `#!${process.execPath}`,
+  'const words = process.argv.slice(1).join(" ");',
+  'require("node:fs").appendFileSync(process.env.GATE_TEST_LOG, `start ${words}\\n`);',
+  "",
+].join("\n");
+// Enters the directory in $1, removes it and runs the other arguments there, so that command
+// starts in a working directory that no longer exists.
+const START_IN_REMOVED_DIRECTORY = 'cd "$1" && rmdir "$1" && shift && exec "$@"';
 // A shim that takes another shim for the tool can exec it, and be exec'd back, without end. A run
 // that could do so is killed after this long, so the test fails instead of hanging.
 const LOOP_LIMIT_MS = 3_000;
@@ -69,6 +81,8 @@ interface ShimOptions {
   cwd?: string;
   /** Kills the shim with SIGKILL after this long. */
   timeoutMs?: number;
+  /** Starts the shim in a directory a shell removes first, so its working directory is gone. */
+  removeCwd?: boolean;
 }
 
 let root = "";
@@ -155,7 +169,14 @@ function runShim(
   env: Record<string, string> = {},
   options: ShimOptions = {},
 ): ShimRun {
-  const child = spawn(join(paths.binDir, name), args, {
+  const shim = join(paths.binDir, name);
+  const [file, argv]: [string, string[]] = options.removeCwd
+    ? [
+        "/bin/sh",
+        ["-c", START_IN_REMOVED_DIRECTORY, "sh", mkdtempSync(join(root, "gone-")), shim, ...args],
+      ]
+    : [shim, args];
+  const child = spawn(file, argv, {
     cwd: options.cwd ?? root,
     env: {
       PATH: `${paths.binDir}:${realBin}:${SYSTEM_PATH}`,
@@ -436,5 +457,19 @@ describe("the generated shim", () => {
     );
     expect(await run.result).toEqual({ code: 0, signal: null, stderr: "" });
     expect(readLog()).toEqual([`start ${join(realpathSync(realBin), "pytest")} --version`]);
+  });
+
+  // A relative entry cannot be resolved without a working directory. The shim skips it and finds
+  // the tool further on PATH, as it did before relative entries were resolved.
+  it("skips a relative PATH entry when the working directory has been deleted", async () => {
+    writeTool("pytest", NODE_INVOCATION_TOOL);
+    const run = runShim(
+      "pytest",
+      ["--version"],
+      { PATH: `${paths.binDir}:.:${realBin}:${SYSTEM_PATH}` },
+      { removeCwd: true },
+    );
+    expect(await run.result).toEqual({ code: 0, signal: null, stderr: "" });
+    expect(readLog()).toEqual([`start ${join(realBin, "pytest")} --version`]);
   });
 });
