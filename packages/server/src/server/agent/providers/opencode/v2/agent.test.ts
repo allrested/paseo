@@ -1108,6 +1108,45 @@ describe("OpenCode v2 session lifecycle", () => {
     }
   });
 
+  test("reuses the shared helper when the launch env adds a PATH, and applies it to the session", async () => {
+    const harness = new V2Harness();
+    const acquires: Array<{ env?: Record<string, string>; dedicated?: boolean }> = [];
+    const runtime = {
+      acquire: async (input: { env?: Record<string, string>; dedicated?: boolean } = {}) => {
+        acquires.push(input);
+        return harness.connection;
+      },
+      shutdown: async () => undefined,
+    };
+    const client = new OpenCodeV2AgentClient({ logger: createTestLogger(), runtime });
+    const session = await client.createSession(
+      { provider: "opencode", cwd: "/tmp/project" },
+      {
+        agentId: "agent",
+        env: {
+          PASEO_AGENT_ID: "agent",
+          PASEO_AGENT_CWD: "/tmp/project",
+          PATH: "/shims:/usr/bin",
+        },
+      },
+    );
+    try {
+      expect(acquires).toEqual([{}]);
+      expect(harness.environments).toMatchObject([
+        {
+          sessionID: "session",
+          variables: {
+            PASEO_AGENT_ID: "agent",
+            PASEO_AGENT_CWD: "/tmp/project",
+            PATH: "/shims:/usr/bin",
+          },
+        },
+      ]);
+    } finally {
+      await session.close();
+    }
+  });
+
   test("starts a dedicated helper when the session carries custom MCP", async () => {
     const harness = new V2Harness();
     const acquires: Array<{ env?: Record<string, string>; dedicated?: boolean }> = [];
