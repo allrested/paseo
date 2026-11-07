@@ -139,21 +139,35 @@ estimate plus a 1 GB reserve. At every start the plugin writes
 `vitest`, `jest`, `gradle`, `gradlew` and `pytest` in `bin/`, and puts that directory first on the
 `PATH` of every agent session that opens. A shim asks the plugin over `gate.sock` before a heavy
 command starts and keeps the connection open until the command exits, so a crash or a cancel frees
-the slot. When nothing answers on the socket, the command runs at once after one warning line.
+the slot. When the gate cannot be reached, gives no answer within 10 s, or closes the connection
+before letting the command start, the command runs ungated after one warning line. A watch command,
+such as `tsc --watch`, holds its slot until it exits, so with one slot every other heavy command
+waits for it until then or until Gate heavy commands is turned off.
 Admission rules are in the
 [design](superpowers/specs/2026-11-06-heavy-command-gate-design.md#admission).
 
-Every process of a heavy command that a shim let through after asking the gate carries
-`PASEO_HEAVY_GATE_HELD=1`, whether the gate admitted it or did not answer. A shim that sees it runs
-straight through, and other tools can find held commands by it in `/proc/<pid>/environ`. The shim
-that asked does not carry it. With the switch off, or when a shim cannot read its config or classify
-the command, the command runs without asking and without the flag.
+A heavy command that a shim let through after asking the gate runs with `PASEO_HEAVY_GATE_HELD=1`,
+whether the gate admitted it or did not answer, and its children inherit it unless a runner clears
+the environment. The shim that asked does not carry it. A shim runs straight through when the flag
+is in its own environment or, for a heavy command on Linux, in the environment of an ancestor that
+still has the shim directory on its `PATH`. So a nested command never waits for its own parent, even
+under Turborepo, whose default strict env mode drops the flag. Without `/proc`, pass the flag
+through such a runner; for Turborepo, add `"globalPassThroughEnv": ["PASEO_HEAVY_GATE_HELD"]` to
+`turbo.json`. Other tools can find held commands by the flag in `/proc/<pid>/environ`, but it is a
+hint, not proof of a held slot: it is missing below a runner that clears the environment, and a
+long-lived process that a held command started, such as a Gradle daemon, keeps it after the command
+ends. With Gate heavy commands off, or when a shim cannot read its config or classify the command,
+the command runs without asking and without the flag.
+
 Agents get the shim directory only when their session opens, so reload the agents that were
 running before the first daemon start with this built-in. While the gate is available, a `PATH` set
 in a provider's `env` is replaced by the daemon's `PATH` with the shim directory first, so put such
 directories on the daemon's `PATH`. Commands typed in Paseo terminals, run by absolute path, run
 from `node_modules/.bin` directly, or found in a directory that a provider's shell puts ahead of
-the shim directory, such as `~/.local/bin` in Kiro sessions, do not pass the gate. Free memory is
+the shim directory, such as `~/.local/bin` in Kiro sessions, do not pass the gate. Neither does a
+tool that a light npm script runs, such as `tsc` inside `npm run build`: npm finds it in
+`node_modules/.bin` first, so add the script itself, `npm run build`, to the patterns to gate it.
+Free memory is
 the smaller of `MemAvailable` and the cgroup v2 headroom, which is `memory.max` minus
 `memory.current` plus `inactive_file` from `memory.stat` (page cache the kernel can reclaim);
 without `/proc`, only the slot count applies. The shims run on the daemon's own `node`, or under
@@ -161,7 +175,8 @@ the desktop app on the first `node` on the daemon's `PATH`. Without one, and on 
 reports itself unavailable and agents run unchanged. Open the Commands and Limits screens from the
 "Heavy commands" Command Center item, which appears once a workspace on that host is open. The
 patterns on Limits name a command as npm runs it, so `tsc` matches `npx tsc` and `npm run build`
-matches `pnpm build`.
+matches `pnpm build`. A command whose arguments before `--` include `--version` or `--help` is never
+heavy.
 
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
 `packages/server/src/server/plugins/lifecycle.e2e.test.ts` start `shared-mcp` and
