@@ -18,7 +18,11 @@ export function newCursor(): FileCursor {
   return { offset: 0, inode: null, partial: Buffer.alloc(0) };
 }
 
-/** Receives a file's complete lines in order, and `restart` before the file is read from zero. */
+/**
+ * Receives a file's complete lines in order, and `restart` before the file is read from zero.
+ * Neither may throw: the reader has no rollback, so a throw mid-chunk leaves the offset past
+ * lines the sink never saw.
+ */
 export interface LineSink {
   restart(): void;
   line(text: string): void;
@@ -36,8 +40,9 @@ export interface ReadResult {
 
 /**
  * Hands the sink each line completed since the cursor, reading only the bytes added since the
- * last call and keeping the unfinished last line for the next. A file that shrank or was
- * replaced is read again from zero. Rejects with the file error when the file cannot be read.
+ * last call and keeping the unfinished last line for the next. A file that shrank or got a new
+ * inode is read again from zero; a rewrite in place, or a new file on the old inode, goes unseen,
+ * so this suits append-only files. Rejects with the file error when the file cannot be read.
  */
 export async function readNewLines(request: ReadRequest): Promise<ReadResult> {
   const { path, cursor, sink } = request;

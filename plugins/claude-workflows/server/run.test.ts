@@ -512,6 +512,37 @@ describe("loadRun", () => {
     },
   );
 
+  it("never reads an agent file outside the run's directory", async () => {
+    const escaping: Started = {
+      key: "escape",
+      agentId: "../../../x",
+      label: "Escape",
+      phase: "Read",
+    };
+    await writeFile(journalPath(), jsonl([started(escaping)]));
+    // Without the guard, `agent-../../../x.jsonl` joined to the run dir lands on this file.
+    await writeFile(
+      join(fixture.sessionDir, "subagents", "workflows", "x.jsonl"),
+      jsonl([assistantLine({ seconds: 2, tool: readTool("toolu_x", "a.txt"), tokens: 1200 })]),
+    );
+
+    const view = loaded(await loadRun(REQUEST, claudeEnvironment()));
+
+    expect(view.agents).toEqual([
+      {
+        key: "escape",
+        label: "Escape",
+        phase: "Read",
+        state: "unreadable",
+        toolCalls: 0,
+        lastTool: null,
+        tokens: null,
+        firstActivityAt: null,
+        lastActivityAt: null,
+      },
+    ]);
+  });
+
   it("reports an agent it cannot find a Claude session for", async () => {
     await threeAgentRun();
     const plain: AgentSnapshot = { id: "agent-plain", cwd: fixture.cwd, persistence: null };

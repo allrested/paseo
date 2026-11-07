@@ -140,7 +140,7 @@ replaces the card with a plugin item carrying the run id and the run's summary. 
        text is not counted;
      - the last tool is the newest such block's name, plus `input.file_path` when it is a string;
        it counts as running until a `tool_result` with its id arrives;
-     - tokens are the newest assistant usage, input plus cache read plus cache creation plus output
+     - tokens are the newest assistant usage that counts any tokens, input plus cache read plus cache creation plus output
        (the context size Claude Code reports per agent);
      - first and last activity come from line timestamps.
 4. State check:
