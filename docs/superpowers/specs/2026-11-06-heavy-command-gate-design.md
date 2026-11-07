@@ -53,11 +53,14 @@ Out of scope: commands typed in Paseo terminals, commands run by absolute path o
 3. Not heavy, or `PASEO_HEAVY_GATE_HELD=1` is set: exec the real binary.
 4. Otherwise connect to the socket and send the command line, estimate, agent id (`PASEO_AGENT_ID`),
    and pid. While waiting, print `waiting for heavy-command slot (2 ahead, 1.8 GB free)` to stderr
-   every 30 s.
+   every 30 s, or `waiting for free memory (2 ahead, 1.8 GB free, 3.0 GB needed)` when the queue
+   waits on memory.
 5. On `go`, run the real binary with `PASEO_HEAVY_GATE_HELD=1`, pass signals through, keep the
    socket open, and exit with the command's exit code.
 
-A socket that cannot be reached means step 5 runs at once, after one warning line.
+A socket that cannot be reached means step 5 runs at once, after one warning line. So does a gate
+that sends no first answer within 10 s, or closes the socket before `go`, so a wedged daemon never
+freezes a build. The gate drops a connection that sends no hello within 5 s.
 
 ## Admission
 
@@ -65,7 +68,10 @@ A pure function of the queue, the current holders, and a memory reading. It admi
 waiter when:
 
 - local holders are fewer than the slot count (default 1), and
-- free memory is at least the waiter's estimate plus the reserve (default 1 GB).
+- free memory, minus what running commands were promised but do not use yet (estimate minus
+  current RSS, never below zero), is at least the waiter's estimate plus the reserve (default
+  1 GB). Without the subtraction a second command could start before the first one grows into its
+  estimate.
 
 If nothing local runs and the oldest waiter has waited 5 minutes, it is admitted anyway, with a
 warning in its stderr and in the screen. The memory is then held by something the gate cannot free,
