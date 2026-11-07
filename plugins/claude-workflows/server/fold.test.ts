@@ -194,6 +194,20 @@ describe("agent-file fold", () => {
     expect(foldAgent([first, newer]).tokens).toBe(3);
   });
 
+  it("keeps the last context size through an all-zero usage, as on an API error line", () => {
+    const zero = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    };
+    const real = assistantLine({ seconds: 1, content: [toolUse(READ)], usage: USAGE });
+    const apiError = assistantLine({ seconds: 2, content: [TEXT], usage: zero });
+
+    expect(foldAgent([real, apiError]).tokens).toBe(135);
+    expect(foldAgent([apiError]).tokens).toBeNull();
+  });
+
   it("ignores a usage of unknown shape and keeps the line's tool call", () => {
     const fold = foldAgent([
       assistantLine({ seconds: 1, content: [toolUse(READ)], usage: { input_tokens: "many" } }),
