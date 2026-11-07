@@ -94,8 +94,10 @@ export function runShim(deps: ShimDeps): void {
   function findRealBinary(): string | null {
     const shimDirectory = realpathOrNull(path.dirname(scriptPath));
     const shimScript = realpathOrNull(scriptPath);
-    for (const entry of (env.PATH ?? "").split(path.delimiter)) {
-      if (entry === "" || realpathOrNull(entry) === shimDirectory) continue;
+    for (const listed of (env.PATH ?? "").split(path.delimiter)) {
+      // A shell reads an empty entry as the working directory.
+      const entry = listed === "" ? "." : listed;
+      if (realpathOrNull(entry) === shimDirectory) continue;
       const candidate = readOrNull(() => path.resolve(entry, invokedAs));
       if (candidate === null || !isExecutableFile(candidate)) continue;
       const resolved = realpathOrNull(candidate);
@@ -120,12 +122,44 @@ export function runShim(deps: ShimDeps): void {
     }
   }
 
-  function startTimeOf(pid: string): number | null {
+  // A field of /proc/<pid>/stat, numbered from 1 as in proc(5). The command name in field 2 can
+  // hold spaces and parentheses, so the later fields are counted from its last ")".
+  function statField(pid: string, field: number): number | null {
     const stat = readOrNull(() => fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
     if (stat === null) return null;
     const commEnd = stat.lastIndexOf(")");
-    const value = Number(stat.slice(commEnd + 2).split(" ")[19]);
+    const value = Number(stat.slice(commEnd + 2).split(" ")[field - 3]);
     return commEnd >= 0 && Number.isSafeInteger(value) ? value : null;
+  }
+
+  function startTimeOf(pid: string): number | null {
+    return statField(pid, 22);
+  }
+
+  // Whether an ancestor inside the gate's process tree runs held. A runner that clears the
+  // environment but keeps PATH, such as Turborepo in its strict env mode or `env -i PATH=$PATH`,
+  // starts a nested command without the flag, and asking the gate would queue that command behind
+  // its own parent. Agents and their commands carry the shim directory on PATH; the daemon and
+  // everything above it do not, so the walk stops at the first ancestor without it, at pid 1, or
+  // after 64 hops. Without /proc the first read fails and the shim asks the gate.
+  function hasHeldAncestor(): boolean {
+    const shimDirectory = realpathOrNull(path.dirname(scriptPath));
+    if (shimDirectory === null) return false;
+    let pid = proc.ppid;
+    for (let hops = 0; hops < 64 && pid > 1; hops += 1) {
+      const environ = readOrNull(() => fs.readFileSync(`/proc/${pid}/environ`, "utf8"));
+      if (environ === null) return false;
+      const variables = environ.split("\0");
+      const searchPath = variables.find((variable) => variable.startsWith("PATH="));
+      if (searchPath === undefined) return false;
+      const entries = searchPath.slice("PATH=".length).split(path.delimiter);
+      if (!entries.some((entry) => realpathOrNull(entry) === shimDirectory)) return false;
+      if (variables.includes(`${deps.heldEnv}=1`)) return true;
+      const parent = statField(String(pid), 4);
+      if (parent === null) return false;
+      pid = parent;
+    }
+    return false;
   }
 
   function hello(estimateBytes: number): ShimHello {
@@ -318,6 +352,10 @@ export function runShim(deps: ShimDeps): void {
   }
   if (estimate === null) {
     execReal(binary, env);
+    return;
+  }
+  if (hasHeldAncestor()) {
+    execReal(binary, { ...env, [deps.heldEnv]: "1" });
     return;
   }
   runGated(binary, estimate);
