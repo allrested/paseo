@@ -1086,6 +1086,58 @@ test("agent handles delegate create, send, timeline refetch, archive, and local 
   await client.close();
 });
 
+test("agent handle closeRuntime sends agent.runtime.close", async () => {
+  const { client, ws } = await connectClient({ ownedSubscriptions: true, agentRuntimeClose: true });
+  const agent = client.agents.ref("agent_sdk");
+
+  const closePromise = agent.closeRuntime();
+  const request = parseSentSessionMessage(ws.sent.at(-1));
+  expect(request).toMatchObject({ type: "agent.runtime.close.request", agentId: "agent_sdk" });
+  ws.message(
+    sessionMessage({
+      type: "agent.runtime.close.response",
+      payload: { requestId: request.requestId, agentId: "agent_sdk", accepted: true, error: null },
+    }),
+  );
+
+  await expect(closePromise).resolves.toBeUndefined();
+  await client.close();
+});
+
+test("agent handle closeRuntime rejects with the daemon's reason", async () => {
+  const { client, ws } = await connectClient({ ownedSubscriptions: true, agentRuntimeClose: true });
+  const agent = client.agents.ref("agent_busy");
+
+  const closePromise = agent.closeRuntime();
+  const request = parseSentSessionMessage(ws.sent.at(-1));
+  ws.message(
+    sessionMessage({
+      type: "agent.runtime.close.response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "agent_busy",
+        accepted: false,
+        error: "Agent is busy; close it once it is idle",
+      },
+    }),
+  );
+
+  await expect(closePromise).rejects.toThrow("Agent is busy; close it once it is idle");
+  await client.close();
+});
+
+test("agent handle closeRuntime fails fast on a host without agentRuntimeClose", async () => {
+  const { client, ws } = await connectClient();
+  const sentBeforeClose = ws.sent.length;
+
+  await expect(client.agents.ref("agent_sdk").closeRuntime()).rejects.toThrow(
+    "Update the host to close agent runtimes.",
+  );
+  expect(ws.sent).toHaveLength(sentBeforeClose);
+
+  await client.close();
+});
+
 test("agent handles list the session's own commands through the existing daemon RPC", async () => {
   const { client, ws } = await connectClient();
   const agent = client.agents.ref("agent_sdk");
