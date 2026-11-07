@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { Text, View } from "react-native";
 import {
@@ -17,9 +17,13 @@ import {
 import { statusRpc, type GateStatus } from "../shared/rpc.js";
 import { gateSettings } from "../shared/settings.js";
 import { describeGate, describeRunning, describeWaiting } from "./format.js";
+import { mergeStatus, type StatusOutcome, type StatusResult } from "./status-result.js";
 import { useScreenStyles, type ScreenStyles } from "./styles.js";
 
-const STATUS_KEY = ["heavy-command-gate", "status"] as const;
+// The tag ties the key to the data type, so reading the cache with it needs no cast.
+const STATUS_KEY = queryOptions<StatusResult>({
+  queryKey: ["heavy-command-gate", "status"],
+}).queryKey;
 const POLL_MS = 5_000;
 const COMMANDS_INFO = `Heavy commands that agents start through npm, npx, pnpm, tsc, tsgo, vitest, jest, gradle, gradlew or pytest wait here for a slot and for free memory. The lists refresh every ${POLL_MS / 1000} s.`;
 
@@ -149,13 +153,26 @@ export function CommandsScreen({ theme }: PluginSurfaceProps) {
   const styles = useScreenStyles(theme);
   const settings = useSettings(gateSettings);
   const fetchStatus = useRpc(statusRpc);
-  // The interval belongs to the query observer, so polling stops when the screen unmounts. The
-  // next poll is the retry: TanStack's default retries would hide a failed fetch for about 7 s.
+  const queryClient = useQueryClient();
+  // A failed request resolves to data, it does not throw: a query without data drops to pending at
+  // every fetch, which would unmount the card and its switch each time. So the query never holds
+  // an error and TanStack never retries; the next poll is the retry. The interval belongs to the
+  // query observer, so polling stops when the screen unmounts.
   const status = useQuery({
     queryKey: STATUS_KEY,
-    queryFn: () => fetchStatus({}),
+    queryFn: async () => {
+      let outcome: StatusOutcome;
+      try {
+        outcome = { ok: true, status: await fetchStatus({}) };
+      } catch (error) {
+        outcome = { ok: false, error };
+      }
+      // The key's tag types this read only while nothing expects a type here, so it goes into a
+      // local before `mergeStatus` sees it.
+      const previous = queryClient.getQueryData(STATUS_KEY);
+      return mergeStatus(previous, outcome);
+    },
     refetchInterval: POLL_MS,
-    retry: false,
   });
   const { refetch } = status;
   const retry = useCallback(() => {
@@ -163,25 +180,25 @@ export function CommandsScreen({ theme }: PluginSurfaceProps) {
   }, [refetch]);
   const data = status.data;
   if (data === undefined) {
-    if (status.isError) {
-      return (
-        <StatusUnavailable
-          message={status.error.message}
-          retrying={status.isFetching}
-          settings={settings}
-          onRetry={retry}
-          styles={styles}
-        />
-      );
-    }
     return <Text style={styles.muted}>Loading heavy commands...</Text>;
   }
-  const refreshError = status.isError ? `Status refresh failed: ${status.error.message}` : null;
+  if (data.status === null) {
+    return (
+      <StatusUnavailable
+        message={data.error}
+        retrying={status.isFetching}
+        settings={settings}
+        onRetry={retry}
+        styles={styles}
+      />
+    );
+  }
+  const refreshError = data.error === null ? null : `Status refresh failed: ${data.error}`;
   return (
     <>
       <SettingsSection title="Heavy commands" info={COMMANDS_INFO}>
         <SettingsCard>
-          <GateSwitch settings={settings} status={data} />
+          <GateSwitch settings={settings} status={data.status} />
           {refreshError ? (
             <View style={styles.block}>
               <Text accessibilityRole="alert" style={styles.error}>
@@ -191,8 +208,8 @@ export function CommandsScreen({ theme }: PluginSurfaceProps) {
           ) : null}
         </SettingsCard>
       </SettingsSection>
-      <RunningList status={data} styles={styles} />
-      <WaitingList status={data} styles={styles} />
+      <RunningList status={data.status} styles={styles} />
+      <WaitingList status={data.status} styles={styles} />
     </>
   );
 }
