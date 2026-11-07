@@ -1,6 +1,7 @@
 # Claude workflow card — design
 
-Date: 2026-11-07. Status: approved design; not yet planned. Sub-project 8 of the fork program.
+Date: 2026-11-07. Status: approved design, amended on 2026-11-07 with the user's answers to the
+plan's open questions. Sub-project 8 of the fork program.
 
 ## Problem
 
@@ -18,6 +19,7 @@ In scope:
 - A live card for Claude agents, in place of the plain Workflow card: the run's state and, for each
   agent inside it, its phase, state, tool calls, last tool, tokens and last activity.
 - Past runs, read once from disk.
+- A Running card kept in view in a folded turn, which takes one change to the app's turn fold.
 
 Out of scope: the subagents track row and the provider-subagent pane (plugins have no surface
 there), controlling runs (stop, resume, rerun), other providers, and any command text, tool output,
@@ -25,15 +27,16 @@ prompt, result or script.
 
 ## Decisions
 
-| Question       | Decision                                                                                                                                                     |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Where it shows | A timeline transformer replaces the `tool_call` named `Workflow` with a plugin item, and its renderer is the card. The plain card's script view goes away.   |
-| Packaging      | Built-in plugin `claude-workflows`, on for every instance at the next deploy. It only reads files.                                                           |
-| Data flow      | The card polls `claude-workflows.run.request` every 3 s while the run is Running and stops otherwise. The daemon runs no timers or watchers for it.          |
-| Finding a run  | The daemon derives every path from the agent's snapshot (Claude session id, cwd) and the run id. It never takes a path from the app.                         |
-| Reading        | Incremental: each file keeps a byte offset and its partial last line, and a poll reads only the bytes added since the last one.                              |
-| Liveness       | A run record means Completed or Killed. Without one, a live Claude process for the session that started before the newest agent means Running; else Stopped. |
-| Privacy        | Tool names, file paths, counts, tokens, times, labels and phases only.                                                                                       |
+| Question       | Decision                                                                                                                                                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where it shows | A timeline transformer replaces the `tool_call` named `Workflow` with a plugin item, and its renderer is the card. The plain card's script view goes away.                                                                                        |
+| Packaging      | Built-in plugin `claude-workflows`, on for every instance at the next deploy. It only reads files.                                                                                                                                                |
+| Data flow      | The card polls `claude-workflows.run.request` every 3 s while the run is Running and stops otherwise. The daemon runs no timers or watchers for it.                                                                                               |
+| Finding a run  | The daemon derives every path from the agent's snapshot (Claude session id, cwd) and the run id. When the agent's current session holds no such run, it looks in the other sessions of the cwd's project dir. It never takes a path from the app. |
+| Reading        | Incremental: each file keeps a byte offset and its partial last line, and a poll reads only the bytes added since the last one.                                                                                                                   |
+| Liveness       | A current run record means Completed or Killed; a record from before a resume does not count. Without one, a live Claude process for the session that holds the run, started before the newest agent, means Running; else Stopped.                |
+| Privacy        | Tool names, file paths, counts, tokens, times, labels and phases only.                                                                                                                                                                            |
+| Folded turns   | The app's turn fold keeps plugin rows in view, so a Running card stays mounted and keeps polling when its turn folds.                                                                                                                             |
 
 There is no wire change: the feature uses a plugin RPC and a client transformer. Plugin RPCs need
 `daemon.manage`, and a client without it loads no plugin code, so it keeps the plain card.
@@ -46,6 +49,12 @@ There is no wire change: the feature uses a plugin RPC and a client transformer.
 - `index.server.ts` and `server/`: locating a run, the incremental reader, the fold, the state
   check, the cache and the RPC handler.
 - `index.client.tsx` and `client/`: the transformer and the card renderer.
+
+In `packages/app`: Collapse turns, the default Chat display, folds a finished turn's work into one
+summary line. Its fold (`src/agent-stream/turn-collapse/model.ts`) keeps every plugin row in view,
+as it keeps compaction rows, rows that replace a tool call or reasoning included, so a Running card
+in a folded turn stays mounted and keeps polling. In an opened turn, plugin rows sit outside the
+indent rail.
 
 ## Where the data lives
 
@@ -103,10 +112,16 @@ replaces the card with a plugin item carrying the run id and the run's summary. 
 ## Server
 
 1. Locate:
-   - Get the agent's snapshot with `paseo.agents.ref(agentId).refresh()`. It must be a Claude agent
-     with a session id (`persistence.sessionId`) and a cwd.
+   - Get the agent's snapshot with `paseo.agents.ref(agentId).refresh()`. It must carry a session
+     id (`persistence.sessionId`) and a cwd. There is no provider check: derived Claude providers
+     carry their own ids, and a run is only ever found inside a Claude config dir.
    - In each config dir, try `projects/<slug>/<sessionId>/` first, then scan `projects/*` for the
      session id.
+   - When no config dir holds the run in that session, try the other session dirs under
+     `projects/<slug>/`, config dir by config dir: a `/clear`, or a hook that restarts Claude Code,
+     gives the agent a new session id while its earlier cards still name runs of the session it
+     left. Only names in the session id format count, and the first match wins. The state check
+     then asks about the session the run was found in.
    - The run id and session id must match their formats, and the resolved run dir must sit inside
      its config dir.
    - An agent id of the form `provider:<parent>:<sub>` resolves to `<parent>`.
@@ -129,10 +144,17 @@ replaces the card with a plugin item carrying the run id and the run's summary. 
      - first and last activity come from line timestamps.
 4. State check:
    - A run record gives Completed, or Killed when its status is `killed`. Only its status, end time
-     and name are read; the record holds prompts and results.
-   - Without a record, find a `<cfg>/sessions/<pid>.json` for the session whose process is alive,
-     whose `/proc/<pid>/stat` start time equals its procStart, and which started no later than the
-     newest agent's first activity. That gives Running; anything else gives Stopped.
+     and name are read; the record holds prompts and results. A record larger than 16 MiB, or one
+     without a string status, makes the run unreadable. A record that is not complete JSON counts
+     as not written yet, since Claude Code writes it once and a read can race the write.
+   - A resume rewrites the record only when it ends, so a record counts only while the journal has
+     not changed more than 1 s after the record's end time. An older record belongs to an earlier
+     attempt: the run goes to the process check, and the record's name still shows.
+   - Without a current record, find a `<cfg>/sessions/<pid>.json`, in the config dir that holds the
+     run, for the session the run was found in, whose process is alive, whose `/proc/<pid>/stat`
+     start time equals its procStart, and which started no later than the newest agent's first
+     activity, or than the journal's last change while that agent has not written yet. That gives
+     Running; anything else gives Stopped.
    - An agent with neither `result` nor `failed` is running in a Running run and stopped otherwise.
 5. Cache: one entry per run dir, holding each file's offset, partial line and fold, at most 32
    entries; when full, the least recently used goes first. A call drops entries no call has used
@@ -144,10 +166,13 @@ replaces the card with a plugin item carrying the run id and the run's summary. 
 ## Errors and edge cases
 
 - A file that fails to read marks only its agent unreadable; the rest of the card renders.
-- Missing run files, a non-Claude agent or a failed snapshot give Unavailable with one reason. The
-  summary and the run id stay visible. Whether an archived agent's snapshot can still be read is
-  checked early in the plan.
-- A failed refresh keeps the last data and shows "Refresh failed"; the next poll tries again.
+- Missing run files, an agent without a Claude session, or no snapshot for the agent give
+  Unavailable with one reason. The summary and the run id stay visible. Whether an archived agent's
+  snapshot can still be read is checked early in the plan.
+- A failed refresh keeps the last data and shows "Refresh failed"; the next poll tries again. A
+  snapshot read that fails counts as a failed refresh, so a transient error never stops polling. A
+  first load that fails shows "Unable to load the run" and does not poll; the next mount, or the
+  page turning visible again, tries again.
 - First reads of large files (agent files reach about 10 MB) go in 1 MB chunks, so the daemon's
   event loop is never held for long.
 - A daemon restart loses the cache; the next poll rebuilds it from offset zero.
@@ -157,21 +182,29 @@ replaces the card with a plugin item carrying the run id and the run's summary. 
 ## Testing
 
 - Unit, one file per run:
-  - the transformer: Workflow cards with and without a run id, other tools, other providers;
+  - the transformer: Workflow cards with and without a run id, other tools, and other result shapes,
+    since a transformer sees no provider;
   - locating a run: `CLAUDE_CONFIG_DIR`, `~/.claude` and `~/.claude-<name>` profiles, the cwd slug
-    and then the scan, bad ids, a run dir that escapes its config dir;
+    and then the scan, a run of an earlier session under the cwd's slug, bad ids, a run dir that
+    escapes its config dir;
   - the reader: appends, a partial last line, a file that shrank or was replaced, and a prompt that
     mentions `tool_use` not counted;
   - the fold: a resume, a failed agent, a killed run;
   - the state check against a fake `/proc` and sessions dir: live, a restarted process giving
     Stopped, records giving Completed and Killed;
-  - the RPC handler with a fake `paseo`, as shared-mcp's tests do.
+  - the RPC handler's body, called with an in-memory stand-in for `paseo.agents`, since a fake of
+    the whole plugin server context would need a cast; it also loads a run of the agent's earlier
+    session against that session's process;
+  - the app's turn fold: a folded turn keeps its plugin rows in view.
 - Fixtures are built in the tests from typed objects. Real transcripts are never copied, since they
   hold prompts.
 - Manual, on the dev daemon (port 6768, with the memory guard): a dev Claude agent runs a small
   3-agent workflow.
   - The card updates live, ends Completed, and polling stops.
+  - A Running card in a folded turn stays in view and keeps polling.
   - A run stopped with TaskStop shows Killed.
   - A run cut off by reloading the agent shows Stopped.
-  - A run from before the plugin existed loads once.
-- Docs: a paragraph in the "Built-in plugins" section of `docs/plugins.md`.
+  - A run from before the plugin existed loads once. Its files carry no trace of the plugin, so the
+    check reads finished runs after a dev daemon restart, from an empty cache.
+- Docs: a paragraph in the "Built-in plugins" section of `docs/plugins.md`, and a sentence at the
+  end of "Contribute timeline items" saying that a folded turn keeps plugin rows in view.
