@@ -60,11 +60,11 @@ const CURRENT: MoveTarget = moveTarget({
 });
 const CLAUDE: MoveTarget = moveTarget({ provider: "claude", label: "Claude", usedPct: 12 });
 
-function weeklyReport(usedPct: number): UsageReportEntry[] {
+function weeklyReport(usedPct: number, family = "claude"): UsageReportEntry[] {
   const weekly: ProviderUsageWindow = { id: "weekly", label: "Weekly", usedPct, resetsAt: RESETS };
   return [
     {
-      id: "claude:work",
+      id: `${family}:work`,
       account: {},
       fetchedAt: "2026-11-06T10:00:00.000Z",
       sourceId: "claude",
@@ -107,7 +107,7 @@ function harness(overrides: Partial<UsageWatchDeps> = {}): Harness {
     listUsageReportsForScope: async (scope) => {
       scopes.push(scope);
       const usedPct = usage.get(scope.provider);
-      return usedPct === undefined ? [] : weeklyReport(usedPct);
+      return usedPct === undefined ? [] : weeklyReport(usedPct, scope.provider);
     },
     listMoveTargets: async () => [CURRENT, CLAUDE],
     notify: async (notice) => {
@@ -216,7 +216,7 @@ describe("createUsageWatch", () => {
       runningAgents: async () => [FIX_LOGIN, { id: "agent-3", provider: "codex", title: "Port" }],
       listUsageReportsForScope: async (scope) => {
         if (scope.provider === "claude") throw new Error("vendor down");
-        return weeklyReport(81);
+        return weeklyReport(81, "codex");
       },
       listMoveTargets: async () => [],
     });
@@ -227,6 +227,29 @@ describe("createUsageWatch", () => {
       { agentId: "agent-3", provider: "codex", title: "Codex 81% of Weekly", body: "Port" },
     ]);
     expect(subject.logs).toEqual(["warn usage watch: check failed", "info usage watch: notified"]);
+  });
+
+  it("notifies once per account window when two providers read the same login", async () => {
+    const personal: ProviderLaunchInfo = {
+      ...WORK,
+      providerId: "claude-personal",
+      label: "Claude (personal)",
+    };
+    const subject = harness({
+      runningAgents: async () => [
+        FIX_LOGIN,
+        { id: "agent-2", provider: "claude-personal", title: "Docs" },
+      ],
+      launchInfo: (providerId) =>
+        [WORK, personal].find((info) => info.providerId === providerId) ?? null,
+    });
+
+    await checkAt(subject, [81, 96]);
+
+    expect(subject.notices.map((notice) => [notice.agentId, notice.title])).toEqual([
+      ["agent-1", "Claude (work) 81% of Weekly"],
+      ["agent-1", "Claude (work) 96% of Weekly"],
+    ]);
   });
 });
 

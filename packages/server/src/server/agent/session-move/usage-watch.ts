@@ -127,7 +127,7 @@ export function createUsageWatch(deps: UsageWatchDeps): UsageWatch {
       for (const window of entry.report.windows) {
         const usedPct = windowUsedPct(window);
         if (usedPct === null) continue;
-        const key = `${agent.provider}\n${entry.id}\n${window.id}`;
+        const key = `${entry.id}\n${window.id}`;
         if (crossings.observe({ key, usedPct }) === null) continue;
         await notifyCrossing({ agent, account: info.label, windowLabel: window.label, usedPct });
       }
@@ -207,7 +207,8 @@ export function startUsageWatch(input: StartUsageWatchInput): () => void {
     // A check still running skips this tick rather than piling up behind it.
     if (checking) return;
     checking = true;
-    // Never rejects or throws: either would exit the daemon (daemon-worker.ts:373-381).
+    // Never rejects or throws: either would exit the daemon, whose uncaughtException and
+    // unhandledRejection handlers in daemon-worker.ts end the process.
     void Promise.resolve()
       .then(() => input.watch.check())
       .catch((err: unknown) => {
