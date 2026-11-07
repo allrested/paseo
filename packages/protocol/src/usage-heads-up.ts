@@ -136,7 +136,6 @@ function isTighter(
 
 /** What the best-target choice reads from a move target. */
 export interface MoveTargetUsage {
-  provider: string;
   family: string;
   available: boolean;
   current: boolean;
@@ -147,10 +146,11 @@ export interface MoveTargetUsage {
 
 /**
  * Where a one-click move goes: the available target with the lowest usage, ties going to the
- * current account's family because that move is native. A target on pace to run out before its
- * reset comes after every one that is not, and a target with unknown usage after every known one.
- * A target has room below the current account's usage; an account on pace to run out also has room
- * on any target that is not and is below the heads-up level. Null when no target has room.
+ * current account's family because that move is native. Among known targets, one on pace to run
+ * out before its reset comes after every one that is not; a target with unknown usage comes after
+ * every known one. A target has room below the current account's usage; an account on pace to run
+ * out also has room on any target that is not and is below the heads-up level. Null when no
+ * target has room.
  */
 export function chooseBestMoveTarget<T extends MoveTargetUsage>(targets: readonly T[]): T | null {
   const current = targets.find((target) => target.current) ?? null;

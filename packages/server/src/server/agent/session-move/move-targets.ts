@@ -35,7 +35,8 @@ export interface MoveTargetInput {
 
 /**
  * The tightest window decides whether a target has room and what its heads-up says. A window on
- * pace to run out soon outranks a fuller one that will not, and a used-up window always wins.
+ * pace to run out soon outranks a fuller one with no projected run-out, and a used-up window
+ * always wins.
  */
 export function toMoveTarget(input: MoveTargetInput): MoveTarget {
   // Fork delta (usage heads-up): the nearer heads-up first, then the fuller window, then the
