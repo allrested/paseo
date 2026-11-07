@@ -36,6 +36,22 @@ describe("OpenCode v2 helper isolation", () => {
     ).toBe(false);
   });
 
+  test("shares the helper for agent-identity environment and a launch PATH", () => {
+    expect(
+      requiresDedicatedV2Server(
+        { provider: "opencode", cwd: "/tmp/project" },
+        {
+          agentId: "agent",
+          env: {
+            PASEO_AGENT_ID: "agent",
+            PASEO_AGENT_CWD: "/tmp/project",
+            PATH: "/shims:/usr/bin",
+          },
+        },
+      ),
+    ).toBe(false);
+  });
+
   test("dedicates a helper for any other process environment", () => {
     expect(
       requiresDedicatedV2Server(
