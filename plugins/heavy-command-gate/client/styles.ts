@@ -3,13 +3,16 @@ import { Platform } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 
 const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });
+// The settings kit's row hint and row error size (FONT_SIZE.sm in the app theme). The plugin
+// theme has colors only.
+const HINT_FONT_SIZE = 12;
 
 /** Styles both settings screens share, derived from the host theme. */
 export function useScreenStyles(theme: PluginTheme) {
   return useMemo(
     () => ({
-      muted: { color: theme.colors.foregroundMuted },
-      error: { color: theme.colors.statusDanger },
+      muted: { color: theme.colors.foregroundMuted, fontSize: HINT_FONT_SIZE },
+      error: { color: theme.colors.statusDanger, fontSize: HINT_FONT_SIZE },
       // SettingsCard has no padding of its own; its rows use 16.
       block: { padding: 16, gap: 8 },
       // A web textarea does not grow with its text, so the editor needs its own height.
