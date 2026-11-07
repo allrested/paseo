@@ -10,6 +10,7 @@ const DEFAULT_ROOTS: MemoryRoots = { procRoot: "/proc", cgroupRoot: "/sys/fs/cgr
 const MEM_AVAILABLE_LINE = /^MemAvailable:\s+(\d+) kB$/m;
 // The unified (v2) hierarchy is the line with hierarchy id 0 and no controller list.
 const CGROUP_V2_LINE = /^0::(\/.*)$/m;
+const INACTIVE_FILE_LINE = /^inactive_file (\d+)$/m;
 const COUNT = /^\d+$/;
 
 export function parseMemAvailableBytes(meminfo: string): number | null {
@@ -39,9 +40,21 @@ function readCount(path: string): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
-// memory.max minus memory.current of the daemon's own cgroup. Agents and their commands are the
-// daemon's descendants, so they share it. A hybrid v1/v2 host has no memory files in the v2
-// hierarchy and falls back to MemAvailable alone.
+// The inactive_file line of memory.stat; a missing file, a missing line and a value that is not a
+// safe integer read as null.
+function readInactiveFile(directory: string): number | null {
+  const stat = readText(join(directory, "memory.stat"));
+  const match = stat === null ? null : INACTIVE_FILE_LINE.exec(stat);
+  const value = match === null ? null : Number(match[1]);
+  return value !== null && Number.isSafeInteger(value) ? value : null;
+}
+
+// memory.max minus memory.current of the daemon's own cgroup, plus its inactive file cache from
+// memory.stat. memory.current counts reclaimable page cache, and a capped cgroup fills up to its
+// limit with it because the kernel reclaims only there, so the plain difference trends to 0. The
+// host's MemAvailable counts that cache as available too. Agents and their commands are the
+// daemon's descendants, so they share the cgroup. A hybrid v1/v2 host has no memory files in the
+// v2 hierarchy and falls back to MemAvailable alone.
 function readCgroupHeadroom(roots: MemoryRoots): number | null {
   const cgroup = readText(join(roots.procRoot, "self", "cgroup"));
   const path = cgroup === null ? null : parseCgroupV2Path(cgroup);
@@ -50,7 +63,7 @@ function readCgroupHeadroom(roots: MemoryRoots): number | null {
   const max = readCount(join(directory, "memory.max"));
   const current = readCount(join(directory, "memory.current"));
   if (max === null || current === null) return null;
-  return Math.max(0, max - current);
+  return Math.max(0, max - current + (readInactiveFile(directory) ?? 0));
 }
 
 /**
