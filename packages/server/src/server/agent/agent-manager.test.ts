@@ -13487,3 +13487,101 @@ test("stops only a currently owned public background item with its current token
   expect(stopped).toEqual(["one"]);
   await manager.closeAgent(agent.id);
 });
+
+test("closeRuntimeIfIdle closes an idle runtime that the next prompt resumes", async () => {
+  const h = idleCleanupHarness();
+  const agent = await h.create();
+  h.probes[0] = async () => true;
+
+  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBeNull();
+  expect(h.manager.getAgent(agent.id)).toBeNull();
+  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBeNull();
+  expect(h.closes).toBe(1);
+
+  const result = await h.manager.runAgent(agent.id, "after the close");
+  expect(result.sessionId).toBe(agent.persistence?.sessionId);
+  expect(h.prompts).toEqual(["after the close"]);
+});
+
+test("closeRuntimeIfIdle keeps a runtime whose provider vetoes or fails the probe", async () => {
+  const h = idleCleanupHarness();
+  const agent = await h.create();
+  const background = "Agent may still run background work; close it once that ends";
+
+  h.probes[0] = async () => false;
+  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBe(background);
+  h.probes[0] = async () => {
+    throw new Error("roster unavailable");
+  };
+  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBe(background);
+
+  expect(h.closes).toBe(0);
+  expect(h.manager.getAgent(agent.id)).not.toBeNull();
+});
+
+test("closeRuntimeIfIdle refuses when a prompt arrives during the safety probe", async () => {
+  const h = idleCleanupHarness();
+  const agent = await h.create();
+  const entered = deferred<void>();
+  const probe = deferred<boolean>();
+  h.probes[0] = () => {
+    entered.resolve();
+    return probe.promise;
+  };
+
+  const close = h.manager.closeRuntimeIfIdle(agent.id);
+  await entered.promise;
+  await h.manager.runAgent(agent.id, "arrived during safety query");
+  probe.resolve(true);
+
+  expect(await close).toBe("Agent is busy; close it once it is idle");
+  expect(h.closes).toBe(0);
+});
+
+test("closeRuntimeIfIdle makes a prompt racing the close wait for it and resume once", async () => {
+  const h = idleCleanupHarness();
+  const agent = await h.create();
+  h.probes[0] = async () => true;
+  const gate = deferred<void>();
+  h.holdClose(gate.promise);
+
+  const close = h.manager.closeRuntimeIfIdle(agent.id);
+  await h.closeEntered.promise;
+  const run = h.manager.runAgent(agent.id, "arrived while closing");
+  gate.resolve();
+
+  expect(await close).toBeNull();
+  const result = await run;
+  expect(result.sessionId).toBe(agent.persistence?.sessionId);
+  expect(h.closes).toBe(1);
+  expect(h.prompts).toEqual(["arrived while closing"]);
+});
+
+test("closeRuntimeIfIdle refuses an agent without a saved session to resume", async () => {
+  let closes = 0;
+  const client = new (class extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      const session = await super.createSession(config);
+      const runtimeInfo = session.getRuntimeInfo.bind(session);
+      session.getRuntimeInfo = async () => ({ ...(await runtimeInfo()), sessionId: null });
+      session.describePersistence = () => null;
+      session.canStopRuntime = async () => true;
+      session.close = async () => {
+        closes++;
+      };
+      return session;
+    }
+  })();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  const agent = await manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+    workspaceId: undefined,
+  });
+  onTestFinished(() => manager.closeAgent(agent.id));
+
+  expect(agent.persistence).toBeNull();
+  expect(await manager.closeRuntimeIfIdle(agent.id)).toBe(
+    "This agent has no saved session to resume, so it stays open",
+  );
+  expect(closes).toBe(0);
+  expect(manager.getAgent(agent.id)).not.toBeNull();
+});

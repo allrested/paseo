@@ -3086,6 +3086,8 @@ export class Session {
     switch (msg.type) {
       case "agent.detach.request":
         return this.handleDetachAgentRequest(msg.agentId, msg.requestId);
+      case "agent.runtime.close.request":
+        return this.handleCloseAgentRuntimeRequest(msg.agentId, msg.requestId);
       default:
         return undefined;
     }
@@ -3795,6 +3797,36 @@ export class Session {
           accepted: false,
           error: message,
         },
+      });
+    }
+  }
+
+  private async handleCloseAgentRuntimeRequest(agentId: string, requestId: string): Promise<void> {
+    this.sessionLogger.info({ agentId, requestId }, "Closing agent runtime");
+
+    try {
+      const knownAgent =
+        this.agentManager.getAgent(agentId) ?? (await this.agentStorage.get(agentId));
+      if (!knownAgent) {
+        this.emit({
+          type: "agent.runtime.close.response",
+          payload: { requestId, agentId, accepted: false, error: `Agent ${agentId} not found` },
+        });
+        return;
+      }
+
+      // The manager makes idle collection's checks; a refusal comes back as its reason.
+      const refusal = await this.agentManager.closeRuntimeIfIdle(agentId);
+      this.emit({
+        type: "agent.runtime.close.response",
+        payload: { requestId, agentId, accepted: refusal === null, error: refusal },
+      });
+    } catch (error) {
+      const message = getErrorMessageOr(error, "Failed to close agent runtime");
+      this.sessionLogger.error({ err: error, agentId, requestId }, "Failed to close agent runtime");
+      this.emit({
+        type: "agent.runtime.close.response",
+        payload: { requestId, agentId, accepted: false, error: message },
       });
     }
   }

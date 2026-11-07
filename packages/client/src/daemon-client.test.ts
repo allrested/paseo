@@ -5752,6 +5752,95 @@ test("detaches an agent through the namespaced detach RPC", async () => {
   await expect(promise).resolves.toBeUndefined();
 });
 
+test("closeAgentRuntime sends agent.runtime.close and resolves when accepted", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen({ features: { ownedSubscriptions: true, agentRuntimeClose: true } });
+  await connectPromise;
+
+  const promise = client.closeAgentRuntime("agent-1");
+
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({ type: "agent.runtime.close.request", agentId: "agent-1" });
+  expect(typeof request.requestId).toBe("string");
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.runtime.close.response",
+      payload: { requestId: request.requestId, agentId: "agent-1", accepted: true, error: null },
+    }),
+  );
+
+  await expect(promise).resolves.toBeUndefined();
+});
+
+test("closeAgentRuntime rejects with the reason the daemon keeps the runtime", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen({ features: { ownedSubscriptions: true, agentRuntimeClose: true } });
+  await connectPromise;
+
+  const promise = client.closeAgentRuntime("agent-busy");
+  const request = parseSentFrame(mock.sent[0]);
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.runtime.close.response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "agent-busy",
+        accepted: false,
+        error: "Agent is busy; close it once it is idle",
+      },
+    }),
+  );
+
+  await expect(promise).rejects.toThrow("Agent is busy; close it once it is idle");
+});
+
+test("closeAgentRuntime fails fast on a host without agentRuntimeClose", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  await expect(client.closeAgentRuntime("agent-old-host")).rejects.toThrow(
+    "Update the host to close agent runtimes.",
+  );
+  expect(mock.sent).toEqual([]);
+});
+
 test("sends active-scoped fetch_agents_request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

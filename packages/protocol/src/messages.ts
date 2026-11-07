@@ -2142,6 +2142,19 @@ export const AgentDetachResponseMessageSchema = z.object({
   payload: AgentActionResponsePayloadSchema,
 });
 
+// Ends an idle agent's runtime; the agent stays and its next prompt resumes it. The daemon makes
+// idle collection's checks first and answers accepted: false with the reason when one fails.
+export const AgentRuntimeCloseRequestMessageSchema = z.object({
+  type: z.literal("agent.runtime.close.request"),
+  agentId: z.string(),
+  requestId: z.string(),
+});
+
+export const AgentRuntimeCloseResponseMessageSchema = z.object({
+  type: z.literal("agent.runtime.close.response"),
+  payload: AgentActionResponsePayloadSchema,
+});
+
 export const AgentRewindModeSchema = z.enum(["conversation", "files", "both"]);
 
 export const AgentRewindRequestMessageSchema = z.object({
@@ -3535,6 +3548,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
   AgentDetachRequestMessageSchema,
+  AgentRuntimeCloseRequestMessageSchema,
   AgentRewindRequestMessageSchema,
   AgentMoveRequestMessageSchema,
   AgentMoveBackRequestMessageSchema,
@@ -3840,6 +3854,9 @@ export const ServerInfoStatusPayloadSchema = z
         // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel, and usage
         // windows a projected run-out.
         usageHeadsUp: z.boolean().optional(),
+        // Fork delta (resource manager): the agent.runtime.close RPC.
+        // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
+        agentRuntimeClose: z.boolean().optional(),
         // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
         usageSetting: z.boolean().optional(),
         usageSources: z.boolean().optional(),
@@ -7403,6 +7420,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
   AgentDetachResponseMessageSchema,
+  AgentRuntimeCloseResponseMessageSchema,
   AgentRewindResponseMessageSchema,
   AgentMoveResponseMessageSchema,
   AgentMoveBackResponseMessageSchema,
@@ -7613,6 +7631,9 @@ export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingRes
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
 export type AgentConfigApplyResponseMessage = z.infer<typeof AgentConfigApplyResponseMessageSchema>;
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
+export type AgentRuntimeCloseResponseMessage = z.infer<
+  typeof AgentRuntimeCloseResponseMessageSchema
+>;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
 export type AgentMoveResponseMessage = z.infer<typeof AgentMoveResponseMessageSchema>;
 export type AgentMoveBackResponseMessage = z.infer<typeof AgentMoveBackResponseMessageSchema>;
@@ -7793,6 +7814,7 @@ export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequ
 export type SetAgentFeatureRequestMessage = z.infer<typeof SetAgentFeatureRequestMessageSchema>;
 export type AgentConfigApplyRequestMessage = z.infer<typeof AgentConfigApplyRequestMessageSchema>;
 export type AgentDetachRequestMessage = z.infer<typeof AgentDetachRequestMessageSchema>;
+export type AgentRuntimeCloseRequestMessage = z.infer<typeof AgentRuntimeCloseRequestMessageSchema>;
 export type AgentPermissionResponseMessage = z.infer<typeof AgentPermissionResponseMessageSchema>;
 export type CheckoutStatusRequest = z.infer<typeof CheckoutStatusRequestSchema>;
 export type CheckoutStatusResponse = z.infer<typeof CheckoutStatusResponseSchema>;

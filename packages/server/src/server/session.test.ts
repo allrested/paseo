@@ -1771,6 +1771,126 @@ describe("agent detach RPC", () => {
   });
 });
 
+describe("agent runtime close RPC", () => {
+  test("closes an idle agent's runtime and accepts", async () => {
+    const messages: unknown[] = [];
+    const getAgent = vi.fn(() => ({ id: "agent-1" }));
+    const closeRuntimeIfIdle = vi.fn().mockResolvedValue(null);
+    const get = vi.fn().mockResolvedValue(null);
+    const session = createSessionForTest({
+      messages,
+      agentManager: { getAgent, closeRuntimeIfIdle },
+      agentStorage: { get },
+    });
+
+    await session.handleMessage({
+      type: "agent.runtime.close.request",
+      agentId: "agent-1",
+      requestId: "close-1",
+    });
+
+    expect(getAgent).toHaveBeenCalledWith("agent-1");
+    expect(get).not.toHaveBeenCalled();
+    expect(closeRuntimeIfIdle).toHaveBeenCalledWith("agent-1");
+    expect(messages).toContainEqual({
+      type: "agent.runtime.close.response",
+      payload: { requestId: "close-1", agentId: "agent-1", accepted: true, error: null },
+    });
+  });
+
+  test("refuses an agent the daemon does not know", async () => {
+    const messages: unknown[] = [];
+    const getAgent = vi.fn(() => null);
+    const closeRuntimeIfIdle = vi.fn().mockResolvedValue(null);
+    const get = vi.fn().mockResolvedValue(null);
+    const session = createSessionForTest({
+      messages,
+      agentManager: { getAgent, closeRuntimeIfIdle },
+      agentStorage: { get },
+    });
+
+    await session.handleMessage({
+      type: "agent.runtime.close.request",
+      agentId: "missing-agent",
+      requestId: "close-2",
+    });
+
+    expect(getAgent).toHaveBeenCalledWith("missing-agent");
+    expect(get).toHaveBeenCalledWith("missing-agent");
+    expect(closeRuntimeIfIdle).not.toHaveBeenCalled();
+    expect(messages).toContainEqual({
+      type: "agent.runtime.close.response",
+      payload: {
+        requestId: "close-2",
+        agentId: "missing-agent",
+        accepted: false,
+        error: "Agent missing-agent not found",
+      },
+    });
+  });
+
+  test("passes on the reason an agent keeps its runtime", async () => {
+    const messages: unknown[] = [];
+    const getAgent = vi.fn(() => ({ id: "agent-4" }));
+    const closeRuntimeIfIdle = vi
+      .fn()
+      .mockResolvedValue("Agent may still run background work; close it once that ends");
+    const get = vi.fn().mockResolvedValue(null);
+    const session = createSessionForTest({
+      messages,
+      agentManager: { getAgent, closeRuntimeIfIdle },
+      agentStorage: { get },
+    });
+
+    await session.handleMessage({
+      type: "agent.runtime.close.request",
+      agentId: "agent-4",
+      requestId: "close-4",
+    });
+
+    expect(closeRuntimeIfIdle).toHaveBeenCalledWith("agent-4");
+    expect(messages).toContainEqual({
+      type: "agent.runtime.close.response",
+      payload: {
+        requestId: "close-4",
+        agentId: "agent-4",
+        accepted: false,
+        error: "Agent may still run background work; close it once that ends",
+      },
+    });
+  });
+
+  test("reports a failed close", async () => {
+    const messages: unknown[] = [];
+    const getAgent = vi.fn(() => null);
+    const closeRuntimeIfIdle = vi.fn().mockRejectedValue(new Error("provider did not exit"));
+    const get = vi.fn().mockResolvedValue({ id: "agent-3" });
+    const session = createSessionForTest({
+      messages,
+      agentManager: { getAgent, closeRuntimeIfIdle },
+      agentStorage: { get },
+    });
+
+    await session.handleMessage({
+      type: "agent.runtime.close.request",
+      agentId: "agent-3",
+      requestId: "close-3",
+    });
+
+    expect(get).toHaveBeenCalledWith("agent-3");
+    expect(closeRuntimeIfIdle).toHaveBeenCalledWith("agent-3");
+    expect(messages).toContainEqual({
+      type: "agent.runtime.close.response",
+      payload: {
+        requestId: "close-3",
+        agentId: "agent-3",
+        accepted: false,
+        error: "provider did not exit",
+      },
+    });
+  });
+});
+
 function createProjectRecord(rootPath: string, archivedAt: string | null = null) {
   return {
     projectId: `project:${rootPath}`,

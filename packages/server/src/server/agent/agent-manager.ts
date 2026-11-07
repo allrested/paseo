@@ -112,6 +112,11 @@ import { extractAttention } from "../persistence-hooks.js";
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
 const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
 const IMPORTABLE_SESSION_LIST_TIMEOUT_MS = 90_000;
+// Idle collection gives a provider's safety probe the same limit (idle-runtime-cleanup/index.ts).
+const RUNTIME_SAFETY_PROBE_TIMEOUT_MS = 10_000;
+const CLOSE_REFUSED_NO_SESSION = "This agent has no saved session to resume, so it stays open";
+const CLOSE_REFUSED_BUSY = "Agent is busy; close it once it is idle";
+const CLOSE_REFUSED_BACKGROUND = "Agent may still run background work; close it once that ends";
 const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: false,
   supportsSessionPersistence: true,
@@ -2150,6 +2155,56 @@ export class AgentManager {
     };
     void close.then(clearClose, clearClose);
     return close;
+  }
+
+  /**
+   * Closes one agent's runtime on request after the checks idle collection makes: a saved
+   * session, no pending work, the provider's background-work probe, then a recheck in the
+   * lifecycle lane behind the prompt barrier. Resolves null once the runtime is closed, or when it
+   * is not loaded, else the reason it stays open. It skips the collector's family and caller
+   * checks: a child keeps its own runtime, and a delivery resumes this agent as a prompt does.
+   */
+  async closeRuntimeIfIdle(agentId: string): Promise<string | null> {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    if (!agent.persistence?.sessionId) return CLOSE_REFUSED_NO_SESSION;
+    const updatedAt = agent.updatedAt;
+    const isEligible = () =>
+      this.agents.get(agentId) === agent &&
+      agent.updatedAt === updatedAt &&
+      this.runtimeHasNoPendingWork(agent);
+    if (!isEligible()) return CLOSE_REFUSED_BUSY;
+    if (!(await this.providerAllowsRuntimeStop(agent))) return CLOSE_REFUSED_BACKGROUND;
+    // Block prompt admission before entering the close lane, as idle collection does. A prompt
+    // admitted during the probe changed updatedAt, so the recheck in the lane refuses the close.
+    this.collectingRuntimes.add(agentId);
+    try {
+      const closed = await this.runLifecycleMutation(agentId, async () => {
+        // A close or archive queued ahead of this one may have released the runtime already.
+        if (!this.agents.has(agentId)) return true;
+        return this.closeAgentRuntime(agentId, isEligible);
+      });
+      return closed ? null : CLOSE_REFUSED_BUSY;
+    } finally {
+      this.collectingRuntimes.delete(agentId);
+    }
+  }
+
+  // Idle collection's provider veto: false, an error or a timeout keeps the runtime.
+  private async providerAllowsRuntimeStop(agent: LiveManagedAgent): Promise<boolean> {
+    const canStopRuntime = agent.session.canStopRuntime?.bind(agent.session);
+    if (!canStopRuntime) return true;
+    try {
+      const allowed = await withTimeout(
+        canStopRuntime(),
+        RUNTIME_SAFETY_PROBE_TIMEOUT_MS,
+        `Runtime safety probe timed out for ${agent.id}`,
+      );
+      return allowed === true;
+    } catch (error) {
+      this.logger.warn({ err: error, agentId: agent.id }, "Runtime safety probe failed");
+      return false;
+    }
   }
 
   private async closeAgentRuntime(agentId: string, canClose?: () => boolean): Promise<boolean> {
@@ -5727,6 +5782,7 @@ export class AgentManager {
     }
   }
 
+  // eslint-disable-next-line complexity
   private dispatch(event: AgentManagerEvent): void {
     for (const subscriber of this.subscribers) {
       if (
