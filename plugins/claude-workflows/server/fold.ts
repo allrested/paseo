@@ -84,7 +84,7 @@ export interface LastToolUse {
 export interface AgentFold {
   toolCalls: number;
   lastTool: LastToolUse | null;
-  /** The newest context size: input, cache read, cache creation and output tokens. */
+  /** The newest nonzero context size: input, cache read, cache creation and output tokens. */
   tokens: number | null;
   /** Epoch milliseconds. */
   firstActivityAt: number | null;
@@ -182,7 +182,11 @@ function foldAssistant(fold: AgentFold, line: AssistantLine): void {
   const { usage } = line.message;
   if (usage === undefined) return;
   const cached = usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
-  fold.tokens = usage.input_tokens + cached + usage.output_tokens;
+  const total = usage.input_tokens + cached + usage.output_tokens;
+  // Claude Code writes an API error as a synthetic message with all four counts at 0. A real
+  // response always counts its input, so a zero total is no context size and keeps the last one.
+  if (total === 0) return;
+  fold.tokens = total;
 }
 
 function foldUser(fold: AgentFold, line: UserLine): void {
