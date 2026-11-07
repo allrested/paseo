@@ -78,6 +78,12 @@ const CASES: Case[] = [
   command("gradle build", GB2),
   command("gradlew assemble", GB2),
   command("pytest -x", null),
+  command("tsc --version", null),
+  command("npx tsc --version", null),
+  command("vitest --help", null),
+  command("npm test --help", null),
+  command("npm test -- --help", GB2),
+  command("tsc -v", GB3),
 ];
 
 describe.each([
