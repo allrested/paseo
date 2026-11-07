@@ -2,6 +2,16 @@ import { createRestartRecovery } from "./agent/restart-recovery/index.js";
 import { sendPromptToAgent } from "./agent/agent-prompt.js";
 import { createIdleRuntimeCleanup } from "./agent/idle-runtime-cleanup/index.js";
 import {
+  listAgentMoveTargets,
+  moveTargetProvidersFrom,
+  sharedMoveTargetUsage,
+} from "./agent/session-move/list-move-targets.js";
+import {
+  createUsageWatch,
+  isWatchedAgent,
+  startUsageWatch,
+} from "./agent/session-move/usage-watch.js";
+import {
   createFinishSubscriptions,
   createFinishObservation,
   createJsonFinishSubscriptionStore,
@@ -748,6 +758,7 @@ export async function createPaseoDaemon(
     appBaseUrl = typeof value === "string" ? value : "https://app.paseo.sh";
   });
   let wsServer: VoiceAssistantWebSocketServer | null = null;
+  let stopUsageWatch: (() => void) | null = null;
   let serviceProxyListenTarget: ListenTarget | null = null;
   const scriptHealthMonitor = new ScriptHealthMonitor({
     serviceProxy,
@@ -1900,6 +1911,46 @@ export async function createPaseoDaemon(
             restartRecovery.resumePending();
             await finishSubscriptions.start();
             wsServer.beginAcceptingConnections();
+            // Fork delta (usage heads-up): one notice when an account window crosses 80% and 95%.
+            const usageWatchLogger = logger.child({ module: "usage-watch" });
+            const isUsageEnabled = () => daemonConfigStore.get().usage?.enabled !== false;
+            stopUsageWatch = startUsageWatch({
+              watch: createUsageWatch({
+                runningAgents: async () =>
+                  Promise.all(
+                    agentManager
+                      .listAgents()
+                      .filter((agent) => isWatchedAgent(agent))
+                      .map(async (agent) => ({
+                        id: agent.id,
+                        provider: agent.provider,
+                        title: (await agentStorage.get(agent.id))?.title ?? null,
+                      })),
+                  ),
+                launchInfo: (providerId) =>
+                  providerSnapshotManager.getProviderLaunchInfo(providerId),
+                usageEnabled: isUsageEnabled,
+                listUsageReportsForScope: (scope) => pluginRuntime.listUsageReportsForScope(scope),
+                listMoveTargets: (agentId) =>
+                  listAgentMoveTargets({
+                    agentId,
+                    findAgent: async (id) =>
+                      agentManager.getAgent(id) ?? (await agentStorage.get(id)),
+                    providers: moveTargetProvidersFrom(providerSnapshotManager),
+                    usageEnabled: isUsageEnabled(),
+                    listUsageReportsForScope: (scope) =>
+                      pluginRuntime.listUsageReportsForScope(scope),
+                    usageLookup: sharedMoveTargetUsage,
+                    logger: usageWatchLogger,
+                    now: Date.now(),
+                  }),
+                notify: async (notice) => {
+                  await wsServer?.broadcastUsageAttention(notice);
+                },
+                logger: usageWatchLogger,
+              }),
+              logger: usageWatchLogger,
+            });
             const relaySecurityLogger = logger.child({ module: "relay-security" });
             relayRuntime = createRelayRuntime({
               config: {
@@ -1987,6 +2038,8 @@ export async function createPaseoDaemon(
     scriptHealthMonitor.stop();
     unsubscribeIdleRuntimeCleanup();
     await idleRuntimeCleanup.close();
+    stopUsageWatch?.();
+    stopUsageWatch = null;
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
     await finishSubscriptions.close();
