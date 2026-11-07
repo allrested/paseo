@@ -91,11 +91,12 @@ function SupportedMoveBanner({ serverId, workspaceId, agentId }: MoveBannerProps
   const kind = resolveMoveBannerKind(facts);
   if (facts.kind === "inactive") return null;
   if (kind === "none" && !headsUpSupported) return null;
-  // Keyed by kind, so a Move back notice that turns into a limit mounts a new targets observer,
-  // which reads the targets again instead of naming a reset from the last Move back fetch.
+  // Keyed by agent and kind, so a tab that follows a moved agent, or a Move back notice that turns
+  // into a limit, mounts a new targets observer. It reads the targets again instead of showing the
+  // last agent's accounts or naming a reset from the last Move back fetch.
   return (
     <MoveBannerNotice
-      key={kind}
+      key={`${agentId}:${kind}`}
       serverId={serverId}
       workspaceId={workspaceId}
       agentId={agentId}
@@ -122,15 +123,16 @@ function MoveBannerNotice({
 }: MoveBannerNoticeProps) {
   const isPanelActive = useRetainedPanelActive();
   const isAppVisible = useAppVisible();
-  // A hidden tab fetches nothing, and only a Move back on screen polls the original's account.
+  // A hidden tab or app fetches nothing, and showing it again refetches a list older than the
+  // query's stale time (native has no focus manager). Only a Move back on screen polls the
+  // original's account; with the heads-up, a visible panel polls the agent's own account.
   const isMoveBackOnScreen = kind === "moved-from" && isPanelActive;
-  // The heads-up polls only while the app is visible: native has no focus manager to pause it.
   const isHeadsUpOnScreen = headsUpSupported && isPanelActive && isAppVisible;
   const movedFromProvider = facts.kind === "live" ? facts.movedFromProvider : null;
   const { canMove, targets, move, moveBack, status } = useAgentMove({
     serverId,
     agentId,
-    targetsEnabled: isPanelActive,
+    targetsEnabled: isPanelActive && isAppVisible,
     recheckProvider: isMoveBackOnScreen ? movedFromProvider : null,
     pollTargets: isHeadsUpOnScreen,
   });
