@@ -168,6 +168,8 @@ const INBOUND_PERMISSION = {
   project_icon_request: "workspace.read",
   "provider.usage.list.request": "daemon.read",
   "usage.list_reports.request": "daemon.read",
+  // Fork delta (claude accounts): one provider's usage.
+  "usage.provider.list_reports.request": "daemon.read",
   provider_diagnostic_request: "daemon.read",
   pull_request_timeline_request: "workspace.read",
   "push.unregister.request": "workspace.read",
@@ -426,6 +428,8 @@ const OUTBOUND_PERMISSION = {
   "provider.usage.list.response": "daemon.read",
   "usage.list_reports.update": "daemon.read",
   "usage.list_reports.response": "daemon.read",
+  // Fork delta (claude accounts): one provider's usage.
+  "usage.provider.list_reports.response": "daemon.read",
   provider_diagnostic_response: "daemon.read",
   providers_snapshot_update: ["daemon.read", "hub.execute"],
   pull_request_timeline_response: "workspace.read",

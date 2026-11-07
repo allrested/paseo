@@ -2054,6 +2054,8 @@ export class VoiceAssistantWebSocketServer {
         connectedHosts: true,
         hostMultiplexing: true,
         agentMove: true,
+        // Fork delta (claude accounts): the usage.provider.list_reports RPC.
+        usageProviderReports: true,
         // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel.
         usageHeadsUp: true,
         // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
