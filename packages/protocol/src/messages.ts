@@ -5355,6 +5355,7 @@ export const AgentAttentionRequiredMessageSchema = z.object({
   payload: z.object({
     subscriptionId: z.string().optional(),
     agentId: z.string(),
+    // Fork delta (usage heads-up): the reason may be "usage".
     reason: AgentAttentionNotificationReasonSchema,
     timestamp: z.string(),
     shouldNotify: z.boolean(),
@@ -5366,6 +5367,7 @@ export const AgentAttentionRequiredMessageSchema = z.object({
           serverId: z.string(),
           workspaceId: z.string().optional(),
           agentId: z.string(),
+          // Fork delta (usage heads-up): the reason may be "usage".
           reason: AgentAttentionNotificationReasonSchema,
         }),
       })

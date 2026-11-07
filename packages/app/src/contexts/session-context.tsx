@@ -19,6 +19,7 @@ import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import { parseServerInfoStatusPayload } from "@getpaseo/protocol/messages";
 import {
   buildAgentAttentionNotificationPayload,
+  // Fork delta (usage heads-up): the usage reason joins the attention reasons.
   type AgentAttentionNotificationReason,
   type AgentAttentionNotificationPayload,
   type NotificationPermissionRequest,
@@ -136,6 +137,7 @@ const getLatestPermissionRequest = (
 
 interface AgentAttentionNotificationInput {
   notification?: AgentAttentionNotificationPayload;
+  // Fork delta (usage heads-up): the reason may be "usage".
   reason: AgentAttentionNotificationReason;
   serverId: string;
   workspaceId: string | undefined;
@@ -260,6 +262,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   const notifyAgentAttention = useCallback(
     (params: {
       agentId: string;
+      // Fork delta (usage heads-up): the reason may be "usage".
       reason: AgentAttentionNotificationReason;
       timestamp: string;
       notification?: AgentAttentionNotificationPayload;
