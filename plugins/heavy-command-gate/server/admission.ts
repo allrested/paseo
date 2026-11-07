@@ -41,8 +41,8 @@ export interface AdmissionDecision {
  * Admits waiters in queue order while a slot is free and free memory covers the estimate plus the
  * reserve. Free memory is a reading of what processes use now, so memory promised to a running
  * command that it has not touched yet (its estimate minus its RSS) is kept back, as is the whole
- * estimate of a command admitted in this pass. A waiter older than the starvation time starts when
- * nothing holds a slot: the memory is then held by something the gate cannot free.
+ * estimate of a command admitted in this pass. A waiter that has waited at least the starvation
+ * time starts when nothing holds a slot: the memory is then held by something the gate cannot free.
  */
 export function decideAdmission(input: AdmissionInput): AdmissionDecision {
   const admitted: Admission[] = [];
