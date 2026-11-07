@@ -349,10 +349,15 @@ type OpenCodeAgentConfig = Omit<AgentSessionConfig, "providerOptions"> & {
   providerOptions: OpenCodeProviderOptions;
 };
 
+// Agent identity env and PATH reach each session's shell through the tool bridge, whose
+// `shell.env` hook hands the shell the launch env its session was bound with (a child session
+// gets its parent's), so they must not force a dedicated server. Any other env key belongs to
+// the process.
 const OPENCODE_SESSION_ENV_KEYS = new Set([
   "PASEO_AGENT_ID",
   "PASEO_AGENT_CWD",
   "PASEO_WORKSPACE_ID",
+  "PATH",
 ]);
 
 function requiresDedicatedOpenCodeServer(

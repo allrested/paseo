@@ -14,6 +14,7 @@ import {
   translateOpenCodeEvent,
 } from "./opencode-agent.js";
 import { streamSession } from "./test-utils/session-stream-adapter.js";
+import { OpenCodeBridge } from "./opencode/bridge.js";
 import {
   TestOpenCodeClient,
   TestOpenCodeHarness,
@@ -4148,6 +4149,41 @@ describe("OpenCodeAgentClient env", () => {
       });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("shares the server when the launch env adds only PATH to the agent identity", async () => {
+    const paseoHome = tmpCwd();
+    const bridge = new OpenCodeBridge({ paseoHome, logger: createTestLogger() });
+    await bridge.start();
+    const runtime = new TestOpenCodeHarness();
+    runtime.enqueueClient(new TestOpenCodeClient());
+    const cwd = tmpCwd();
+    const client = new OpenCodeAgentClient(createTestLogger(), undefined, {
+      serverManager: runtime,
+      createClient: runtime.createClient,
+      bridge,
+    });
+
+    try {
+      const session = await client.createSession(
+        { provider: "opencode", cwd },
+        {
+          agentId: "agent-one",
+          env: {
+            PASEO_AGENT_ID: "agent-one",
+            PASEO_AGENT_CWD: cwd,
+            PATH: "/opt/paseo-home/heavy-command-gate/bin:/usr/bin:/bin",
+          },
+        },
+      );
+      await session.close();
+
+      expect(runtime.acquisitions).toEqual([{ kind: "current", releaseCount: 1 }]);
+    } finally {
+      await bridge.close();
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(paseoHome, { recursive: true, force: true });
     }
   });
 });
