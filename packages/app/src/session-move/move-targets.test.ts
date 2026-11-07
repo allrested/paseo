@@ -226,4 +226,14 @@ describe("moveTargetsRefetchMs", () => {
       moveTargetsRefetchMs({ pollTargets: false, recheckProvider: null, targets: usedUp }),
     ).toBe(false);
   });
+
+  it("polls for the heads-up even when the original's account has room", () => {
+    expect(
+      moveTargetsRefetchMs({
+        pollTargets: true,
+        recheckProvider: "claude",
+        targets: [target({ provider: "claude", usedPct: 50 })],
+      }),
+    ).toBe(MOVE_BACK_RECHECK_MS);
+  });
 });
