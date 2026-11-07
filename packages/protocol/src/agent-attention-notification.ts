@@ -9,6 +9,8 @@ export type AgentAttentionReason = "finished" | "error" | "permission";
  */
 export type AgentAttentionNotificationReason = AgentAttentionReason | "usage";
 
+// Fork delta (usage heads-up): the reason is a type parameter on both interfaces, so a usage
+// notice and an agent's own notice carry different reason types.
 export interface AgentAttentionNotificationData<
   Reason extends AgentAttentionNotificationReason = AgentAttentionNotificationReason,
 > {
@@ -204,6 +206,7 @@ function resolveAgentAttentionFallbackBody(reason: AgentAttentionReason): string
   return "Finished working.";
 }
 
+// Fork delta (usage heads-up): the payload is narrowed to an agent's own reasons, never "usage".
 export function buildAgentAttentionNotificationPayload(
   input: BuildAgentAttentionNotificationPayloadInput,
 ): AgentAttentionNotificationPayload<AgentAttentionReason> {

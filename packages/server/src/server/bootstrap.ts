@@ -1,6 +1,7 @@
 import { createRestartRecovery } from "./agent/restart-recovery/index.js";
 import { sendPromptToAgent } from "./agent/agent-prompt.js";
 import { createIdleRuntimeCleanup } from "./agent/idle-runtime-cleanup/index.js";
+// Fork delta (usage heads-up): the usage watch and the move targets it reads.
 import {
   listAgentMoveTargets,
   moveTargetProvidersFrom,
@@ -758,6 +759,7 @@ export async function createPaseoDaemon(
     appBaseUrl = typeof value === "string" ? value : "https://app.paseo.sh";
   });
   let wsServer: VoiceAssistantWebSocketServer | null = null;
+  // Fork delta (usage heads-up): stops the usage watch.
   let stopUsageWatch: (() => void) | null = null;
   let serviceProxyListenTarget: ListenTarget | null = null;
   const scriptHealthMonitor = new ScriptHealthMonitor({
@@ -2041,6 +2043,7 @@ export async function createPaseoDaemon(
     scriptHealthMonitor.stop();
     unsubscribeIdleRuntimeCleanup();
     await idleRuntimeCleanup.close();
+    // Fork delta (usage heads-up): the usage watch stops with the daemon.
     stopUsageWatch?.();
     stopUsageWatch = null;
     // Freeze both ingress and registration before taking the agent closure snapshot.

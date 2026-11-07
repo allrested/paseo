@@ -25,6 +25,7 @@ import type { z } from "zod";
 import type { SessionEventSubscription } from "@getpaseo/protocol/messages";
 import type { LocalSpeechModel } from "@getpaseo/protocol/speech/rpc-schemas";
 import { CLIENT_CAPS, type ClientCapability } from "@getpaseo/protocol/client-capabilities";
+// Fork delta (usage heads-up): the usage reason joins the attention reasons.
 import type {
   AgentAttentionNotificationPayload,
   AgentAttentionNotificationReason,
@@ -481,6 +482,7 @@ export interface SendMessageOptions {
 
 export interface AgentAttentionRequiredNotification {
   agentId: string;
+  // Fork delta (usage heads-up): the reason may be "usage".
   reason: AgentAttentionNotificationReason;
   timestamp: string;
   shouldNotify: boolean;

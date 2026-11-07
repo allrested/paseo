@@ -117,6 +117,7 @@ import {
 
 import { AgentManager, AgentRunCancellationError } from "./agent/agent-manager.js";
 import { buildTimelinePromptIndex } from "./agent/timeline-prompt-index.js";
+// Fork delta (usage heads-up): the launch info type moved out with the move target listing.
 import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import type {
   AgentManagerEvent,
@@ -151,6 +152,8 @@ import {
   runMove,
   type MoveAgentDeps,
 } from "./agent/session-move/move-agent.js";
+// Fork delta (usage heads-up): move targets are listed in list-move-targets.ts, shared with the
+// usage watch.
 import type { MoveTarget } from "./agent/session-move/move-targets.js";
 import {
   listAgentMoveTargets,
@@ -3062,6 +3065,8 @@ export class Session {
     );
   }
 
+  // Fork delta (usage heads-up): lists the targets through list-move-targets.ts, shared with the
+  // usage watch.
   private async listMoveTargets(agentId: string): Promise<MoveTarget[]> {
     const runtime = this.pluginRuntime;
     const listReports = runtime?.listUsageReportsForScope;
