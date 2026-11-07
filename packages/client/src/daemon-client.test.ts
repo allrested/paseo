@@ -7,6 +7,7 @@ import {
   supportsUsageReports,
   type DaemonClientTrace,
   type CreateAgentRequestOptions,
+  type AgentAttentionRequiredNotification,
   type DaemonTransport,
   type Logger,
   type PluginClientBundle,
@@ -581,6 +582,37 @@ test("normalizes legacy and dedicated agent attention notifications", async () =
   expect(notifications).toEqual([payload, payload]);
 });
 
+test("passes a usage attention notification through", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "usage_attention",
+    transportFactory: () => mock.transport,
+    reconnect: { enabled: false },
+  });
+  clients.push(client);
+  const connect = client.connect();
+  mock.triggerOpen();
+  await connect;
+  const notifications: AgentAttentionRequiredNotification[] = [];
+  client.onAgentAttentionRequired((notification) => notifications.push(notification));
+  const payload: AgentAttentionRequiredNotification = {
+    agentId: "agent-a",
+    reason: "usage",
+    timestamp: "2026-11-06T10:00:00.000Z",
+    shouldNotify: true,
+    notification: {
+      title: "Claude (work) 81% of Weekly",
+      body: "Fix login · Move to Claude · 12%",
+      data: { serverId: "srv-a", workspaceId: "ws-1", agentId: "agent-a", reason: "usage" },
+    },
+  };
+
+  mock.triggerMessage(wrapSessionMessage({ type: "agent_attention_required", payload }));
+
+  expect(notifications).toEqual([payload]);
+});
+
 const noopLogger: Logger = {
   debug: () => {},
   info: () => {},
@@ -1148,6 +1180,7 @@ test("advertises client capabilities in hello", async () => {
       workspace_setup_observation: true,
       hello_rejection: true,
       background_agents: true,
+      usage_notifications: true,
       browser_host: {
         supportedCommands: ["list_tabs"],
         hostKind: "desktop app",
