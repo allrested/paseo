@@ -7,6 +7,7 @@ import {
   upcomingLimitReset,
 } from "./move-banner-view";
 import type { AgentMoveTargetsView } from "./move-targets";
+import type { UsageHeadsUp } from "./usage-heads-up";
 
 const TARGET_RESETS_AT = "2026-11-06T15:00:00.000Z";
 
@@ -53,6 +54,18 @@ function currentTarget(usedPct: number | null): AgentMoveTarget {
   });
 }
 
+const HEADS_UP: UsageHeadsUp = {
+  windowKey: "claude-work\nWeekly",
+  account: "Claude (work)",
+  usedPct: 84,
+  windowLabel: "Weekly",
+  resetsAt: TARGET_RESETS_AT,
+  runsOutAt: null,
+  tone: "warning",
+  level: 1,
+  best: null,
+};
+
 describe("resolveMoveBannerKind", () => {
   it("shows nothing for an agent that is neither limited nor moved", () => {
     expect(resolveMoveBannerKind(facts())).toBe("none");
@@ -86,19 +99,28 @@ describe("resolveMoveBannerView", () => {
 
   it("shows nothing for an agent that is neither limited nor moved", () => {
     expect(
-      resolveMoveBannerView({ facts: facts(), targets: readyTargets(currentTarget(100)) }),
+      resolveMoveBannerView({
+        headsUp: null,
+        facts: facts(),
+        targets: readyTargets(currentTarget(100)),
+      }),
     ).toEqual({ kind: "none" });
   });
 
   it("shows nothing for an inactive agent", () => {
     expect(
-      resolveMoveBannerView({ facts: INACTIVE, targets: readyTargets(currentTarget(100)) }),
+      resolveMoveBannerView({
+        headsUp: null,
+        facts: INACTIVE,
+        targets: readyTargets(currentTarget(100)),
+      }),
     ).toEqual({ kind: "none" });
   });
 
   it("names the agent's own target and its reset when that account is used up", () => {
     expect(
       resolveMoveBannerView({
+        headsUp: null,
         facts: limited,
         targets: readyTargets(target({ provider: "codex", family: "codex" }), currentTarget(100)),
       }),
@@ -108,7 +130,11 @@ describe("resolveMoveBannerView", () => {
   it("names no reset when the agent's account is not used up", () => {
     expect(
       [99, null].map((usedPct) =>
-        resolveMoveBannerView({ facts: limited, targets: readyTargets(currentTarget(usedPct)) }),
+        resolveMoveBannerView({
+          headsUp: null,
+          facts: limited,
+          targets: readyTargets(currentTarget(usedPct)),
+        }),
       ),
     ).toEqual([
       { kind: "limit", account: "Claude (work)", resetsAt: null },
@@ -118,7 +144,9 @@ describe("resolveMoveBannerView", () => {
 
   it("names the provider while the targets load or the host is away", () => {
     const views: AgentMoveTargetsView[] = [LOADING_TARGETS, { kind: "disconnected" }];
-    expect(views.map((targets) => resolveMoveBannerView({ facts: limited, targets }))).toEqual([
+    expect(
+      views.map((targets) => resolveMoveBannerView({ headsUp: null, facts: limited, targets })),
+    ).toEqual([
       { kind: "limit", account: "claude-work", resetsAt: null },
       { kind: "limit", account: "claude-work", resetsAt: null },
     ]);
@@ -127,6 +155,7 @@ describe("resolveMoveBannerView", () => {
   it("shows the limit rather than the move back for a moved agent at its limit", () => {
     expect(
       resolveMoveBannerView({
+        headsUp: null,
         facts: facts({
           hasReachedLimit: true,
           movedFromAgentId: "original",
@@ -137,11 +166,52 @@ describe("resolveMoveBannerView", () => {
     ).toEqual({ kind: "limit", account: "Claude (work)", resetsAt: TARGET_RESETS_AT });
   });
 
+  it("shows the heads-up for an agent that is neither limited nor moved", () => {
+    expect(
+      resolveMoveBannerView({
+        headsUp: HEADS_UP,
+        facts: facts(),
+        targets: readyTargets(currentTarget(84)),
+      }),
+    ).toEqual({ kind: "heads-up", headsUp: HEADS_UP });
+  });
+
+  it("keeps the limit notice ahead of the heads-up", () => {
+    expect(
+      resolveMoveBannerView({
+        headsUp: HEADS_UP,
+        facts: limited,
+        targets: readyTargets(currentTarget(100)),
+      }),
+    ).toEqual({ kind: "limit", account: "Claude (work)", resetsAt: TARGET_RESETS_AT });
+  });
+
+  it("puts the heads-up ahead of Moved from", () => {
+    expect(
+      resolveMoveBannerView({
+        headsUp: HEADS_UP,
+        facts: facts({ movedFromAgentId: "original", movedFromProvider: "claude" }),
+        targets: readyTargets(currentTarget(84)),
+      }),
+    ).toEqual({ kind: "heads-up", headsUp: HEADS_UP });
+  });
+
+  it("shows no heads-up for an inactive agent", () => {
+    expect(
+      resolveMoveBannerView({
+        headsUp: HEADS_UP,
+        facts: INACTIVE,
+        targets: readyTargets(currentTarget(84)),
+      }),
+    ).toEqual({ kind: "none" });
+  });
+
   describe("after a move", () => {
     const moved = facts({ movedFromAgentId: "original", movedFromProvider: "claude" });
 
     function viewWithOriginal(usedPct: number | null) {
       return resolveMoveBannerView({
+        headsUp: null,
         facts: moved,
         targets: readyTargets(
           currentTarget(10),
@@ -175,7 +245,9 @@ describe("resolveMoveBannerView", () => {
     });
 
     it("labels the original with its provider while the targets load", () => {
-      expect(resolveMoveBannerView({ facts: moved, targets: LOADING_TARGETS })).toEqual({
+      expect(
+        resolveMoveBannerView({ headsUp: null, facts: moved, targets: LOADING_TARGETS }),
+      ).toEqual({
         kind: "moved-from",
         label: "claude",
         highlighted: false,
@@ -185,6 +257,7 @@ describe("resolveMoveBannerView", () => {
     it("has no label until the original is in the session", () => {
       expect(
         resolveMoveBannerView({
+          headsUp: null,
           facts: facts({ movedFromAgentId: "original" }),
           targets: readyTargets(currentTarget(10)),
         }),
