@@ -10,8 +10,9 @@ import type { UsageTone } from "@/usage/types";
 export const USAGE_LIMIT_PCT = 100;
 
 /**
- * How often a mounted Move back re-reads the original's account while it is used up. The daemon
- * caches each usage report for five minutes, so a faster poll would only re-read the cache.
+ * How often a mounted Move back re-reads the original's account while it is used up, and a
+ * usage heads-up re-reads the agent's own. The daemon caches each usage report for five minutes,
+ * so a faster poll would only re-read the cache.
  */
 export const MOVE_BACK_RECHECK_MS = 5 * 60_000;
 
@@ -82,6 +83,20 @@ export function moveTargetsRecheckMs(
 ): number | false {
   const usedPct = targets?.find((target) => target.provider === provider)?.usedPct ?? null;
   return usedPct !== null && usedPct >= USAGE_LIMIT_PCT ? MOVE_BACK_RECHECK_MS : false;
+}
+
+/**
+ * The targets query's refetch interval. Fork delta (usage heads-up): while `pollTargets` is set
+ * the agent's own account is read every five minutes; otherwise only a Move back polls.
+ */
+export function moveTargetsRefetchMs(input: {
+  pollTargets: boolean;
+  recheckProvider: string | null;
+  targets: readonly AgentMoveTarget[] | undefined;
+}): number | false {
+  if (input.pollTargets) return MOVE_BACK_RECHECK_MS;
+  if (input.recheckProvider === null) return false;
+  return moveTargetsRecheckMs(input.targets, input.recheckProvider);
 }
 
 export interface MoveTargetBadge {
