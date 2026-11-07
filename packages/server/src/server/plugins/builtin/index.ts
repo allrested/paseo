@@ -18,6 +18,7 @@ export const builtinPlugins = [
   "minimax-usage-source",
   "muse-provider",
   "opencode-go-usage-source",
+  "resource-manager",
   "shared-mcp",
   "worktree-include",
   "zai-usage-source",
