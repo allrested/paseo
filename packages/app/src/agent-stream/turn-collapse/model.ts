@@ -97,7 +97,11 @@ function findUpdatedHosts(
 }
 
 function staysVisibleWhenCollapsed(item: StreamItem): boolean {
-  return isTurnTrigger(item) || item.kind === "compaction";
+  return (
+    isTurnTrigger(item) ||
+    item.kind === "compaction" ||
+    (item.kind === "plugin" && item.sourceKind !== "assistant_message")
+  );
 }
 
 function isAssistantReply(item: StreamItem): boolean {

@@ -176,6 +176,24 @@ describe("collapseTurns", () => {
     });
   });
 
+  it("keeps plugin rows visible when work is folded", () => {
+    const card: StreamItem = {
+      kind: "plugin",
+      id: "card",
+      sourceKind: "tool_call",
+      timestamp: at,
+      pluginId: "claude-workflows",
+      pluginItemId: "card",
+      itemKind: "claude-workflow",
+      version: 1,
+      data: { runId: "wf_0a1b2c3d-4e5", summary: null },
+    };
+    const result = collapse([user("u1"), shell("c1"), card, shell("c2"), reply("done")]);
+    expect(ids(result.tail)).toEqual(["u1", "card", "done"]);
+    expect(result.hostIdByHiddenRowId.get("c1")).toBe("u1");
+    expect(result.hostIdByHiddenRowId.has("card")).toBe(false);
+  });
+
   it("folds a finished turn's work into its user message and keeps the reply", () => {
     const result = collapse([
       user("u1"),
