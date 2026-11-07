@@ -141,12 +141,16 @@ export interface MoveTargetUsage {
   available: boolean;
   current: boolean;
   usedPct: number | null;
+  /** When the tightest window runs out at its pace, kept only while that comes before its reset. */
+  runsOutAt?: string | null;
 }
 
 /**
  * Where a one-click move goes: the available target with the lowest usage, ties going to the
- * current account's family because that move is native. A target with unknown usage comes after
- * every known one. Null when no target has room.
+ * current account's family because that move is native. A target on pace to run out before its
+ * reset comes after every one that is not, and a target with unknown usage after every known one.
+ * A target has room below the current account's usage; an account on pace to run out also has room
+ * on any target that is not and is below the heads-up level. Null when no target has room.
  */
 export function chooseBestMoveTarget<T extends MoveTargetUsage>(targets: readonly T[]): T | null {
   const current = targets.find((target) => target.current) ?? null;
@@ -160,13 +164,22 @@ export function chooseBestMoveTarget<T extends MoveTargetUsage>(targets: readonl
   return best;
 }
 
+/** Whether the target's tightest window is on pace to run out before it resets. */
+function isOnPace(target: MoveTargetUsage): boolean {
+  return (target.runsOutAt ?? null) !== null;
+}
+
 function hasRoom(input: { candidate: MoveTargetUsage; current: MoveTargetUsage | null }): boolean {
   const { candidate, current } = input;
   if (!candidate.available || candidate.current) return false;
   if (candidate.usedPct === null) return true;
   if (candidate.usedPct >= USAGE_FULL_PCT) return false;
-  // A move to an account at least as used as the current one gains nothing.
   if (current === null || current.usedPct === null) return true;
+  // An account on pace to run out gains from a steady target below the heads-up level.
+  if (isOnPace(current) && !isOnPace(candidate) && candidate.usedPct < USAGE_HEADS_UP_PCT) {
+    return true;
+  }
+  // Otherwise a move to an account at least as used as the current one gains nothing.
   return candidate.usedPct < current.usedPct;
 }
 
@@ -176,10 +189,11 @@ function ranksBefore(input: {
   family: string | null;
 }): boolean {
   const { candidate, best, family } = input;
-  if (candidate.usedPct !== best.usedPct) {
-    if (candidate.usedPct === null) return false;
-    if (best.usedPct === null) return true;
-    return candidate.usedPct < best.usedPct;
+  // Known usage before unknown; between known ones, steady before on pace, then lower usage.
+  if ((candidate.usedPct === null) !== (best.usedPct === null)) return best.usedPct === null;
+  if (candidate.usedPct !== null && best.usedPct !== null) {
+    if (isOnPace(candidate) !== isOnPace(best)) return isOnPace(best);
+    if (candidate.usedPct !== best.usedPct) return candidate.usedPct < best.usedPct;
   }
   return family !== null && candidate.family === family && best.family !== family;
 }
