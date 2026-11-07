@@ -68,11 +68,16 @@ export async function applyResumeOverrides(
   }
 }
 
-// Agent identity env is applied per session through `session.environment`, so
-// it must not force a dedicated server. Custom MCP is location-scoped, and any
-// other env key belongs to the process, so both need isolation. Mirrors the v1
-// adapter's `requiresDedicatedOpenCodeServer`.
-const V2_SESSION_ENV_KEYS = new Set(["PASEO_AGENT_ID", "PASEO_AGENT_CWD", "PASEO_WORKSPACE_ID"]);
+// Agent identity env and PATH are applied per session through `session.environment`,
+// so they must not force a dedicated server. Custom MCP is location-scoped, and any
+// other env key belongs to the process, so both need isolation. The v1 adapter's
+// `requiresDedicatedOpenCodeServer` dedicates a server for PATH.
+const V2_SESSION_ENV_KEYS = new Set([
+  "PASEO_AGENT_ID",
+  "PASEO_AGENT_CWD",
+  "PASEO_WORKSPACE_ID",
+  "PATH",
+]);
 
 export function requiresDedicatedV2Server(
   config: AgentSessionConfig,
