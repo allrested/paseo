@@ -67,7 +67,7 @@ interface Member {
   forced: boolean;
 }
 
-function describeError(error: unknown): string {
+export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
