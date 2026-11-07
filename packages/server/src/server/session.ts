@@ -1115,6 +1115,13 @@ export class Session {
       isEnabled: () => daemonConfigStore.get().usage?.enabled !== false,
       emit: (msg) => this.emit(msg),
       runtime: pluginRuntime,
+      // Fork delta (claude accounts): a provider's usage is keyed by its family and override env,
+      // and read through the move dialog's cache, the way the dialog reads a target's.
+      resolveProviderScope: (provider) => {
+        const info = providerSnapshotManager.getProviderLaunchInfo(provider);
+        return info ? { provider: info.family, env: info.env } : null;
+      },
+      scopeLookup: sharedMoveTargetUsage,
       logger: this.sessionLogger,
     });
     this.speechModelsSession = new SpeechModelsSession({
@@ -3497,6 +3504,9 @@ export class Session {
         return this.usageSession.handleLegacyList(msg);
       case "usage.list_reports.request":
         return this.usageSession.handleListReports(msg);
+      // Fork delta (claude accounts): one provider's usage.
+      case "usage.provider.list_reports.request":
+        return this.usageSession.handleProviderReports(msg);
       default:
         return undefined;
     }
