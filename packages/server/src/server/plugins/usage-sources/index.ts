@@ -10,6 +10,7 @@ import {
   type UsageProblem,
   type UsageReport,
 } from "@getpaseo/protocol/messages";
+import { createUsagePace } from "./pace.js";
 
 export interface UsageSource {
   id: string;
@@ -58,6 +59,8 @@ export class UsageSourceRegistry {
   private readonly cache = new Map<string, { at: number; entry: UsageReportEntry }>();
   private readonly successful = new Map<string, NonNullable<UsageReportEntry["lastSuccessful"]>>();
   private readonly pending = new Map<string, Promise<UsageReportEntry>>();
+  // Fork delta (usage heads-up): fetch samples behind each window's projected run-out.
+  private readonly pace = createUsagePace();
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -85,6 +88,7 @@ export class UsageSourceRegistry {
     for (const key of this.successful.keys())
       if (key.startsWith(`${id}:`)) this.successful.delete(key);
     for (const key of this.pending.keys()) if (key.startsWith(`${id}:`)) this.pending.delete(key);
+    this.pace.forget(`${id}:`);
   }
 
   async listReports(options: ListUsageReportsOptions = {}): Promise<UsageReportEntry[]> {
@@ -298,7 +302,8 @@ export class UsageSourceRegistry {
     const pending = this.pending.get(cacheKey);
     if (pending) return pending;
     const request = (async () => {
-      const fetchedAt = new Date(this.now()).toISOString();
+      const startedAt = this.now();
+      const fetchedAt = new Date(startedAt).toISOString();
       const outcome = await this.fetchWithFallback(known);
       const completedAt = new Date(this.now()).toISOString();
       const entry: UsageReportEntry = {
@@ -309,6 +314,7 @@ export class UsageSourceRegistry {
         account: { label: known.label },
         fetchedAt,
         ...outcome,
+        report: this.projectPace({ id, known, report: outcome.report, at: startedAt }),
       };
       if (entry.report.status === "available") {
         entry.successfulAt = completedAt;
@@ -334,6 +340,28 @@ export class UsageSourceRegistry {
       if (this.pending.get(cacheKey) === request) this.pending.delete(cacheKey);
     });
     return request;
+  }
+
+  /**
+   * Fork delta (usage heads-up): fills each window's projected run-out from its fetch history,
+   * sampled at the fetch's start. A source replaced while the fetch ran adds no sample.
+   */
+  private projectPace(input: {
+    id: string;
+    known: KnownReport;
+    report: UsageReport;
+    at: number;
+  }): UsageReport {
+    const { id, known, report, at } = input;
+    if (report.status !== "available" || this.sources.get(known.source.id) !== known.source) {
+      return report;
+    }
+    return {
+      ...report,
+      windows: report.windows.map((window) =>
+        this.pace.project({ key: `${id}:${window.id}`, window, at }),
+      ),
+    };
   }
 
   private writeCache(id: string, entry: UsageReportEntry): void {
