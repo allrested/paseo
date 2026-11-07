@@ -2,8 +2,9 @@ import type { MountUsage, RemoteProcess, RemoteSnapshot } from "../../shared/rpc
 import { parseLoadavg, parseMeminfo, ProcTextError } from "../proc-text.js";
 
 // The only command the plugin ever sends. It takes no input, writes nothing, and has no
-// redirection, pipe, separator or substitution, so ssh-mcp 2.x's policy sees reads only. "&&"
-// stops at the first failure, so a host without /proc answers with that error at once.
+// redirection, pipe, separator or substitution, so ssh-mcp 2.x's policy never classes it as
+// destructive. "&&" stops at the first failure, so a host without /proc answers with that
+// error at once.
 export const REMOTE_COMMAND =
   "echo @@meminfo && cat /proc/meminfo && echo @@loadavg && cat /proc/loadavg && " +
   "echo @@nproc && nproc && echo @@df && df -P && echo @@ps && ps -eo pid,rss,comm";
@@ -30,7 +31,7 @@ const SECTION_LINE = /^@@([a-z]+)$/;
 const EXIT_LINE = /^\[exit (-?\d+)\]$/;
 const KILLED_LINE = /^\[killed by (SIG[A-Z0-9]+)\]$/;
 const STDERR_LINE = "[stderr]";
-const BLOCKS_HEADER = /^(\d+)-blocks$/;
+const BLOCKS_HEADER = /(?:^|\s)(\d+)-\S+/;
 const PS_HEADER = /^PID\s+RSS\s+\S+$/;
 const PSEUDO_FILESYSTEMS = new Set(["tmpfs", "devtmpfs", "shm", "udev", "none", "efivarfs"]);
 const MESSAGE_CHARS = 300;
@@ -89,12 +90,13 @@ export function parseNproc(lines: readonly string[]): number {
   return cores;
 }
 
-// df -P keeps one filesystem per line. The header's "<N>-blocks" gives the unit; the mount point
-// is everything after the capacity, spaces included.
+// df -P keeps one filesystem per line. The header's "<N>-blocks" gives the unit, with "blocks"
+// translated under a non-English locale; the mount point is everything after the capacity,
+// spaces included.
 export function parseDf(lines: readonly string[]): MountUsage[] {
   const header = lines.find(nonEmpty) ?? "";
   const rows = lines.filter(nonEmpty).slice(1);
-  const blocks = BLOCKS_HEADER.exec(header.trim().split(/\s+/)[1] ?? "");
+  const blocks = BLOCKS_HEADER.exec(header);
   if (blocks === null) {
     throw new RemoteOutputError(`Unrecognised df header: ${header.trim().slice(0, 80)}`);
   }
@@ -104,13 +106,17 @@ export function parseDf(lines: readonly string[]): MountUsage[] {
     const fields = row.trim().split(/\s+/);
     const [filesystem, total, used, available] = fields;
     const totalBlocks = Number(total);
+    const usedBlocks = Number(used);
+    const availableBlocks = Number(available);
     if (fields.length < 6 || PSEUDO_FILESYSTEMS.has(filesystem)) continue;
     if (!Number.isFinite(totalBlocks) || totalBlocks <= 0) continue;
+    // df prints "-" for a figure it cannot read. Such a row is skipped, never sent as NaN.
+    if (!Number.isFinite(usedBlocks) || !Number.isFinite(availableBlocks)) continue;
     mounts.push({
       mount: fields.slice(5).join(" "),
       totalBytes: totalBlocks * blockBytes,
-      usedBytes: Number(used) * blockBytes,
-      availableBytes: Number(available) * blockBytes,
+      usedBytes: usedBlocks * blockBytes,
+      availableBytes: availableBlocks * blockBytes,
     });
   }
   return mounts;
@@ -151,7 +157,7 @@ export function toolErrorMessage(text: string): string {
 
 export function parseRemoteOutput(text: string): RemoteSnapshot {
   const output = splitTrailers(text);
-  if (output.exitCode !== null && output.exitCode !== 0) {
+  if ((output.exitCode !== null && output.exitCode !== 0) || output.signal !== null) {
     throw new RemoteOutputError(failureMessage(output));
   }
   const sections = splitSections(output.stdout);
