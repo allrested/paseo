@@ -1,3 +1,4 @@
+import { chooseTightestWindow } from "@getpaseo/protocol/usage-heads-up";
 import type { ProviderSnapshotEntry } from "../agent-sdk-types.js";
 import type { ProviderLaunchInfo } from "../provider-snapshot-manager.js";
 
@@ -9,12 +10,17 @@ export interface MoveTarget {
   current: boolean;
   usedPct: number | null;
   resetsAt: string | null;
+  /** When the tightest window runs out at its pace, only while that comes before its reset. */
+  runsOutAt: string | null;
+  windowLabel: string | null;
 }
 
 export interface UsageWindowLike {
+  label?: string;
   usedPct?: number | null;
   remainingPct?: number | null;
   resetsAt?: string | null;
+  runsOutAt?: string | null;
 }
 
 export interface MoveTargetInput {
@@ -23,24 +29,18 @@ export interface MoveTargetInput {
   status: ProviderSnapshotEntry["status"] | null;
   currentProvider: string;
   windows: readonly UsageWindowLike[] | null;
+  /** The time each window's heads-up tone is judged at. */
+  now: number;
 }
 
-function usedPctOf(window: UsageWindowLike): number | null {
-  if (typeof window.usedPct === "number") return window.usedPct;
-  return typeof window.remainingPct === "number" ? 100 - window.remainingPct : null;
-}
-
-/** The tightest window decides whether a target has room. */
+/**
+ * The tightest window decides whether a target has room and what its heads-up says. A window on
+ * pace to run out soon outranks a fuller one that will not, and a used-up window always wins.
+ */
 export function toMoveTarget(input: MoveTargetInput): MoveTarget {
-  let usedPct: number | null = null;
-  let resetsAt: string | null = null;
-  for (const window of input.windows ?? []) {
-    const windowUsedPct = usedPctOf(window);
-    if (windowUsedPct !== null && (usedPct === null || windowUsedPct > usedPct)) {
-      usedPct = windowUsedPct;
-      resetsAt = window.resetsAt ?? null;
-    }
-  }
+  // Fork delta (usage heads-up): the nearer heads-up first, then the fuller window, then the
+  // sooner run-out. Below any heads-up this is the old rule, the fullest window.
+  const tightest = chooseTightestWindow(input.windows ?? [], input.now);
   return {
     provider: input.info.providerId,
     label: input.info.label,
@@ -48,8 +48,10 @@ export function toMoveTarget(input: MoveTargetInput): MoveTarget {
     // A loading target stays selectable: the move waits for it and refuses it if it fails.
     available: input.info.enabled && input.status !== "unavailable" && input.status !== "error",
     current: input.info.providerId === input.currentProvider,
-    usedPct,
-    resetsAt,
+    usedPct: tightest?.usedPct ?? null,
+    resetsAt: tightest?.resetsAt ?? null,
+    runsOutAt: tightest?.runsOutAt ?? null,
+    windowLabel: tightest?.window.label ?? null,
   };
 }
 
