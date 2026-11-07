@@ -2277,6 +2277,9 @@ export const AgentMoveTargetSchema = z.object({
   current: z.boolean(),
   usedPct: z.number().nullable(),
   resetsAt: z.string().nullable(),
+  // Fork delta (usage heads-up): the tightest window's projected run-out and label.
+  runsOutAt: z.string().nullable().optional(),
+  windowLabel: z.string().nullable().optional(),
 });
 
 export const AgentMoveTargetsRequestMessageSchema = z.object({
@@ -3988,6 +3991,9 @@ export const ServerInfoStatusPayloadSchema = z
         hostMultiplexing: z.boolean().optional(),
         // Fork delta (session move): the agent.move* and agent.move_targets RPCs, agent.moved.
         agentMove: z.boolean().optional(),
+        // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel, and usage
+        // windows a projected run-out.
+        usageHeadsUp: z.boolean().optional(),
         // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
         usageSetting: z.boolean().optional(),
         usageSources: z.boolean().optional(),
