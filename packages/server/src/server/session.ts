@@ -9421,8 +9421,7 @@ function isValidGitHubRepoSegment(value: string): boolean {
   return /^[A-Za-z0-9._-]+$/u.test(value);
 }
 
-// Fork delta (usage heads-up): the fork's agent.moved case takes this switch over the
-// complexity limit.
+// Fork delta (session move): the agent.moved case takes this switch over the complexity limit.
 // eslint-disable-next-line complexity
 function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubscription | null {
   switch (message.type) {
