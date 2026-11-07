@@ -2040,6 +2040,7 @@ export const en = {
       moveBack: "Move back",
       movingBack: "Moving back...",
     },
+    // Fork delta (usage heads-up): the move banner's heads-up copy.
     headsUp: {
       usage: "{{account}} {{used}}",
       usageOfWindow: "{{account}} {{used}} of {{window}}",

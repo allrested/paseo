@@ -29,6 +29,7 @@ import { join } from "path";
 import { getHostName } from "./host-name.js";
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
+// Fork delta (usage heads-up): ManagedAgent types the agent of an attention delivery.
 import type { AgentManager, AgentMetricsSnapshot, ManagedAgent } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
 import type { DownloadTokenStore } from "./file-download/token-store.js";
@@ -102,6 +103,8 @@ import {
 import {
   buildAgentAttentionNotificationPayload,
   findLatestPermissionRequest,
+  // Fork delta (usage heads-up): the types behind the shared attention delivery and the usage
+  // notice.
   type AgentAttentionNotificationPayload,
   type AgentAttentionReason,
 } from "@getpaseo/protocol/agent-attention-notification";
@@ -2933,6 +2936,8 @@ export class VoiceAssistantWebSocketServer {
     if (!agent?.workspaceId) {
       return;
     }
+    // Fork delta (usage heads-up): the delivery moved to deliverAgentAttention, which the usage
+    // notice shares.
     const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
     const notification = buildAgentAttentionNotificationPayload({
       reason: params.reason,
@@ -2980,6 +2985,8 @@ export class VoiceAssistantWebSocketServer {
     });
   }
 
+  // Fork delta (usage heads-up): the delivery that an agent's own attention and a usage notice
+  // share.
   private async deliverAgentAttention(delivery: AgentAttentionDelivery): Promise<void> {
     const clientEntries: Array<{
       ws: WebSocketLike;
@@ -2988,8 +2995,8 @@ export class VoiceAssistantWebSocketServer {
 
     for (const [ws, connection] of this.sessions) {
       // COMPAT(usageNotifications): added after v0.15.3, remove the gate after 2027-05-07 once
-      // client floor > v0.15.3. A client that cannot read the usage reason neither gets it nor
-      // counts as present for it.
+      // client floor > v0.15.3. Fork delta (usage heads-up): a client that cannot read the usage
+      // reason neither gets it nor counts as present for it.
       if (
         delivery.reason === "usage" &&
         !connection.session.supportsForSource(CLIENT_CAPS.usageNotifications, ws)
@@ -2998,7 +3005,8 @@ export class VoiceAssistantWebSocketServer {
       if (
         connection.session.delivery.isModern(ws)
           ? !connection.session.wantsSourceEvent(ws, "agent_attention_required")
-          : !(await connection.session.subscribesToAgent(delivery.agent, ws))
+          : // Fork delta (usage heads-up): the agent comes from the delivery.
+            !(await connection.session.subscribesToAgent(delivery.agent, ws))
       )
         continue;
       clientEntries.push({
@@ -3010,6 +3018,7 @@ export class VoiceAssistantWebSocketServer {
     const notificationEntries = clientEntries.filter(({ ws }) =>
       this.sessions.get(ws)?.session.wantsSourceNotification(ws, "agent_attention_required"),
     );
+    // Fork delta (usage heads-up): the plan, the push and each message read the delivery.
     const plan = computeNotificationPlan({
       allStates: notificationEntries.map((entry) => entry.state),
       focusTarget: { kind: "agent", id: delivery.agentId },
@@ -3042,6 +3051,8 @@ export class VoiceAssistantWebSocketServer {
     }
   }
 
+  // Fork delta (usage heads-up): builds the attention message; a usage notice always takes the
+  // dedicated one.
   private agentAttentionMessage(input: {
     delivery: AgentAttentionDelivery;
     ws: WebSocketLike;
