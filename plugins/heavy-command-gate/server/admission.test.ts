@@ -88,6 +88,14 @@ describe("decideAdmission", () => {
     expect(decision).toEqual({ admitted: [], blockedOn: "memory" });
   });
 
+  it("keeps back nothing for a running command that outgrew its estimate", () => {
+    // 1 GB promised, 3 GB in use: nothing is spoken for, so the 2.5 GB free stays 2.5 GB.
+    const decision = decideAdmission(
+      input({ queue: [queued("a", 2)], held: [held(1, 3)], slots: 2, freeBytes: 2.5 * GIB }),
+    );
+    expect(decision).toEqual({ admitted: [], blockedOn: "memory" });
+  });
+
   it("keeps back what it promised to commands admitted in the same pass", () => {
     const queue = [queued("a", 2), queued("b", 2), queued("c", 2)];
     expect(decideAdmission(input({ queue, slots: 3, freeBytes: 6 * GIB }))).toEqual({
@@ -113,6 +121,11 @@ describe("decideAdmission", () => {
       admitted: [{ id: "a", forced: true }],
       blockedOn: "memory",
     });
+  });
+
+  it("does not mark a starved waiter forced when its memory fits", () => {
+    const decision = decideAdmission(input({ queue: [queued("a", 3, 2 * STARVATION_MS)] }));
+    expect(decision).toEqual({ admitted: [{ id: "a", forced: false }], blockedOn: null });
   });
 
   it("never forces while a command holds a slot", () => {
