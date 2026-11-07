@@ -39,8 +39,8 @@ export interface MoveTargetInput {
  * always wins.
  */
 export function toMoveTarget(input: MoveTargetInput): MoveTarget {
-  // Fork delta (usage heads-up): the nearer heads-up first, then the fuller window, then the
-  // sooner run-out. Below any heads-up this is the old rule, the fullest window.
+  // The nearer heads-up first, then the fuller window, then the sooner run-out. Below any
+  // heads-up this is the old rule, the fullest window.
   const tightest = chooseTightestWindow(input.windows ?? [], input.now);
   return {
     provider: input.info.providerId,
