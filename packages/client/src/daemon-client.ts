@@ -3664,6 +3664,23 @@ export class DaemonClient {
     }
   }
 
+  async closeAgentRuntime(agentId: string): Promise<void> {
+    // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
+    if (this.getLastServerInfoMessage()?.features?.agentRuntimeClose !== true) {
+      throw new Error("Update the host to close agent runtimes.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.runtime.close.response">({
+        message: {
+          type: "agent.runtime.close.request",
+          agentId,
+        },
+      });
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "closeAgentRuntime rejected");
+    }
+  }
+
   async updateAgent(
     agentId: string,
     updates: { name?: string; labels?: Record<string, string> },
