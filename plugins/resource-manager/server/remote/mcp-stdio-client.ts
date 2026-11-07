@@ -157,8 +157,9 @@ export class McpStdioClient {
     this.pidFile = pidFile;
     this.requestTimeoutMs = requestTimeoutMs;
     // An unlistened "error" on the child or a stream would crash the daemon.
+    // No cause: Node's spawn error lists every argument in spawnargs, and one can be a password.
     child.on("error", (error) => {
-      this.fail(new McpSessionError(`Could not start ssh-mcp: ${error.message}`, { cause: error }));
+      this.fail(new McpSessionError(`Could not start ssh-mcp: ${error.message}`));
     });
     child.once("exit", (code, signal) => this.onExit(code, signal));
     child.stdin?.on("error", () => {
@@ -340,7 +341,18 @@ export class McpStdioClient {
   }
 }
 
+// Node refuses a NUL byte and quotes the whole value in its error, and the value can be a password.
+function holdsNul(command: McpServerCommand): boolean {
+  const entries = Object.entries(command.env).flat();
+  return [command.command, ...command.args, ...entries].some((value) => value.includes("\0"));
+}
+
 function spawnServer(command: McpServerCommand, options: McpStdioOptions): ChildProcess {
+  if (holdsNul(command)) {
+    throw new McpSessionError(
+      "Could not start ssh-mcp: the command, an argument or an env entry holds a NUL byte",
+    );
+  }
   try {
     mkdirSync(options.runDir, { recursive: true, mode: 0o700 });
     return spawn(command.command, [...command.args], {
