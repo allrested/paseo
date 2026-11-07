@@ -363,6 +363,52 @@ describe("agent detach RPC", () => {
   });
 });
 
+describe("agent runtime close RPC", () => {
+  test("parses the request", () => {
+    const request = {
+      type: "agent.runtime.close.request",
+      agentId: "agent-1",
+      requestId: "req-close",
+    };
+
+    expect(SessionInboundMessageSchema.parse(request)).toEqual(request);
+  });
+
+  test("parses an accepted and a refused response", () => {
+    const accepted = {
+      type: "agent.runtime.close.response",
+      payload: { requestId: "req-close", agentId: "agent-1", accepted: true, error: null },
+    };
+    const refused = {
+      type: "agent.runtime.close.response",
+      payload: {
+        requestId: "req-close-2",
+        agentId: "agent-2",
+        accepted: false,
+        error: "Agent is busy; close it once it is idle",
+      },
+    };
+
+    expect(SessionOutboundMessageSchema.parse(accepted)).toEqual(accepted);
+    expect(SessionOutboundMessageSchema.parse(refused)).toEqual(refused);
+  });
+
+  test("parses the agentRuntimeClose server feature gate", () => {
+    const parsed = parseServerInfoStatusPayload({
+      status: "server_info",
+      serverId: "srv-test",
+      features: {
+        agentRuntimeClose: true,
+      },
+    });
+
+    if (!parsed) {
+      throw new Error("Expected server info payload to parse");
+    }
+    expect(parsed.features?.agentRuntimeClose).toBe(true);
+  });
+});
+
 describe("agent setting action responses", () => {
   test("parses optional provider notices on mode and thinking responses", () => {
     const mode = SessionOutboundMessageSchema.parse({

@@ -466,6 +466,11 @@ export interface PaseoAgentHandle {
   commands(options?: PaseoAgentCommandsOptions): Promise<PaseoAgentCommandsResult>;
   archive(): Promise<{ archivedAt: string }>;
   detach(): Promise<void>;
+  /**
+   * Ends an idle agent's provider runtime, or rejects with the reason it stays open. The agent
+   * stays, and its next prompt resumes it. Needs a host that advertises `agentRuntimeClose`.
+   */
+  closeRuntime(): Promise<void>;
   subscribe(handler: (update: PaseoAgentUpdate) => void): () => void;
 }
 
@@ -1194,6 +1199,9 @@ function createAgentHandleFactory(
       },
       detach: async () => {
         await daemonClient.detachAgent(id);
+      },
+      closeRuntime: async () => {
+        await daemonClient.closeAgentRuntime(id);
       },
       subscribe: (handler) =>
         listen((update) => {

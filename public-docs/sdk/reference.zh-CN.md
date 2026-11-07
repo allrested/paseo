@@ -102,6 +102,7 @@ nav: API 参考
 | `subscribe(handler)`                           | 取消订阅函数                              | 把 Agent 目录更新过滤到此 ID，并刷新句柄的属性。                                                                                              |
 | `archive()`                                    | `{ archivedAt }`                          | 软删除 Agent 并关闭它的运行时。                                                                                                               |
 | `detach()`                                     | `Promise<void>`                           | 解除父子关系，但不停止 Agent。                                                                                                                |
+| `closeRuntime()`                               | `Promise<void>`                           | 结束空闲 Agent 的运行时，否则拒绝并说明原因。下一条提示词会恢复它。需要 `features.agentRuntimeClose`。                                        |
 | `backgroundWork.list(options?)`                | `Promise<PaseoAgentBackgroundWorkItem[]>` | 单次读取 Agent 当前的后台工作。需要 `features.agentBackgroundWork`；选项为 `requestId` 和 `timeout`。                                         |
 | `backgroundWork.stop(item, options?)`          | `Promise<void>`                           | 停止可停止的项目并等待提供方确认。传入 `list` 或 `subscribe` 返回的项目。需要 `features.agentBackgroundWorkStop`。                            |
 | `backgroundWork.subscribe(listener, options?)` | `() => void`                              | 向监听器投递当前列表，并在每次重连和变化时投递完整列表。`onError` 接收读取失败的错误；需要 `features.agentBackgroundWork`。返回取消订阅函数。 |
