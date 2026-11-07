@@ -55,6 +55,11 @@ export const CLIENT_CAPS = {
   // Sources without it never receive agent-level background agents in inclusive lists or
   // update subscriptions, because older apps auto-open a tab for every replicated root agent.
   backgroundAgents: "background_agents",
+  // COMPAT(usageNotifications): added after v0.15.3, remove the gate after 2027-05-07 once client
+  // floor > v0.15.3. Fork delta (usage heads-up): the client reads reason "usage" on
+  // agent_attention_required. Without it the daemon sends no usage notice to that client and does
+  // not count it as present.
+  usageNotifications: "usage_notifications",
   browserHost: "browser_host",
 } as const;
 
