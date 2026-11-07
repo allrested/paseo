@@ -6,6 +6,7 @@ export const builtinPlugins = [
   "antigravity-provider",
   "bddevlab-usage-source",
   "claude-usage-source",
+  "claude-workflows",
   "codex-usage-source",
   "copilot-usage-source",
   "cursor-usage-source",
