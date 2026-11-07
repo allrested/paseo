@@ -100,6 +100,8 @@ function staysVisibleWhenCollapsed(item: StreamItem): boolean {
   return (
     isTurnTrigger(item) ||
     item.kind === "compaction" ||
+    // Fork delta (claude workflows): plugin rows stay mounted in a folded turn, so a Running
+    // workflow card keeps polling; rows that replace an assistant message fold like one (#8811).
     (item.kind === "plugin" && item.sourceKind !== "assistant_message")
   );
 }
