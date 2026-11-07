@@ -117,10 +117,7 @@ import {
 
 import { AgentManager, AgentRunCancellationError } from "./agent/agent-manager.js";
 import { buildTimelinePromptIndex } from "./agent/timeline-prompt-index.js";
-import {
-  ProviderSnapshotManager,
-  type ProviderLaunchInfo,
-} from "./agent/provider-snapshot-manager.js";
+import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import type {
   AgentManagerEvent,
   AgentTimelineCursor,
@@ -154,12 +151,12 @@ import {
   runMove,
   type MoveAgentDeps,
 } from "./agent/session-move/move-agent.js";
+import type { MoveTarget } from "./agent/session-move/move-targets.js";
 import {
-  createUsageLookup,
-  toMoveTarget,
-  type MoveTarget,
-  type UsageWindowLike,
-} from "./agent/session-move/move-targets.js";
+  listAgentMoveTargets,
+  moveTargetProvidersFrom,
+  sharedMoveTargetUsage,
+} from "./agent/session-move/list-move-targets.js";
 import { buildAgentPrompt } from "./agent/prompt-attachments.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
 import {
@@ -321,9 +318,6 @@ import {
 import { runGitCommand } from "../utils/run-git-command.js";
 import { CreateAgentLifecycleDispatch } from "./agent/create-agent-lifecycle-dispatch.js";
 import { resolveWorktreeSourceCwd } from "./workspace-source.js";
-
-// Shared by every session: usage is daemon-wide, and the move dialog asks for it on each open.
-const moveTargetUsage = createUsageLookup<UsageReportEntry[]>();
 
 type ProviderSubagentManagerEvent = Extract<
   AgentManagerEvent,
@@ -3069,54 +3063,18 @@ export class Session {
   }
 
   private async listMoveTargets(agentId: string): Promise<MoveTarget[]> {
-    const agent = this.agentManager.getAgent(agentId) ?? (await this.agentStorage.get(agentId));
-    if (!agent) throw new Error(`Agent not found: ${agentId}`);
-    const usageEnabled = this.daemonConfigStore.get().usage?.enabled !== false;
-    // Does not wait: a provider still loading stays selectable, and the move itself waits.
-    const statuses = new Map(
-      this.providerSnapshotManager
-        .getSnapshot(agent.cwd)
-        .records.map(({ entry }) => [entry.provider, entry.status]),
-    );
-    return Promise.all(
-      this.providerSnapshotManager.listRegisteredProviderIds().flatMap((providerId) => {
-        const info = this.providerSnapshotManager.getProviderLaunchInfo(providerId);
-        if (!info) return [];
-        return [
-          (async () => {
-            const windows = usageEnabled
-              ? await this.moveTargetUsageWindows(providerId, info)
-              : null;
-            return toMoveTarget({
-              info,
-              status: statuses.get(providerId) ?? null,
-              currentProvider: agent.provider,
-              windows,
-            });
-          })(),
-        ];
-      }),
-    );
-  }
-
-  /** Usage windows for one target, or null when unknown (no source, failed or too slow). */
-  private async moveTargetUsageWindows(
-    providerId: string,
-    info: ProviderLaunchInfo,
-  ): Promise<UsageWindowLike[] | null> {
-    const listReports = this.pluginRuntime?.listUsageReportsForScope;
-    if (!listReports) return null;
-    // Agents run the family CLI with the profile env, so usage is keyed by family.
-    const reports = await moveTargetUsage(providerId, () =>
-      listReports.call(this.pluginRuntime, { provider: info.family, env: info.env }),
-    ).catch((err: unknown) => {
-      this.sessionLogger.warn({ err, providerId }, "move targets: usage lookup failed");
-      return null;
+    const runtime = this.pluginRuntime;
+    const listReports = runtime?.listUsageReportsForScope;
+    return listAgentMoveTargets({
+      agentId,
+      findAgent: async (id) => this.agentManager.getAgent(id) ?? (await this.agentStorage.get(id)),
+      providers: moveTargetProvidersFrom(this.providerSnapshotManager),
+      usageEnabled: this.daemonConfigStore.get().usage?.enabled !== false,
+      listUsageReportsForScope: listReports ? (scope) => listReports.call(runtime, scope) : null,
+      usageLookup: sharedMoveTargetUsage,
+      logger: this.sessionLogger,
+      now: Date.now(),
     });
-    if (!reports || reports.length === 0) return null;
-    return reports.flatMap((entry) =>
-      entry.report.status === "available" ? entry.report.windows : [],
-    );
   }
 
   private dispatchAgentRelationshipMessage(msg: SessionInboundMessage): Promise<void> | undefined {
@@ -9458,6 +9416,7 @@ function isValidGitHubRepoSegment(value: string): boolean {
   return /^[A-Za-z0-9._-]+$/u.test(value);
 }
 
+// eslint-disable-next-line complexity
 function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubscription | null {
   switch (message.type) {
     case "project.update":

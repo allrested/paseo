@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { createUsageLookup, toMoveTarget, type MoveTargetInput } from "./move-targets.js";
 
+const NOW = Date.parse("2026-11-05T08:00:00.000Z");
+
 const info = {
   providerId: "claude-work",
   family: "claude",
@@ -15,6 +17,7 @@ test("uses the tightest usage window", () => {
       info,
       status: "ready",
       currentProvider: "claude",
+      now: NOW,
       windows: [
         { usedPct: 40, resetsAt: "2026-11-05T10:00:00Z" },
         { usedPct: 100, resetsAt: "2026-11-05T14:00:00Z" },
@@ -28,12 +31,20 @@ test("uses the tightest usage window", () => {
     current: false,
     usedPct: 100,
     resetsAt: "2026-11-05T14:00:00Z",
+    runsOutAt: null,
+    windowLabel: null,
   });
 });
 
 test("reports unknown usage as null", () => {
   expect(
-    toMoveTarget({ info, status: "ready", currentProvider: "claude-work", windows: null }),
+    toMoveTarget({
+      info,
+      status: "ready",
+      currentProvider: "claude-work",
+      now: NOW,
+      windows: null,
+    }),
   ).toMatchObject({
     current: true,
     usedPct: null,
@@ -46,6 +57,7 @@ test("derives used percent from remaining percent when a window reports only tha
       info,
       status: "ready",
       currentProvider: "claude",
+      now: NOW,
       windows: [
         { remainingPct: 75, resetsAt: "2026-11-05T10:00:00Z" },
         { usedPct: 10, remainingPct: 0, resetsAt: "2026-11-05T14:00:00Z" },
@@ -56,8 +68,13 @@ test("derives used percent from remaining percent when a window reports only tha
 
 test("marks a target unavailable when its CLI is missing or its catalog failed, and keeps a loading one selectable", () => {
   const availability = (status: MoveTargetInput["status"], enabled = true) =>
-    toMoveTarget({ info: { ...info, enabled }, status, currentProvider: "claude", windows: null })
-      .available;
+    toMoveTarget({
+      info: { ...info, enabled },
+      status,
+      currentProvider: "claude",
+      now: NOW,
+      windows: null,
+    }).available;
 
   expect(availability("ready")).toBe(true);
   expect(availability("loading")).toBe(true);
@@ -65,6 +82,80 @@ test("marks a target unavailable when its CLI is missing or its catalog failed, 
   expect(availability("unavailable")).toBe(false);
   expect(availability("error")).toBe(false);
   expect(availability("ready", false)).toBe(false);
+});
+
+test("ranks a window on pace to run out soon above a fuller one that will not", () => {
+  expect(
+    toMoveTarget({
+      info,
+      status: "ready",
+      currentProvider: "claude-work",
+      now: NOW,
+      windows: [
+        { label: "Weekly", usedPct: 75, resetsAt: "2026-11-07T08:00:00.000Z" },
+        {
+          label: "Session",
+          usedPct: 60,
+          resetsAt: "2026-11-05T12:00:00.000Z",
+          runsOutAt: "2026-11-05T08:20:00.000Z",
+        },
+      ],
+    }),
+  ).toEqual({
+    provider: "claude-work",
+    label: "Claude (work)",
+    family: "claude",
+    available: true,
+    current: true,
+    usedPct: 60,
+    resetsAt: "2026-11-05T12:00:00.000Z",
+    runsOutAt: "2026-11-05T08:20:00.000Z",
+    windowLabel: "Session",
+  });
+});
+
+test("keeps a used-up window tightest beside one that runs out soon", () => {
+  expect(
+    toMoveTarget({
+      info,
+      status: "ready",
+      currentProvider: "claude-work",
+      now: NOW,
+      windows: [
+        {
+          label: "Weekly",
+          usedPct: 96,
+          resetsAt: "2026-11-07T08:00:00.000Z",
+          runsOutAt: "2026-11-05T08:10:00.000Z",
+        },
+        { label: "Session", usedPct: 100, resetsAt: "2026-11-05T12:00:00.000Z" },
+      ],
+    }),
+  ).toMatchObject({
+    usedPct: 100,
+    resetsAt: "2026-11-05T12:00:00.000Z",
+    runsOutAt: null,
+    windowLabel: "Session",
+  });
+});
+
+test("drops a run-out that falls after its window resets", () => {
+  expect(
+    toMoveTarget({
+      info,
+      status: "ready",
+      currentProvider: "claude-work",
+      now: NOW,
+      windows: [
+        {
+          label: "Weekly",
+          usedPct: 50,
+          resetsAt: "2026-11-05T09:00:00.000Z",
+          runsOutAt: "2026-11-05T10:00:00.000Z",
+        },
+      ],
+    }),
+  ).toMatchObject({ usedPct: 50, runsOutAt: null, windowLabel: "Weekly" });
 });
 
 describe("createUsageLookup", () => {
