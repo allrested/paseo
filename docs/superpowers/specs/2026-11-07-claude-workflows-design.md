@@ -36,7 +36,7 @@ prompt, result or script.
 | Reading        | Incremental: each file keeps a byte offset and its partial last line, and a poll reads only the bytes added since the last one.                                                                                                                   |
 | Liveness       | A current run record means Completed or Killed; a record from before a resume does not count. Without one, a live Claude process for the session that holds the run, started before the newest agent, means Running; else Stopped.                |
 | Privacy        | Tool names, file paths, counts, tokens, times, labels and phases only.                                                                                                                                                                            |
-| Folded turns   | The app's turn fold keeps plugin rows in view, so a Running card stays mounted and keeps polling when its turn folds.                                                                                                                             |
+| Folded turns   | The app's turn fold keeps plugin rows in view, except a row that replaces an assistant message, so a Running card stays mounted and keeps polling when its turn folds.                                                                            |
 
 There is no wire change: the feature uses a plugin RPC and a client transformer. Plugin RPCs need
 `daemon.manage`, and a client without it loads no plugin code, so it keeps the plain card.
@@ -51,10 +51,11 @@ There is no wire change: the feature uses a plugin RPC and a client transformer.
 - `index.client.tsx` and `client/`: the transformer and the card renderer.
 
 In `packages/app`: Collapse turns, the default Chat display, folds a finished turn's work into one
-summary line. Its fold (`src/agent-stream/turn-collapse/model.ts`) keeps every plugin row in view,
-as it keeps compaction rows, rows that replace a tool call or reasoning included, so a Running card
-in a folded turn stays mounted and keeps polling. In an opened turn, plugin rows sit outside the
-indent rail.
+summary line. Its fold (`src/agent-stream/turn-collapse/model.ts`) keeps plugin rows in view, as it
+keeps compaction rows, rows that replace a tool call or reasoning included, so a Running card in a
+folded turn stays mounted and keeps polling. A row that replaces an assistant message counts as that
+message (upstream #8811): the turn's last one stays in view as its reply, and earlier ones fold. In
+an opened turn, plugin rows sit outside the indent rail.
 
 ## Where the data lives
 
@@ -195,7 +196,8 @@ replaces the card with a plugin item carrying the run id and the run's summary. 
   - the RPC handler's body, called with an in-memory stand-in for `paseo.agents`, since a fake of
     the whole plugin server context would need a cast; it also loads a run of the agent's earlier
     session against that session's process;
-  - the app's turn fold: a folded turn keeps its plugin rows in view.
+  - the app's turn fold: a folded turn keeps its plugin rows in view, except rows that replace an
+    assistant message.
 - Fixtures are built in the tests from typed objects. Real transcripts are never copied, since they
   hold prompts.
 - Manual, on the dev daemon (port 6768, with the memory guard): a dev Claude agent runs a small
@@ -207,4 +209,5 @@ replaces the card with a plugin item carrying the run id and the run's summary. 
   - A run from before the plugin existed loads once. Its files carry no trace of the plugin, so the
     check reads finished runs after a dev daemon restart, from an empty cache.
 - Docs: a paragraph in the "Built-in plugins" section of `docs/plugins.md`, and a sentence at the
-  end of "Contribute timeline items" saying that a folded turn keeps plugin rows in view.
+  end of "Contribute timeline items" saying that a folded turn keeps plugin rows in view, except rows
+  that replace an assistant message.
