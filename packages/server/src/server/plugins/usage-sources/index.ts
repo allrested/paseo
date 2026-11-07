@@ -306,6 +306,17 @@ export class UsageSourceRegistry {
       const fetchedAt = new Date(startedAt).toISOString();
       const outcome = await this.fetchWithFallback(known);
       const completedAt = new Date(this.now()).toISOString();
+      // Fork delta (usage heads-up): a projection failure keeps the fetched report; it must not
+      // reject this request, whose `.finally` copy below has no rejection handler.
+      let report = outcome.report;
+      try {
+        report = this.projectPace({ id, known, report: outcome.report, at: startedAt });
+      } catch (error) {
+        this.logger.warn(
+          { sourceId: known.source.id, err: error },
+          "Usage run-out projection failed",
+        );
+      }
       const entry: UsageReportEntry = {
         id,
         sourceId: known.source.id,
@@ -314,7 +325,7 @@ export class UsageSourceRegistry {
         account: { label: known.label },
         fetchedAt,
         ...outcome,
-        report: this.projectPace({ id, known, report: outcome.report, at: startedAt }),
+        report,
       };
       if (entry.report.status === "available") {
         entry.successfulAt = completedAt;

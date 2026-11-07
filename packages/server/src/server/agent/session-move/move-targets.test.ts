@@ -84,7 +84,7 @@ test("marks a target unavailable when its CLI is missing or its catalog failed, 
   expect(availability("ready", false)).toBe(false);
 });
 
-test("ranks a window on pace to run out soon above a fuller one that will not", () => {
+test("ranks a window on pace to run out soon above a fuller one with no projected run-out", () => {
   expect(
     toMoveTarget({
       info,
