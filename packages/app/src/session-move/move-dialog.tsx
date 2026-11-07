@@ -109,6 +109,7 @@ function MoveDialog({ serverId, agentId }: MoveDialogProps) {
     agentId,
     targetsEnabled: true,
     recheckProvider: null,
+    pollTargets: false,
     onMoved: closeMoveDialog,
   });
   const [form, dispatch] = useReducer(moveFormReducer, INITIAL_MOVE_FORM);
