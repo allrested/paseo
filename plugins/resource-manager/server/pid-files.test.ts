@@ -1,15 +1,17 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFakeProc, type FakePidSpace } from "./local/fake-proc.js";
 import {
   isCurrentPidSpace,
+  killGroup,
   listPidFiles,
   ownerIsAlive,
   readPidRecord,
   readPidSpace,
   readStartTime,
+  reclaimPidFile,
   type PidRecord,
 } from "./pid-files.js";
 
@@ -102,5 +104,40 @@ describe("pid file reading", () => {
 
     expect(listPidFiles(root)).toEqual(["a-1.pid", "b-2.pid"]);
     expect(listPidFiles(join(root, "missing"))).toEqual([]);
+  });
+});
+
+// process.kill is replaced in these tests: a real killGroup(1) with a broken guard would signal
+// every process this user may signal.
+describe("the pgid guard", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("killGroup signals nothing for a pgid of 1 or less", async () => {
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    for (const pgid of [1, 0, -5]) await killGroup(pgid, 0);
+
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("reclaim only removes files for group 0 or 1, a null start time or garbage", async () => {
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    // Owner 999 is dead in the fake /proc, so only the checks under test stop a kill.
+    const files: Record<string, string> = {
+      "g-0.pid": JSON.stringify(record({ pgid: 0, ownerPid: 999 })),
+      "g-1.pid": JSON.stringify(record({ pgid: 1, ownerPid: 999 })),
+      "no-start.pid": JSON.stringify(record({ startTime: null, ownerPid: 999 })),
+      "garbage.pid": "{ not json",
+    };
+
+    for (const [name, text] of Object.entries(files)) {
+      const file = join(root, name);
+      writeFileSync(file, `${text}\n`);
+      await expect(reclaimPidFile(file, procRoot)).resolves.toBe("stale");
+      expect(existsSync(file)).toBe(false);
+    }
+    expect(kill).not.toHaveBeenCalled();
   });
 });
