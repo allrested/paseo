@@ -34,6 +34,7 @@ import type {
   ProjectPlacementPayload,
   WorkspaceProjectDescriptorPayload,
   RefreshProvidersSnapshotResponseMessage,
+  UsageProviderListReportsResponseMessage,
   SessionOutboundMessage,
   WorkspaceDescriptorPayload,
   WorkspaceCreateRequest,
@@ -334,6 +335,21 @@ export interface PaseoAgentCommandsOptions {
 
 export type PaseoAgentCommandsResult = ListCommandsResponse["payload"];
 
+// Fork delta (claude accounts): moving an agent from the SDK.
+export interface PaseoAgentMoveOptions {
+  /** Provider id to move to, such as `claude-work`. */
+  to: string;
+  /** Prompts the successor to carry on with the work. */
+  continueWork: boolean;
+}
+
+export interface PaseoAgentMoveResult {
+  /** The successor. The moved agent is archived. */
+  agentId: string;
+  strategy: "native" | "handoff";
+  fellBackFromNative: boolean;
+}
+
 export type PaseoAgentUpdate = Extract<SessionOutboundMessage, { type: "agent_update" }>["payload"];
 
 export type PaseoAgentStream = Extract<SessionOutboundMessage, { type: "agent_stream" }>["payload"];
@@ -472,6 +488,11 @@ export interface PaseoAgentHandle {
    * stays, and its next prompt resumes it. Needs a host that advertises `agentRuntimeClose`.
    */
   closeRuntime(): Promise<void>;
+  /**
+   * Moves the agent to another provider, as the Move session dialog does. Rejects with an
+   * update-host error when the host cannot move agents.
+   */
+  move(options: PaseoAgentMoveOptions): Promise<PaseoAgentMoveResult>;
   subscribe(handler: (update: PaseoAgentUpdate) => void): () => void;
 }
 
@@ -522,6 +543,8 @@ export type PaseoProviderUsageResult = ProviderUsageListResponseMessage["payload
 export interface PaseoProviderUsageOptions {
   requestId?: string;
 }
+// Fork delta (claude accounts): one provider's usage and its tightest window.
+export type PaseoProviderReportsResult = UsageProviderListReportsResponseMessage["payload"];
 
 export interface PaseoProviderListOptions {
   cwd?: string;
@@ -570,6 +593,15 @@ export interface PaseoProviderActions {
     options?: { requestId?: string },
   ): Promise<PaseoProviderDiagnosticResult>;
   listUsage(options?: PaseoProviderUsageOptions): Promise<PaseoProviderUsageResult>;
+  /**
+   * One provider's usage reports and their tightest window, read through the provider's launch
+   * scope as the Move session dialog reads a target's. Rejects with an update-host error when the
+   * host cannot.
+   */
+  listUsageForProvider(
+    provider: string,
+    options?: PaseoProviderUsageOptions,
+  ): Promise<PaseoProviderReportsResult>;
   subscribe(handler: (update: PaseoProviderSnapshotUpdate) => void): () => void;
 }
 
@@ -899,6 +931,8 @@ export function createPaseoApi(
       refresh: (options) => daemonClient.refreshProvidersSnapshot(options),
       diagnostic: (provider, options) => daemonClient.getProviderDiagnostic(provider, options),
       listUsage: (options) => listProviderUsage(daemonClient, options),
+      listUsageForProvider: (provider, options) =>
+        listOneProviderUsage(daemonClient, provider, options),
       subscribe: (handler) => {
         return subscribeEvent("providers_snapshot_update", (message) => {
           if (message.type === "providers_snapshot_update") handler(message.payload);
@@ -1205,6 +1239,15 @@ function createAgentHandleFactory(
       closeRuntime: async () => {
         await daemonClient.closeAgentRuntime(id);
       },
+      // Fork delta (claude accounts): the Move session dialog's RPC, gated once on the host.
+      move: async ({ to, continueWork }) => {
+        daemonClient.ensureConnected();
+        // COMPAT(agentMove): added in v0.15.3, remove gate after 2027-05-07.
+        if (daemonClient.getLastServerInfoMessage()?.features?.agentMove !== true) {
+          throw new Error("Update the host to move agents.");
+        }
+        return daemonClient.moveAgent(id, { provider: to }, { continueWork });
+      },
       subscribe: (handler) =>
         listen((update) => {
           if (update.kind === "upsert" && update.agent.id === id) {
@@ -1290,6 +1333,20 @@ function listProviderUsage(
     return Promise.reject(new Error("Update the host to list provider usage."));
   }
   return daemonClient.listProviderUsage(options);
+}
+
+// Fork delta (claude accounts): one provider's usage, gated once on the host feature.
+function listOneProviderUsage(
+  daemonClient: DaemonClient,
+  provider: string,
+  options?: PaseoProviderUsageOptions,
+): Promise<PaseoProviderReportsResult> {
+  daemonClient.ensureConnected();
+  // COMPAT(usageProviderReports): added in v0.15.3, remove gate after 2027-05-07.
+  if (daemonClient.getLastServerInfoMessage()?.features?.usageProviderReports !== true) {
+    return Promise.reject(new Error("Update the host to list a provider's usage."));
+  }
+  return daemonClient.listProviderUsageReports(provider, options);
 }
 
 async function waitForProvidersReady(
