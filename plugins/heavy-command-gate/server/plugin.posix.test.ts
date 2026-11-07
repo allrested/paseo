@@ -276,6 +276,30 @@ describe("startGatePlugin", () => {
     }
   });
 
+  it("writes nothing into another daemon's home when a save arrives after it stood down", async () => {
+    mkdirSync(paths.home, { recursive: true });
+    const otherGate = createGate({
+      config: { enabled: true, slots: 1, reserveBytes: GIB },
+      deps: idleDeps(),
+    });
+    const other = await listenGateSocket({ socketPath: paths.socketPath, gate: otherGate });
+    try {
+      const settings = createFakeSettings();
+      const plugin = start(settings);
+      settings.resolveRead(ready({}));
+      expect(await plugin.openHook(openRequest())).toBeUndefined();
+      settings.emit(ready({ slots: 3 }, "r2"));
+      expect((await plugin.status(noTitle)).slots).toBe(3);
+      // stop() waits for every queued config write, so a write that should not happen is on disk.
+      await plugin.stop();
+      expect(existsSync(paths.configPath)).toBe(false);
+      expect(existsSync(paths.script)).toBe(false);
+    } finally {
+      await other?.close();
+      otherGate.stop();
+    }
+  });
+
   it("is unavailable without a usable node, and writes nothing", async () => {
     const settings = createFakeSettings();
     const plugin = start(settings, { ok: false, reason: "no node binary on the daemon PATH" });
@@ -339,5 +363,18 @@ describe("startGatePlugin", () => {
     await closed;
     expect(existsSync(paths.socketPath)).toBe(false);
     expect(await plugin.openHook(openRequest())).toBeUndefined();
+  });
+
+  it("installs nothing and frees the socket when stop comes before the stored settings are read", async () => {
+    const settings = createFakeSettings();
+    const plugin = start(settings);
+    // The socket is claimed before the settings are read, so start is waiting on the read now.
+    await vi.waitFor(() => expect(existsSync(paths.socketPath)).toBe(true), { timeout: 5_000 });
+    const stopping = plugin.stop();
+    settings.resolveRead(ready({}));
+    await stopping;
+    expect(existsSync(paths.script)).toBe(false);
+    expect(existsSync(paths.configPath)).toBe(false);
+    expect(existsSync(paths.socketPath)).toBe(false);
   });
 });
