@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -36,6 +37,11 @@ const LOGGING_TOOL = [
 ].join("\n");
 // Replaced by sleep itself, so a signal the shim forwards reaches the sleeping process.
 const SLEEPING_TOOL = "#!/bin/sh\nexec sleep 30\n";
+// Logs its start with $0, the path the shim handed to exec.
+const INVOCATION_TOOL = '#!/bin/sh\necho "start $0 $*" >> "$GATE_TEST_LOG"\n';
+// A shim that takes another shim for the tool can exec it, and be exec'd back, without end. A run
+// that could do so is killed after this long, so the test fails instead of hanging.
+const LOOP_LIMIT_MS = 3_000;
 
 const CONFIG: ShimConfig = {
   version: 1,
@@ -56,6 +62,13 @@ interface ShimResult {
 interface ShimRun {
   child: ChildProcess;
   result: Promise<ShimResult>;
+}
+
+interface ShimOptions {
+  /** Where the shim starts. The test's temp dir by default. */
+  cwd?: string;
+  /** Kills the shim with SIGKILL after this long. */
+  timeoutMs?: number;
 }
 
 let root = "";
@@ -136,9 +149,14 @@ async function stopFakeGate(): Promise<void> {
   await closed;
 }
 
-function runShim(name: string, args: string[], env: Record<string, string> = {}): ShimRun {
+function runShim(
+  name: string,
+  args: string[],
+  env: Record<string, string> = {},
+  options: ShimOptions = {},
+): ShimRun {
   const child = spawn(join(paths.binDir, name), args, {
-    cwd: root,
+    cwd: options.cwd ?? root,
     env: {
       PATH: `${paths.binDir}:${realBin}:${SYSTEM_PATH}`,
       GATE_TEST_LOG: logFile,
@@ -146,6 +164,8 @@ function runShim(name: string, args: string[], env: Record<string, string> = {})
       ...env,
     },
     stdio: ["ignore", "ignore", "pipe"],
+    timeout: options.timeoutMs,
+    killSignal: "SIGKILL",
   });
   children.push(child);
   let stderr = "";
@@ -331,7 +351,8 @@ describe("the generated shim", () => {
 
   it("runs the command after one warning line when the gate never answers", async () => {
     const hellos = await startFakeGate(() => undefined);
-    await installShims({ paths, interpreter: process.execPath, helloTimeoutMs: 300 });
+    // Long enough that a slow start cannot fire the timer before the shim has sent its hello.
+    await installShims({ paths, interpreter: process.execPath, helloTimeoutMs: 1_500 });
     const run = runShim("tsc", ["silent"]);
     expect(await run.result).toEqual({
       code: 0,
@@ -378,5 +399,42 @@ describe("the generated shim", () => {
       signal: null,
       stderr: "heavy-command gate: no pytest on PATH after the shim directory\n",
     });
+  });
+
+  it("skips the shim of another gate home on PATH instead of running it as the tool", async () => {
+    const other = gatePaths(join(root, "other-home"));
+    await installShims({ paths: other, interpreter: process.execPath });
+    await writeShimConfig(other.configPath, CONFIG);
+    const bothHomes = `${paths.binDir}:${other.binDir}:${realBin}:${SYSTEM_PATH}`;
+    const options = { timeoutMs: LOOP_LIMIT_MS };
+    const light = runShim("npm", ["--version"], { PATH: bothHomes }, options);
+    expect(await light.result).toEqual({ code: 0, signal: null, stderr: "" });
+    const heavy = runShim("tsc", ["--noEmit"], { PATH: bothHomes }, options);
+    expect(await heavy.result).toEqual({
+      code: 0,
+      signal: null,
+      stderr: "heavy-command gate: not reachable (ENOENT), running tsc ungated\n",
+    });
+    expect(readLog()).toEqual([
+      "start npm --version held=unset",
+      "end npm --version",
+      "start tsc --noEmit held=1",
+      "end tsc --noEmit",
+    ]);
+  });
+
+  // With process.execve a bare name still reaches the tool through the working directory, so the
+  // tool reports how it was started. Where the shim runs the command as a child instead (Node
+  // before 22.15), a bare name is looked up on PATH again and finds the shim first.
+  it("runs a command found through a relative PATH entry by its full path", async () => {
+    writeTool("pytest", INVOCATION_TOOL);
+    const run = runShim(
+      "pytest",
+      ["--version"],
+      { PATH: `${paths.binDir}:.:${SYSTEM_PATH}` },
+      { cwd: realBin },
+    );
+    expect(await run.result).toEqual({ code: 0, signal: null, stderr: "" });
+    expect(readLog()).toEqual([`start ${join(realpathSync(realBin), "pytest")} --version`]);
   });
 });

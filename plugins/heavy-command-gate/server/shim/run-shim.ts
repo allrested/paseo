@@ -86,14 +86,20 @@ export function runShim(deps: ShimDeps): void {
     }
   }
 
-  // The binary a shell would run with the shim directory taken off PATH.
+  // The binary a shell would run with the shim directory taken off PATH. Any script named gate.mjs
+  // is a shim, of this gate home or of another one on PATH, and never the tool: two shims that
+  // took each other for it would run each other without end. A relative entry such as "." is
+  // resolved, so the path handed to exec is not a bare name that spawn would look up on PATH again.
   function findRealBinary(): string | null {
     const shimDirectory = realpathOrNull(path.dirname(scriptPath));
     const shimScript = realpathOrNull(scriptPath);
     for (const entry of (env.PATH ?? "").split(path.delimiter)) {
       if (entry === "" || realpathOrNull(entry) === shimDirectory) continue;
-      const candidate = path.join(entry, invokedAs);
-      if (!isExecutableFile(candidate) || realpathOrNull(candidate) === shimScript) continue;
+      const candidate = path.resolve(entry, invokedAs);
+      if (!isExecutableFile(candidate)) continue;
+      const resolved = realpathOrNull(candidate);
+      if (resolved === shimScript) continue;
+      if (resolved !== null && path.basename(resolved) === "gate.mjs") continue;
       return candidate;
     }
     return null;
