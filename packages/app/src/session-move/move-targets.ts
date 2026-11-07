@@ -87,8 +87,8 @@ export function moveTargetsRecheckMs(
 }
 
 /**
- * The targets query's refetch interval. Fork delta (usage heads-up): while `pollTargets` is set
- * the agent's own account is read every five minutes; otherwise only a Move back polls.
+ * The targets query's refetch interval. While `pollTargets` is set the agent's own account is
+ * read every five minutes; otherwise only a Move back polls.
  */
 export function moveTargetsRefetchMs(input: {
   pollTargets: boolean;
