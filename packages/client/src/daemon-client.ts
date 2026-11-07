@@ -25,7 +25,10 @@ import type { z } from "zod";
 import type { SessionEventSubscription } from "@getpaseo/protocol/messages";
 import type { LocalSpeechModel } from "@getpaseo/protocol/speech/rpc-schemas";
 import { CLIENT_CAPS, type ClientCapability } from "@getpaseo/protocol/client-capabilities";
-import type { AgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
+import type {
+  AgentAttentionNotificationPayload,
+  AgentAttentionNotificationReason,
+} from "@getpaseo/protocol/agent-attention-notification";
 import { MAX_WEBSOCKET_MESSAGE_BYTES } from "@getpaseo/protocol/websocket-message-limit";
 import {
   AgentCreateFailedStatusPayloadSchema,
@@ -478,7 +481,7 @@ export interface SendMessageOptions {
 
 export interface AgentAttentionRequiredNotification {
   agentId: string;
-  reason: "finished" | "error" | "permission";
+  reason: AgentAttentionNotificationReason;
   timestamp: string;
   shouldNotify: boolean;
   notification?: AgentAttentionNotificationPayload;

@@ -5181,12 +5181,16 @@ export const SetAgentTimelineSubscriptionResponseMessageSchema = z.object({
   }),
 });
 
+// Fork delta (usage heads-up): "usage" is sent only to clients that advertise
+// CLIENT_CAPS.usageNotifications; the legacy agent_stream attention event never carries it.
+const AgentAttentionNotificationReasonSchema = z.enum(["finished", "error", "permission", "usage"]);
+
 export const AgentAttentionRequiredMessageSchema = z.object({
   type: z.literal("agent_attention_required"),
   payload: z.object({
     subscriptionId: z.string().optional(),
     agentId: z.string(),
-    reason: z.enum(["finished", "error", "permission"]),
+    reason: AgentAttentionNotificationReasonSchema,
     timestamp: z.string(),
     shouldNotify: z.boolean(),
     notification: z
@@ -5197,7 +5201,7 @@ export const AgentAttentionRequiredMessageSchema = z.object({
           serverId: z.string(),
           workspaceId: z.string().optional(),
           agentId: z.string(),
-          reason: z.enum(["finished", "error", "permission"]),
+          reason: AgentAttentionNotificationReasonSchema,
         }),
       })
       .optional(),
