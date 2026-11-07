@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import {
   useRpc,
   useSettings,
@@ -21,14 +21,14 @@ import { useScreenStyles, type ScreenStyles } from "./styles.js";
 
 const STATUS_KEY = ["heavy-command-gate", "status"] as const;
 const POLL_MS = 5_000;
-const COMMANDS_INFO =
-  "Heavy commands that agents start through npm, npx, pnpm, tsc, tsgo, vitest, jest, gradle, gradlew or pytest wait here for a slot and for free memory. The lists refresh every 5 s.";
+const COMMANDS_INFO = `Heavy commands that agents start through npm, npx, pnpm, tsc, tsgo, vitest, jest, gradle, gradlew or pytest wait here for a slot and for free memory. The lists refresh every ${POLL_MS / 1000} s.`;
 
 type GateSettingsState = SettingsState<typeof gateSettings.schema>;
 
 interface GateSwitchProps {
   settings: GateSettingsState;
-  status: GateStatus;
+  /** Null when the status request failed: the switch then shows the settings alone. */
+  status: GateStatus | null;
 }
 
 interface CommandListProps {
@@ -38,13 +38,16 @@ interface CommandListProps {
 
 interface StatusUnavailableProps {
   message: string;
+  /** The status request is in flight again. */
+  retrying: boolean;
+  settings: GateSettingsState;
   onRetry(): void;
   styles: ScreenStyles;
 }
 
 function settingsMessage(settings: GateSettingsState): string | null {
   if (settings.status === "invalid") {
-    return `The saved settings are invalid. Fix them on the Limits tab.\n${settings.error}`;
+    return `The saved settings are invalid. Restore the defaults on the Limits tab.\n${settings.error}`;
   }
   if (settings.status === "error") return settings.error;
   return settings.saveError;
@@ -61,12 +64,16 @@ function GateSwitch({ settings, status }: GateSwitchProps) {
     },
     [settings, queryClient],
   );
-  // Until the settings load, the switch mirrors what the gate reports.
-  const enabled = settings.status === "ready" ? settings.values.enabled : status.state !== "off";
+  // Until the settings load, the switch mirrors what the gate reports, or reads off when the
+  // status request failed.
+  const enabled =
+    settings.status === "ready"
+      ? settings.values.enabled
+      : status !== null && status.state !== "off";
   return (
     <SettingsSwitch
       label="Gate heavy commands"
-      hint={describeGate(status)}
+      hint={status === null ? undefined : describeGate(status)}
       error={settingsMessage(settings)}
       value={enabled}
       disabled={settings.status !== "ready" || settings.saving}
@@ -78,15 +85,17 @@ function GateSwitch({ settings, status }: GateSwitchProps) {
 function RunningList({ status, styles }: CommandListProps) {
   return (
     <SettingsSection title="Running">
-      {status.running.length === 0 ? (
-        <Text style={styles.muted}>Nothing running</Text>
-      ) : (
-        <SettingsCard>
-          {status.running.map((command) => (
+      <SettingsCard>
+        {status.running.length === 0 ? (
+          <View style={styles.block}>
+            <Text style={styles.muted}>Nothing running</Text>
+          </View>
+        ) : (
+          status.running.map((command) => (
             <SettingsRow key={command.id} label={command.command} hint={describeRunning(command)} />
-          ))}
-        </SettingsCard>
-      )}
+          ))
+        )}
+      </SettingsCard>
     </SettingsSection>
   );
 }
@@ -94,26 +103,44 @@ function RunningList({ status, styles }: CommandListProps) {
 function WaitingList({ status, styles }: CommandListProps) {
   return (
     <SettingsSection title="Waiting">
-      {status.waiting.length === 0 ? (
-        <Text style={styles.muted}>Nothing waiting</Text>
-      ) : (
-        <SettingsCard>
-          {status.waiting.map((command) => (
+      <SettingsCard>
+        {status.waiting.length === 0 ? (
+          <View style={styles.block}>
+            <Text style={styles.muted}>Nothing waiting</Text>
+          </View>
+        ) : (
+          status.waiting.map((command) => (
             <SettingsRow key={command.id} label={command.command} hint={describeWaiting(command)} />
-          ))}
-        </SettingsCard>
-      )}
+          ))
+        )}
+      </SettingsCard>
     </SettingsSection>
   );
 }
 
-function StatusUnavailable({ message, onRetry, styles }: StatusUnavailableProps) {
+function StatusUnavailable({
+  message,
+  retrying,
+  settings,
+  onRetry,
+  styles,
+}: StatusUnavailableProps) {
   return (
     <SettingsSection title="Heavy commands">
-      <Text accessibilityRole="alert" style={styles.error}>
-        {message}
-      </Text>
-      <SettingsAction label="Gate status" actionLabel="Try again" onPress={onRetry} />
+      <SettingsCard>
+        <View style={styles.block}>
+          <Text accessibilityRole="alert" style={styles.error}>
+            {message}
+          </Text>
+        </View>
+        <SettingsAction
+          label="Gate status"
+          actionLabel={retrying ? "Loading..." : "Try again"}
+          disabled={retrying}
+          onPress={onRetry}
+        />
+        <GateSwitch settings={settings} status={null} />
+      </SettingsCard>
     </SettingsSection>
   );
 }
@@ -137,7 +164,15 @@ export function CommandsScreen({ theme }: PluginSurfaceProps) {
   const data = status.data;
   if (data === undefined) {
     if (status.isError) {
-      return <StatusUnavailable message={status.error.message} onRetry={retry} styles={styles} />;
+      return (
+        <StatusUnavailable
+          message={status.error.message}
+          retrying={status.isFetching}
+          settings={settings}
+          onRetry={retry}
+          styles={styles}
+        />
+      );
     }
     return <Text style={styles.muted}>Loading heavy commands...</Text>;
   }
@@ -145,13 +180,15 @@ export function CommandsScreen({ theme }: PluginSurfaceProps) {
   return (
     <>
       <SettingsSection title="Heavy commands" info={COMMANDS_INFO}>
-        {refreshError ? (
-          <Text accessibilityRole="alert" style={styles.error}>
-            {refreshError}
-          </Text>
-        ) : null}
         <SettingsCard>
           <GateSwitch settings={settings} status={data} />
+          {refreshError ? (
+            <View style={styles.block}>
+              <Text accessibilityRole="alert" style={styles.error}>
+                {refreshError}
+              </Text>
+            </View>
+          ) : null}
         </SettingsCard>
       </SettingsSection>
       <RunningList status={data} styles={styles} />
