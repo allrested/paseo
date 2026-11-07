@@ -32,8 +32,8 @@ export function WorkflowCard({ agentId, item, theme }: PluginTimelineItemProps<W
   const { runId, summary } = item.data;
   const fetchRun = useRpc(runRpc);
   // The interval belongs to the query observer, so polling stops when the card unmounts or the
-  // run leaves Running. The installation's QueryClient would retry a failed fetch three times
-  // with backoff; the next poll is the retry instead.
+  // run leaves Running. No retry: a loaded card's next poll is the retry, and a failed first
+  // load waits for the next mount or the page turning visible.
   const run = useQuery({
     queryKey: ["claude-workflows", "run", agentId, runId],
     queryFn: () => fetchRun({ agentId, runId }),

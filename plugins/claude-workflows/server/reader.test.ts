@@ -25,6 +25,7 @@ function recordingSink(): RecordingSink {
     restarts: 0,
     restart() {
       sink.restarts += 1;
+      sink.lines = [];
     },
     line(text) {
       sink.lines.push(text);
@@ -57,6 +58,7 @@ describe("readNewLines", () => {
     await readNewLines({ path, cursor, sink });
     await appendFile(path, "two\n");
     await readNewLines({ path, cursor, sink });
+    await readNewLines({ path, cursor, sink });
 
     expect(sink.lines).toEqual(["one", "two"]);
     expect(cursor.offset).toBe(8);
@@ -74,7 +76,7 @@ describe("readNewLines", () => {
     await readNewLines({ path, cursor, sink });
 
     expect(sink.restarts).toBe(1);
-    expect(sink.lines).toEqual(["one", "two", "new"]);
+    expect(sink.lines).toEqual(["new"]);
   });
 
   it("starts over when the file was replaced", async () => {
@@ -89,7 +91,7 @@ describe("readNewLines", () => {
     await readNewLines({ path, cursor, sink });
 
     expect(sink.restarts).toBe(1);
-    expect(sink.lines).toEqual(["one", "uno", "dos"]);
+    expect(sink.lines).toEqual(["uno", "dos"]);
   });
 
   it("reads a large file in chunks without splitting a line or a character", async () => {
