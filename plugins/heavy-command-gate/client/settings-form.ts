@@ -22,7 +22,7 @@ interface LineError {
   message: string;
 }
 
-const LINE_MESSAGE = "write the estimate in GB, a space, then the command";
+const LINE_MESSAGE = "Write the estimate in GB, a space, then the command";
 const PATTERN_LINE = /^(\S+)\s+(.+)$/;
 
 export function formatPatterns(patterns: readonly HeavyPattern[]): string {
@@ -82,4 +82,91 @@ export function parseDraft(draft: SettingsDraft, enabled: boolean): DraftResult 
   if (listError !== null) lines.unshift(listError);
   errors.patterns = lines.length === 0 ? null : lines.join("\n");
   return { ok: false, errors };
+}
+
+/** The settings requests the Limits screen starts. */
+export type RequestKind = "save" | "reset";
+
+/**
+ * What `useSettings` reports. A save and a reset share one request object, so they share one
+ * `saving` and one `saveError`.
+ */
+export interface RequestState {
+  saving: boolean;
+  saveError: string | null;
+}
+
+/** An edit in progress. */
+export interface EditorDraft extends SettingsDraft {
+  /** The revision the edit started from, so saving over another client's save is a conflict. */
+  revision: string;
+}
+
+export interface EditorState {
+  /** null: the fields show the saved settings and follow other clients' saves. */
+  draft: EditorDraft | null;
+  /** Bumped by Discard and Reset, so the uncontrolled inputs remount with the saved values. */
+  generation: number;
+  /** The request that `saving` and `saveError` describe; null before the first one. */
+  lastRequest: RequestKind | null;
+}
+
+export type EditorAction =
+  | { type: "edit"; patch: Partial<SettingsDraft>; saved: SettingsDraft; revision: string }
+  | { type: "save-started" }
+  | { type: "save-succeeded" }
+  | { type: "discard" }
+  | { type: "reset-started" };
+
+export const INITIAL_EDITOR_STATE: EditorState = { draft: null, generation: 0, lastRequest: null };
+
+export function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  switch (action.type) {
+    case "edit": {
+      // Only the first edit reads the saved text and revision; later edits keep the draft's own.
+      const start: EditorDraft = { ...action.saved, revision: action.revision };
+      return { ...state, draft: { ...(state.draft ?? start), ...action.patch } };
+    }
+    case "save-started":
+      return { ...state, lastRequest: "save" };
+    case "save-succeeded":
+      return { ...state, draft: null };
+    case "discard":
+      // Discarding reloads the settings, which clears the request's progress and error.
+      return { draft: null, generation: state.generation + 1, lastRequest: null };
+    case "reset-started":
+      return { draft: null, generation: state.generation + 1, lastRequest: "reset" };
+  }
+}
+
+/** What an action row shows: the label of its button and the error under its title. */
+export interface ActionRow {
+  actionLabel: string;
+  error: string | null;
+}
+
+/** Save shows the shared request's progress and error only when a save was the last request. */
+export function saveRow(lastRequest: RequestKind | null, request: RequestState): ActionRow {
+  const mine = lastRequest === "save";
+  return {
+    actionLabel: mine && request.saving ? "Saving..." : "Save",
+    error: mine ? request.saveError : null,
+  };
+}
+
+/**
+ * Restore defaults shows the shared request's progress and error only when a reset was the last
+ * request. Between its two presses the button reads "Confirm reset".
+ */
+export function resetRow(
+  lastRequest: RequestKind | null,
+  request: RequestState,
+  armed: boolean,
+): ActionRow {
+  const mine = lastRequest === "reset";
+  const idle = armed ? "Confirm reset" : "Reset";
+  return {
+    actionLabel: mine && request.saving ? "Resetting..." : idle,
+    error: mine ? request.saveError : null,
+  };
 }
