@@ -319,6 +319,36 @@ const SourceSchema = z.object({
     expect(result.success).toBe(true);
   });
 
+  it("accepts a usage.provider.list_reports.response envelope", () => {
+    const result = validateWSOutboundMessage({
+      type: "session",
+      message: {
+        type: "usage.provider.list_reports.response",
+        payload: {
+          requestId: "usage-one",
+          provider: "claude-work",
+          reports: [
+            {
+              id: "claude:work",
+              account: { label: "work" },
+              fetchedAt: "2026-11-06T00:00:00.000Z",
+              sourceId: "claude",
+              sourceLabel: "Claude",
+              report: {
+                status: "available",
+                planLabel: "Max",
+                windows: [{ id: "weekly", label: "Weekly", usedPct: 70 }],
+              },
+            },
+          ],
+          tightest: { label: "Weekly", usedPct: 70, resetsAt: null, tone: "none" },
+          error: null,
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("keeps each generated validator function small", async () => {
     // A single function for the whole protocol made V8's Maglev tier spend ~800 MB and seconds compiling it.
     const generated = await readFile(generatedWSOutboundPath, "utf8");
