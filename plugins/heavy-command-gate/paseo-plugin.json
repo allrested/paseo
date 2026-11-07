@@ -1,0 +1,1 @@
+{ "id": "heavy-command-gate", "requirements": { "paseo": ">=0.15.0" } }
