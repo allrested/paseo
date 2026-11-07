@@ -9,7 +9,7 @@ export function useCardStyles(theme: PluginTheme) {
   return useMemo(() => {
     const { colors } = theme;
     return {
-      card: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, gap: 10 },
+      card: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, gap: 12 },
       header: { gap: 4 },
       titleRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
       title: { color: colors.foreground, fontSize: 14, fontWeight: "500" as const },
@@ -32,10 +32,10 @@ export function useCardStyles(theme: PluginTheme) {
         stopped: { color: colors.statusDanger, fontSize: 12 },
         unavailable: { color: colors.foregroundMuted, fontSize: 12 },
       },
-      summary: { color: colors.foreground, fontSize: 13 },
+      summary: { color: colors.foreground, fontSize: 14 },
       meta: { color: colors.foregroundMuted, fontSize: 12 },
       error: { color: colors.statusDanger, fontSize: 12 },
-      body: { gap: 10 },
+      body: { gap: 12 },
       phase: { gap: 6 },
       phaseTitle: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "500" as const },
       agent: { gap: 2 },
@@ -47,7 +47,7 @@ export function useCardStyles(theme: PluginTheme) {
         stopped: { color: colors.statusWarning, fontSize: 12 },
         unreadable: { color: colors.foregroundMuted, fontSize: 12 },
       },
-      agentLabel: { flexShrink: 1, color: colors.foreground, fontSize: 13 },
+      agentLabel: { flexShrink: 1, color: colors.foreground, fontSize: 14 },
     };
   }, [theme]);
 }
