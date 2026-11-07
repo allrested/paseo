@@ -317,8 +317,17 @@ received.
 **Move session…** in the tab menu, `paseo agent move`, and the `move_agent` tool hand an agent to
 another provider or account without calling the agent's own model, so a session whose account ran
 out of quota can continue elsewhere. The code is in `packages/server/src/server/agent/session-move/`.
-Paseo never moves an agent by itself: a turn that fails with a usage-limit error only sets
-`limitReached` on the agent, which offers a move in the app until a later turn completes.
+Paseo never moves an agent by itself. A turn that fails with a usage-limit error sets `limitReached`
+on the agent, which offers a move in the app until a later turn completes. Before an account runs
+out, from 80% of a window or a projected run-out within three hours, the move banner shows a
+heads-up with a one-click move, and the daemon sends one notification per account window at 80% and
+again at 95% while an agent on that account is running; background agents and subagents do not
+count. Dismissing the heads-up hides it for every agent on that account until the window passes the
+next of 80% and 95%, or resets. Dismissals live in the app's memory and the notified levels in the
+daemon's, so an app restart shows a dismissed heads-up again, and a daemon restart notifies again
+for a window already past 80%. Only apps that advertise `usage_notifications` get the notification
+in the app; when none of them is present, it goes out as a push. The thresholds and the best-target
+rule are in `packages/protocol/src/usage-heads-up.ts`.
 
 A move or move back is refused before anything changes when the agent is archived, because the
 session lives on in the agent it moved to (the error names it), and when the target provider is
