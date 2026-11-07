@@ -38,6 +38,14 @@ function writeCgroup(path: string, max: string, currentGib: number): void {
   write(join(directory, "memory.current"), `${currentGib * GIB}\n`);
 }
 
+// A cgroup v2 memory.stat holds one "<counter> <bytes>" line per counter. These are the counters
+// around inactive_file; null leaves that line out.
+function writeMemoryStat(path: string, inactiveFileGib: number | null): void {
+  const inactiveFile = inactiveFileGib === null ? [] : [`inactive_file ${inactiveFileGib * GIB}`];
+  const lines = [`inactive_anon ${GIB}`, ...inactiveFile, `active_file ${GIB}`];
+  write(join(roots.cgroupRoot, path, "memory.stat"), `${lines.join("\n")}\n`);
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "heavy-gate-memory-"));
   roots = { procRoot: join(root, "proc"), cgroupRoot: join(root, "cgroup") };
@@ -74,6 +82,20 @@ describe("readFreeMemory", () => {
     write(join(roots.procRoot, "meminfo"), meminfo(4));
     writeCgroup("/paseo", String(6 * GIB), 5);
     expect(readFreeMemory(roots)).toBe(GIB);
+  });
+
+  it("takes the plain cgroup difference when memory.stat has no inactive_file line", () => {
+    write(join(roots.procRoot, "meminfo"), meminfo(4));
+    writeCgroup("/paseo", String(6 * GIB), 5);
+    writeMemoryStat("/paseo", null);
+    expect(readFreeMemory(roots)).toBe(GIB);
+  });
+
+  it("adds the inactive file cache of memory.stat to the cgroup headroom", () => {
+    write(join(roots.procRoot, "meminfo"), meminfo(4));
+    writeCgroup("/paseo", String(6 * GIB), 5);
+    writeMemoryStat("/paseo", 2);
+    expect(readFreeMemory(roots)).toBe(3 * GIB);
   });
 
   it("takes MemAvailable when it is smaller than the cgroup headroom", () => {
