@@ -122,6 +122,7 @@ import type {
   RefreshProvidersSnapshotResponseMessage,
   ProviderDiagnosticResponseMessage,
   ProviderUsageListResponseMessage,
+  UsageProviderListReportsResponseMessage,
   UsageReportEntry,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
@@ -636,6 +637,7 @@ type GetProvidersSnapshotPayload = GetProvidersSnapshotResponseMessage["payload"
 type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["payload"];
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
+type UsageProviderReportsPayload = UsageProviderListReportsResponseMessage["payload"];
 interface UsageListReportsPayload {
   requestId: string;
   reports: UsageReportEntry[];
@@ -6333,6 +6335,17 @@ export class DaemonClient {
       message: {
         type: "provider.usage.list.request",
       },
+    });
+  }
+
+  // Fork delta (claude accounts): one provider's usage, read through its launch scope.
+  async listProviderUsageReports(
+    provider: string,
+    options?: { requestId?: string },
+  ): Promise<UsageProviderReportsPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"usage.provider.list_reports.response">({
+      requestId: options?.requestId,
+      message: { type: "usage.provider.list_reports.request", provider },
     });
   }
 

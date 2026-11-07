@@ -1665,6 +1665,95 @@ test("provider usage requires the advertised host capability", async () => {
   await client.close();
 });
 
+test("agent handles move to another provider through the agent.move RPC", async () => {
+  const { client, ws } = await connectClient({ agentMove: true });
+
+  const moving = client.agents.ref("agent_sdk").move({ to: "claude-work", continueWork: false });
+  await expect.poll(() => parseSentSessionMessage(ws.sent.at(-1)).type).toBe("agent.move.request");
+  const request = parseSentSessionMessage(ws.sent.at(-1));
+  expect(parseSentFrame(ws.sent.at(-1))).toEqual({
+    type: "session",
+    message: {
+      type: "agent.move.request",
+      requestId: request.requestId,
+      agentId: "agent_sdk",
+      target: { provider: "claude-work" },
+      continueWork: false,
+    },
+  });
+  ws.message(
+    sessionMessage({
+      type: "agent.move.response",
+      payload: {
+        requestId: request.requestId,
+        ok: true,
+        agentId: "agent_next",
+        strategy: "handoff",
+        fellBackFromNative: true,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(moving).resolves.toEqual({
+    agentId: "agent_next",
+    strategy: "handoff",
+    fellBackFromNative: true,
+  });
+  await client.close();
+});
+
+test("agent move requires the advertised host capability", async () => {
+  const { client, ws } = await connectClient({});
+  const sentBeforeMove = ws.sent.length;
+
+  await expect(
+    client.agents.ref("agent_sdk").move({ to: "claude-work", continueWork: false }),
+  ).rejects.toThrow("Update the host to move agents.");
+  expect(ws.sent).toHaveLength(sentBeforeMove);
+
+  await client.close();
+});
+
+test("usage for one provider round-trips the usage.provider.list_reports RPC", async () => {
+  const { client, ws } = await connectClient({ usageProviderReports: true });
+
+  const listing = client.providers.listUsageForProvider("claude-work", {
+    requestId: "usage-one",
+  });
+  await expect
+    .poll(() => parseSentSessionMessage(ws.sent.at(-1)).type)
+    .toBe("usage.provider.list_reports.request");
+  expect(parseSentSessionMessage(ws.sent.at(-1))).toEqual({
+    type: "usage.provider.list_reports.request",
+    requestId: "usage-one",
+    provider: "claude-work",
+  });
+  const payload = {
+    requestId: "usage-one",
+    provider: "claude-work",
+    reports: [],
+    tightest: { label: "Weekly", usedPct: 70, resetsAt: null, tone: "none" },
+    error: null,
+  };
+  ws.message(sessionMessage({ type: "usage.provider.list_reports.response", payload }));
+
+  await expect(listing).resolves.toEqual(payload);
+  await client.close();
+});
+
+test("usage for one provider requires the advertised host capability", async () => {
+  const { client, ws } = await connectClient({});
+  const sentBeforeUsage = ws.sent.length;
+
+  await expect(client.providers.listUsageForProvider("claude-work")).rejects.toThrow(
+    "Update the host to list a provider's usage.",
+  );
+  expect(ws.sent).toHaveLength(sentBeforeUsage);
+
+  await client.close();
+});
+
 test("config actions delegate to existing daemon config RPCs", async () => {
   const { client, ws } = await connectClient();
 
