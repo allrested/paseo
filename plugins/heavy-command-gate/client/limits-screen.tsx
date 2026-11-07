@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { Text, View } from "react-native";
 import { useSettings, type PluginSurfaceProps, type SettingsState } from "@getpaseo/plugin/client";
 import {
@@ -9,12 +9,22 @@ import {
   TextInput,
 } from "@getpaseo/plugin/client/ui";
 import { gateSettings } from "../shared/settings.js";
-import { parseDraft, toDraft, type SettingsDraft } from "./settings-form.js";
+import {
+  INITIAL_EDITOR_STATE,
+  editorReducer,
+  parseDraft,
+  resetRow,
+  saveRow,
+  toDraft,
+  type RequestKind,
+  type SettingsDraft,
+} from "./settings-form.js";
 import { useScreenStyles, type ScreenStyles } from "./styles.js";
 
 type GateSettingsState = SettingsState<typeof gateSettings.schema>;
 type ReadySettings = Extract<GateSettingsState, { status: "ready" }>;
 type ResettableSettings = Extract<GateSettingsState, { status: "ready" | "invalid" }>;
+type FailedSettings = Extract<GateSettingsState, { status: "error" | "invalid" }>;
 
 const LIMITS_INFO =
   "A heavy command starts when a slot is free and free memory covers its estimate plus the reserve.";
@@ -24,16 +34,17 @@ const STALE_HINT = "The saved settings changed after you started editing. Discar
 const RESET_HINT =
   "Puts back the defaults: the gate on, one slot, a 1 GB reserve and the default heavy commands";
 const RESET_CONFIRM_MS = 5_000;
-const RESET_CONFIRM_HINT = `Press again within ${RESET_CONFIRM_MS / 1000} s to replace every limit and heavy command with the defaults`;
-
-interface Draft extends SettingsDraft {
-  /** The revision the edit started from, so saving over another client's save is a conflict. */
-  revision: string;
-}
+const RESET_CONFIRM_HINT = `Press again within ${RESET_CONFIRM_MS / 1000} s to turn the gate on and replace every limit and heavy command with the defaults`;
 
 interface ResetActionProps {
   settings: ResettableSettings;
+  /** The request that `settings.saving` and `settings.saveError` describe. */
+  lastRequest: RequestKind | null;
   onReset(): void;
+}
+
+interface ReloadActionProps {
+  settings: FailedSettings;
 }
 
 interface LimitsEditorProps {
@@ -41,7 +52,7 @@ interface LimitsEditorProps {
   styles: ScreenStyles;
 }
 
-function ResetAction({ settings, onReset }: ResetActionProps) {
+function ResetAction({ settings, lastRequest, onReset }: ResetActionProps) {
   // The first press arms the reset; the timer, an unmount, or the reset itself disarms it.
   const [armed, setArmed] = useState(false);
   useEffect(() => {
@@ -58,31 +69,53 @@ function ResetAction({ settings, onReset }: ResetActionProps) {
     onReset();
     void settings.reset();
   }, [armed, settings, onReset]);
+  const row = resetRow(lastRequest, settings, armed);
   return (
     <SettingsAction
       label="Restore defaults"
       hint={armed ? RESET_CONFIRM_HINT : RESET_HINT}
-      error={settings.saveError}
-      actionLabel={armed ? "Confirm reset" : "Reset"}
+      error={row.error}
+      actionLabel={row.actionLabel}
       disabled={settings.saving}
       onPress={press}
     />
   );
 }
 
+function ReloadAction({ settings }: ReloadActionProps) {
+  // useSettings exposes no fetching flag, so the row keeps its own around the reload.
+  const [reloading, setReloading] = useState(false);
+  const reload = useCallback(async () => {
+    setReloading(true);
+    try {
+      await settings.reload();
+    } finally {
+      setReloading(false);
+    }
+  }, [settings]);
+  // A reload also waits for a save or reset: it clears the request state, which would re-enable
+  // Restore defaults while that request runs.
+  return (
+    <SettingsAction
+      label="Read the saved settings again"
+      actionLabel={reloading ? "Reloading..." : "Reload"}
+      disabled={reloading || settings.saving}
+      onPress={reload}
+    />
+  );
+}
+
 function LimitsEditor({ settings, styles }: LimitsEditorProps) {
-  // No draft means the fields show the saved settings and follow other clients' saves.
-  const [draft, setDraft] = useState<Draft | null>(null);
-  // Bumped by Discard and Reset, so the uncontrolled inputs remount with the saved values.
-  const [generation, setGeneration] = useState(0);
+  const [{ draft, generation, lastRequest }, dispatch] = useReducer(
+    editorReducer,
+    INITIAL_EDITOR_STATE,
+  );
   const { revision, values } = settings;
   const saved = useMemo(() => toDraft(values), [values]);
   const shown: SettingsDraft = draft ?? saved;
   const parsed = useMemo(() => parseDraft(shown, values.enabled), [shown, values.enabled]);
   const update = useCallback(
-    (patch: Partial<SettingsDraft>) => {
-      setDraft((current) => ({ ...(current ?? { ...saved, revision }), ...patch }));
-    },
+    (patch: Partial<SettingsDraft>) => dispatch({ type: "edit", patch, saved, revision }),
     [saved, revision],
   );
   const changeSlots = useCallback((text: string) => update({ slots: text }), [update]);
@@ -90,20 +123,19 @@ function LimitsEditor({ settings, styles }: LimitsEditorProps) {
   const changePatterns = useCallback((text: string) => update({ patterns: text }), [update]);
   const save = useCallback(async () => {
     if (draft === null || !parsed.ok) return;
-    if (await settings.save(parsed.values, draft.revision)) setDraft(null);
+    dispatch({ type: "save-started" });
+    if (await settings.save(parsed.values, draft.revision)) dispatch({ type: "save-succeeded" });
   }, [draft, parsed, settings]);
-  const clearDraft = useCallback(() => {
-    setDraft(null);
-    setGeneration((current) => current + 1);
-  }, []);
   const discard = useCallback(() => {
-    clearDraft();
+    dispatch({ type: "discard" });
     void settings.reload();
-  }, [clearDraft, settings]);
+  }, [settings]);
+  const startReset = useCallback(() => dispatch({ type: "reset-started" }), []);
   const errors = parsed.ok ? null : parsed.errors;
-  const stale = draft !== null && draft.revision !== revision;
+  const stale = draft !== null && draft.revision !== revision && !settings.saving;
   const canSave = draft !== null && parsed.ok && !settings.saving;
   const canDiscard = draft !== null && !settings.saving;
+  const saveAction = saveRow(lastRequest, settings);
   const inputKey = `${generation}:${draft?.revision ?? revision}`;
   return (
     <>
@@ -152,8 +184,8 @@ function LimitsEditor({ settings, styles }: LimitsEditorProps) {
           <SettingsAction
             label="Save settings"
             hint={stale ? STALE_HINT : undefined}
-            error={settings.saveError}
-            actionLabel={settings.saving ? "Saving..." : "Save"}
+            error={saveAction.error}
+            actionLabel={saveAction.actionLabel}
             disabled={!canSave}
             onPress={save}
           />
@@ -163,7 +195,7 @@ function LimitsEditor({ settings, styles }: LimitsEditorProps) {
             disabled={!canDiscard}
             onPress={discard}
           />
-          <ResetAction settings={settings} onReset={clearDraft} />
+          <ResetAction settings={settings} lastRequest={lastRequest} onReset={startReset} />
         </SettingsCard>
       </SettingsSection>
     </>
@@ -179,17 +211,20 @@ export function LimitsScreen({ theme }: PluginSurfaceProps) {
     return <Text style={styles.muted}>Loading settings...</Text>;
   }
   if (settings.status === "ready") return <LimitsEditor settings={settings} styles={styles} />;
+  // Restore defaults is the only request this view starts, so the shared request state is its own.
   return (
     <SettingsSection title="Limits">
-      <Text accessibilityRole="alert" style={styles.error}>
-        {settings.error}
-      </Text>
-      <SettingsAction
-        label="Read the saved settings again"
-        actionLabel="Reload"
-        onPress={settings.reload}
-      />
-      {settings.status === "invalid" ? <ResetAction settings={settings} onReset={noop} /> : null}
+      <SettingsCard>
+        <View style={styles.block}>
+          <Text accessibilityRole="alert" style={styles.error}>
+            {settings.error}
+          </Text>
+        </View>
+        <ReloadAction settings={settings} />
+        {settings.status === "invalid" ? (
+          <ResetAction settings={settings} lastRequest="reset" onReset={noop} />
+        ) : null}
+      </SettingsCard>
     </SettingsSection>
   );
 }
