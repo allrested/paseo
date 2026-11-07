@@ -251,6 +251,26 @@ describe("createUsageWatch", () => {
       ["agent-1", "Claude (work) 96% of Weekly"],
     ]);
   });
+
+  it("notifies once for each of two accounts whose windows share a window id", async () => {
+    const subject = harness({
+      runningAgents: async () => [FIX_LOGIN, { id: "agent-3", provider: "codex", title: "Port" }],
+      listMoveTargets: async () => [],
+    });
+    subject.usage.set("codex", 81);
+
+    await checkAt(subject, [81]);
+
+    expect(subject.notices).toEqual([
+      {
+        agentId: "agent-1",
+        provider: "claude-work",
+        title: "Claude (work) 81% of Weekly",
+        body: "Fix login",
+      },
+      { agentId: "agent-3", provider: "codex", title: "Codex 81% of Weekly", body: "Port" },
+    ]);
+  });
 });
 
 class ManualTimer implements IntervalTimer {
