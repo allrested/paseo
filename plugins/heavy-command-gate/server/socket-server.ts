@@ -41,8 +41,10 @@ function listenOnce(server: Server, socketPath: string): Promise<Error | null> {
   });
 }
 
-// True when something accepts a connection on the path, or does not refuse one within a second:
-// a daemon too busy to accept still owns its socket.
+// False only when nobody can own the path: the probe is refused (a socket file nobody listens on)
+// or finds no file. Every other outcome means a live owner, so the caller stands down: a connection
+// that is accepted, one still pending after a second, and any other error. A daemon too busy to
+// accept still owns its socket, and a full accept queue answers EAGAIN.
 function answers(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const probe = connect(socketPath);
@@ -55,9 +57,10 @@ function answers(socketPath: string): Promise<boolean> {
       probe.destroy();
       resolve(true);
     });
-    probe.once("error", () => {
+    probe.once("error", (error) => {
       clearTimeout(timer);
-      resolve(false);
+      const code = errorCode(error);
+      resolve(code !== "ECONNREFUSED" && code !== "ENOENT");
     });
   });
 }
