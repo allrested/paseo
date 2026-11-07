@@ -51,6 +51,11 @@ const NODE_INVOCATION_TOOL = [
 // Enters the directory in $1, removes it and runs the other arguments there, so that command
 // starts in a working directory that no longer exists.
 const START_IN_REMOVED_DIRECTORY = 'cd "$1" && rmdir "$1" && shift && exec "$@"';
+// Runs the other arguments with only GATE_TEST_LOG and PATH, set to $1, in their environment, as a
+// runner that clears the environment does. Some shells run their last command in their own
+// process; the exit after it keeps the shell as the command's parent.
+const RUN_IN_CLEARED_ENVIRONMENT =
+  'path="$1" && shift && env -i PATH="$path" GATE_TEST_LOG="$GATE_TEST_LOG" "$@"; exit $?';
 // A shim that takes another shim for the tool can exec it, and be exec'd back, without end. A run
 // that could do so is killed after this long, so the test fails instead of hanging.
 const LOOP_LIMIT_MS = 3_000;
@@ -83,6 +88,12 @@ interface ShimOptions {
   timeoutMs?: number;
   /** Starts the shim in a directory a shell removes first, so its working directory is gone. */
   removeCwd?: boolean;
+  /**
+   * Starts the shim from a shell that clears the environment but for GATE_TEST_LOG and this PATH,
+   * as Turborepo does in its strict env mode. The shell, with the environment the test gives,
+   * stays the shim's parent.
+   */
+  clearedEnvPath?: string;
 }
 
 let root = "";
@@ -163,19 +174,31 @@ async function stopFakeGate(): Promise<void> {
   await closed;
 }
 
+// The program and arguments that start the shim, by its path or through a shell (see ShimOptions).
+function shimCommand(name: string, args: string[], options: ShimOptions): [string, string[]] {
+  const shim = join(paths.binDir, name);
+  if (options.removeCwd) {
+    return [
+      "/bin/sh",
+      ["-c", START_IN_REMOVED_DIRECTORY, "sh", mkdtempSync(join(root, "gone-")), shim, ...args],
+    ];
+  }
+  if (options.clearedEnvPath !== undefined) {
+    return [
+      "/bin/sh",
+      ["-c", RUN_IN_CLEARED_ENVIRONMENT, "sh", options.clearedEnvPath, name, ...args],
+    ];
+  }
+  return [shim, args];
+}
+
 function runShim(
   name: string,
   args: string[],
   env: Record<string, string> = {},
   options: ShimOptions = {},
 ): ShimRun {
-  const shim = join(paths.binDir, name);
-  const [file, argv]: [string, string[]] = options.removeCwd
-    ? [
-        "/bin/sh",
-        ["-c", START_IN_REMOVED_DIRECTORY, "sh", mkdtempSync(join(root, "gone-")), shim, ...args],
-      ]
-    : [shim, args];
+  const [file, argv] = shimCommand(name, args, options);
   const child = spawn(file, argv, {
     cwd: options.cwd ?? root,
     env: {
@@ -341,6 +364,52 @@ describe("the generated shim", () => {
     expect(running.snapshot().waiting).toEqual([]);
   });
 
+  // The shell holds the flag and the command below it does not, as under Turborepo's strict env
+  // mode. Asking the gate would queue the command behind its own parent.
+  it.runIf(existsSync("/proc/self/environ"))(
+    "lets a nested command through when a runner clears its environment",
+    async () => {
+      const running = await startGate();
+      runShim("jest", []);
+      await vi.waitFor(() => expect(running.snapshot().running).toHaveLength(1), WAIT);
+      const nested = runShim(
+        "tsc",
+        ["nested"],
+        { PASEO_HEAVY_GATE_HELD: "1" },
+        { clearedEnvPath: `${paths.binDir}:${realBin}:${SYSTEM_PATH}` },
+      );
+      expect(await nested.result).toEqual({ code: 0, signal: null, stderr: "" });
+      expect(readLog()).toContain("start tsc nested held=1");
+      expect(running.snapshot().waiting).toEqual([]);
+    },
+  );
+
+  // An ancestor without the shim directory on its PATH is outside the gate's process tree, as the
+  // daemon is, so its flag does not count. The test's limit is above WAIT.timeout, so a command
+  // that runs through reports the empty list instead of a timeout.
+  it.runIf(existsSync("/proc/self/environ"))(
+    "asks the gate when the held ancestor is outside the shim's PATH",
+    async () => {
+      const running = await startGate();
+      const holder = runShim("jest", []);
+      await vi.waitFor(() => expect(running.snapshot().running).toHaveLength(1), WAIT);
+      const nested = runShim(
+        "tsc",
+        ["nested"],
+        { PATH: `${realBin}:${SYSTEM_PATH}`, PASEO_HEAVY_GATE_HELD: "1" },
+        { clearedEnvPath: `${paths.binDir}:${realBin}:${SYSTEM_PATH}` },
+      );
+      await vi.waitFor(() => {
+        expect(running.snapshot().waiting).toMatchObject([{ command: "tsc nested" }]);
+      }, WAIT);
+      // A signal to the shell would leave the queued shim behind, so free the slot and let the
+      // command finish instead.
+      holder.child.kill("SIGTERM");
+      await nested.result;
+    },
+    10_000,
+  );
+
   it("passes a signal to the command, dies by it and frees the slot", async () => {
     const running = await startGate();
     const run = runShim("jest", []);
@@ -453,6 +522,18 @@ describe("the generated shim", () => {
       "pytest",
       ["--version"],
       { PATH: `${paths.binDir}:.:${SYSTEM_PATH}` },
+      { cwd: realBin },
+    );
+    expect(await run.result).toEqual({ code: 0, signal: null, stderr: "" });
+    expect(readLog()).toEqual([`start ${join(realpathSync(realBin), "pytest")} --version`]);
+  });
+
+  it("reads an empty PATH entry as the working directory, as a shell does", async () => {
+    writeTool("pytest", INVOCATION_TOOL);
+    const run = runShim(
+      "pytest",
+      ["--version"],
+      { PATH: `${paths.binDir}::${SYSTEM_PATH}` },
       { cwd: realBin },
     );
     expect(await run.result).toEqual({ code: 0, signal: null, stderr: "" });
