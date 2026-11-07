@@ -9,6 +9,7 @@ import {
   groupTargetsByFamily,
   isSelectableTarget,
   moveTargetsRecheckMs,
+  moveTargetsRefetchMs,
   resolveMoveTargetsView,
   type AgentMoveTargetsView,
 } from "./move-targets";
@@ -198,5 +199,31 @@ describe("moveTargetsRecheckMs", () => {
       false,
     );
     expect(moveTargetsRecheckMs(undefined, "claude")).toBe(false);
+  });
+});
+
+describe("moveTargetsRefetchMs", () => {
+  const usedUp = [target({ provider: "claude", usedPct: 100 })];
+
+  it("polls every five minutes while the heads-up watches the agent's own account", () => {
+    expect(
+      moveTargetsRefetchMs({ pollTargets: true, recheckProvider: null, targets: undefined }),
+    ).toBe(MOVE_BACK_RECHECK_MS);
+  });
+
+  it("otherwise polls only while the original's account is used up", () => {
+    expect(
+      moveTargetsRefetchMs({ pollTargets: false, recheckProvider: "claude", targets: usedUp }),
+    ).toBe(MOVE_BACK_RECHECK_MS);
+    expect(
+      moveTargetsRefetchMs({
+        pollTargets: false,
+        recheckProvider: "claude",
+        targets: [target({ provider: "claude", usedPct: 50 })],
+      }),
+    ).toBe(false);
+    expect(
+      moveTargetsRefetchMs({ pollTargets: false, recheckProvider: null, targets: usedUp }),
+    ).toBe(false);
   });
 });

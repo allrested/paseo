@@ -5,7 +5,7 @@ import { useFetchQuery } from "@/data/query";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import type { MoveRequest } from "./move-model";
-import { moveTargetsRecheckMs, resolveMoveTargetsView } from "./move-targets";
+import { moveTargetsRefetchMs, resolveMoveTargetsView } from "./move-targets";
 
 export type AgentMoveStatus =
   | { kind: "idle" }
@@ -42,6 +42,8 @@ export interface UseAgentMoveInput {
   targetsEnabled: boolean;
   /** While set, the targets are read again until this provider's account is under its limit. */
   recheckProvider: string | null;
+  /** While true, the targets are read again every five minutes for the usage heads-up. */
+  pollTargets: boolean;
   /** Runs once the host has moved the agent, with the agent that now holds the session. */
   onMoved?: (agentId: string) => void;
 }
@@ -51,7 +53,7 @@ export interface UseAgentMoveInput {
  * the targets are fetched, so a surface that only shows them on demand costs nothing until then.
  */
 export function useAgentMove(input: UseAgentMoveInput) {
-  const { serverId, agentId, targetsEnabled, recheckProvider, onMoved } = input;
+  const { serverId, agentId, targetsEnabled, recheckProvider, pollTargets, onMoved } = input;
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const isConnected = useHostRuntimeIsConnected(serverId);
@@ -64,10 +66,9 @@ export function useAgentMove(input: UseAgentMoveInput) {
     enabled: canMove && targetsEnabled,
     dataShape: "list",
     staleTimeMs: MOVE_TARGETS_STALE_TIME_MS,
-    // Re-evaluated after each fetch, so the poll stops once the account is under its limit.
-    refetchInterval: recheckProvider
-      ? (query) => moveTargetsRecheckMs(query.state.data, recheckProvider)
-      : false,
+    // Re-evaluated after each fetch, so a Move back's poll stops once the account is under its limit.
+    refetchInterval: (query) =>
+      moveTargetsRefetchMs({ pollTargets, recheckProvider, targets: query.state.data }),
     // A refusal from the host is final; show it instead of retrying behind "Loading...".
     retry: false,
   });
