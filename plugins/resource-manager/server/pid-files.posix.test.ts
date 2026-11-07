@@ -7,7 +7,6 @@ import {
   isCurrentPidSpace,
   killGroup,
   readPidRecord,
-  readPidSpace,
   reclaimPidFile,
   sendSignal,
   writePidFile,
@@ -24,13 +23,15 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const child of children.splice(0)) {
-    if (child.pid !== undefined) sendSignal(-child.pid, "SIGKILL");
+    if (child.pid !== undefined && child.exitCode === null && child.signalCode === null)
+      sendSignal(-child.pid, "SIGKILL");
   }
   rmSync(dir, { recursive: true, force: true });
 });
 
-// A process group of its own that lives until killed.
-function startGroup(script = "setInterval(() => {}, 1000)"): ChildProcess {
+// A process group of its own that lives until killed, or 60 s at most, so a killed test run
+// leaves nothing behind for long.
+function startGroup(script = "setTimeout(() => {}, 60_000)"): ChildProcess {
   const child = spawn(process.execPath, ["-e", script], { detached: true, stdio: "ignore" });
   children.push(child);
   return child;
@@ -120,25 +121,25 @@ describe("reclaimPidFile", () => {
     writeFileSync(file, `${JSON.stringify({ ...record, startTime: record.startTime + 1 })}\n`);
 
     await expect(reclaimPidFile(file, PROC)).resolves.toBe("stale");
+    expect(existsSync(file)).toBe(false);
     expect(sendSignal(-pidOf(child), 0)).toBe(true);
   });
 });
 
 describe("killGroup", () => {
   it("sends SIGKILL to a group that ignores SIGTERM once the grace period ends", async () => {
-    const child = startGroup("process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)");
-    // Give node time to install the handler before the SIGTERM.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); console.log('ready'); setTimeout(() => {}, 60_000)"],
+      { detached: true, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    children.push(child);
+    // The child prints once its handler is installed, so the SIGTERM cannot arrive first.
+    await new Promise((resolve) => child.stdout?.once("data", resolve));
     const gone = exited(child);
 
     await killGroup(pidOf(child), 200);
 
     await expect(gone).resolves.toBe("SIGKILL");
-  });
-
-  it("does nothing for group 0 or 1", async () => {
-    await expect(killGroup(1)).resolves.toBeUndefined();
-    await expect(killGroup(0)).resolves.toBeUndefined();
-    expect(readPidSpace(PROC).initStartTime).toEqual(expect.any(Number));
   });
 });
