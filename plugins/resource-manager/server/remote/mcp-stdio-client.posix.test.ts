@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   McpSessionError,
@@ -182,6 +183,26 @@ describe("startMcpStdioClient", () => {
     );
   });
 
+  it("keeps the pid file and the group after ssh-mcp exits by itself, until close", async () => {
+    const childPidFile = join(dir, "child.pid");
+    const client = await start({ FAKE_SSH_MCP_CHILD_PID_FILE: childPidFile });
+    const pidFile = `${SERVER_ID}-${client.pid}.pid`;
+    const childPid = Number(readFileSync(childPidFile, "utf8"));
+    const pid = client.pid;
+    if (pid === null) throw new Error("the fake started without a pid");
+
+    process.kill(pid, "SIGKILL");
+
+    await expect(waitUntil(() => client.closed)).resolves.toBe(true);
+    expect(readdirSync(runDir)).toEqual([pidFile]);
+    expect(isAlive(childPid)).toBe(true);
+
+    await client.close();
+
+    expect(readdirSync(runDir)).toEqual([]);
+    await expect(waitUntil(() => !isAlive(childPid))).resolves.toBe(true);
+  });
+
   it("answers a server ping, refuses other server requests and skips non-JSON stdout", async () => {
     const callLog = join(dir, "calls.jsonl");
     const client = await start({ FAKE_SSH_MCP_NOISE: "1", FAKE_SSH_MCP_CALL_LOG: callLog });
@@ -249,12 +270,26 @@ describe("startMcpStdioClient", () => {
     expect(existsSync(runDir)).toBe(false);
   });
 
-  it("reports a command that cannot be started", async () => {
+  it("reports a command that cannot be started, without its arguments", async () => {
     const missing = join(dir, "missing", "ssh-mcp");
+    const secretArg = { command: missing, args: ["--password=hunter2"], env: {} };
+    const nulArg = { command: missing, args: ["--password=nul\0hunter2"], env: {} };
+    const nulEnv = { command: missing, args: [], env: { TOKEN: "nul\0hunter2" } };
 
-    await expect(
-      startMcpStdioClient({ command: missing, args: [], env: {} }, options()),
-    ).rejects.toThrow(new McpSessionError(`Could not start ssh-mcp: spawn ${missing} ENOENT`));
+    const notFound = await startMcpStdioClient(secretArg, options()).catch((error) => error);
+    expect(notFound).toEqual(
+      new McpSessionError(`Could not start ssh-mcp: spawn ${missing} ENOENT`),
+    );
+    expect(inspect(notFound)).not.toContain("hunter2");
+    for (const command of [nulArg, nulEnv]) {
+      const refused = await startMcpStdioClient(command, options()).catch((error) => error);
+      expect(refused).toEqual(
+        new McpSessionError(
+          "Could not start ssh-mcp: the command, an argument or an env entry holds a NUL byte",
+        ),
+      );
+      expect(inspect(refused)).not.toContain("hunter2");
+    }
     expect(readdirSync(runDir)).toEqual([]);
   });
 
