@@ -1,0 +1,107 @@
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import { useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
+import { ScrollView } from "@getpaseo/plugin/client/ui";
+import { serversRpc, type ServerEntry } from "../shared/rpc.js";
+import { InstanceTab } from "./instance-tab.js";
+import { ServerTab } from "./server-tab.js";
+import { useScreenStyles, type ScreenStyles } from "./styles.js";
+
+const INSTANCE_TAB = "instance";
+const NO_SERVERS: readonly ServerEntry[] = [];
+const NO_PROBLEMS: readonly string[] = [];
+const SELECTED = { selected: true };
+const UNSELECTED = { selected: false };
+
+interface TabButtonProps {
+  id: string;
+  label: string;
+  selected: boolean;
+  onSelect(id: string): void;
+  styles: ScreenStyles;
+}
+
+interface TabBarProps {
+  servers: readonly ServerEntry[];
+  selected: string;
+  onSelect(id: string): void;
+  styles: ScreenStyles;
+}
+
+function TabButton({ id, label, selected, onSelect, styles }: TabButtonProps) {
+  const press = useCallback(() => onSelect(id), [id, onSelect]);
+  return (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={selected ? SELECTED : UNSELECTED}
+      onPress={press}
+      style={selected ? styles.tabSelected : styles.tab}
+    >
+      <Text style={selected ? styles.tabLabelSelected : styles.tabLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function TabBar({ servers, selected, onSelect, styles }: TabBarProps) {
+  return (
+    <View accessibilityRole="tablist" style={styles.tabs}>
+      <TabButton
+        id={INSTANCE_TAB}
+        label="This instance"
+        selected={selected === INSTANCE_TAB}
+        onSelect={onSelect}
+        styles={styles}
+      />
+      {servers.map((server) => (
+        <TabButton
+          key={server.id}
+          id={server.id}
+          label={server.name}
+          selected={selected === server.id}
+          onSelect={onSelect}
+          styles={styles}
+        />
+      ))}
+    </View>
+  );
+}
+
+export function ResourcesScreen({ theme, host }: PluginScreenProps) {
+  const styles = useScreenStyles(theme);
+  const fetchServers = useRpc(serversRpc);
+  const [selected, setSelected] = useState(INSTANCE_TAB);
+  // Fetched once per visit (decision 17): a config change shows on the next visit.
+  const list = useQuery({
+    queryKey: ["resource-manager", host.id, "servers"],
+    queryFn: () => fetchServers({}),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const servers = list.data?.servers ?? NO_SERVERS;
+  const problems = list.data?.problems ?? NO_PROBLEMS;
+  const current = servers.find((server) => server.id === selected);
+  const shown = current === undefined ? INSTANCE_TAB : selected;
+  return (
+    <ScrollView contentContainerStyle={styles.content}>
+      {servers.length > 0 ? (
+        <TabBar servers={servers} selected={shown} onSelect={setSelected} styles={styles} />
+      ) : null}
+      {list.isError ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          Unable to list ssh-mcp servers: {list.error.message}
+        </Text>
+      ) : null}
+      {problems.map((problem) => (
+        <Text key={problem} style={styles.muted}>
+          {problem}
+        </Text>
+      ))}
+      {current === undefined ? (
+        <InstanceTab hostId={host.id} styles={styles} />
+      ) : (
+        <ServerTab key={current.id} server={current} hostId={host.id} styles={styles} />
+      )}
+    </ScrollView>
+  );
+}
