@@ -1,5 +1,6 @@
 import type { AgentMoveTarget } from "@getpaseo/protocol/messages";
 import type { MoveBannerFacts } from "./move-banner-facts";
+import type { UsageHeadsUp } from "./usage-heads-up";
 import {
   USAGE_LIMIT_PCT,
   findCurrentTarget,
@@ -12,11 +13,14 @@ export type MoveBannerKind = "none" | "limit" | "moved-from";
 export type MoveBannerView =
   | { kind: "none" }
   | { kind: "limit"; account: string; resetsAt: string | null }
+  | { kind: "heads-up"; headsUp: UsageHeadsUp }
   | { kind: "moved-from"; label: string | null; highlighted: boolean };
 
 interface MoveBannerViewInput {
   facts: MoveBannerFacts;
   targets: AgentMoveTargetsView;
+  /** The undismissed heads-up about the agent's own account; null on hosts without it. */
+  headsUp: UsageHeadsUp | null;
 }
 
 /**
@@ -40,11 +44,12 @@ function limitResetsAt(current: AgentMoveTarget | null): string | null {
 }
 
 /**
- * What the banner shows. A limit names the agent's own target and its reset; a move names the
- * original's target, highlighted once its usage is known to be under the limit.
+ * What the banner shows, in this order: the limit, the usage heads-up, then "Moved from". A limit
+ * names the agent's own target and its reset; a move names the original's target, highlighted
+ * once its usage is known to be under the limit.
  */
 export function resolveMoveBannerView(input: MoveBannerViewInput): MoveBannerView {
-  const { facts, targets } = input;
+  const { facts, targets, headsUp } = input;
   if (facts.kind === "inactive") return { kind: "none" };
   const kind = resolveMoveBannerKind(facts);
   if (kind === "limit") {
@@ -55,6 +60,8 @@ export function resolveMoveBannerView(input: MoveBannerViewInput): MoveBannerVie
       resetsAt: limitResetsAt(current),
     };
   }
+  // Fork delta (usage heads-up): after the limit, ahead of "Moved from".
+  if (headsUp) return { kind: "heads-up", headsUp };
   if (kind === "moved-from") {
     const original = findTargetByProvider(targets, facts.movedFromProvider);
     const originalUsedPct = original?.usedPct ?? null;
