@@ -132,9 +132,40 @@ start.
 Each server's output goes to `$PASEO_HOME/shared-mcp/logs/<id>.log`, and its tail to the Servers
 tab. The plugin's own messages go to the daemon log, not to `paseo plugin logs shared-mcp`.
 
+The `heavy-command-gate` built-in queues the memory-heavy commands that agents start, such as
+typechecks, test suites and installs. By default one runs at a time, and only while free memory
+covers its estimate plus a 1 GB reserve. At every start the plugin writes
+`$PASEO_HOME/heavy-command-gate/gate.mjs`, links it as `npm`, `npx`, `pnpm`, `tsc`, `tsgo`,
+`vitest`, `jest`, `gradle`, `gradlew` and `pytest` in `bin/`, and puts that directory first on the
+`PATH` of every agent session that opens. A shim asks the plugin over `gate.sock` before a heavy
+command starts and keeps the connection open until the command exits, so a crash or a cancel frees
+the slot. When nothing answers on the socket, the command runs at once after one warning line.
+Admission rules are in the
+[design](superpowers/specs/2026-11-06-heavy-command-gate-design.md#admission).
+
+Every process of a heavy command that a shim started carries `PASEO_HEAVY_GATE_HELD=1`, whether
+the gate admitted it or did not answer. A shim that sees it runs straight through, and other tools
+can find held commands by it in `/proc/<pid>/environ`. The shim that asked does not carry it.
+Agents get the shim directory only when their session opens, so reload the agents that were
+running before the first daemon start with this built-in. While the gate is available, a `PATH` set
+in a provider's `env` is replaced by the daemon's `PATH` with the shim directory first, so put such
+directories on the daemon's `PATH`. Commands typed in Paseo terminals, run by absolute path, run
+from `node_modules/.bin` directly, or found in a directory that a provider's shell puts ahead of
+the shim directory, such as `~/.local/bin` in Kiro sessions, do not pass the gate. Free memory is
+the smaller of `MemAvailable` and the cgroup v2 headroom, which is `memory.max` minus
+`memory.current` plus `inactive_file` from `memory.stat` (page cache the kernel can reclaim);
+without `/proc`, only the slot count applies. The shims run on the daemon's own `node`, or under
+the desktop app on the first `node` on the daemon's `PATH`. Without one, and on Windows, the gate
+reports itself unavailable and agents run unchanged. Open the Commands and Limits screens from the
+"Heavy commands" Command Center item, which appears once a workspace on that host is open. The
+patterns on Limits name a command as npm runs it, so `tsc` matches `npx tsc` and `npm run build`
+matches `pnpm build`.
+
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
-`packages/server/src/server/plugins/lifecycle.e2e.test.ts` start this built-in in process, so give
-them `PASEO_HOME=$(mktemp -d)`; otherwise it works in the real `$PASEO_HOME/shared-mcp`.
+`packages/server/src/server/plugins/lifecycle.e2e.test.ts` start `shared-mcp` and
+`heavy-command-gate` in process, so give them `PASEO_HOME=$(mktemp -d)`. Otherwise they work in the
+real `$PASEO_HOME/shared-mcp` and `$PASEO_HOME/heavy-command-gate`, and can rewrite the shims that
+live agents use.
 
 Desktop packaging ships the entire built-in plugin directory as an external resource,
 including declarations. The external esbuild compiler cannot read Electron's `app.asar`
