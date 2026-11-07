@@ -12,7 +12,6 @@ import {
 } from "./discovery.js";
 
 interface Fixture {
-  root: string;
   configFile: string;
   repo: string;
   worktree: string;
@@ -21,6 +20,7 @@ interface Fixture {
   unlisted: string;
 }
 
+let root: string;
 let fixture: Fixture;
 
 function writeJson(file: string, value: unknown): void {
@@ -28,15 +28,16 @@ function writeJson(file: string, value: unknown): void {
 }
 
 // One entry of each kind: ssh-mcp through npx and through a path, a look-alike package, an
-// ordinary MCP server, an HTTP entry, and ssh-mcp in a directory Paseo does not list.
-function writeFixture(root: string): Fixture {
-  const repo = join(root, "repo");
-  const worktree = join(root, "repo-worktree");
-  const broken = join(root, "broken");
-  const bare = join(root, "bare");
-  const unlisted = join(root, "unlisted");
+// ordinary MCP server, an HTTP entry, and ssh-mcp in a directory Paseo does not list. The repo is
+// a folder Claude Code trusts; the other folders are not.
+function writeFixture(base: string): Fixture {
+  const repo = join(base, "repo");
+  const worktree = join(base, "repo-worktree");
+  const broken = join(base, "broken");
+  const bare = join(base, "bare");
+  const unlisted = join(base, "unlisted");
   for (const dir of [repo, worktree, broken, bare, unlisted]) mkdirSync(dir);
-  const configFile = join(root, ".claude.json");
+  const configFile = join(base, ".claude.json");
   writeJson(configFile, {
     numStartups: 12,
     mcpServers: {
@@ -58,6 +59,7 @@ function writeFixture(root: string): Fixture {
       lookalike: { command: "npx", args: ["-y", "@example/ssh-mcp-server"] },
     },
     projects: {
+      [repo]: { hasTrustDialogAccepted: true },
       [worktree]: {
         allowedTools: [],
         mcpServers: {
@@ -95,8 +97,13 @@ function writeFixture(root: string): Fixture {
       },
     },
   });
-  writeFileSync(join(broken, ".mcp.json"), '{ "mcpServers": { "x": { "command": "pass=hunter2" ');
-  return { root, configFile, repo, worktree, broken, bare, unlisted };
+  // V8's parse error quotes this text ("...command": pass=hunte"...), so a problem that carried
+  // the parser's message would contain "pass=".
+  writeFileSync(
+    join(broken, ".mcp.json"),
+    '{ "mcpServers": { "x": { "command": pass=hunter2 } } }',
+  );
+  return { configFile, repo, worktree, broken, bare, unlisted };
 }
 
 function input(env: NodeJS.ProcessEnv): DiscoveryInput {
@@ -117,12 +124,17 @@ function summary(servers: readonly SshServer[]) {
   }));
 }
 
+function skipped(dir: string): string {
+  return `${join(dir, ".mcp.json")}: ssh-mcp entries skipped, Claude Code does not trust ${dir}`;
+}
+
 beforeEach(() => {
-  fixture = writeFixture(mkdtempSync(join(tmpdir(), "rm-discovery-")));
+  root = mkdtempSync(join(tmpdir(), "rm-discovery-"));
+  fixture = writeFixture(root);
 });
 
 afterEach(() => {
-  rmSync(fixture.root, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true });
 });
 
 describe("runsSshMcp", () => {
@@ -154,7 +166,8 @@ describe("expandVariables", () => {
     expect(expandVariables("[${EMPTY}]", env, missing)).toBe("[]");
     expect(expandVariables("--user=${USER_X}", env, missing)).toBe("--user=");
     expect(expandVariables("$HOST and ${not valid}", env, missing)).toBe("$HOST and ${not valid}");
-    expect([...missing]).toEqual(["USER_X"]);
+    expect(expandVariables("${constructor}", env, missing)).toBe("");
+    expect([...missing]).toEqual(["USER_X", "constructor"]);
   });
 });
 
@@ -207,7 +220,7 @@ describe("discoverSshServers", () => {
     const discovery = await discoverSshServers(input({ PROD_HOST: "10.0.0.1" }));
 
     expect(discovery.problems).toEqual([`${join(fixture.broken, ".mcp.json")}: not valid JSON`]);
-    expect(discovery.problems.join("\n")).not.toContain("hunter2");
+    expect(discovery.problems.join("\n")).not.toContain("pass=");
   });
 
   it("keeps a server whose variables are unset, and names them", async () => {
@@ -228,22 +241,117 @@ describe("discoverSshServers", () => {
     expect(second.servers[0].fingerprint).not.toBe(first.servers[0].fingerprint);
   });
 
-  it("is silent about missing files and reports one that is not a Claude config", async () => {
+  it("is silent about a missing config, and reports one that is not a Claude config", async () => {
     rmSync(fixture.configFile);
     const withoutConfig = await discoverSshServers(input({}));
-    expect(withoutConfig.servers.map((server) => [server.name, server.source])).toEqual([
-      ["prod-copy", `${fixture.repo}/.mcp.json`],
-      ["db-box", `${fixture.repo}/.mcp.json`],
-    ]);
-    expect(withoutConfig.servers[1].id).toBe(
-      serverId(`project:${join(fixture.repo, ".mcp.json")}`, "db-box"),
-    );
+    // With no config, no folder is trusted: the repo's .mcp.json is skipped too.
+    expect(withoutConfig.servers).toEqual([]);
     expect(withoutConfig.problems).toEqual([
+      skipped(fixture.repo),
       `${join(fixture.broken, ".mcp.json")}: not valid JSON`,
     ]);
 
     writeJson(fixture.configFile, { mcpServers: [] });
     const discovery = await discoverSshServers(input({}));
     expect(discovery.problems[0]).toBe(`${fixture.configFile}: not a Claude config`);
+  });
+
+  it("keeps entries apart that differ only in which variables are unset", async () => {
+    writeJson(join(fixture.repo, ".mcp.json"), {
+      mcpServers: {
+        "a-box": { command: "npx", args: ["ssh-mcp", "--", "--host=${HOST_A}"] },
+        "b-box": { command: "npx", args: ["ssh-mcp", "--", "--host=${HOST_B}"] },
+      },
+    });
+
+    const discovery = await discoverSshServers(
+      input({ PROD_HOST: "10.0.0.1", STAGING_USER: "deploy" }),
+    );
+
+    expect(discovery.servers.map((server) => [server.name, server.missingVariables])).toEqual([
+      ["prod-box", []],
+      ["a-box", ["HOST_A"]],
+      ["b-box", ["HOST_B"]],
+      ["staging-box", []],
+    ]);
+  });
+
+  it("expands variables in the command and in env values", async () => {
+    writeJson(join(fixture.repo, ".mcp.json"), {
+      mcpServers: {
+        "tool-box": {
+          command: "${TOOLS}/ssh-mcp/bin/ssh-mcp",
+          args: ["--host=h"],
+          env: { TOKEN: "${T}", PORT: "${PORT:-22}" },
+        },
+      },
+    });
+
+    const discovery = await discoverSshServers(input({ TOOLS: "/opt", T: "t1" }));
+    const box = discovery.servers.find((server) => server.name === "tool-box");
+
+    expect(box?.command).toBe("/opt/ssh-mcp/bin/ssh-mcp");
+    expect(box?.env).toEqual({ TOKEN: "t1", PORT: "22" });
+  });
+
+  it("reports a .mcp.json that cannot be read or is not an MCP config, by path", async () => {
+    writeJson(join(fixture.worktree, ".mcp.json"), { mcpServers: [] });
+    mkdirSync(join(fixture.bare, ".mcp.json"));
+
+    const discovery = await discoverSshServers(input({}));
+
+    expect(discovery.problems).toEqual([
+      `${join(fixture.worktree, ".mcp.json")}: not an MCP config`,
+      `${join(fixture.broken, ".mcp.json")}: not valid JSON`,
+      `${join(fixture.bare, ".mcp.json")}: unreadable`,
+    ]);
+  });
+
+  it("reports an unreadable Claude config and still reads the workspaces", async () => {
+    rmSync(fixture.configFile);
+    mkdirSync(fixture.configFile);
+
+    const discovery = await discoverSshServers(input({}));
+
+    expect(discovery.problems).toEqual([
+      `${fixture.configFile}: unreadable`,
+      skipped(fixture.repo),
+      `${join(fixture.broken, ".mcp.json")}: not valid JSON`,
+    ]);
+  });
+
+  it("takes a .mcp.json only where Claude Code trusts the folder or a parent", async () => {
+    writeJson(join(fixture.worktree, ".mcp.json"), {
+      mcpServers: { "w-box": { command: "npx", args: ["ssh-mcp", "--", "--host=w.internal"] } },
+    });
+    writeJson(join(fixture.bare, ".mcp.json"), {
+      mcpServers: { context7: { command: "npx", args: ["-y", "@upstash/context7-mcp"] } },
+    });
+
+    const untrusted = await discoverSshServers(
+      input({ PROD_HOST: "10.0.0.1", STAGING_USER: "deploy" }),
+    );
+    expect(untrusted.servers.map((server) => server.name)).toEqual([
+      "prod-box",
+      "db-box",
+      "staging-box",
+    ]);
+    // The bare folder's .mcp.json has no ssh-mcp entry, so it gets no problem.
+    expect(untrusted.problems).toEqual([
+      skipped(fixture.worktree),
+      `${join(fixture.broken, ".mcp.json")}: not valid JSON`,
+    ]);
+
+    writeJson(fixture.configFile, { projects: { [root]: { hasTrustDialogAccepted: true } } });
+    const trusted = await discoverSshServers(input({}));
+    expect(trusted.servers.map((server) => [server.name, server.source])).toEqual([
+      ["prod-copy", join(fixture.repo, ".mcp.json")],
+      ["db-box", join(fixture.repo, ".mcp.json")],
+      ["w-box", join(fixture.worktree, ".mcp.json")],
+    ]);
+    expect(trusted.servers[1].id).toBe(
+      serverId(`project:${join(fixture.repo, ".mcp.json")}`, "db-box"),
+    );
+    expect(trusted.problems).toEqual([`${join(fixture.broken, ".mcp.json")}: not valid JSON`]);
   });
 });
