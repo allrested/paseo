@@ -24,14 +24,14 @@ Out of scope: commands typed in Paseo terminals, commands run by absolute path o
 
 ## Decisions
 
-| Question                | Decision                                                                                                                                                                                                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| How commands are caught | PATH shims, prepended for every agent by `agent.open.before`. `npm run` and `npx` put `node_modules/.bin` first, so `npm`, `npx`, and `pnpm` are shimmed and classify their arguments.                                                                                               |
-| Who decides             | The plugin's server process, over a Unix socket. One authority keeps the queue fair and gives the screen exact data.                                                                                                                                                                 |
-| Release                 | The shim holds the socket open while its command runs. A closed socket releases the slot, so a crash or cancel never leaks one.                                                                                                                                                      |
-| Plugin down             | Fail open: the shim runs the command ungated and prints one warning line. The gate never blocks work by being absent.                                                                                                                                                                |
-| Memory signal           | The smaller of host `MemAvailable` and the cgroup's `memory.max − memory.current + inactive_file` (from `memory.stat`), so reclaimable page cache counts as free in both. Containers see host memory in `/proc/meminfo`, so the gate also feels the other instance and the browsers. |
-| Nesting                 | An admitted command runs with `PASEO_HEAVY_GATE_HELD=1`; a shim that sees it runs straight through, so `npm run typecheck` calling `tsc` cannot deadlock.                                                                                                                            |
+| Question                | Decision                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| How commands are caught | PATH shims, prepended for every agent by `agent.open.before`. `npm run` and `npx` put `node_modules/.bin` first, so `npm`, `npx`, and `pnpm` are shimmed and classify their arguments.                                                                                                                                                                                                                                |
+| Who decides             | The plugin's server process, over a Unix socket. One authority keeps the queue fair and gives the screen exact data.                                                                                                                                                                                                                                                                                                  |
+| Release                 | The shim holds the socket open while its command runs. A closed socket releases the slot, so a crash or cancel never leaks one.                                                                                                                                                                                                                                                                                       |
+| Plugin down             | Fail open: the shim runs the command ungated and prints one warning line. The gate never blocks work by being absent.                                                                                                                                                                                                                                                                                                 |
+| Memory signal           | The smaller of host `MemAvailable` and the cgroup's `memory.max − memory.current + inactive_file` (from `memory.stat`), so reclaimable page cache counts as free in both. Containers see host memory in `/proc/meminfo`, so the gate also feels the other instance and the browsers.                                                                                                                                  |
+| Nesting                 | An admitted command runs with `PASEO_HEAVY_GATE_HELD=1`; a shim that finds the flag in its own environment or, on Linux, in an ancestor that still has the shim directory on its `PATH` runs straight through, so `npm run typecheck` calling `tsc` cannot deadlock, even under a runner that clears the environment, such as Turborepo's strict env mode; without `/proc`, such a runner must pass the flag through. |
 
 ## Components
 
@@ -50,7 +50,10 @@ Out of scope: commands typed in Paseo terminals, commands run by absolute path o
 2. Classify the arguments against the heavy patterns from settings. Each pattern carries a memory
    estimate. Defaults: `tsc`, `tsgo`, and `npm run typecheck` 3 GB; `expo export` 3 GB; `vitest`,
    `jest`, and `npm test` 2 GB; `gradle` and `gradlew` 2 GB; `npm ci` and `npm install` 1.5 GB.
-3. Not heavy, or `PASEO_HEAVY_GATE_HELD=1` is set: exec the real binary.
+   Arguments before `--` that include `--version` or `--help` make a command light.
+3. Not heavy, or `PASEO_HEAVY_GATE_HELD=1` is set: exec the real binary. A heavy command with an
+   ancestor that holds the flag, by the Nesting rule above, counts as nested: exec the real binary
+   with the flag set.
 4. Otherwise connect to the socket and send the command line, estimate, agent id (`PASEO_AGENT_ID`),
    and pid. While waiting, print `waiting for heavy-command slot (2 ahead, 1.8 GB free)` to stderr
    every 30 s, or `waiting for free memory (2 ahead, 1.8 GB free, 3.0 GB needed)` when the queue
@@ -60,7 +63,9 @@ Out of scope: commands typed in Paseo terminals, commands run by absolute path o
 
 A socket that cannot be reached means step 5 runs at once, after one warning line. So does a gate
 that sends no first answer within 10 s, or closes the socket before `go`, so a wedged daemon never
-freezes a build. The gate drops a connection that sends no hello within 5 s.
+freezes a build. The gate drops a connection that sends no hello within 5 s. A watch command, such
+as `tsc --watch`, holds its slot until it exits, so with one slot every other heavy command waits
+for it until then or until Gate heavy commands is turned off.
 
 ## Admission
 
