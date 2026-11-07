@@ -2,18 +2,29 @@ const NOTIFICATION_PREVIEW_LIMIT = 220;
 
 export type AgentAttentionReason = "finished" | "error" | "permission";
 
-export interface AgentAttentionNotificationData {
+/**
+ * Fork delta (usage heads-up): an account crossing a usage level. Only the dedicated
+ * agent_attention_required message carries it, to clients that advertise usage_notifications;
+ * an agent's own turn never raises it.
+ */
+export type AgentAttentionNotificationReason = AgentAttentionReason | "usage";
+
+export interface AgentAttentionNotificationData<
+  Reason extends AgentAttentionNotificationReason = AgentAttentionNotificationReason,
+> {
   [key: string]: unknown;
   serverId: string;
   workspaceId?: string;
   agentId: string;
-  reason: AgentAttentionReason;
+  reason: Reason;
 }
 
-export interface AgentAttentionNotificationPayload {
+export interface AgentAttentionNotificationPayload<
+  Reason extends AgentAttentionNotificationReason = AgentAttentionNotificationReason,
+> {
   title: string;
   body: string;
-  data: AgentAttentionNotificationData;
+  data: AgentAttentionNotificationData<Reason>;
 }
 
 interface BuildAgentAttentionNotificationPayloadInput {
@@ -195,7 +206,7 @@ function resolveAgentAttentionFallbackBody(reason: AgentAttentionReason): string
 
 export function buildAgentAttentionNotificationPayload(
   input: BuildAgentAttentionNotificationPayloadInput,
-): AgentAttentionNotificationPayload {
+): AgentAttentionNotificationPayload<AgentAttentionReason> {
   const title = resolveAgentAttentionTitle(input.reason);
   const preview = resolveAgentAttentionPreview(input);
   const body = preview ?? resolveAgentAttentionFallbackBody(input.reason);
