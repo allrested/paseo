@@ -16,6 +16,8 @@ import {
 
 const NOW = Date.parse("2026-11-06T10:00:00.000Z");
 const IN_TWO_HOURS = "2026-11-06T12:00:00.000Z";
+const IN_TWENTY_MINUTES = "2026-11-06T10:20:00.000Z";
+const LATER_TODAY = "2026-11-06T18:00:00.000Z";
 
 function target(overrides: Partial<AgentMoveTarget> & { provider: string }): AgentMoveTarget {
   return {
@@ -75,6 +77,31 @@ describe("describeMoveTarget", () => {
       "error",
       "error",
     ]);
+  });
+
+  function paceBadgeOf(overrides: Partial<AgentMoveTarget>) {
+    return describeMoveTarget(
+      target({ provider: "codex", usedPct: 30, resetsAt: LATER_TODAY, ...overrides }),
+      { now: NOW },
+    ).badge;
+  }
+
+  it("warns about a target on pace to run out within three hours, whatever its usage", () => {
+    expect(paceBadgeOf({ runsOutAt: IN_TWO_HOURS })).toEqual({
+      label: "30% used",
+      variant: "warning",
+    });
+  });
+
+  it("shows danger for a target on pace to run out within 30 minutes", () => {
+    expect(paceBadgeOf({ runsOutAt: IN_TWENTY_MINUTES })).toEqual({
+      label: "30% used",
+      variant: "error",
+    });
+  });
+
+  it("keeps the usage colour of the same target with no run-out", () => {
+    expect(paceBadgeOf({})).toEqual({ label: "30% used", variant: "muted" });
   });
 
   it("names the reset of a used-up target", () => {
