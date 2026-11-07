@@ -26,9 +26,10 @@ export interface UsageHeadsUp {
   best: AgentMoveTarget | null;
 }
 
-/** The level a heads-up was dismissed at, and the reset after which the dismissal ends. */
+/** The level and tone a heads-up was dismissed at, and the reset after which the dismissal ends. */
 export interface UsageHeadsUpDismissal {
   level: UsageLevel;
+  tone: "warning" | "danger";
   resetsAt: string | null;
 }
 
@@ -78,7 +79,10 @@ export function resolveUsageHeadsUp(
   };
 }
 
-/** A dismissal holds until the window reaches a higher level or the reset it named passes. */
+/**
+ * A dismissal holds until the window reaches a higher level, a dismissed warning turns to danger,
+ * or the reset it named passes.
+ */
 export function isUsageHeadsUpDismissed(input: {
   headsUp: UsageHeadsUp;
   dismissal: UsageHeadsUpDismissal | null;
@@ -87,6 +91,7 @@ export function isUsageHeadsUpDismissed(input: {
   const { headsUp, dismissal, now } = input;
   if (!dismissal) return false;
   if (dismissal.resetsAt !== null && Date.parse(dismissal.resetsAt) <= now) return false;
+  if (headsUp.tone === "danger" && dismissal.tone === "warning") return false;
   return headsUp.level <= dismissal.level;
 }
 
