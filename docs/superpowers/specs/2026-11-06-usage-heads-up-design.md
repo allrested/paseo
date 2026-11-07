@@ -29,8 +29,8 @@ Out of scope: moving agents automatically, and per-model or per-agent quotas.
 | When the notice shows | A window of the agent's current account is at 80% or more, or is on pace to run out before it resets and within 3 hours. |
 | Danger tone           | 95% or more, or a run-out within 30 minutes.                                                                             |
 | Order in the banner   | The limit notice, then the heads-up, then "Moved from".                                                                  |
-| Best target           | Available, not the current account, lowest `usedPct`. A tie goes to the same CLI family, because that move is native.    |
-| Dismiss               | Hides the heads-up for that account window until it reaches the next level (80%, then 95%).                              |
+| Best target           | Available and not current; steady before on pace to run out, then lowest `usedPct`; a tie goes to the same CLI family.   |
+| Dismiss               | Hides it for the account window until the next level (80%, then 95%), a reset, or a dismissed warning turning to danger. |
 | Protocol              | Move targets gain optional `runsOutAt` and `windowLabel`. Both are additive and optional.                                |
 
 ## Pace projection
@@ -69,7 +69,7 @@ second path.
 
 - Unit: the projection (the rate from samples, no `runsOutAt` when the run-out falls after the reset,
   a single sample, a reset clearing the samples, a source's own `runsOutAt` kept); the heads-up rules
-  (thresholds, danger tone, dismiss levels, banner order); the best-target choice.
+  (thresholds, danger tone, dismissal levels and tone, banner order); the best-target choice.
 - Banner view tests next to the existing `move-banner-view.test.ts`.
 - Manual: a fake usage source whose usage rises quickly. The heads-up appears at 80% and turns
   danger at 95%; the Usage screen shows the run-out time; Move to the suggested target works.
