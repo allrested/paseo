@@ -60,6 +60,13 @@ describe("parseRemoteOutput", () => {
       "message",
       "The command exited with code 1: cat: /proc/meminfo: No such file or directory",
     );
+
+    const killed = caught(() =>
+      parseRemoteOutput(`${REMOTE_OUTPUT_SAMPLE}\n\n[killed by SIGTERM]`),
+    );
+
+    expect(killed).toBeInstanceOf(RemoteOutputError);
+    expect(killed).toHaveProperty("message", "The command was killed by SIGTERM: no message");
   });
 
   it("names a missing section", () => {
@@ -139,6 +146,7 @@ describe("parseDf", () => {
       parseDf([
         "Filesystem 512-blocks Used Available Capacity Mounted on",
         "/dev/sdb1 2000 500 1500 25% /mnt/My Disk",
+        "/dev/sdc1 1000 - - - /mnt/odd",
         "tmpfs 100 0 100 0% /run",
         "none 0 0 0 - /sys/fs/bpf",
       ]),
@@ -150,6 +158,18 @@ describe("parseDf", () => {
         availableBytes: 1500 * 512,
       },
     ]);
+    expect(
+      parseDf([
+        "Dateisystem 1024-Blöcke Benutzt Verfügbar Kapazität Eingehängt auf",
+        "/dev/sda1 4 1 3 25% /",
+      ]),
+    ).toEqual([{ mount: "/", totalBytes: 4096, usedBytes: 1024, availableBytes: 3072 }]);
+    expect(
+      parseDf([
+        "Sys. de fichiers 1024-blocs Utilisé Disponible Capacité Monté sur",
+        "/dev/sda1 4 1 3 25% /",
+      ]),
+    ).toEqual([{ mount: "/", totalBytes: 4096, usedBytes: 1024, availableBytes: 3072 }]);
   });
 
   it("rejects an unrecognised header", () => {
