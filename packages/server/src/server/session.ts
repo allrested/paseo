@@ -1122,6 +1122,7 @@ export class Session {
       // Fork delta (claude accounts): a provider's usage is keyed by its family and override env,
       // and read through the move dialog's cache, the way the dialog reads a target's.
       resolveProviderScope: (provider) => {
+        if (!providerSnapshotManager.hasProvider(provider)) return null;
         const info = providerSnapshotManager.getProviderLaunchInfo(provider);
         return info ? { provider: info.family, env: info.env } : null;
       },
