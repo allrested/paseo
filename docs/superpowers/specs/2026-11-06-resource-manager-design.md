@@ -22,14 +22,14 @@ ssh-mcp.
 
 ## Decisions
 
-| Question            | Decision                                                                                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Remote metrics      | The plugin is an MCP client of each ssh-mcp entry and calls its exec tool with one fixed read-only command. It stores no credentials.                  |
-| Server list         | Every MCP entry, in the Claude configs the daemon can read (user scope and trusted workspaces), whose command runs `ssh-mcp`. One entry is one server. |
-| No ssh-mcp          | Only the server tabs are hidden. The instance tab always shows.                                                                                        |
-| Agent attribution   | A process belongs to the agent named by `PASEO_AGENT_ID` in its `/proc/<pid>/environ`; children inherit it, so MCP servers count against their agent.  |
-| Close               | Ends the agent's runtime only. The agent stays, and its next prompt resumes it.                                                                        |
-| Other plugins' data | The shared MCP and heavy-command gate plugins keep their own screens. This one only totals their processes as groups.                                  |
+| Question            | Decision                                                                                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Remote metrics      | The plugin is an MCP client of each ssh-mcp entry and calls its exec tool with one fixed read-only command. It stores no credentials.                                                    |
+| Server list         | Every MCP entry, in the Claude configs the daemon can read (user and local scope, and `.mcp.json` in folders Claude Code trusts), whose command runs `ssh-mcp`. One entry is one server. |
+| No ssh-mcp          | Only the server tabs are hidden. The instance tab always shows.                                                                                                                          |
+| Agent attribution   | A process belongs to the agent named by `PASEO_AGENT_ID` in its `/proc/<pid>/environ`; children inherit it, so MCP servers count against their agent.                                    |
+| Close               | Ends the agent's runtime only. The agent stays, and its next prompt resumes it.                                                                                                          |
+| Other plugins' data | The shared MCP and heavy-command gate plugins keep their own screens. This one only totals their processes as groups.                                                                    |
 
 ## Surface
 

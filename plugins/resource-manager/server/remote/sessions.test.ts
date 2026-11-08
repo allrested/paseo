@@ -180,6 +180,18 @@ describe("RemoteSessions", () => {
     expect(starter.started).toHaveLength(2);
   });
 
+  it("closes a client that died between reads and starts a new one on the next read", async () => {
+    const remote = sessions();
+
+    await expect(remote.read(server())).resolves.toEqual(ok());
+    starter.clients[0].closed = true;
+    await expect(remote.read(server())).resolves.toEqual(ok());
+    await flush();
+
+    expect(starter.clients[0].closeCount).toBe(1);
+    expect(starter.started).toHaveLength(2);
+  });
+
   it("reports a failed start and retries it on the next read", async () => {
     starter.queue.push(
       new McpSessionError("ssh-mcp exited (code 255): Permission denied (publickey)"),
@@ -257,7 +269,7 @@ describe("RemoteSessions", () => {
       id: ID,
       snapshot: null,
       readAt: null,
-      error: "The config refers to PROD_HOST, which the daemon's environment does not set",
+      error: "The config refers to PROD_HOST, which is not set in ssh-mcp's environment",
     });
     expect(starter.started).toEqual([]);
   });

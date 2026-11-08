@@ -170,6 +170,12 @@ describe("parseDf", () => {
         "/dev/sda1 4 1 3 25% /",
       ]),
     ).toEqual([{ mount: "/", totalBytes: 4096, usedBytes: 1024, availableBytes: 3072 }]);
+    expect(
+      parseDf([
+        "Sys. de fichiers blocs de 1024 Utilisé Disponible Capacité Monté sur",
+        "/dev/sda1 4 1 3 25% /",
+      ]),
+    ).toEqual([{ mount: "/", totalBytes: 4096, usedBytes: 1024, availableBytes: 3072 }]);
   });
 
   it("rejects an unrecognised header", () => {
