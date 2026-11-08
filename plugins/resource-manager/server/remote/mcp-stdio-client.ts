@@ -150,6 +150,8 @@ export class McpStdioClient {
   private exited = false;
   private failure: McpSessionError | null = null;
   private closing: Promise<void> | null = null;
+  // One stop per group, started by the leader's exit or by close(), whichever comes first.
+  private stopping: Promise<void> | null = null;
 
   constructor(child: ChildProcess, pidFile: string | null, requestTimeoutMs: number) {
     this.child = child;
@@ -233,6 +235,23 @@ export class McpStdioClient {
     this.fail(new McpSessionError("The ssh-mcp session was closed"));
     try {
       this.child.stdin?.end();
+    } catch (error) {
+      // close() must never reject: startMcpStdioClient's abort handler calls it with `void`.
+      console.error("resource-manager: could not stop an ssh-mcp session", error);
+    }
+    await this.stopGroup();
+  }
+
+  // Members the leader started can outlive it, so the group stops as soon as the leader exits,
+  // while its id still names them. An empty group's id can be reused: it is never signalled again,
+  // as in shared-mcp's watchChild.
+  private stopGroup(): Promise<void> {
+    this.stopping ??= this.killAndForgetGroup();
+    return this.stopping;
+  }
+
+  private async killAndForgetGroup(): Promise<void> {
+    try {
       if (this.pid !== null) await killGroup(this.pid);
       if (this.pidFile !== null) removePidFile(this.pidFile);
     } catch (error) {
@@ -245,6 +264,7 @@ export class McpStdioClient {
   // harmless.
   private onExit(code: number | null, signal: NodeJS.Signals | null): void {
     this.exited = true;
+    void this.stopGroup();
     const how = code === null ? String(signal) : `code ${code}`;
     const report = (): void => {
       const detail = this.lastStderr === "" ? "" : `: ${this.lastStderr}`;
@@ -358,6 +378,8 @@ function spawnServer(command: McpServerCommand, options: McpStdioOptions): Child
     return spawn(command.command, [...command.args], {
       env: serverEnv(command.env, options.baseEnv),
       detached: true,
+      // Without it, a detached child on Windows opens a console window of its own.
+      windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
   } catch (error) {

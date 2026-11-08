@@ -91,8 +91,11 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await manager.stop();
-  rmSync(root, { recursive: true, force: true });
+  try {
+    await manager.stop();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("createResourceManager", () => {

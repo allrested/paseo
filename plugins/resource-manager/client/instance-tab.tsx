@@ -124,7 +124,9 @@ export function InstanceTab({ hostId, styles }: InstanceTabProps) {
             Unable to list agents: {data.agentsError}
           </Text>
         )}
-        {data.agents.length === 0 ? <Text style={styles.muted}>No agent processes</Text> : null}
+        {data.agents.length === 0 && data.agentsError === null ? (
+          <Text style={styles.muted}>No agent processes</Text>
+        ) : null}
         {data.agents.length === 0 ? null : (
           <SettingsCard>
             {data.agents.map((agent) => (
