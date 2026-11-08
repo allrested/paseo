@@ -349,6 +349,10 @@ Example: two different Anthropic accounts as separate profiles:
 
 Each profile appears as a separate provider in the Paseo app. You can select which one to use when launching an agent.
 
+For Claude Code subscription logins, the `claude-accounts` built-in creates these profiles for
+you, one `CLAUDE_CONFIG_DIR` each, and shares the main login's setup with them. See
+[Built-in plugins](plugins.md#built-in-plugins).
+
 You can also combine profiles with model overrides to pin specific models per profile:
 
 ```json
