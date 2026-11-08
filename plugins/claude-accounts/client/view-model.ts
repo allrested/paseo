@@ -126,7 +126,7 @@ export function moveHint({ idle, jobRunning, armed, from, to }: MoveHintInput): 
   if (jobRunning) return "Agents are still moving. Wait for that move to finish.";
   if (idle === 0) return "No idle agents on this account";
   if (armed) {
-    return `Press again within ${MOVE_CONFIRM_MS / 1000} s to move ${plural(idle, "idle agent")} from ${from} to ${to}. Their background shells and watches stop.`;
+    return `Press again within ${MOVE_CONFIRM_MS / 1000} s to move ${plural(idle, "idle agent")} from ${from} to ${to}. Their background shells, watches and subagents stop.`;
   }
   return "Agents in a turn stay where they are";
 }
