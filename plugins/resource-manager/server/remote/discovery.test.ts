@@ -342,6 +342,9 @@ describe("discoverSshServers", () => {
       `${join(fixture.broken, ".mcp.json")}: not valid JSON`,
     ]);
 
+    writeJson(fixture.configFile, { projects: { [root]: { hasTrustDialogAccepted: false } } });
+    expect((await discoverSshServers(input({}))).servers).toEqual([]);
+
     writeJson(fixture.configFile, { projects: { [root]: { hasTrustDialogAccepted: true } } });
     const trusted = await discoverSshServers(input({}));
     expect(trusted.servers.map((server) => [server.name, server.source])).toEqual([

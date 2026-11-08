@@ -434,6 +434,7 @@ export interface PaseoAgentHandle {
   commands(options?: PaseoAgentCommandsOptions): Promise<PaseoAgentCommandsResult>;
   archive(): Promise<{ archivedAt: string }>;
   detach(): Promise<void>;
+  // Fork delta (resource manager): the agent.runtime.close RPC.
   /**
    * Ends an idle agent's provider runtime, or rejects with the reason it stays open. The agent
    * stays, and its next prompt resumes it. Needs a host that advertises `agentRuntimeClose`.
@@ -1118,6 +1119,7 @@ function createAgentHandleFactory(
       detach: async () => {
         await daemonClient.detachAgent(id);
       },
+      // Fork delta (resource manager): the agent.runtime.close RPC.
       closeRuntime: async () => {
         await daemonClient.closeAgentRuntime(id);
       },

@@ -183,10 +183,9 @@ describe("startMcpStdioClient", () => {
     );
   });
 
-  it("keeps the pid file and the group after ssh-mcp exits by itself, until close", async () => {
+  it("stops the group and removes its pid file when ssh-mcp exits by itself", async () => {
     const childPidFile = join(dir, "child.pid");
     const client = await start({ FAKE_SSH_MCP_CHILD_PID_FILE: childPidFile });
-    const pidFile = `${SERVER_ID}-${client.pid}.pid`;
     const childPid = Number(readFileSync(childPidFile, "utf8"));
     const pid = client.pid;
     if (pid === null) throw new Error("the fake started without a pid");
@@ -194,13 +193,10 @@ describe("startMcpStdioClient", () => {
     process.kill(pid, "SIGKILL");
 
     await expect(waitUntil(() => client.closed)).resolves.toBe(true);
-    expect(readdirSync(runDir)).toEqual([pidFile]);
-    expect(isAlive(childPid)).toBe(true);
-
-    await client.close();
-
-    expect(readdirSync(runDir)).toEqual([]);
+    await expect(waitUntil(() => readdirSync(runDir).length === 0)).resolves.toBe(true);
     await expect(waitUntil(() => !isAlive(childPid))).resolves.toBe(true);
+
+    await expect(client.close()).resolves.toBeUndefined();
   });
 
   it("answers a server ping, refuses other server requests and skips non-JSON stdout", async () => {

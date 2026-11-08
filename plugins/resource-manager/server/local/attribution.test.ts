@@ -130,4 +130,16 @@ describe("attribute", () => {
     expect(sorted(result.agents)).toEqual({ "agent-a": [300, 330, 331] });
     expect(result.groups.has("heavyGate")).toBe(false);
   });
+
+  it("ends on a flagged process whose parent is missing and on a flagged cycle", () => {
+    const rows = table([
+      { pid: 340, ppid: 999, agentId: "agent-a", heavyGate: true },
+      { pid: 350, ppid: 351, agentId: "agent-a", heavyGate: true },
+      { pid: 351, ppid: 350, agentId: "agent-a", heavyGate: true },
+    ]);
+    const result = attribute(rows, CONTEXT);
+
+    expect(sorted(result.agents)).toEqual({ "agent-a": [340, 350, 351] });
+    expect(result.groups.has("heavyGate")).toBe(false);
+  });
 });
