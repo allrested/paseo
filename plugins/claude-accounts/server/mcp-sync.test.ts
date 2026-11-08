@@ -2,6 +2,7 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -12,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withConfigLock, writeClaudeConfig } from "./claude-config.js";
 import { syncMcpServers, watchMcpServers, type McpWatcher, type SyncTarget } from "./mcp-sync.js";
 
 /** A user-scope MCP server as Claude Code stores it; the plugin copies these as opaque JSON. */
@@ -290,5 +292,50 @@ describe("watchMcpServers", () => {
     await stopping;
     expect(await readJson(accountFile)).toEqual({ mcpServers: SERVERS });
     expect(logged).toEqual([]);
+  });
+
+  it("runs no pass once stopped, even when asked for one", async () => {
+    const { mainFile, accountFile } = await files();
+    await writeJson(mainFile, { mcpServers: SERVERS });
+    let passes = 0;
+    const watcher = watchMcpServers({
+      targets: async () => {
+        passes += 1;
+        return [{ provider: "claude-work", mainFile, accountFile }];
+      },
+      intervalMs: 60_000,
+      logError: () => undefined,
+    });
+    watchers.push(watcher);
+    await watcher.stop();
+    await writeJson(mainFile, { mcpServers: { context7: CONTEXT7 } });
+
+    // An Add account that outlives stop() still calls syncNow, which is tick.
+    await watcher.tick();
+
+    expect(passes).toBe(1);
+    expect(await readJson(accountFile)).toEqual({ mcpServers: SERVERS });
+  });
+});
+
+describe("config writes", () => {
+  it("removes its temp file when the write fails", async () => {
+    const { accountFile } = await files();
+    // A directory in the file's place makes the rename fail after the temp file is written.
+    await mkdir(accountFile);
+
+    await expect(writeClaudeConfig(accountFile, { mcpServers: SERVERS }, 0o600)).rejects.toThrow();
+
+    expect(await readdir(dirname(accountFile))).toEqual([".claude.json"]);
+  });
+
+  it("removes its own lock when the locked work throws", async () => {
+    const { accountFile } = await files();
+
+    await expect(
+      withConfigLock(accountFile, () => Promise.reject(new Error("boom"))),
+    ).rejects.toThrow("boom");
+
+    await expect(stat(`${accountFile}.lock`)).rejects.toThrow("ENOENT");
   });
 });

@@ -363,3 +363,83 @@ test("the tightest window is a 60% one that runs out in 20 minutes, not a 75% on
     tone: "danger",
   });
 });
+
+// A runtime method that needs its `this`, as the plugin runtime's does.
+class ScopedRuntime {
+  readonly scopes: UsageScopeQuery[] = [];
+
+  async listUsageReports(): Promise<UsageReportEntry[]> {
+    return [];
+  }
+
+  async listLegacyUsage() {
+    return { fetchedAt: "now", providers: [] };
+  }
+
+  async listUsageReportsForScope(scope: UsageScopeQuery): Promise<UsageReportEntry[]> {
+    this.scopes.push(scope);
+    return [workReport];
+  }
+}
+
+test("reads one provider's usage with the runtime as this", async () => {
+  const runtime = new ScopedRuntime();
+  const emitted: SessionOutboundMessage[] = [];
+  const usage = new UsageSession({
+    isEnabled: () => true,
+    emit: (message) => emitted.push(message),
+    logger: pino({ level: "silent" }),
+    runtime,
+    resolveProviderScope: () => ({ provider: "claude", env: {} }),
+  });
+
+  await usage.handleProviderReports({
+    type: "usage.provider.list_reports.request",
+    requestId: "this",
+    provider: "claude-work",
+  });
+
+  expect(runtime.scopes).toEqual([{ provider: "claude", env: {} }]);
+  expect(emitted).toEqual([
+    {
+      type: "usage.provider.list_reports.response",
+      payload: {
+        requestId: "this",
+        provider: "claude-work",
+        reports: [workReport],
+        tightest: {
+          label: "Weekly",
+          usedPct: 70,
+          resetsAt: "2026-11-10T00:00:00.000Z",
+          tone: "none",
+        },
+        error: null,
+      },
+    },
+  ]);
+});
+
+test("answers a failed lookup with its error and no reports", async () => {
+  const { usage, emitted } = providerReportsFixture(async () => {
+    throw new Error("boom");
+  });
+
+  await usage.handleProviderReports({
+    type: "usage.provider.list_reports.request",
+    requestId: "failed",
+    provider: "claude-work",
+  });
+
+  expect(emitted).toEqual([
+    {
+      type: "usage.provider.list_reports.response",
+      payload: {
+        requestId: "failed",
+        provider: "claude-work",
+        reports: [],
+        tightest: null,
+        error: "boom",
+      },
+    },
+  ]);
+});

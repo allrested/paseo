@@ -22,10 +22,12 @@ class FakeMoveApi implements MoveApi {
   readonly handoffs = new Set<string>();
   gate: Promise<void> | null = null;
   runner: MoveIdleRunner | null = null;
+  listFailure: Error | null = null;
 
   constructor(readonly agents: AgentInfo[]) {}
 
   async listAgents(): Promise<AgentInfo[]> {
+    if (this.listFailure) throw this.listFailure;
     return this.agents;
   }
 
@@ -203,5 +205,18 @@ describe("MoveIdleRunner", () => {
 
     expect(api.calls.map((call) => call.agentId)).toEqual(["a"]);
     expect(runner.current()?.done).toBe(true);
+  });
+
+  it("frees the runner when listing the agents fails", async () => {
+    const api = new FakeMoveApi([agent("a", "claude")]);
+    api.listFailure = new Error("daemon gone");
+    const runner = runnerFor(api);
+
+    await expect(runner.start(api, "claude", "claude-work")).rejects.toThrow("daemon gone");
+    expect(runner.current()).toBeNull();
+
+    api.listFailure = null;
+    expect((await runner.start(api, "claude", "claude-work")).ok).toBe(true);
+    await runner.settled();
   });
 });
