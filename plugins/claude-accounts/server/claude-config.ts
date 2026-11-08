@@ -71,7 +71,7 @@ function sortKeys(value: unknown): unknown {
   return sorted;
 }
 
-/** Replaces the file through a temp file beside it, keeping `mode`. */
+/** Replaces the file through a temp file beside it, keeping `mode`. A failed write removes it. */
 export async function writeClaudeConfig(
   file: string,
   config: ConfigObject,
@@ -79,9 +79,15 @@ export async function writeClaudeConfig(
 ): Promise<void> {
   const temp = join(dirname(file), `.${basename(file)}.claude-accounts-${process.pid}.tmp`);
   await rm(temp, { force: true });
-  await writeFile(temp, `${JSON.stringify(config, null, 2)}\n`, { mode, flag: "wx" });
-  await chmod(temp, mode);
-  await rename(temp, file);
+  try {
+    await writeFile(temp, `${JSON.stringify(config, null, 2)}\n`, { mode, flag: "wx" });
+    await chmod(temp, mode);
+    await rename(temp, file);
+  } catch (error) {
+    // The temp file holds the whole config, tokens included.
+    await rm(temp, { force: true });
+    throw error;
+  }
 }
 
 export type LockedRun<T> = { status: "done"; value: T } | { status: "locked"; stale: boolean };

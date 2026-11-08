@@ -34,6 +34,7 @@ import type {
   ProjectPlacementPayload,
   WorkspaceProjectDescriptorPayload,
   RefreshProvidersSnapshotResponseMessage,
+  // Fork delta (claude accounts): one provider's usage reply.
   UsageProviderListReportsResponseMessage,
   SessionOutboundMessage,
   WorkspaceDescriptorPayload,
@@ -483,6 +484,7 @@ export interface PaseoAgentHandle {
    * stays, and its next prompt resumes it. Needs a host that advertises `agentRuntimeClose`.
    */
   closeRuntime(): Promise<void>;
+  // Fork delta (claude accounts): the agent.move RPC.
   /**
    * Moves the agent to another provider, as the Move session dialog does. Rejects with an
    * update-host error when the host cannot move agents.
@@ -588,6 +590,7 @@ export interface PaseoProviderActions {
     options?: { requestId?: string },
   ): Promise<PaseoProviderDiagnosticResult>;
   listUsage(options?: PaseoProviderUsageOptions): Promise<PaseoProviderUsageResult>;
+  // Fork delta (claude accounts): the usage.provider.list_reports RPC.
   /**
    * One provider's usage reports and their tightest window, read through the provider's launch
    * scope as the Move session dialog reads a target's. Rejects with an update-host error when the
@@ -926,6 +929,7 @@ export function createPaseoApi(
       refresh: (options) => daemonClient.refreshProvidersSnapshot(options),
       diagnostic: (provider, options) => daemonClient.getProviderDiagnostic(provider, options),
       listUsage: (options) => listProviderUsage(daemonClient, options),
+      // Fork delta (claude accounts): the usage.provider.list_reports RPC.
       listUsageForProvider: (provider, options) =>
         listOneProviderUsage(daemonClient, provider, options),
       subscribe: (handler) => {
@@ -1234,7 +1238,7 @@ function createAgentHandleFactory(
       closeRuntime: async () => {
         await daemonClient.closeAgentRuntime(id);
       },
-      // Fork delta (claude accounts): the Move session dialog's RPC, gated once on the host.
+      // Fork delta (claude accounts): the agent.move RPC, gated once on the host.
       move: async ({ to, continueWork }) => {
         daemonClient.ensureConnected();
         // COMPAT(agentMove): added in v0.15.3, remove gate after 2027-05-07.
