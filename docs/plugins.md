@@ -193,34 +193,38 @@ without `daemon.manage` loads no plugin code and keeps the plain card. File form
 
 The `resource-manager` built-in adds a Resources item to the sidebar. Its first tab shows this
 instance's container memory, swap, host memory, and load, then memory and CPU for each agent and
-for four groups: the daemon, the shared MCP servers, commands the heavy-command gate let through,
+for four groups: the daemon, the shared MCP servers, commands the heavy-command gate is running,
 and everything else. A process counts against the agent named by `PASEO_AGENT_ID` in its
-environment, and children inherit it, so an agent's MCP servers count against that agent. Close
-ends an idle agent's runtime when it has a saved provider session and no work in flight, its
-background tasks included; otherwise the row says why it stays open. The agent stays, and its
-next prompt resumes it. The readings come from Linux `/proc` and cgroup v2.
-Settings > Sidebar can hide the item.
+environment, and children inherit it, so an agent's MCP servers count against that agent. An
+OpenCode server that agents share carries no `PASEO_AGENT_ID` and counts under the daemon or
+everything else. Close ends an idle agent's runtime; the agent stays, and its next prompt resumes
+it. When one of the [runtime residency](agent-lifecycle.md#runtime-residency) checks fails, the
+row says why the runtime stays open. The readings come from Linux `/proc` and cgroup v2, so on
+macOS and Windows the tab shows none. Settings > Sidebar can hide the item.
 
-Every stdio MCP entry that runs `ssh-mcp` gets a read-only tab of its own: entries in the user and
-local scope of `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set) and in each
-workspace's `.mcp.json` when Claude Code trusts that folder or one above it. A `.mcp.json` in a
-folder Claude Code does not trust is skipped, and the screen names it. When the tab opens, the
-plugin starts the entry's server, connects to it as an MCP client, and sends one fixed command
-that reads memory, load, disks, and processes. The session closes 2 minutes after the tab closes,
-and counts under the daemon group while it runs. An entry shows even where
-`disabledMcpjsonServers` keeps Claude from starting it, and a config change shows the next time
-the screen opens, at most a minute later. Each session's pid file is in
-`$PASEO_HOME/resource-manager/run/`, and the next daemon start stops any session a crashed
-daemon left behind.
+Every stdio MCP entry that runs `ssh-mcp` gets a read-only tab of its own: entries in the user scope
+of `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set), in its local scope
+for each Paseo workspace's folder, and in each workspace's `.mcp.json` when Claude Code trusts that
+folder or one above it. A `.mcp.json` in a folder Claude Code does not trust is skipped, and the
+screen names it when it lists an ssh-mcp entry. Entries that expand to the same command, arguments
+and env share one tab, under the first source. When the tab opens, the plugin starts the entry's
+server, connects to it as an MCP client, and sends one fixed command that reads memory, load,
+disks, and processes. The session closes 2 minutes after the tab closes, and counts under the
+daemon group while it runs. An entry shows even where `disabledMcpjsonServers` keeps Claude from
+starting it, and a config change shows the next time the screen opens, at most a minute later.
+Each session's pid file is in `$PASEO_HOME/resource-manager/run/`, and on Linux the next daemon
+start stops any session a crashed daemon left behind.
 
-`${VAR}` and `${VAR:-default}` in an entry resolve against the environment its server gets, which
-leaves out Paseo's own `PASEO_*` variables. An entry that names one without a default still gets a
-tab, which shows an error naming the variable; with a default, the server starts with the default.
+`${VAR}` and `${VAR:-default}` in an entry resolve against the daemon's environment without
+Paseo's own `PASEO_*` variables and the keys Paseo strips from every server it starts; the entry's
+own `env` block is not used. An entry that names a `PASEO_*` variable without a default still gets
+a tab, which shows an error naming the variable; with a default, the server starts with the
+default.
 
-ssh-mcp returns at most 1 MiB of output, so on a host with about 25,000 processes or more the
+ssh-mcp returns at most 1 MiB of output, so on a host with about 40,000 processes or more the
 process list is cut short without an error. `df` fails on a stale network mount, and the tab then
-shows its error instead of a reading. A hung NFS mount holds the reading until ssh-mcp's 60 s
-timeout.
+shows its error, with the last reading under it once there was one. A hung NFS mount holds the
+reading until ssh-mcp's 60 s timeout.
 
 `plugins/resource-manager/server/local/procfs.ts` is a byte-for-byte copy of
 `plugins/shared-mcp/server/procfs.ts`, because a built-in cannot import another built-in's files.

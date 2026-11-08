@@ -14,8 +14,6 @@ export interface ScreenStyles {
   tabLabelSelected: TextStyle;
   muted: TextStyle;
   error: TextStyle;
-  /** SettingsCard has no padding of its own; its rows use 16. */
-  block: ViewStyle;
 }
 
 /** Styles for the Resources screen, from the host theme. Typed, so no `as const` is needed. */
@@ -40,7 +38,6 @@ export function useScreenStyles(theme: PluginTheme): ScreenStyles {
       tabLabelSelected: { color: theme.colors.foreground },
       muted: { color: theme.colors.foregroundMuted },
       error: { color: theme.colors.statusDanger },
-      block: { padding: 16, gap: 8 },
     }),
     [theme],
   );
