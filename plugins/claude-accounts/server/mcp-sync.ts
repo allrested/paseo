@@ -108,8 +108,7 @@ export function watchMcpServers(options: McpWatcherOptions): McpWatcher {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
-  // An uncaught failure ends the plugin's process, and the daemon drops its RPCs, hook and screen
-  // until it restarts, so a failure is logged once per distinct message, never thrown.
+  // The plugin runs inside the daemon: a failure is logged once per distinct message, never thrown.
   function logOnce(message: string, error: unknown): void {
     const key = `${message}\n${errorMessage(error)}`;
     if (logged.has(key)) return;
@@ -136,6 +135,7 @@ export function watchMcpServers(options: McpWatcherOptions): McpWatcher {
   }
 
   function tick(): Promise<void> {
+    if (stopped) return chain;
     chain = chain
       .then(pass)
       .catch((error: unknown) => logOnce("claude-accounts: the MCP server sync failed", error));
