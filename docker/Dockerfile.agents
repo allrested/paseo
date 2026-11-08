@@ -59,12 +59,15 @@ RUN npm install -g \
 # Two things this has to work around:
 #   * Kiro installs to $HOME/.local/bin by default. HOME is /home/paseo, which
 #     is a mounted volume at runtime, so a build-time install there would be
-#     masked. Q_INSTALL_GLOBAL=1 puts the binaries in /usr/local/bin instead.
+#     masked. --global puts the binary in /usr/local/bin instead. Since the
+#     installer of 2026-11-05 it is also required: without it the installer
+#     refuses a root install into a HOME that root does not own, and it no
+#     longer reads Q_INSTALL_GLOBAL.
 #   * The aarch64 GNU build needs glibc 2.39; this image is bookworm (2.36).
 #     The musl build has no such floor, so arm64 uses that variant.
 #
-# Q_SKIP_SETUP=1 skips the installer's interactive shell-integration setup.
-# One RUN layer keeps the ~560 MB archive out of the image.
+# A global install edits no shell files, so nothing interactive runs.
+# One RUN layer keeps the archive out of the image.
 ARG TARGETARCH
 RUN set -eux; \
     apt-get update; \
@@ -78,7 +81,7 @@ RUN set -eux; \
     curl -fsSL -o /tmp/kirocli.zip \
       "https://desktop-release.q.us-east-1.amazonaws.com/latest/${asset}"; \
     unzip -q /tmp/kirocli.zip -d /tmp; \
-    Q_INSTALL_GLOBAL=1 Q_SKIP_SETUP=1 /tmp/kirocli/install.sh; \
+    /tmp/kirocli/install.sh --global; \
     rm -rf /tmp/kirocli.zip /tmp/kirocli; \
     kiro-cli --version
 
