@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { AccountNameSchema, MAIN_PROVIDER, accountProvider } from "../shared/settings.js";
@@ -59,6 +59,14 @@ export function accountDirectory(home: string, name: string): string {
   return join(home, `${ACCOUNT_PREFIX}${name}`);
 }
 
+/**
+ * The directory is the main profile's, through a symbolic link or spelled another way. Real paths
+ * decide it, because the plugin never writes into the main profile.
+ */
+export async function isMainDirectory(paths: ProfilePaths, directory: string): Promise<boolean> {
+  return (await realDirectory(directory)) === (await realDirectory(paths.mainDirectory));
+}
+
 export async function discoverProfiles(
   paths: ProfilePaths,
   added: readonly string[],
@@ -79,8 +87,8 @@ export async function discoverProfiles(
   for (const entry of entries) {
     const name = entry.slice(ACCOUNT_PREFIX.length);
     const directory = join(paths.home, entry);
-    if (!AccountNameSchema.safeParse(name).success || directory === paths.mainDirectory) continue;
-    if (!(await isDirectory(directory))) continue;
+    if (!AccountNameSchema.safeParse(name).success) continue;
+    if (!(await isDirectory(directory)) || (await isMainDirectory(paths, directory))) continue;
     accounts.push({
       name,
       provider: accountProvider(name),
@@ -131,6 +139,16 @@ async function isDirectory(path: string): Promise<boolean> {
   }
 }
 
+// A missing path keeps its own spelling, as the string compare did.
+async function realDirectory(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if (isMissing(error)) return resolve(path);
+    throw error;
+  }
+}
+
 function isMissing(error: unknown): boolean {
   const code = errorCode(error);
   return code === "ENOENT" || code === "ENOTDIR";
@@ -164,7 +182,10 @@ function parseJson(text: string): unknown {
   }
 }
 
-/** Adds a name to the record through a temp file, with mode 0600. */
+/**
+ * Adds a name to the record through a temp file, with mode 0600. Calls must not overlap: two share
+ * the temp file and the read before the write. Add account, the only caller, runs one at a time.
+ */
 export async function recordAddedAccount(recordFile: string, name: string): Promise<void> {
   const names = await readAddedAccounts(recordFile);
   if (names.includes(name)) return;
