@@ -117,11 +117,9 @@ async function decide(deps: DefaultAccountDeps): Promise<string> {
   return chosen?.usable ? setting : MAIN_PROVIDER;
 }
 
-// Promise.race subscribes to `work`, so a rejection after the timeout is still handled: an
-// uncaught failure ends the plugin's process, and the daemon drops its RPCs, hook and screen
-// until it restarts. The timer is unref'd, as in waitAtMost
-// (plugins/shared-mcp/server/process-runner.ts), so a pending choice never keeps the plugin's
-// process alive.
+// Promise.race subscribes to `work`, so a rejection after the timeout is still handled. The timer
+// is unref'd, as in waitAtMost (plugins/shared-mcp/server/process-runner.ts): the plugin runs in
+// the daemon, and a pending choice must not keep it alive.
 async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
