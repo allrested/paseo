@@ -100,7 +100,7 @@ export function pickTool(names: readonly string[]): string {
 }
 
 export function missingVariablesMessage(names: readonly string[]): string {
-  return `The config refers to ${names.join(", ")}, which the daemon's environment does not set`;
+  return `The config refers to ${names.join(", ")}, which is not set in ssh-mcp's environment`;
 }
 
 export class RemoteSessions {

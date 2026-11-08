@@ -233,6 +233,17 @@ describe("LocalReader", () => {
     expect(agents.calls()).toBe(3);
   });
 
+  it("reads afresh instead of reusing a reading after the clock steps back", async () => {
+    const { reader, advance } = harness();
+    const agents = counting(AGENTS);
+
+    await reader.read(agents.list);
+    advance(-60_000);
+    await reader.read(agents.list);
+
+    expect(agents.calls()).toBe(2);
+  });
+
   it("shares one read between concurrent callers", async () => {
     const { reader } = harness();
     const agents = counting(AGENTS);
