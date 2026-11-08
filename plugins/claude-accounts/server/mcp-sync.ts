@@ -89,6 +89,7 @@ export interface McpWatcherOptions {
   /** The accounts to keep in sync, read again on every pass. */
   targets(): Promise<SyncTarget[]>;
   intervalMs: number;
+  /** Must not throw: a throw makes `tick()` and `stop()` reject. */
   logError(message: string, error: unknown): void;
 }
 
