@@ -121,9 +121,9 @@ export class LocalReader {
   // than 1 s ago, and concurrent callers share one read.
   read(listAgents: AgentLister): Promise<LocalReading> {
     const { last } = this;
-    if (last !== null && this.options.now() - last.at < REUSE_MS) {
-      return Promise.resolve(last.reading);
-    }
+    const age = last === null ? -1 : this.options.now() - last.at;
+    // A clock stepped back would keep serving this reading; a negative age reads afresh.
+    if (last !== null && age >= 0 && age < REUSE_MS) return Promise.resolve(last.reading);
     if (this.inFlight === null) {
       this.inFlight = this.readFresh(listAgents).finally(() => {
         this.inFlight = null;

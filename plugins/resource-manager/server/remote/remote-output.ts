@@ -31,7 +31,7 @@ const SECTION_LINE = /^@@([a-z]+)$/;
 const EXIT_LINE = /^\[exit (-?\d+)\]$/;
 const KILLED_LINE = /^\[killed by (SIG[A-Z0-9]+)\]$/;
 const STDERR_LINE = "[stderr]";
-const BLOCKS_HEADER = /(?:^|\s)(\d+)-\S+/;
+const BLOCKS_HEADER = /(?:^|\s)(\d+)(?=-|\s|$)/;
 const PS_HEADER = /^PID\s+RSS\s+\S+$/;
 const PSEUDO_FILESYSTEMS = new Set(["tmpfs", "devtmpfs", "shm", "udev", "none", "efivarfs"]);
 const MESSAGE_CHARS = 300;
