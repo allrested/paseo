@@ -216,7 +216,7 @@ describe("move action", () => {
     };
     expect(moveHint(ready)).toBe("Agents in a turn stay where they are");
     expect(moveHint({ ...ready, armed: true })).toBe(
-      "Press again within 5 s to move 2 idle agents from Main account to work. Their background shells and watches stop.",
+      "Press again within 5 s to move 2 idle agents from Main account to work. Their background shells, watches and subagents stop.",
     );
     expect(moveHint({ ...ready, idle: 0 })).toBe("No idle agents on this account");
     expect(moveHint({ ...ready, jobRunning: true })).toBe(
