@@ -236,7 +236,8 @@ directory `~/.claude-<name>` with its own login, launched by the provider `claud
 works before any workspace is open. Add account creates the directory and the provider entry,
 links the main profile's settings, `CLAUDE.md`, skills, plugins, commands and agents into it, and
 opens `claude auth login` in a terminal of your most recent workspace, so open a project first.
-The reasons are in the [design](superpowers/specs/2026-11-06-claude-accounts-design.md).
+Add account needs macOS or Linux. The reasons are in the
+[design](superpowers/specs/2026-11-06-claude-accounts-design.md).
 
 `.claude.json` holds each login's own state, so it cannot be a link. The plugin keeps each
 account's user-scope `mcpServers` equal to the main profile's: every 5 s it compares them and
@@ -250,9 +251,10 @@ The default account on that screen applies to every agent created with plain `cl
 the signed-in account with the most room, skipping any at 95% or more or on pace to run out within
 30 minutes; an agent started on a named account stays on it. A move to plain `claude` from the
 Move dialog or the CLI that falls back to a history handoff creates its successor through the same
-choice, so it can land on another account. Move idle agents skips agents in a turn. The agents it
-moves lose their background shells, `Monitor` watches and background subagents, which live in the
-Claude process.
+choice, so it can land on another account. Move idle agents skips agents in a turn, and an agent
+it moves to the main account stays on plain `claude`. The agents it moves lose their background
+shells, `Monitor` watches, background subagents and a running Workflow, which live in the Claude
+process.
 
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
 `packages/server/src/server/plugins/lifecycle.e2e.test.ts` start every built-in in process, so give
