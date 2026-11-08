@@ -23,7 +23,10 @@ export function accountProvider(name: string): string {
 
 const DefaultAccountSchema = z
   .string()
-  .regex(/^(auto|claude|claude-[a-z0-9]+(?:-[a-z0-9]+)*)$/, "Pick Auto or one of the accounts");
+  .regex(
+    /^(auto|claude|claude-(?=[a-z0-9-]{1,32}$)[a-z0-9]+(?:-[a-z0-9]+)*)$/,
+    "Pick Auto or one of the accounts",
+  );
 
 export const claudeAccountsSettings = defineSettings({
   id: "default-account",
