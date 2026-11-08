@@ -125,6 +125,7 @@ import { buildSessionConfig, extractAttention } from "../persistence-hooks.js";
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
 const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
 const IMPORTABLE_SESSION_LIST_TIMEOUT_MS = 90_000;
+// Fork delta (resource manager): closeRuntimeIfIdle's probe limit and refusal reasons.
 // Idle collection gives a provider's safety probe the same limit (idle-runtime-cleanup/index.ts).
 const RUNTIME_SAFETY_PROBE_TIMEOUT_MS = 10_000;
 const CLOSE_REFUSED_NO_SESSION = "This agent has no saved session to resume, so it stays open";
@@ -882,6 +883,7 @@ export class AgentManager {
   private readonly historySessions = new WeakSet<AgentSession>();
   private readonly reloadedSessionCloses = new WeakMap<AgentSession, Promise<void>>();
   private readonly runtimeCleanupIdentities = new WeakMap<AgentSession, object>();
+  // Fork delta (resource manager): closeRuntimeIfIdle is this barrier's second writer.
   // The prompt barrier for a runtime that closes while idle. A prompt or out-of-band command for an
   // agent in this set waits for the close and then resumes the agent, and runtimeHasNoPendingWork
   // reads the agent's pending lifecycle mutation as the close itself. Two writers share it: idle
@@ -2254,11 +2256,12 @@ export class AgentManager {
   }
 
   /**
-   * Closes one agent's runtime on request after the checks idle collection makes: a saved
-   * session, no pending work, the provider's background-work probe, then a recheck in the
-   * lifecycle lane behind the prompt barrier. Resolves null once the runtime is closed, or when it
-   * is not loaded, else the reason it stays open. It skips the collector's family and caller
-   * checks: a child keeps its own runtime, and a delivery resumes this agent as a prompt does.
+   * Fork delta (resource manager): closes one agent's runtime on request after the checks idle
+   * collection makes: a saved session, no pending work, the provider's background-work probe,
+   * then a recheck in the lifecycle lane behind the prompt barrier. Resolves null once the
+   * runtime is closed, or when it is not loaded, else the reason it stays open. It skips the
+   * collector's family and caller checks: a child keeps its own runtime, and a delivery resumes
+   * this agent as a prompt does.
    */
   async closeRuntimeIfIdle(agentId: string): Promise<string | null> {
     const agent = this.agents.get(agentId);
@@ -2286,7 +2289,8 @@ export class AgentManager {
     }
   }
 
-  // Idle collection's provider veto: false, an error or a timeout keeps the runtime.
+  // Fork delta (resource manager): closeRuntimeIfIdle's copy of idle collection's provider veto.
+  // False, an error or a timeout keeps the runtime.
   private async providerAllowsRuntimeStop(agent: LiveManagedAgent): Promise<boolean> {
     const canStopRuntime = agent.session.canStopRuntime?.bind(agent.session);
     if (!canStopRuntime) return true;
@@ -6091,6 +6095,7 @@ export class AgentManager {
     }
   }
 
+  // Fork delta (session move): the agent_moved block takes dispatch over the complexity limit.
   // eslint-disable-next-line complexity
   private dispatch(event: AgentManagerEvent): void {
     for (const subscriber of this.subscribers) {
