@@ -10,8 +10,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { syncMcpServers, watchMcpServers, type McpWatcher, type SyncTarget } from "./mcp-sync.js";
 
 /** A user-scope MCP server as Claude Code stores it; the plugin copies these as opaque JSON. */
@@ -223,5 +223,72 @@ describe("watchMcpServers", () => {
     await watcher.tick();
     await watcher.tick();
     expect(logged).toEqual(["claude-accounts: the MCP server sync failed"]);
+  });
+
+  it("repeats the pass on its timer, reports a thrown sync once, and stops its timer", async () => {
+    const { mainFile, accountFile } = await files();
+    const goneFile = join(dirname(mainFile), ".claude-gone", ".claude.json");
+    await writeJson(mainFile, { mcpServers: SERVERS });
+    const targets: SyncTarget[] = [
+      { provider: "claude-work", mainFile, accountFile },
+      { provider: "claude-gone", mainFile, accountFile: goneFile },
+    ];
+    const logged: string[] = [];
+    const watcher = watchMcpServers({
+      targets: async () => targets,
+      intervalMs: 20,
+      logError: (message) => logged.push(message),
+    });
+    watchers.push(watcher);
+
+    await vi.waitFor(async () => {
+      expect(await readJson(accountFile)).toEqual({ mcpServers: SERVERS });
+    });
+    await writeJson(mainFile, { mcpServers: { context7: CONTEXT7 } });
+    await vi.waitFor(async () => {
+      expect(await readJson(accountFile)).toEqual({ mcpServers: { context7: CONTEXT7 } });
+    });
+    // A full pass after the one in flight, so the problems below come from a finished pass.
+    await watcher.tick();
+    expect(watcher.problem("claude-gone")).toBe(
+      `MCP servers were not copied: ENOENT: no such file or directory, mkdir '${goneFile}.lock'`,
+    );
+    expect(logged).toEqual(["claude-accounts: copying MCP servers into claude-gone failed"]);
+
+    await watcher.stop();
+    await writeJson(mainFile, { mcpServers: SERVERS });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readJson(accountFile)).toEqual({ mcpServers: { context7: CONTEXT7 } });
+  });
+
+  it("stops only after the pass in flight", async () => {
+    const { mainFile, accountFile } = await files();
+    await writeJson(mainFile, { mcpServers: SERVERS });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const logged: string[] = [];
+    const watcher = watchMcpServers({
+      targets: async () => {
+        await held;
+        return [{ provider: "claude-work", mainFile, accountFile }];
+      },
+      intervalMs: 60_000,
+      logError: (message) => logged.push(message),
+    });
+    watchers.push(watcher);
+
+    let stopped = false;
+    const stopping = watcher.stop().then(() => {
+      stopped = true;
+      return undefined;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect(await readJson(accountFile)).toEqual({ mcpServers: SERVERS });
+    expect(logged).toEqual([]);
   });
 });
