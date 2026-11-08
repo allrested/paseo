@@ -117,7 +117,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function setup(): Promise<Setup> {
+async function setup(platform: NodeJS.Platform = "linux"): Promise<Setup> {
   const home = await mkdtemp(join(tmpdir(), "claude-accounts-"));
   roots.push(home);
   const main = join(home, ".claude");
@@ -131,7 +131,7 @@ async function setup(): Promise<Setup> {
   const saved: SavedSetting = { value: "claude" };
   const accounts = createClaudeAccounts({
     paths: profilePaths({ CLAUDE_CONFIG_DIR: main, PASEO_HOME: join(home, "paseo-home") }, home),
-    platform: "linux",
+    platform,
     readDefaultAccount: async () => saved.value,
     logError: (message, error) => {
       throw new Error(`${message}: ${String(error)}`);
@@ -416,5 +416,51 @@ describe("new agents and moves", () => {
       expect((await accounts.list(api)).moveJob?.done).toBe(true);
     });
     expect(api.moves).toEqual(["a->claude-work"]);
+  });
+
+  it("never lets Auto pick a disabled, danger or unknown account, and falls back from a named one", async () => {
+    const { home, accounts, api, saved } = await setup();
+    for (const name of ["fresh", "full", "off"]) {
+      await accounts.add(api, name);
+      await writeFile(join(home, `.claude-${name}`, ".credentials.json"), "{}");
+    }
+    const disabled: ProviderEntry = {
+      extends: "claude",
+      enabled: false,
+      configDirectory: join(home, ".claude-off"),
+    };
+    api.entries.set("claude-off", disabled);
+    api.usage.set("claude", usageAt(80, "warning"));
+    api.usage.set("claude-full", usageAt(60, "danger"));
+    api.usage.set("claude-off", usageAt(5, "none"));
+    const plain: CreateRequest = { provider: "claude", cwd: "/repo" };
+
+    saved.value = "auto";
+    expect(await accounts.beforeCreate(api, plain)).toBe("claude");
+    saved.value = "claude-off";
+    expect(await accounts.beforeCreate(api, plain)).toBe("claude");
+    const explicit: CreateRequest = { provider: "claude-full", cwd: "/repo" };
+    expect(await accounts.beforeCreate(api, explicit)).toBe("claude-full");
+  });
+});
+
+describe("platform gates", () => {
+  it("refuses to add an account or sign in on Windows", async () => {
+    const { home, accounts, api } = await setup("win32");
+
+    expect(await accounts.add(api, "work")).toEqual({
+      ok: false,
+      error: "Adding accounts needs macOS or Linux",
+      loginWorkspaceId: null,
+    });
+    expect(await accounts.signIn(api, "claude")).toEqual({
+      ok: false,
+      error: "Signing in from Paseo needs macOS or Linux",
+      loginWorkspaceId: null,
+    });
+
+    expect(api.terminals).toEqual([]);
+    expect(api.added).toEqual([]);
+    await expect(stat(join(home, ".claude-work"))).rejects.toThrow("ENOENT");
   });
 });
