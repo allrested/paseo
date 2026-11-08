@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   claudeConfigFile,
   discoverProfiles,
+  isMainDirectory,
   profilePaths,
   readAddedAccounts,
   recordAddedAccount,
@@ -119,6 +120,25 @@ describe("discoverProfiles", () => {
     expect(main.directory).toBe(join(home, ".claude-main"));
     expect(main.viaEnv).toBe(true);
     expect(accounts.map((account) => account.provider)).toEqual(["claude-work"]);
+  });
+
+  it("never lists the main profile through a link or another spelling", async () => {
+    const home = await tempHome();
+    await mkdir(join(home, ".claude-main"));
+    await mkdir(join(home, ".claude-work"));
+    await symlink(join(home, ".claude-main"), join(home, ".claude-alias"));
+    await symlink(home, join(home, "linked-home"));
+    const paths: ProfilePaths = profilePaths(
+      { CLAUDE_CONFIG_DIR: join(home, "linked-home", ".claude-main") },
+      home,
+    );
+
+    const { accounts } = await discoverProfiles(paths, ["alias", "main"]);
+
+    expect(accounts.map((account) => account.provider)).toEqual(["claude-work"]);
+    expect(await isMainDirectory(paths, join(home, ".claude-alias"))).toBe(true);
+    expect(await isMainDirectory(paths, join(home, ".claude-work"))).toBe(false);
+    expect(await isMainDirectory(paths, join(home, ".claude-missing"))).toBe(false);
   });
 });
 
