@@ -8,7 +8,7 @@ import { claudeAccountsSettings } from "./shared/settings.js";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(claudeAccountsSettings);
-  // Built-ins run in a child process the daemon forks, which inherits its env.
+  // Built-ins run in the daemon process, so process.env is the daemon's env.
   const accounts = createClaudeAccounts({
     paths: profilePaths(process.env, homedir()),
     platform: process.platform,
