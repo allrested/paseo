@@ -38,7 +38,7 @@ import {
 const ACCOUNTS_KEY = ["claude-accounts", "list"] as const;
 const POLL_MS = 5_000;
 const DEFAULT_HINT =
-  "Auto picks the signed-in account with the most room, skipping any at 95% or more or on pace to run out within 30 minutes. Agents started on a specific account stay on it.";
+  "Auto picks the signed-in account with the most room and known usage, skipping any at 95% or more or on pace to run out within 30 minutes. Agents started on a specific account stay on it.";
 const INVALID_DEFAULT_HINT = "New agents start on the main account until you reset this";
 const SIGN_IN_HINT = "Opens claude auth login in a terminal of your most recent workspace";
 const NAME_HINT = "Lowercase letters, digits and dashes, such as work";

@@ -38,7 +38,7 @@ const ACCOUNT_PREFIX = ".claude-";
 
 // Mirrors resolvePaseoHome (packages/server/src/server/paseo-home.ts) and claudeConfigDir
 // (packages/server/src/server/agent/providers/claude/project-dir.ts), which a plugin bundle cannot
-// import. Built-ins run in a child process the daemon forks, which inherits its env.
+// import. Built-ins run in the daemon process, so `env` is the daemon's env.
 export function profilePaths(env: NodeJS.ProcessEnv, home: string): ProfilePaths {
   const configDir = env.CLAUDE_CONFIG_DIR;
   const paseoHome = resolve(expandHome(env.PASEO_HOME ?? "~/.paseo", home));
@@ -139,7 +139,7 @@ async function isDirectory(path: string): Promise<boolean> {
   }
 }
 
-// A missing path keeps its own spelling, as the string compare did.
+// A missing path keeps its own spelling, so two missing paths match only when spelled the same.
 async function realDirectory(path: string): Promise<string> {
   try {
     return await realpath(path);

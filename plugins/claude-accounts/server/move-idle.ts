@@ -55,7 +55,7 @@ export class MoveIdleRunner {
       done: false,
     };
     this.job = job;
-    // run() catches every move's failure; this catch only keeps the plugin's process alive.
+    // run() catches every move's failure; this catch only keeps the daemon alive.
     this.running = this.run(api, job, agentIds).catch((error: unknown) => this.onError(error));
     return { ok: true, job: copyJob(job) };
   }

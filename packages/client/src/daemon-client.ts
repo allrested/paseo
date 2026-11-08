@@ -121,6 +121,7 @@ import type {
   RefreshProvidersSnapshotResponseMessage,
   ProviderDiagnosticResponseMessage,
   ProviderUsageListResponseMessage,
+  // Fork delta (claude accounts): one provider's usage reply.
   UsageProviderListReportsResponseMessage,
   UsageReportEntry,
   DaemonGetStatusResponse,
@@ -636,6 +637,7 @@ type GetProvidersSnapshotPayload = GetProvidersSnapshotResponseMessage["payload"
 type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["payload"];
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
+// Fork delta (claude accounts): one provider's usage reply.
 type UsageProviderReportsPayload = UsageProviderListReportsResponseMessage["payload"];
 interface UsageListReportsPayload {
   requestId: string;
