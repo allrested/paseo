@@ -230,13 +230,39 @@ reading until ssh-mcp's 60 s timeout.
 `plugins/shared-mcp/server/procfs.ts`, because a built-in cannot import another built-in's files.
 `procfs-copy.test.ts` fails when the two differ, so change both together.
 
+The `claude-accounts` built-in manages several Claude Code logins on one host. Each account is a
+directory `~/.claude-<name>` with its own login, launched by the provider `claude-<name>`, whose
+`env` sets `CLAUDE_CONFIG_DIR`. Open the "Claude accounts" screen from the sidebar footer; it
+works before any workspace is open. Add account creates the directory and the provider entry,
+links the main profile's settings, `CLAUDE.md`, skills, plugins, commands and agents into it, and
+opens `claude auth login` in a terminal of your most recent workspace, so open a project first.
+The reasons are in the [design](superpowers/specs/2026-11-06-claude-accounts-design.md).
+
+`.claude.json` holds each login's own state, so it cannot be a link. The plugin keeps each
+account's user-scope `mcpServers` equal to the main profile's: every 5 s it compares them and
+rewrites a copy that differs, under Claude Code's own file lock, which also undoes a Claude Code
+write that drops the copy. It writes only into accounts it added, recorded in
+`$PASEO_HOME/claude-accounts/added.json`. A `~/.claude-<name>` made by hand shows a problem on its
+row until you add the same name again, which adopts it. Links are made at Add, so an entry the
+main profile gains later is shared once you add the account again.
+
+The default account on that screen applies to every agent created with plain `claude`. Auto picks
+the signed-in account with the most room, skipping any at 95% or more or on pace to run out within
+30 minutes; an agent started on a named account stays on it. A move to plain `claude` from the
+Move dialog or the CLI that falls back to a history handoff creates its successor through the same
+choice, so it can land on another account. Move idle agents skips agents in a turn. The agents it
+moves lose their background shells, `Monitor` watches and background subagents, which live in the
+Claude process.
+
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
 `packages/server/src/server/plugins/lifecycle.e2e.test.ts` start every built-in in process, so give
-them `PASEO_HOME=$(mktemp -d)`. Otherwise `shared-mcp`, `heavy-command-gate` and `resource-manager`
-work in the real `$PASEO_HOME/shared-mcp`, `$PASEO_HOME/heavy-command-gate` and
-`$PASEO_HOME/resource-manager`, and write the gate's shims, config and socket there when no daemon
-owns `gate.sock`. `worktree-include` and `claude-workflows` write nothing there: they act only when
-a worktree is created or a card asks for a run.
+them `PASEO_HOME=$(mktemp -d)` and `HOME=$(mktemp -d)`, with `CLAUDE_CONFIG_DIR` unset. Otherwise
+`shared-mcp`, `heavy-command-gate` and `resource-manager` work in the real `$PASEO_HOME/shared-mcp`,
+`$PASEO_HOME/heavy-command-gate` and `$PASEO_HOME/resource-manager`, and write the gate's shims,
+config and socket there when no daemon owns `gate.sock`; `worktree-include` and `claude-workflows`
+write nothing there, since they act only when a worktree is created or a card asks for a run.
+`claude-accounts` discovers your real Claude profiles from `HOME` and `CLAUDE_CONFIG_DIR`, and syncs
+`mcpServers` into the accounts that the real `$PASEO_HOME/claude-accounts/added.json` records.
 
 Desktop packaging ships the entire built-in plugin directory as an external resource,
 including declarations. The external esbuild compiler cannot read Electron's `app.asar`
