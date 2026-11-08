@@ -98,6 +98,17 @@ describe("summarizeUsage", () => {
       summarizeUsage({ reports: [], tightest: null, error: "Usage is off on this host." }),
     ).toEqual({ known: false, expired: false, usage: null, tone: null });
   });
+
+  it("counts an available report without windows as a login with unknown usage", () => {
+    const usage: ProviderUsage = {
+      reports: [entry({ status: "available", windows: [] })],
+      tightest: null,
+      error: null,
+    };
+    const summary: UsageSummary = { known: true, expired: false, usage: null, tone: null };
+
+    expect(summarizeUsage(usage)).toEqual(summary);
+  });
 });
 
 describe("chooseAuto", () => {
