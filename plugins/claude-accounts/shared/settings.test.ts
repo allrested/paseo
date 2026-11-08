@@ -35,6 +35,13 @@ describe("AccountNameSchema", () => {
 });
 
 describe("claudeAccountsSettings", () => {
+  it("is the host-scoped default-account setting, version 1", () => {
+    expect(claudeAccountsSettings.id).toBe("default-account");
+    expect(claudeAccountsSettings.scope).toBe("host");
+    expect(claudeAccountsSettings.version).toBe(1);
+    expect(accountProvider("work")).toBe("claude-work");
+  });
+
   it("defaults to the main account", () => {
     expect(claudeAccountsSettings.schema.parse({})).toEqual({ defaultAccount: "claude" });
   });
@@ -43,10 +50,17 @@ describe("claudeAccountsSettings", () => {
     expect(settingsIssues({ defaultAccount: "auto" })).toEqual([]);
     expect(settingsIssues({ defaultAccount: "claude" })).toEqual([]);
     expect(settingsIssues({ defaultAccount: accountProvider("work") })).toEqual([]);
+    expect(settingsIssues({ defaultAccount: accountProvider("a".repeat(32)) })).toEqual([]);
   });
 
   it("rejects other providers", () => {
     expect(settingsIssues({ defaultAccount: "codex" })).toEqual([DEFAULT_MESSAGE]);
     expect(settingsIssues({ defaultAccount: "claude-" })).toEqual([DEFAULT_MESSAGE]);
+    expect(settingsIssues({ defaultAccount: accountProvider("a".repeat(33)) })).toEqual([
+      DEFAULT_MESSAGE,
+    ]);
+    expect(settingsIssues({ defaultAccount: "claude--x" })).toEqual([DEFAULT_MESSAGE]);
+    expect(settingsIssues({ defaultAccount: "claude-A" })).toEqual([DEFAULT_MESSAGE]);
+    expect(settingsIssues({ defaultAccount: "autox" })).toEqual([DEFAULT_MESSAGE]);
   });
 });
