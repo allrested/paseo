@@ -1,5 +1,6 @@
 import type { ListUsageReportsOptions } from "../../plugins/usage-sources/index.js";
 import type pino from "pino";
+// Fork delta (claude accounts): the tightest window and the move dialog's scoped usage lookup.
 import { chooseTightestWindow } from "@getpaseo/protocol/usage-heads-up";
 import type {
   ProviderUsage,
@@ -17,15 +18,18 @@ export interface UsageSessionOptions {
   runtime?: {
     listUsageReports(options: ListUsageReportsOptions): Promise<UsageReportEntry[]>;
     listLegacyUsage(): Promise<{ fetchedAt: string; providers: ProviderUsage[] }>;
+    // Fork delta (claude accounts): the runtime's scoped read, as the move dialog uses it.
     listUsageReportsForScope?(scope: UsageScopeQuery): Promise<UsageReportEntry[]>;
   };
   // Fork delta (claude accounts): a provider's launch scope, or null when no provider has the id.
   resolveProviderScope?: (provider: string) => UsageScopeQuery | null;
+  // Fork delta (claude accounts): the move dialog's usage cache, so both read alike.
   scopeLookup?: MoveTargetUsageLookup;
   isEnabled: () => boolean;
   logger: pino.Logger;
 }
 
+// Fork delta (claude accounts): the usage.provider.list_reports request and its result.
 type ProviderReportsRequest = Extract<
   SessionInboundMessage,
   { type: "usage.provider.list_reports.request" }
@@ -139,6 +143,7 @@ export class UsageSession {
     }
   }
 
+  // Fork delta (claude accounts): the usage.provider.list_reports reply.
   private emitProviderReports(msg: ProviderReportsRequest, result: ProviderReportsResult): void {
     this.options.emit({
       type: "usage.provider.list_reports.response",
@@ -147,6 +152,7 @@ export class UsageSession {
   }
 }
 
+// Fork delta (claude accounts): a lookup that always loads, for a session without the shared cache.
 function loadNow(
   _key: string,
   load: () => Promise<UsageReportEntry[]>,
@@ -154,6 +160,7 @@ function loadNow(
   return load();
 }
 
+// Fork delta (claude accounts): the tightest window the accounts screen and Auto read.
 /**
  * The tightest window across the available reports, ranked as the move dialog ranks a target's
  * (`chooseTightestWindow`: heads-up tone, then used share, then the sooner run-out), with its

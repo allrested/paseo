@@ -189,6 +189,8 @@ export function createClaudeAccounts(options: ClaudeAccountsOptions): ClaudeAcco
     },
     async signIn(api, provider) {
       try {
+        if (options.platform === "win32")
+          return failure("Signing in from Paseo needs macOS or Linux");
         const added = await readAddedAccounts(paths.recordFile);
         const { main, accounts } = await discoverProfiles(paths, added);
         const profile = [main, ...accounts].find((candidate) => candidate.provider === provider);
