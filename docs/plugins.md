@@ -191,12 +191,48 @@ Linux `/proc`; on other systems a run shows Stopped until it completes or is kil
 without `daemon.manage` loads no plugin code and keeps the plain card. File formats are in the
 [design](superpowers/specs/2026-11-07-claude-workflows-design.md#where-the-data-lives).
 
+The `resource-manager` built-in adds a Resources item to the sidebar. Its first tab shows this
+instance's container memory, swap, host memory, and load, then memory and CPU for each agent and
+for four groups: the daemon, the shared MCP servers, commands the heavy-command gate let through,
+and everything else. A process counts against the agent named by `PASEO_AGENT_ID` in its
+environment, and children inherit it, so an agent's MCP servers count against that agent. Close
+ends an idle agent's runtime when it has a saved provider session and no work in flight, its
+background tasks included; otherwise the row says why it stays open. The agent stays, and its
+next prompt resumes it. The readings come from Linux `/proc` and cgroup v2.
+Settings > Sidebar can hide the item.
+
+Every stdio MCP entry that runs `ssh-mcp` gets a read-only tab of its own: entries in the user and
+local scope of `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set) and in each
+workspace's `.mcp.json` when Claude Code trusts that folder or one above it. A `.mcp.json` in a
+folder Claude Code does not trust is skipped, and the screen names it. When the tab opens, the
+plugin starts the entry's server, connects to it as an MCP client, and sends one fixed command
+that reads memory, load, disks, and processes. The session closes 2 minutes after the tab closes,
+and counts under the daemon group while it runs. An entry shows even where
+`disabledMcpjsonServers` keeps Claude from starting it, and a config change shows the next time
+the screen opens, at most a minute later. Each session's pid file is in
+`$PASEO_HOME/resource-manager/run/`, and the next daemon start stops any session a crashed
+daemon left behind.
+
+`${VAR}` and `${VAR:-default}` in an entry resolve against the environment its server gets, which
+leaves out Paseo's own `PASEO_*` variables. An entry that names one without a default still gets a
+tab, which shows an error naming the variable; with a default, the server starts with the default.
+
+ssh-mcp returns at most 1 MiB of output, so on a host with about 25,000 processes or more the
+process list is cut short without an error. `df` fails on a stale network mount, and the tab then
+shows its error instead of a reading. A hung NFS mount holds the reading until ssh-mcp's 60 s
+timeout.
+
+`plugins/resource-manager/server/local/procfs.ts` is a byte-for-byte copy of
+`plugins/shared-mcp/server/procfs.ts`, because a built-in cannot import another built-in's files.
+`procfs-copy.test.ts` fails when the two differ, so change both together.
+
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
 `packages/server/src/server/plugins/lifecycle.e2e.test.ts` start every built-in in process, so give
-them `PASEO_HOME=$(mktemp -d)`. Otherwise `shared-mcp` and `heavy-command-gate` work in the real
-`$PASEO_HOME/shared-mcp` and `$PASEO_HOME/heavy-command-gate`, and write the gate's shims, config
-and socket there when no daemon owns `gate.sock`. `worktree-include` and `claude-workflows` write
-nothing there: they act only when a worktree is created or a card asks for a run.
+them `PASEO_HOME=$(mktemp -d)`. Otherwise `shared-mcp`, `heavy-command-gate` and `resource-manager`
+work in the real `$PASEO_HOME/shared-mcp`, `$PASEO_HOME/heavy-command-gate` and
+`$PASEO_HOME/resource-manager`, and write the gate's shims, config and socket there when no daemon
+owns `gate.sock`. `worktree-include` and `claude-workflows` write nothing there: they act only when
+a worktree is created or a card asks for a run.
 
 Desktop packaging ships the entire built-in plugin directory as an external resource,
 including declarations. The external esbuild compiler cannot read Electron's `app.asar`
