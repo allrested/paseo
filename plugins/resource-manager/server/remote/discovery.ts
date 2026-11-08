@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 // Finds every ssh-mcp entry in the Claude configs the daemon can read, taking a .mcp.json only
@@ -167,7 +167,7 @@ function toServer(
 // Code, they run only for a folder trusted there: hasTrustDialogAccepted on the folder or a parent
 // in ~/.claude.json, which Claude Code sets when its trust dialog is accepted.
 function isTrusted(projects: Record<string, unknown> | undefined, dir: string): boolean {
-  for (let path = dir; ; path = dirname(path)) {
+  for (let path = resolve(dir); ; path = dirname(path)) {
     if (TrustSchema.safeParse(projects?.[path]).success) return true;
     if (dirname(path) === path) return false;
   }
