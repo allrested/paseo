@@ -1430,7 +1430,9 @@ test("worktree includes reach the first agent without copying tracked or unignor
     await writeFile(${JSON.stringify(observed)}, JSON.stringify(contents));
   });`,
   });
-  const daemon = await createTestPaseoDaemon({ builtinPlugins: new BuiltinPluginLoader() });
+  const daemon = await createTestPaseoDaemon({
+    builtinPlugins: new BuiltinPluginLoader(undefined, ["worktree-include"]),
+  });
   const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
   try {
     await client.connect();
