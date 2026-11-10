@@ -39,6 +39,11 @@ function findLayoutTab(workspaceKey: string, browserId: string): string | null {
   return tab?.tabId ?? null;
 }
 
+function hasLayoutTab(workspaceKey: string, tabId: string): boolean {
+  const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
+  return layout ? collectAllTabs(layout.root).some((tab) => tab.tabId === tabId) : false;
+}
+
 /**
  * Adds the tab to the workspace layout once. A tab that is already there is only focused, never
  * duplicated. `replaceTabId` (a placeholder tab) is swapped for the browser tab, in the
@@ -65,7 +70,10 @@ export function ensureCdpTabInLayout(input: {
     // The daemon's "opened" event reaches the sync before the open response, so the tab is already
     // there, in the default place. Put it where the caller asked.
     let tabId = existing;
-    if (input.replaceTabId && input.replaceTabId !== existing) {
+    // A background open into a pane whose only tab is the placeholder already took its place.
+    const placeholderOpen =
+      input.replaceTabId !== undefined && hasLayoutTab(workspaceKey, input.replaceTabId);
+    if (input.replaceTabId && placeholderOpen && input.replaceTabId !== existing) {
       layoutStore.closeTab(workspaceKey, existing);
       tabId = layoutStore.replaceTab(workspaceKey, input.replaceTabId, target) ?? existing;
     } else if (input.paneId) {
