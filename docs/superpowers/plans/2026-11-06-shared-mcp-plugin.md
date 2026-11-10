@@ -8246,21 +8246,23 @@ Create `/workspace/.agent-tools/shared-mcp-servers.json`. The commands are copie
   {
     "id": "playwright",
     "label": "Playwright",
-    "command": "exec npx -y @playwright/mcp@0.0.81 --cdp-endpoint http://$(getent hosts mdaq-browser | head -1 | cut -d\" \" -f1):9223 --host 127.0.0.1 --port 8931 --allowed-hosts localhost:8931,127.0.0.1:8931",
+    "command": "exec /usr/local/bin/playwright-mcp --cdp-endpoint http://$(getent hosts mdaq-browser | head -1 | cut -d\" \" -f1):9223 --host 127.0.0.1 --port 8931 --allowed-hosts localhost:8931,127.0.0.1:8931",
     "cwd": "/workspace",
-    "port": 8931
+    "port": 8931,
+    "requires": ["/usr/local/bin/playwright-mcp"]
   },
   {
     "id": "context7",
     "label": "Context7",
-    "command": "exec npx -y @upstash/context7-mcp@4.0.4 --transport http --port 8932",
+    "command": "exec /usr/local/bin/context7-mcp --transport http --port 8932",
     "cwd": "/workspace",
-    "port": 8932
+    "port": 8932,
+    "requires": ["/usr/local/bin/context7-mcp"]
   },
   {
     "id": "gitlab",
     "label": "GitLab",
-    "command": "TOKEN=\"$(node /workspace/.agent-tools/bin/read-mcp-env.js GITLAB_PERSONAL_ACCESS_TOKEN)\" || exit 1; export GITLAB_PERSONAL_ACCESS_TOKEN=\"$TOKEN\"; exec npx -y @zereight/mcp-gitlab@2.1.52",
+    "command": "TOKEN=\"$(node /workspace/.agent-tools/bin/read-mcp-env.js GITLAB_PERSONAL_ACCESS_TOKEN)\" || exit 1; export GITLAB_PERSONAL_ACCESS_TOKEN=\"$TOKEN\"; exec /usr/local/bin/mcp-gitlab",
     "cwd": "/workspace",
     "env": {
       "GITLAB_API_URL": "https://git.sg.m-daq.net/api/v4",
@@ -8273,7 +8275,7 @@ Create `/workspace/.agent-tools/shared-mcp-servers.json`. The commands are copie
       "MAX_REQUESTS_PER_MINUTE": "1000"
     },
     "port": 8933,
-    "requires": ["/workspace/.agent-tools/bin/read-mcp-env.js"],
+    "requires": ["/workspace/.agent-tools/bin/read-mcp-env.js", "/usr/local/bin/mcp-gitlab"],
     "bearerToken": { "serverEnv": "STREAMABLE_HTTP_AUTH_TOKEN", "agentEnv": "SHARED_MCP_TOKEN" }
   },
   {
@@ -8303,7 +8305,7 @@ Create `/workspace/.agent-tools/shared-mcp-servers.json`. The commands are copie
 ]
 ```
 
-Validate it. On 2026-11-06 this check passed against the contract schema, and the gitlab, serena, graphify and pia-mcp commands were byte-identical to today's.
+Validate it. On 2026-11-06 this check passed against the contract schema, and the gitlab, serena, graphify and pia-mcp commands were byte-identical to today's. On 2026-11-10 the playwright, context7 and gitlab commands moved from `npx -y <pkg>@<version>` to the bins that `docker/Dockerfile.agents` installs at those same versions, because the `npm exec` parent adds about 165 MB per server. Their `requires` entries name the bins, so on an image older than that change the three servers show `blocked` instead of crash-looping; the `npx -y` form still works there.
 
 ```bash
 node -e '
@@ -8429,7 +8431,7 @@ ps -o pid=,pgid=,rss=,etime=,args= --ppid "$(pgrep -x 'Paseo Daemon')" | awk '$1
 ps -eo pid=,ppid=,args= | awk '$2 == 1' | grep -E '[p]yright|[t]erraform-ls|[s]erena|[g]raphify-mcp|[s]rc\.server' || echo "no orphans"
 ```
 
-Expected: six process-group leaders owned by the daemon: three `npm exec @…`, one `uv tool uvx … serena`, one `…/python …/graphify-mcp`, and one `…/pia-mcp/bin/python -m src.server`. The second command prints `no orphans`. Serena's pyright-langserver and terraform-ls run in their own groups, so `kill <pid>` any that the old serena left behind with ppid 1. If `paseo script stop` refuses and the old process is still listed under the terminal worker (`ps -o pid=,pgid=,args= --ppid "$(pgrep -f terminal-worker-process.js)"`), stop its group with `kill -TERM -- -<pgid>`.
+Expected: six process-group leaders owned by the daemon: `node /usr/local/bin/playwright-mcp …`, `node /usr/local/bin/context7-mcp …` and `node /usr/local/bin/mcp-gitlab`, one `uv tool uvx … serena`, one `…/python …/graphify-mcp`, and one `…/pia-mcp/bin/python -m src.server`. The second command prints `no orphans`. Serena's pyright-langserver and terraform-ls run in their own groups, so `kill <pid>` any that the old serena left behind with ppid 1. If `paseo script stop` refuses and the old process is still listed under the terminal worker (`ps -o pid=,pgid=,args= --ppid "$(pgrep -f terminal-worker-process.js)"`), stop its group with `kill -TERM -- -<pgid>`.
 
 - [ ] **Step 13: Point /workspace/.agent-tools/mcp.json at the HTTP servers**
 
@@ -8790,7 +8792,7 @@ On the Servers tab, note gitlab's pid and its `restarts` count; an earlier start
 ps -o pid=,pgid=,args= --ppid "$(pgrep -x 'Paseo Daemon')" | awk '$1 == $2 && /mcp-gitlab/' | cut -c1-120
 ```
 
-Expected: one line, `<pid> <pid> npm exec @zereight/mcp-gitlab@2.1.52`, with the same pid as the tab. The pid is also the process-group id. Kill the whole group with SIGKILL, so nothing shuts down cleanly (put that number in place of `<pid>`):
+Expected: one line, `<pid> <pid> node /usr/local/bin/mcp-gitlab`, with the same pid as the tab. The pid is also the process-group id. Kill the whole group with SIGKILL, so nothing shuts down cleanly (put that number in place of `<pid>`):
 
 ```bash
 kill -KILL -- -<pid>
