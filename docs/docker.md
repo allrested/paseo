@@ -187,6 +187,22 @@ for the command, the environment variables, the host's `ppp_generic`
 prerequisite, why the shared services are duplicated, and route sidecar
 recovery.
 
+## Browser
+
+`docker-compose.yml` and `docker-compose.vpn.yml` run a Chromium next to the daemon, and
+`docker-compose.agent.yml` borrows another stack's. All three set `PASEO_BROWSER_CDP_URL` to its
+CDP address. With it set, the daemon is a browser host: agents' `browser_*` tools open and drive
+tabs in that Chromium, and the browser pane in the web UI and the mobile app shows the same tab.
+`PASEO_BROWSER_TOOLS_ENABLED` turns the agent tools on for a fresh home; the setting in the app
+overrides it once saved.
+
+The daemon touches only tabs it opened. It keeps their ids in
+`$PASEO_HOME/browser-tools/cdp-tabs.json` and never lists, drives or closes any other tab, so
+your own tabs and another instance's tabs on a shared Chromium are left alone. Each tab the
+daemon opens is its own Chromium window, because Chromium paints no frames for a background tab.
+
+The profile is shared: a tab the daemon opens has your logins.
+
 ## Security
 
 - Set `PASEO_PASSWORD` for any published port or network-reachable deployment.
@@ -199,6 +215,8 @@ recovery.
   `/home/paseo`.
 - The bundled web UI static files are public on the daemon origin. The daemon
   API and WebSocket remain protected by password auth when configured.
+- CDP has no authentication. Anything that can reach the Chromium's CDP port controls the
+  logged-in profile; keep it on the compose network.
 
 See [SECURITY.md](../SECURITY.md) for the daemon trust model.
 
