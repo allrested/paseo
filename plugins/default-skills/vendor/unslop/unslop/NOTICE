@@ -1,0 +1,23 @@
+unslop
+Author: Damir Sokolovsky (@heydamir, https://x.com/heydamir, https://heydamir.design/unslop)
+Source: https://github.com/heydamir/unslop
+Commit: 97daa3eb365670ea3f87ed85356cbfcee18105a5
+Licence: Creative Commons Attribution 4.0 International (CC BY 4.0), full text in LICENSE,
+https://creativecommons.org/licenses/by/4.0/
+
+This copy is modified. Paseo's default-skills plugin ships only the skill's markdown:
+SKILL.md, LICENSE and references/*.md. The scripts (scripts/snapshot.mjs, scripts/story.mjs),
+the reference images (references/refs/*.webp), agents/openai.yaml and the rest of the
+repository are left out. Changes to the text:
+
+- SKILL.md, Run it step 1: the live-site snapshot step is marked unavailable; the agent asks the
+  user for the saved page or a screenshot instead of fetching the URL.
+- SKILL.md, Run it step 8: the story can be built but not rendered to a video in this install.
+- SKILL.md, Story video intro: notes that story-dashboard-frames.webp is not included.
+- SKILL.md, Story video step 8 (Render): the render step is marked unavailable; the agent does not
+  install Playwright or ffmpeg and hands over the story file.
+- references/visuals.md, Generate it: the agent tells the user an image tool could be connected
+  and leaves connecting it to the user instead of offering to connect one itself.
+- references/refs.md: notes that the images are not included and must not be downloaded.
+
+The full list with reasons is in plugins/default-skills/vendor/SOURCES.md of the Paseo fork.

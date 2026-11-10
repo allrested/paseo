@@ -46,6 +46,13 @@ export const SKILLS = [
     folders: ["ui-ux-pro-max"],
     defaultOn: true,
   },
+  {
+    id: "unslop",
+    label: "unslop",
+    summary: "Turns AI-looking UI into a designed interface, one pass at a time",
+    folders: ["unslop"],
+    defaultOn: true,
+  },
 ] as const satisfies readonly SkillEntry[];
 
 export type SkillId = (typeof SKILLS)[number]["id"];
