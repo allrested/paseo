@@ -484,12 +484,14 @@ describe("toAgentPayload", () => {
       createManagedAgent({ provider: "codex", config: { provider: "codex" }, limitReached }),
     );
 
-    expect(buildStoredAgentPayload(record, ["codex"]).limitReached).toEqual(limitReached);
+    expect(buildStoredAgentPayload(record, ["codex"], ownOptionsOnly).limitReached).toEqual(
+      limitReached,
+    );
     expect(
-      buildStoredAgentPayload({ ...record, limitReached: null }, ["codex"]),
+      buildStoredAgentPayload({ ...record, limitReached: null }, ["codex"], ownOptionsOnly),
     ).not.toHaveProperty("limitReached");
     expect(
-      buildStoredAgentPayload({ ...record, limitReached: undefined }, ["codex"]),
+      buildStoredAgentPayload({ ...record, limitReached: undefined }, ["codex"], ownOptionsOnly),
     ).not.toHaveProperty("limitReached");
   });
 

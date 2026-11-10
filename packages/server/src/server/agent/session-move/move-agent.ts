@@ -446,18 +446,21 @@ async function resumeNatively(
   );
 }
 
-/** A same-family successor keeps the source's mode and feature values, as a native move does. */
+/**
+ * A same-family successor keeps the source's mode and options, as a native move does. The options
+ * hold the feature values since upstream #8744 folded `featureValues` into `providerOptions`.
+ */
 function carriedSettings(
   deps: MoveAgentDeps,
   source: ManagedAgent,
   target: MoveTargetProvider,
-): Pick<AgentSessionConfig, "modeId" | "featureValues"> {
+): Pick<AgentSessionConfig, "modeId" | "providerOptions"> {
   if (familyOf(deps, source.provider) !== target.info.family) return {};
   const modeId = source.currentModeId ?? source.config.modeId ?? undefined;
   return {
     // A mode the target does not list would fail the create after settle stopped the turn.
     ...(modeId && target.modes.some((mode) => mode.id === modeId) ? { modeId } : {}),
-    ...(source.config.featureValues ? { featureValues: source.config.featureValues } : {}),
+    ...(source.config.providerOptions ? { providerOptions: source.config.providerOptions } : {}),
   };
 }
 
