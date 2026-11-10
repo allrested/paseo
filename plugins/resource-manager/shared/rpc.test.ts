@@ -6,6 +6,7 @@ import {
   localRpc,
   LocalReadingSchema,
   serverRpc,
+  ServerReadingSchema,
   serversRpc,
   type HostSummary,
   type LocalReading,
@@ -61,6 +62,23 @@ describe("resource-manager RPC contracts", () => {
     expect(LocalReadingSchema.safeParse(READING).success).toBe(true);
     const zeroCores: LocalReading = { ...READING, host: { ...HOST, cores: 0 } };
     expect(LocalReadingSchema.safeParse(zeroCores).success).toBe(false);
+  });
+
+  it("accepts a server reading with and without per-host readings", () => {
+    const reading = { id: "0123456789abcdef", snapshot: null, readAt: null, error: null };
+    const host = {
+      profile: "prod",
+      label: "deploy@10.0.0.1:22",
+      snapshot: null,
+      readAt: null,
+      error: "Connection refused",
+    };
+
+    expect(ServerReadingSchema.parse(reading)).toStrictEqual(reading);
+    expect(ServerReadingSchema.parse({ ...reading, hosts: [host] })).toStrictEqual({
+      ...reading,
+      hosts: [host],
+    });
   });
 
   it("refuses an empty server id and an empty agent id", () => {
