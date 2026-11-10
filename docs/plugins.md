@@ -197,16 +197,25 @@ Linux `/proc`; on other systems a run shows Stopped until it completes or is kil
 without `daemon.manage` loads no plugin code and keeps the plain card. File formats are in the
 [design](superpowers/specs/2026-11-07-claude-workflows-design.md#where-the-data-lives).
 
-The `resource-manager` built-in adds a Resources item to the sidebar. Its first tab shows this
-instance's container memory, swap, host memory, and load, then memory and CPU for each agent and
-for four groups: the daemon, the shared MCP servers, commands the heavy-command gate is running,
-and everything else. A process counts against the agent named by `PASEO_AGENT_ID` in its
-environment, and children inherit it, so an agent's MCP servers count against that agent. An
-OpenCode server that agents share carries no `PASEO_AGENT_ID` and counts under the daemon or
-everything else. Close ends an idle agent's runtime; the agent stays, and its next prompt resumes
-it. When one of the [runtime residency](agent-lifecycle.md#runtime-residency) checks fails, the
-row says why the runtime stays open. The readings come from Linux `/proc` and cgroup v2, so on
+The `resource-manager` built-in adds a Resources item to the sidebar. Each tab is a stack of cards
+that start closed. A closed card shows a status in words, its meters, and the age of its reading;
+tap it for the rest. The first tab has a card for this instance: container memory, load, and host
+memory, with swap and the load averages inside. Its Agents and Groups cards show totals and open to
+memory and CPU for each agent and for four groups: the daemon, the shared MCP servers, commands the
+heavy-command gate is running, and everything else. A process counts against the agent named by
+`PASEO_AGENT_ID` in its environment, and children inherit it, so an agent's MCP servers count
+against that agent. An OpenCode server that agents share carries no `PASEO_AGENT_ID` and counts
+under the daemon or everything else. Close, on an agent's row in the open Agents card, ends an idle
+agent's runtime; the agent stays, and its next prompt resumes it. When one of the
+[runtime residency](agent-lifecycle.md#runtime-residency) checks fails, the row says why the
+runtime stays open. The readings come from Linux `/proc` and cgroup v2, so on
 macOS and Windows the tab shows none. Settings > Sidebar can hide the item.
+
+A card reads Warning at 80% of memory, a 1-minute load equal to the core count, or a disk at 85%,
+and Critical at 90%, twice the core count, or 95%. Swap does not change the status. The thresholds
+are constants in `plugins/resource-manager/client/cards.ts`. An open card draws memory and load
+from the readings the screen has received since it opened, 30 at most; they and the open cards are
+gone when the screen closes.
 
 Every stdio MCP entry that runs `ssh-mcp` gets a read-only tab of its own: entries in the user scope
 of `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set), in its local scope
@@ -215,7 +224,8 @@ folder or one above it. A `.mcp.json` in a folder Claude Code does not trust is 
 screen names it when it lists an ssh-mcp entry. Entries that expand to the same command, arguments
 and env share one tab, under the first source. When the tab opens, the plugin starts the entry's
 server, connects to it as an MCP client, and sends one fixed command that reads memory, load,
-disks, and processes. An entry with several ssh-mcp 2.x profiles shows one card per host: each
+disks, and processes. An entry with one host shows one card. An entry with several ssh-mcp 2.x
+profiles shows one card per host, the hosts that need attention first, under a count of them: each
 reading lists the hosts with `list-connections` and sends the command to each one through
 `run-command` with its `profile`, over the entry's one session, so a profile that `reload-config`
 adds shows at the next reading. That is one command per host every 30 s while the tab is open, and
@@ -233,9 +243,9 @@ a tab, which shows an error naming the variable; with a default, the server star
 default.
 
 ssh-mcp returns at most 1 MiB of output, so on a host with about 40,000 processes or more the
-process list is cut short without an error. `df` fails on a stale network mount, and the tab then
-shows its error, with the last reading under it once there was one. A hung NFS mount holds the
-reading until ssh-mcp's 60 s timeout. With several hosts, each host has these limits on its own,
+process list is cut short without an error. `df` fails on a stale network mount, and the host's
+card then shows its error over the last reading's meters once there was one. A hung NFS mount
+holds the reading until ssh-mcp's 60 s timeout. With several hosts, each host has these limits on its own,
 and while one hangs, the tab still shows the hosts that answered.
 
 `plugins/resource-manager/server/local/procfs.ts` is a byte-for-byte copy of
