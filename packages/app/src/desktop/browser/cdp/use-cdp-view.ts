@@ -62,7 +62,7 @@ export function useCdpView(input: {
         // A reconnect makes a new subscription on the daemon, whose frames count from 1 again.
         lastSequence = 0;
         subscriptionId.current = snapshot.subscriptionId;
-        setStatus(snapshot.error ? viewStatusForError(snapshot.error) : "live");
+        setStatus("live");
       },
       update: (message) => {
         if (message.type === "browser.cdp.view.update" && message.payload.error)
@@ -84,8 +84,6 @@ export function useCdpView(input: {
       },
       error: (error) => setStatus(viewStatusForError(errorText(error))),
     });
-    // A refused subscription rejects `ready`; the observer's `error` above reports it.
-    observation.ready.catch(() => {});
     return () => {
       subscriptionId.current = null;
       unsubscribe();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, memo, useMemo, useRef, useState, type RefObject } from "react";
 import { PixelRatio, Text, View, type LayoutChangeEvent } from "react-native";
 import { ArrowLeft, ArrowRight, Keyboard, RotateCw } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -18,7 +18,13 @@ import { CdpInputLayer } from "./input-layer";
 import { useCdpTabsStore } from "./tabs-store";
 import { reopenCdpTab } from "./tabs-sync";
 import { useCdpView } from "./use-cdp-view";
-import { fitFrame, viewportForPane, type CdpViewStatus, type Size } from "./view-model";
+import {
+  fitFrame,
+  viewStatusForError,
+  viewportForPane,
+  type CdpViewStatus,
+  type Size,
+} from "./view-model";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -48,7 +54,13 @@ interface ToolbarProps {
   onShowKeyboard(): void;
 }
 
-function CdpToolbar({ browserId, blocked, urlInputRef, onNavigate, onShowKeyboard }: ToolbarProps) {
+const CdpToolbar = memo(function CdpToolbar({
+  browserId,
+  blocked,
+  urlInputRef,
+  onNavigate,
+  onShowKeyboard,
+}: ToolbarProps) {
   const { t } = useTranslation();
   const record = useBrowserStore((state) => state.browsersById[browserId] ?? null);
   const url = record?.url ?? "";
@@ -119,13 +131,14 @@ function CdpToolbar({ browserId, blocked, urlInputRef, onNavigate, onShowKeyboar
       ) : null}
     </View>
   );
-}
+});
 
 interface OverlayProps {
   status: CdpViewStatus;
   hasFrame: boolean;
   agentActive: boolean;
   reopening: boolean;
+  reopenFailed: boolean;
   onReopen(): void;
   onRetry(): void;
 }
@@ -135,6 +148,7 @@ function CdpPaneOverlay({
   hasFrame,
   agentActive,
   reopening,
+  reopenFailed,
   onReopen,
   onRetry,
 }: OverlayProps) {
@@ -149,6 +163,9 @@ function CdpPaneOverlay({
       {status === "closed" ? (
         <View style={styles.message}>
           <Text style={styles.messageTitle}>{t("cdpBrowser.closed.title")}</Text>
+          {reopenFailed ? (
+            <Text style={styles.messageText}>{t("cdpBrowser.closed.reopenFailed")}</Text>
+          ) : null}
           <Button disabled={reopening} onPress={onReopen}>
             {t("cdpBrowser.closed.reopen")}
           </Button>
@@ -210,7 +227,9 @@ export function CdpBrowserPane({
     viewport,
     hostConnected,
   });
-  const status: CdpViewStatus = supported ? view.status : "unreachable";
+  const [reopenError, setReopenError] = useState<"failed" | "unreachable" | null>(null);
+  let status: CdpViewStatus = supported ? view.status : "unreachable";
+  if (reopenError === "unreachable") status = "unreachable";
   const { frame } = view;
   const page = useMemo<Size>(
     () => ({ width: frame?.deviceWidth ?? 0, height: frame?.deviceHeight ?? 0 }),
@@ -227,10 +246,22 @@ export function CdpBrowserPane({
   const reopen = useCallback(() => {
     if (!client || reopening) return;
     setReopening(true);
+    setReopenError(null);
     reopenCdpTab({ client, serverId, workspaceId, browserId })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        const unreachable =
+          viewStatusForError(error instanceof Error ? error.message : String(error)) ===
+          "unreachable";
+        setReopenError(unreachable ? "unreachable" : "failed");
+      })
       .finally(() => setReopening(false));
   }, [browserId, client, reopening, serverId, workspaceId]);
+
+  const { retry: retryView } = view;
+  const retry = useCallback(() => {
+    setReopenError(null);
+    retryView();
+  }, [retryView]);
 
   const blocked = status === "closed" || status === "unreachable";
 
@@ -261,7 +292,8 @@ export function CdpBrowserPane({
           agentActive={agentActive}
           hasFrame={frame !== null}
           onReopen={reopen}
-          onRetry={view.retry}
+          onRetry={retry}
+          reopenFailed={reopenError === "failed"}
           reopening={reopening}
           status={status}
         />
@@ -283,13 +315,6 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
-  },
-  toolbarButton: {
-    width: 28,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: theme.borderRadius.md,
   },
   urlInput: {
     flex: 1,

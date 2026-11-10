@@ -2063,6 +2063,7 @@ export const en = {
     closed: {
       title: "Tab closed",
       reopen: "Reopen",
+      reopenFailed: "Could not reopen the tab",
     },
     unreachable: {
       title: "Docker browser unreachable",
