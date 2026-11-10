@@ -59,6 +59,12 @@ services:
       # Required to reach the daemon by domain name; IPs and localhost are
       # allowed without it.
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES:-}
+      # The daemon's own browser host. paseo-cdp puts the Chromium's CDP on this
+      # container's loopback, the only address Chrome's Host check accepts
+      # without a lookup. Set PASEO_BROWSER_CDP_URL to an empty string to turn
+      # the host off.
+      PASEO_BROWSER_CDP_URL: ${PASEO_BROWSER_CDP_URL-http://127.0.0.1:9222}
+      PASEO_BROWSER_TOOLS_ENABLED: ${PASEO_BROWSER_TOOLS_ENABLED:-true}
       TZ: ${TZ:-Asia/Jakarta}
       # Who commits show as. Separate from `gh auth`, which only decides who
       # pushes — with these unset, git refuses to commit or attributes the work

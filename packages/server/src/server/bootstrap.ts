@@ -183,6 +183,8 @@ import {
 } from "./config.js";
 import { resolvePaseoToolPolicy } from "./agent/paseo-tool-policy.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
+import type { CdpBrowserService } from "./browser-tools/cdp/cdp-browser-service.js";
+import { createCdpBrowserService } from "./browser-tools/cdp/create-cdp-browser-service.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
 import { resolveWorkspaceIdForPath } from "./resolve-workspace-id-for-path.js";
@@ -435,6 +437,10 @@ export interface PaseoDaemonConfig {
   mcpInjectIntoAgents?: boolean;
   usageEnabled?: boolean;
   browserToolsEnabled?: boolean;
+  /**
+   * CDP origin of the Docker Chromium (PASEO_BROWSER_CDP_URL). Unset means no daemon browser host.
+   */
+  browserCdpUrl?: string;
   git?: {
     maxProcessesPerSecond: number;
     maxProcessConcurrency: number;
@@ -550,6 +556,31 @@ function createBootstrapManagedProcessRegistry(
     terminateProcess: terminateWithTreeKill,
     logger,
   });
+}
+
+// Fork delta (web browser pane): the daemon hosts the Docker Chromium when a CDP URL is set. A bad
+// URL turns the host off with an error in the log; it never stops the daemon from starting.
+function createDaemonCdpBrowser(input: {
+  config: PaseoDaemonConfig;
+  broker: BrowserToolsBroker;
+  logger: Logger;
+}): CdpBrowserService | null {
+  const url = input.config.browserCdpUrl;
+  if (!url) return null;
+  try {
+    return createCdpBrowserService({
+      url,
+      paseoHome: input.config.paseoHome,
+      broker: input.broker,
+      logger: input.logger,
+    });
+  } catch (error) {
+    input.logger.error(
+      { err: error, url },
+      "PASEO_BROWSER_CDP_URL is not a usable URL; the Docker browser host is off",
+    );
+    return null;
+  }
 }
 
 async function reconcileManagedProcessLedger(
@@ -685,6 +716,8 @@ export async function createPaseoDaemon(
   });
   const browserToolsPolicy = new DaemonConfigBrowserToolsPolicy(daemonConfigStore);
   const browserToolsBroker = new BrowserToolsBroker({});
+  const cdpBrowser = createDaemonCdpBrowser({ config, broker: browserToolsBroker, logger });
+  browserToolsBroker.cdpBrowser = cdpBrowser;
   const pluginRuntime: PluginService = new PluginService(logger, daemonConfigStore, daemonVersion, {
     usageAgents: {
       hasAgent: (id) => agentManager.getAgent(id) !== null,
@@ -1922,6 +1955,8 @@ export async function createPaseoDaemon(
             );
             pluginRuntime.bindPaseoSessionHost(wsServer);
             await pluginRuntime.start();
+            // Never awaited and never throws: an unreachable Chromium must not block daemon start.
+            cdpBrowser?.start();
             providerSnapshotManager.settlePluginProviders();
             restartRecovery.resumePending();
             await finishSubscriptions.start();
@@ -2030,6 +2065,8 @@ export async function createPaseoDaemon(
       unsubscribePluginProviders();
       unsubscribePluginSessionChanges();
       await pluginRuntime.stopAllPlugins().catch(() => undefined);
+      // Fork delta (web browser pane): a failed start leaves no CDP reconnect timer running.
+      await cdpBrowser?.stop().catch(() => undefined);
       await serviceProxy.stopStandalone().catch(() => undefined);
       await agentProviderRuntime.shutdown().catch(() => undefined);
       if (mainStarted) {
@@ -2045,6 +2082,9 @@ export async function createPaseoDaemon(
     let terminalShutdownError: unknown = null;
     localCredential = null;
     await deleteLocalCredential(config.paseoHome);
+    await cdpBrowser?.stop().catch((error) => {
+      logger.warn({ err: error }, "Failed to stop the CDP browser host");
+    });
     // Stop tracking plugin provider registrations before anything tears plugins
     // down, so plugin shutdown cannot withdraw a provider from under an agent
     // that is still open. Plugins themselves are stopped once every session

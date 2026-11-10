@@ -527,8 +527,17 @@ function resolveUsageEnabled(persisted: ReturnType<typeof loadPersistedConfig>):
   return persisted.daemon?.usage?.enabled !== false;
 }
 
-function resolveBrowserToolsEnabled(persisted: ReturnType<typeof loadPersistedConfig>): boolean {
-  return persisted.daemon?.browserTools?.enabled ?? false;
+function resolveBrowserToolsEnabled(
+  env: NodeJS.ProcessEnv,
+  persisted: ReturnType<typeof loadPersistedConfig>,
+): boolean {
+  // The variable is a default for a fresh home (the Docker image). A saved setting still wins,
+  // so turning browser tools off in Settings sticks across restarts.
+  return (
+    persisted.daemon?.browserTools?.enabled ??
+    parseBooleanEnv(env.PASEO_BROWSER_TOOLS_ENABLED) ??
+    false
+  );
 }
 
 /**
@@ -553,7 +562,7 @@ function resolveStaticLoadConfigSettings(
     mcpInjectIntoAgents:
       cli?.mcpInjectIntoAgents ?? persisted.daemon?.mcp?.injectIntoAgents ?? false,
     usageEnabled: resolveUsageEnabled(persisted),
-    browserToolsEnabled: resolveBrowserToolsEnabled(persisted),
+    browserToolsEnabled: resolveBrowserToolsEnabled(env, persisted),
     autoArchiveAfterMerge: persisted.daemon?.autoArchiveAfterMerge ?? false,
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
     ...resolveProfileLists(persisted),
@@ -630,6 +639,7 @@ export function resolveConfigFromPersisted(
     worktreesRoot: resolveWorktreesRoot(paseoHome, persisted),
     pluginRegistries: persisted.pluginRegistries,
     pluginRegistryUrl: env.PASEO_PLUGIN_REGISTRY,
+    browserCdpUrl: nonEmptyEnv(env.PASEO_BROWSER_CDP_URL),
     mcpDebug: env.MCP_DEBUG === "1",
     isDev: resolvePaseoNodeEnv(env) === "development",
     agentStoragePath: path.join(paseoHome, "agents"),
