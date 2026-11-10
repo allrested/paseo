@@ -1,8 +1,25 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CdpTabRegistry, type CdpTabEntry } from "./tab-registry.js";
+
+const hooks = vi.hoisted(() => ({ afterWrite: null as null | (() => void) }));
+
+vi.mock("../../atomic-file.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../atomic-file.js")>();
+  return {
+    ...original,
+    writeJsonFileAtomic: (...args: Parameters<typeof original.writeJsonFileAtomic>) => {
+      const written = original.writeJsonFileAtomic(...args);
+      // Registered after the registry's own await, so it runs right after the registry resumes.
+      const hook = hooks.afterWrite;
+      hooks.afterWrite = null;
+      if (hook) queueMicrotask(() => void written.then(hook, () => {}));
+      return written;
+    },
+  };
+});
 
 const entry = (overrides: Partial<CdpTabEntry> = {}): CdpTabEntry => ({
   browserId: "11111111-1111-4111-8111-111111111111",
@@ -21,6 +38,7 @@ describe("CdpTabRegistry", () => {
     file = path.join(dir, "browser-tools", "cdp-tabs.json");
   });
   afterEach(async () => {
+    hooks.afterWrite = null;
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -118,5 +136,30 @@ describe("CdpTabRegistry", () => {
     expect(registry.remove(entry().browserId)).toBeNull();
     expect(registry.get(entry().browserId)).toBeNull();
     await registry.flush();
+  });
+
+  test("a write queued as a flush ends still reaches the file", async () => {
+    const registry = new CdpTabRegistry(file);
+    await registry.load();
+    const second = entry({ browserId: "55555555-5555-4555-8555-555555555555", targetId: "T5" });
+    // Runs in the microtask gap right after the registry's loop saw nothing left to write.
+    hooks.afterWrite = () => registry.add(second);
+    registry.add(entry());
+    await registry.flush();
+    await registry.flush();
+
+    const reloaded = new CdpTabRegistry(file);
+    await reloaded.load();
+    expect(reloaded.list()).toEqual([entry(), second]);
+  });
+
+  test("a throwing error sink does not escape", async () => {
+    const corruptFile = path.join(dir, "corrupt.json");
+    await writeFile(corruptFile, "{not json");
+    const registry = new CdpTabRegistry(corruptFile, () => {
+      throw new Error("sink failed");
+    });
+    await expect(registry.load()).resolves.toBeUndefined();
+    expect(registry.list()).toEqual([]);
   });
 });
