@@ -2071,6 +2071,7 @@ export const en = {
       title: "Docker browser unreachable",
       retry: "Retry",
     },
+    openFailed: "Could not open a browser tab",
   },
   rewind: {
     tooltip: "Rewind to this message",
