@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { AgentUsage, GroupUsage, HostSummary, RemoteSnapshot } from "../shared/rpc.js";
+import type {
+  AgentUsage,
+  GroupUsage,
+  HostReading,
+  HostSummary,
+  RemoteSnapshot,
+  ServerReading,
+} from "../shared/rpc.js";
 import {
   agentLabel,
   describeAgent,
@@ -14,6 +21,7 @@ import {
   hostRows,
   mountRow,
   processRow,
+  readingView,
   serverRows,
 } from "./format.js";
 
@@ -177,5 +185,98 @@ describe("server rows", () => {
       label: "Paseo Daemon",
       value: "279 MB, pid 164",
     });
+  });
+});
+
+describe("reading view", () => {
+  const ONE: ServerReading = {
+    id: "0123456789abcdef",
+    snapshot: SNAPSHOT,
+    readAt: "2026-11-06T09:00:00.000Z",
+    error: "Connection refused",
+  };
+  const PROD: HostReading = {
+    profile: "prod",
+    label: "deploy@10.0.0.1:22",
+    snapshot: SNAPSHOT,
+    readAt: "2026-11-06T09:00:00.000Z",
+    error: null,
+  };
+  const DB: HostReading = {
+    profile: "db",
+    label: "root@10.0.0.2:22",
+    snapshot: null,
+    readAt: null,
+    error: "Connection refused",
+  };
+  const SERVER_TITLES = {
+    error: "Unable to read this server",
+    summary: "Server",
+    disks: "Disks",
+    processes: "Top processes",
+  };
+
+  it("shows an entry with one host as one card under the Server titles, its error above", () => {
+    expect(readingView(ONE, null)).toEqual({
+      error: "Connection refused",
+      cards: [
+        {
+          key: "server",
+          titles: SERVER_TITLES,
+          snapshot: SNAPSHOT,
+          readAt: "2026-11-06T09:00:00.000Z",
+          error: null,
+        },
+      ],
+    });
+  });
+
+  it("gives each host a card with its own titles, reading and error", () => {
+    const reading: ServerReading = {
+      id: "0123456789abcdef",
+      snapshot: null,
+      readAt: null,
+      error: null,
+      hosts: [PROD, DB],
+    };
+
+    expect(readingView(reading, null)).toEqual({
+      error: null,
+      cards: [
+        {
+          key: "prod",
+          titles: {
+            error: "Unable to read prod (deploy@10.0.0.1:22)",
+            summary: "prod (deploy@10.0.0.1:22)",
+            disks: "Disks on prod",
+            processes: "Top processes on prod",
+          },
+          snapshot: SNAPSHOT,
+          readAt: "2026-11-06T09:00:00.000Z",
+          error: null,
+        },
+        {
+          key: "db",
+          titles: {
+            error: "Unable to read db (root@10.0.0.2:22)",
+            summary: "db (root@10.0.0.2:22)",
+            disks: "Disks on db",
+            processes: "Top processes on db",
+          },
+          snapshot: null,
+          readAt: null,
+          error: "Connection refused",
+        },
+      ],
+    });
+  });
+
+  it("shows a failed request over the reading's own error, and no cards before a reading", () => {
+    expect(readingView(ONE, "Request timed out").error).toBe("Request timed out");
+    expect(readingView(undefined, "Request timed out")).toEqual({
+      error: "Request timed out",
+      cards: [],
+    });
+    expect(readingView(undefined, null)).toEqual({ error: null, cards: [] });
   });
 });

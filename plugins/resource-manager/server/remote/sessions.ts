@@ -1,13 +1,15 @@
 import { join } from "node:path";
-import type { ServerReading } from "../../shared/rpc.js";
+import type { HostReading, ServerReading } from "../../shared/rpc.js";
 import { listPidFiles, reclaimPidFile } from "../pid-files.js";
 import type { SshServer } from "./discovery.js";
 import type { ToolCallResult } from "./mcp-stdio-client.js";
 import {
+  parseConnections,
   parseRemoteOutput,
   REMOTE_COMMAND,
   RemoteOutputError,
   toolErrorMessage,
+  type RemoteHost,
 } from "./remote-output.js";
 
 // One MCP client per ssh-mcp server, started on the first read and closed 2 minutes after the
@@ -17,6 +19,8 @@ export const SESSION_TIMING = { idleMs: 120_000, waitMs: 40_000 } as const;
 export const WAITING_MESSAGE =
   "No answer from ssh-mcp after 40 s; the reading shows on a later refresh";
 export const SHUTDOWN_MESSAGE = "Paseo is shutting down";
+// ssh-mcp 2.x lists the profiles of an entry that holds several hosts.
+export const LIST_TOOL = "list-connections";
 const MAX_ERROR_CHARS = 500;
 
 export interface SessionClient {
@@ -62,6 +66,13 @@ export interface RemoteSessionsOptions {
   log(message: string): void;
 }
 
+interface ToolChoice {
+  /** exec (1.x) or run-command (2.x). */
+  run: string;
+  /** Whether the server has list-connections, so an entry with several profiles shows them all. */
+  lists: boolean;
+}
+
 interface Entry {
   server: SshServer;
   client: Promise<SessionClient> | null;
@@ -71,8 +82,13 @@ interface Entry {
   idle: TimerHandle | null;
   /** Aborted when the entry is replaced or the plugin stops; cancels a start in progress. */
   abort: AbortController;
-  toolName: string | null;
+  tools: ToolChoice | null;
 }
+
+/** One host's reading, without the entry id or the host's name. */
+type Reading = Pick<ServerReading, "snapshot" | "readAt" | "error">;
+
+const NO_READING: Reading = { snapshot: null, readAt: null, error: null };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -82,14 +98,10 @@ function emptyReading(id: string, error: string | null): ServerReading {
   return { id, snapshot: null, readAt: null, error };
 }
 
-// The last snapshot stays, with its time, so the tab keeps showing it under the error.
-function failedReading(previous: ServerReading, message: string): ServerReading {
-  return {
-    id: previous.id,
-    snapshot: previous.snapshot,
-    readAt: previous.readAt,
-    error: message.slice(0, MAX_ERROR_CHARS),
-  };
+// The last snapshot stays, with its time, so the tab keeps showing it under the error. An entry
+// error keeps the hosts' readings too.
+function failedReading<T extends Reading>(previous: T, message: string): T {
+  return { ...previous, error: message.slice(0, MAX_ERROR_CHARS) };
 }
 
 // ssh-mcp 1.x has exec; 2.x has run-command, and its read-command refuses "&" (decision 13).
@@ -97,6 +109,10 @@ export function pickTool(names: readonly string[]): string {
   if (names.includes("exec")) return "exec";
   if (names.includes("run-command")) return "run-command";
   throw new NoUsableToolError();
+}
+
+function choose(names: readonly string[]): ToolChoice {
+  return { run: pickTool(names), lists: names.includes(LIST_TOOL) };
 }
 
 export function missingVariablesMessage(names: readonly string[]): string {
@@ -169,28 +185,23 @@ export class RemoteSessions {
       reading: emptyReading(server.id, null),
       idle: null,
       abort: new AbortController(),
-      toolName: null,
+      tools: null,
     };
     this.entries.set(server.id, entry);
     return entry;
   }
 
+  // The host list is read again on every refresh: list-connections answers from ssh-mcp's config
+  // without touching a host, and a reload-config that adds a profile then shows on the next poll.
   private async refresh(entry: Entry): Promise<void> {
     try {
       const client = await this.clientFor(entry);
-      const tool = entry.toolName ?? pickTool(await client.listTools());
-      entry.toolName = tool;
-      const result = await client.callTool(tool, { command: REMOTE_COMMAND });
-      if (result.isError) {
-        entry.reading = failedReading(entry.reading, toolErrorMessage(result.text));
-        return;
-      }
-      entry.reading = {
-        id: entry.server.id,
-        snapshot: parseRemoteOutput(result.text),
-        readAt: new Date(this.options.timers.now()).toISOString(),
-        error: null,
-      };
+      const tools = entry.tools ?? choose(await client.listTools());
+      entry.tools = tools;
+      const hosts = tools.lists ? await this.listHosts(entry, client) : [];
+      if (hosts === null) return;
+      if (hosts.length > 1) await this.readHosts(entry, client, tools.run, hosts);
+      else await this.readServer(entry, client, tools.run);
     } catch (error) {
       entry.reading = failedReading(entry.reading, errorMessage(error));
       // Output that does not parse, or a server without a usable tool, will not improve with a
@@ -198,6 +209,82 @@ export class RemoteSessions {
       if (!(error instanceof RemoteOutputError || error instanceof NoUsableToolError)) {
         this.drop(entry);
       }
+    }
+  }
+
+  // Null when ssh-mcp refused the list; its error is then the entry's.
+  private async listHosts(entry: Entry, client: SessionClient): Promise<RemoteHost[] | null> {
+    const result = await client.callTool(LIST_TOOL, {});
+    if (!result.isError) return parseConnections(result.text);
+    entry.reading = failedReading(entry.reading, toolErrorMessage(result.text));
+    return null;
+  }
+
+  // No profile argument, so ssh-mcp reads its default profile, and a 2.x server built from
+  // --host flags reads as before.
+  private async readServer(entry: Entry, client: SessionClient, tool: string): Promise<void> {
+    const previous = entry.reading.hosts === undefined ? entry.reading : NO_READING;
+    const reading = await this.readOnce(client, tool, { command: REMOTE_COMMAND }, previous);
+    entry.reading = { id: entry.server.id, ...reading };
+  }
+
+  // All hosts read at once over the entry's one session. Each keeps its own last reading and
+  // error, and shows as soon as it answers, so a read cut off by the 40 s wait still has the hosts
+  // that answered. A host whose address changed starts without its old reading.
+  private async readHosts(
+    entry: Entry,
+    client: SessionClient,
+    tool: string,
+    hosts: readonly RemoteHost[],
+  ): Promise<void> {
+    const last = entry.reading.hosts ?? [];
+    const readings: HostReading[] = hosts.map(
+      (host) =>
+        last.find((old) => old.profile === host.profile && old.label === host.label) ?? {
+          ...host,
+          ...NO_READING,
+        },
+    );
+    const show = (): void => {
+      entry.reading = { id: entry.server.id, ...NO_READING, hosts: [...readings] };
+    };
+    show();
+    const lost = await Promise.all(
+      hosts.map(async (host, index) => {
+        const args = { command: REMOTE_COMMAND, profile: host.profile };
+        try {
+          const reading = await this.readOnce(client, tool, args, readings[index]);
+          readings[index] = { ...host, ...reading };
+          return false;
+        } catch (error) {
+          readings[index] = failedReading(readings[index], errorMessage(error));
+          return true;
+        } finally {
+          show();
+        }
+      }),
+    );
+    // As with one host: a call that failed gets a fresh session on the next read.
+    if (lost.includes(true)) this.drop(entry);
+  }
+
+  // Rejects only when the call itself failed; a tool error or output that does not parse is the
+  // reading's error.
+  private async readOnce(
+    client: SessionClient,
+    tool: string,
+    args: Record<string, unknown>,
+    previous: Reading,
+  ): Promise<Reading> {
+    const kept: Reading = { snapshot: previous.snapshot, readAt: previous.readAt, error: null };
+    const result = await client.callTool(tool, args);
+    if (result.isError) return failedReading(kept, toolErrorMessage(result.text));
+    try {
+      const snapshot = parseRemoteOutput(result.text);
+      return { snapshot, readAt: new Date(this.options.timers.now()).toISOString(), error: null };
+    } catch (error) {
+      if (error instanceof RemoteOutputError) return failedReading(kept, error.message);
+      throw error;
     }
   }
 
@@ -245,7 +332,7 @@ export class RemoteSessions {
   private drop(entry: Entry): void {
     const client = entry.client;
     entry.client = null;
-    entry.toolName = null;
+    entry.tools = null;
     if (client === null) return;
     const closing = this.closeClient(client);
     this.closings.add(closing);

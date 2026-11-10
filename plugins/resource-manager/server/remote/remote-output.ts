@@ -155,6 +155,27 @@ export function toolErrorMessage(text: string): string {
   return text.trim() || "ssh-mcp reported an error without a message";
 }
 
+export interface RemoteHost {
+  profile: string;
+  /** user@host:port */
+  label: string;
+}
+
+// ssh-mcp 2.x's list-connections prints one profile per line,
+// "<name>: <user>@<host>:<port> [<status>] sessions=<n> role=<role>" (build/tools/session-tools.js
+// in 2.24.0). A line in any other shape is skipped, and so is a name already seen.
+const CONNECTION_LINE = /^(.+?): (\S+@\S+:\d+) \[[^\]]*\] sessions=\d+ role=.*$/;
+
+export function parseConnections(text: string): RemoteHost[] {
+  const hosts: RemoteHost[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = CONNECTION_LINE.exec(line);
+    if (match === null || hosts.some((host) => host.profile === match[1])) continue;
+    hosts.push({ profile: match[1], label: match[2] });
+  }
+  return hosts;
+}
+
 export function parseRemoteOutput(text: string): RemoteSnapshot {
   const output = splitTrailers(text);
   if ((output.exitCode !== null && output.exitCode !== 0) || output.signal !== null) {

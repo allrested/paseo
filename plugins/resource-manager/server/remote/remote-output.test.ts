@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ProcTextError } from "../proc-text.js";
 import {
+  parseConnections,
   parseDf,
   parseNproc,
   parsePs,
@@ -127,6 +128,40 @@ describe("toolErrorMessage", () => {
 
     expect(toolErrorMessage(`\n${refused}\n`)).toBe(refused);
     expect(toolErrorMessage("  ")).toBe("ssh-mcp reported an error without a message");
+  });
+});
+
+// ssh-mcp 2.24.0 list-connections lines (build/tools/session-tools.js).
+const PROD_LINE = "prod: deploy@10.0.0.1:22 [connected] sessions=1 role=operator";
+const DB_LINE = "db-box: root@db.internal:2222 [disconnected] sessions=0 role=readonly";
+
+describe("parseConnections", () => {
+  it("reads each profile name and its user@host:port", () => {
+    expect(parseConnections(`${PROD_LINE}\n${DB_LINE}`)).toEqual([
+      { profile: "prod", label: "deploy@10.0.0.1:22" },
+      { profile: "db-box", label: "root@db.internal:2222" },
+    ]);
+  });
+
+  it("skips lines it cannot read and a repeated name, and reads an IPv6 host and CRLF", () => {
+    const text = [
+      "Profiles:",
+      PROD_LINE,
+      "",
+      "broken: no address [connected] sessions=0 role=operator",
+      "prod: other@10.0.0.2:22 [connected] sessions=0 role=operator",
+      "v6: root@::1:22 [disconnected] sessions=0 role=operator",
+    ].join("\r\n");
+
+    expect(parseConnections(text)).toEqual([
+      { profile: "prod", label: "deploy@10.0.0.1:22" },
+      { profile: "v6", label: "root@::1:22" },
+    ]);
+  });
+
+  it("finds no hosts in empty or unrelated output", () => {
+    expect(parseConnections("")).toEqual([]);
+    expect(parseConnections("No connections.")).toEqual([]);
   });
 });
 
