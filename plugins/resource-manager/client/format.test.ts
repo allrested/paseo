@@ -209,60 +209,47 @@ describe("reading view", () => {
     readAt: null,
     error: "Connection refused",
   };
-  const SERVER_TITLES = {
-    error: "Unable to read this server",
-    summary: "Server",
-    disks: "Disks",
-    processes: "Top processes",
-  };
 
-  it("shows an entry with one host as one card under the Server titles, its error above", () => {
-    expect(readingView(ONE, null)).toEqual({
-      error: "Connection refused",
+  it("shows an entry with one host as one card named after the entry, its error on the card", () => {
+    expect(readingView(ONE, null, "bastion")).toEqual({
+      error: null,
       cards: [
         {
           key: "server",
-          titles: SERVER_TITLES,
+          name: "bastion",
+          address: null,
           snapshot: SNAPSHOT,
           readAt: "2026-11-06T09:00:00.000Z",
-          error: null,
+          error: "Connection refused",
         },
       ],
     });
   });
 
-  it("gives each host a card with its own titles, reading and error", () => {
+  it("gives each host a card with its own name, address, reading and error", () => {
     const reading: ServerReading = {
       id: "0123456789abcdef",
       snapshot: null,
       readAt: null,
-      error: null,
+      error: "Unable to list hosts",
       hosts: [PROD, DB],
     };
 
-    expect(readingView(reading, null)).toEqual({
-      error: null,
+    expect(readingView(reading, null, "fleet")).toEqual({
+      error: "Unable to list hosts",
       cards: [
         {
           key: "prod",
-          titles: {
-            error: "Unable to read prod (deploy@10.0.0.1:22)",
-            summary: "prod (deploy@10.0.0.1:22)",
-            disks: "Disks on prod",
-            processes: "Top processes on prod",
-          },
+          name: "prod",
+          address: "deploy@10.0.0.1:22",
           snapshot: SNAPSHOT,
           readAt: "2026-11-06T09:00:00.000Z",
           error: null,
         },
         {
           key: "db",
-          titles: {
-            error: "Unable to read db (root@10.0.0.2:22)",
-            summary: "db (root@10.0.0.2:22)",
-            disks: "Disks on db",
-            processes: "Top processes on db",
-          },
+          name: "db",
+          address: "root@10.0.0.2:22",
           snapshot: null,
           readAt: null,
           error: "Connection refused",
@@ -272,11 +259,16 @@ describe("reading view", () => {
   });
 
   it("shows a failed request over the reading's own error, and no cards before a reading", () => {
-    expect(readingView(ONE, "Request timed out").error).toBe("Request timed out");
-    expect(readingView(undefined, "Request timed out")).toEqual({
+    expect(readingView(ONE, "Request timed out", "bastion").cards[0].error).toBe(
+      "Request timed out",
+    );
+    expect(readingView({ ...ONE, hosts: [PROD] }, "Request timed out", "fleet").error).toBe(
+      "Request timed out",
+    );
+    expect(readingView(undefined, "Request timed out", "bastion")).toEqual({
       error: "Request timed out",
       cards: [],
     });
-    expect(readingView(undefined, null)).toEqual({ error: null, cards: [] });
+    expect(readingView(undefined, null, "bastion")).toEqual({ error: null, cards: [] });
   });
 });
