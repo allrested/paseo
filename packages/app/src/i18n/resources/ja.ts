@@ -2013,6 +2013,7 @@ export const ja: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "このメッセージに巻き戻す",
     warning: "この操作は元に戻せません",

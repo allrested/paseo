@@ -1992,6 +1992,7 @@ export const ar: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "الترجيع إلى هذه الرسالة",
     warning: "لا يمكن التراجع عن هذا الإجراء",
