@@ -108,12 +108,27 @@ export const RemoteSnapshotSchema = z.object({
 });
 export type RemoteSnapshot = z.output<typeof RemoteSnapshotSchema>;
 
-export const ServerReadingSchema = z.object({
-  id: z.string(),
+export const HostReadingSchema = z.object({
+  /** The ssh-mcp profile name, as list-connections gives it. */
+  profile: z.string(),
+  /** The profile's user@host:port, as list-connections gives it. */
+  label: z.string(),
   /** The last reading that parsed. It stays while later readings fail. */
   snapshot: RemoteSnapshotSchema.nullable(),
   readAt: z.string().nullable(),
   error: z.string().nullable(),
+});
+export type HostReading = z.output<typeof HostReadingSchema>;
+
+export const ServerReadingSchema = z.object({
+  id: z.string(),
+  /** The last reading that parsed. It stays while later readings fail. Null when hosts is set. */
+  snapshot: RemoteSnapshotSchema.nullable(),
+  readAt: z.string().nullable(),
+  /** With hosts, the entry's own error: its start, its host list, or the 40 s wait. */
+  error: z.string().nullable(),
+  /** One reading per host of an entry with several ssh-mcp profiles; absent with one host. */
+  hosts: z.array(HostReadingSchema).optional(),
 });
 export type ServerReading = z.output<typeof ServerReadingSchema>;
 

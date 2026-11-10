@@ -20,6 +20,8 @@ export class FakeSessionClient implements SessionClient {
   closed = false;
   closeCount = 0;
   readonly calls: ToolCall[] = [];
+  /** Answers a call by its name and args; undefined falls back to the answer list. */
+  route: ((call: ToolCall) => FakeAnswer | undefined) | null = null;
   private readonly tools: string[];
   private readonly answers: FakeAnswer[];
 
@@ -37,7 +39,9 @@ export class FakeSessionClient implements SessionClient {
   callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
     if (this.closed) return Promise.reject(new McpSessionError("The ssh-mcp session was closed"));
     this.calls.push({ name, args });
-    const answer = this.answers.length > 1 ? this.answers.shift() : this.answers[0];
+    const answer =
+      this.route?.({ name, args }) ??
+      (this.answers.length > 1 ? this.answers.shift() : this.answers[0]);
     if (answer === undefined) return Promise.reject(new Error("FakeSessionClient has no answer"));
     if (answer instanceof Error) return Promise.reject(answer);
     return Promise.resolve(answer);
