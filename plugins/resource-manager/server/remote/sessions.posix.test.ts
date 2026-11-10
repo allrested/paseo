@@ -83,6 +83,41 @@ describe("RemoteSessions with a real MCP client", () => {
     expect(readdirSync(runDir)).toEqual([]);
   });
 
+  it("reads each profile of a multi-host ssh-mcp 2.x entry over one session", async () => {
+    const outputFile = join(dir, "output.txt");
+    const callLog = join(dir, "calls.jsonl");
+    writeFileSync(outputFile, REMOTE_OUTPUT_SAMPLE);
+    const server = fakeServer({
+      FAKE_SSH_MCP_TOOL: "list-connections,read-command,run-command",
+      FAKE_SSH_MCP_CONNECTIONS:
+        "prod: deploy@10.0.0.1:22 [connected] sessions=0 role=operator\n" +
+        "db: root@10.0.0.2:22 [disconnected] sessions=0 role=operator",
+      FAKE_SSH_MCP_OUTPUT_FILE: outputFile,
+      FAKE_SSH_MCP_CALL_LOG: callLog,
+    });
+
+    const reading = await remote.read(server);
+
+    expect(reading).toMatchObject({
+      snapshot: null,
+      error: null,
+      hosts: [
+        { profile: "prod", label: "deploy@10.0.0.1:22", snapshot: REMOTE_SNAPSHOT_SAMPLE },
+        { profile: "db", label: "root@10.0.0.2:22", snapshot: REMOTE_SNAPSHOT_SAMPLE },
+      ],
+    });
+    const calls = readFileSync(callLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(calls).toEqual([
+      { name: "list-connections", arguments: {} },
+      { name: "run-command", arguments: { command: REMOTE_COMMAND, profile: "prod" } },
+      { name: "run-command", arguments: { command: REMOTE_COMMAND, profile: "db" } },
+    ]);
+    expect(readdirSync(runDir)).toHaveLength(1);
+  });
+
   it("shows ssh-mcp's last stderr line when it exits on start", async () => {
     const reading = await remote.read(fakeServer({ FAKE_SSH_MCP_EXIT_ON_START: "3" }));
 

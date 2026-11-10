@@ -64,6 +64,9 @@ function callTool(id, params) {
   log({ name: params.name, arguments: params.arguments });
   if (!toolNames.includes(params.name)) {
     send({ jsonrpc: "2.0", id, error: { code: -32602, message: `Unknown tool: ${params.name}` } });
+  } else if (params.name === "list-connections") {
+    const text = env.FAKE_SSH_MCP_CONNECTIONS ?? "";
+    send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
   } else if (env.FAKE_SSH_MCP_RPC_ERROR) {
     send({ jsonrpc: "2.0", id, error: { code: -32603, message: env.FAKE_SSH_MCP_RPC_ERROR } });
   } else if (env.FAKE_SSH_MCP_FAIL) {
