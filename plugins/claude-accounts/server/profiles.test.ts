@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   claudeConfigFile,
   discoverProfiles,
+  forgetAddedAccount,
   isMainDirectory,
   profilePaths,
   readAddedAccounts,
@@ -109,6 +110,18 @@ describe("discoverProfiles", () => {
     expect(await discoverProfiles(profilePaths({}, home), ["work"])).toEqual(expected);
   });
 
+  it("skips a removed account's folder, whose name has a dot", async () => {
+    const home = await tempHome();
+    const removed = join(home, ".claude-work.removed-20261110-070809");
+    await mkdir(join(home, ".claude"));
+    await mkdir(removed);
+    await writeFile(join(removed, ".credentials.json"), "{}");
+
+    const { accounts } = await discoverProfiles(profilePaths({}, home), ["work"]);
+
+    expect(accounts).toEqual([]);
+  });
+
   it("treats the daemon's CLAUDE_CONFIG_DIR as the main profile, never as an account", async () => {
     const home = await tempHome();
     await mkdir(join(home, ".claude-main"));
@@ -184,6 +197,22 @@ describe("the added-accounts record", () => {
     });
     expect((await stat(recordFile)).mode & 0o777).toBe(0o600);
     expect((await stat(join(home, "paseo", "claude-accounts"))).mode & 0o777).toBe(0o700);
+  });
+
+  it("drops one name, keeps the others and the file mode, and ignores a name it lacks", async () => {
+    const home = await tempHome();
+    const recordFile = join(home, "paseo", "claude-accounts", "added.json");
+    await recordAddedAccount(recordFile, "work");
+    await recordAddedAccount(recordFile, "team");
+
+    await forgetAddedAccount(recordFile, "work");
+    await forgetAddedAccount(recordFile, "gone");
+
+    expect(JSON.parse(await readFile(recordFile, "utf8"))).toEqual({
+      version: 1,
+      names: ["team"],
+    });
+    expect((await stat(recordFile)).mode & 0o777).toBe(0o600);
   });
 
   it("refuses a record that is not valid JSON or names an invalid account", async () => {

@@ -250,10 +250,8 @@ account's user-scope `mcpServers` equal to the main profile's: every 5 s it comp
 rewrites a copy that differs, under Claude Code's own file lock, which also undoes a Claude Code
 write that drops the copy. It writes only into accounts it added, recorded in
 `$PASEO_HOME/claude-accounts/added.json`. A `~/.claude-<name>` made by hand shows a problem on its
-row until you add the same name again, which adopts it. To retire an account, delete its
-directory, its `claude-<name>` provider entry and its name in `added.json`; a name left in the
-record makes a later `~/.claude-<name>` an added account again. Links are made at Add, so an entry
-the main profile gains later is shared once you add the account again.
+row until you add the same name again, which adopts it. Links are made at Add, so an entry the main
+profile gains later is shared once you add the account again.
 
 The default account on that screen applies to every agent created with plain `claude`. Auto picks
 the signed-in account with the most room; it skips an account whose usage is unknown, whose
@@ -267,6 +265,18 @@ background shells, `Monitor` watches, background subagents and a running Workflo
 the Claude process. On macOS the login is in the Keychain, so the screen learns it from the usage
 source: with usage off, every account shows as not signed in, Auto keeps plain `claude`, and Move
 idle agents refuses every account.
+
+Remove on an account's row retires the account; the main account has no Remove. After you confirm,
+it deletes the `claude-<name>` provider entry, drops the name from `added.json`, and renames
+`~/.claude-<name>` to `~/.claude-<name>.removed-<yyyymmdd-hhmmss>`, stamped in UTC. The renamed
+folder keeps the account's chat history and login, and discovery skips it because an account name
+cannot contain a dot. Remove changes nothing and says why while the account has agents that are not
+archived, while Move idle agents moves agents to or from it, or when Paseo did not add it; to remove
+a hand-made account, add the same name first. A plugin's server cannot write the plugin's settings,
+so when the default account is the removed one, the screen saves plain `claude` as the default
+after the removal. If that save fails, its error shows under the default account picker, and the
+stale default keeps plain `claude`. To restore an account, rename its folder back to
+`~/.claude-<name>`, then add the same name again.
 
 Local runs of `scripts/builtin-plugins-dist.test.mjs` and
 `packages/server/src/server/plugins/lifecycle.e2e.test.ts` start every built-in in process, so give

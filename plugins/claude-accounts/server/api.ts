@@ -81,6 +81,8 @@ export interface AccountsApi {
   /** The provider snapshot, by provider id. */
   providerStates(): Promise<Map<string, ProviderState>>;
   addProvider(provider: string, entry: NewProvider): Promise<void>;
+  /** Deletes the provider's host config entry; a provider without one is left as it is. */
+  removeProvider(provider: string): Promise<void>;
   /** The most recently active workspace, or null when there is none. */
   latestWorkspaceId(): Promise<string | null>;
   openTerminal(workspaceId: string, command: TerminalCommand): Promise<void>;

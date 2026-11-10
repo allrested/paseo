@@ -3,7 +3,13 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { createClaudeAccounts } from "./server/accounts.js";
 import { accountsApi } from "./server/paseo-port.js";
 import { profilePaths } from "./server/profiles.js";
-import { addAccountRpc, listAccountsRpc, moveIdleRpc, signInRpc } from "./shared/rpc.js";
+import {
+  addAccountRpc,
+  listAccountsRpc,
+  moveIdleRpc,
+  removeAccountRpc,
+  signInRpc,
+} from "./shared/rpc.js";
 import { claudeAccountsSettings } from "./shared/settings.js";
 
 export default function contribute(server: PluginServerContext) {
@@ -20,6 +26,9 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(listAccountsRpc, (_input, { paseo }) => accounts.list(accountsApi(paseo)));
   server.handle(addAccountRpc, ({ name }, { paseo }) => accounts.add(accountsApi(paseo), name));
+  server.handle(removeAccountRpc, ({ provider }, { paseo }) =>
+    accounts.remove(accountsApi(paseo), provider),
+  );
   server.handle(signInRpc, ({ provider }, { paseo }) =>
     accounts.signIn(accountsApi(paseo), provider),
   );
