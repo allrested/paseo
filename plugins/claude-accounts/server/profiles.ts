@@ -183,13 +183,31 @@ function parseJson(text: string): unknown {
 }
 
 /**
- * Adds a name to the record through a temp file, with mode 0600. Calls must not overlap: two share
- * the temp file and the read before the write. Add account, the only caller, runs one at a time.
+ * Adds a name to the record. Calls must not overlap with each other or with
+ * `forgetAddedAccount`: they share the temp file and the read before the write. Add and Remove,
+ * the only callers, run one at a time.
  */
 export async function recordAddedAccount(recordFile: string, name: string): Promise<void> {
   const names = await readAddedAccounts(recordFile);
   if (names.includes(name)) return;
-  const next = [...names, name].sort((left, right) => left.localeCompare(right, "en"));
+  await writeAddedAccounts(
+    recordFile,
+    [...names, name].sort((left, right) => left.localeCompare(right, "en")),
+  );
+}
+
+/** Drops a name from the record. The same no-overlap rule as `recordAddedAccount` applies. */
+export async function forgetAddedAccount(recordFile: string, name: string): Promise<void> {
+  const names = await readAddedAccounts(recordFile);
+  if (!names.includes(name)) return;
+  await writeAddedAccounts(
+    recordFile,
+    names.filter((candidate) => candidate !== name),
+  );
+}
+
+// Through a temp file, with mode 0600, so a reader never sees half a record.
+async function writeAddedAccounts(recordFile: string, next: readonly string[]): Promise<void> {
   await mkdir(dirname(recordFile), { recursive: true, mode: 0o700 });
   const temp = `${recordFile}.${process.pid}.tmp`;
   await rm(temp, { force: true });

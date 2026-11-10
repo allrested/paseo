@@ -78,6 +78,12 @@ export const addAccountRpc = defineRpc({
   output: ActionResultSchema,
 });
 
+export const removeAccountRpc = defineRpc({
+  name: "claude-accounts.remove.request",
+  input: z.object({ provider: z.string() }),
+  output: ActionResultSchema,
+});
+
 export const signInRpc = defineRpc({
   name: "claude-accounts.sign-in.request",
   input: z.object({ provider: z.string() }),

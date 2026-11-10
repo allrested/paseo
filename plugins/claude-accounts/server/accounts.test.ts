@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Account, MoveJob } from "../shared/rpc.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Account, ActionResult, MoveJob } from "../shared/rpc.js";
 import { createClaudeAccounts, type ClaudeAccounts } from "./accounts.js";
 import type {
   AccountsApi,
@@ -50,8 +50,14 @@ class FakeApi implements AccountsApi {
   readonly states = new Map<string, ProviderState>([["claude", READY]]);
   readonly usage = new Map<string, ProviderUsage>();
   readonly added: AddedProvider[] = [];
+  readonly removed: string[] = [];
   readonly terminals: OpenedTerminal[] = [];
   readonly moves: string[] = [];
+  /** Each move waits for it, so a test can hold a move job open. */
+  moveGate: Promise<void> = Promise.resolve();
+  removeError: Error | null = null;
+  /** Runs while the provider is removed, after the plugin's checks and before its other writes. */
+  onRemoveProvider: () => Promise<void> = async () => undefined;
 
   async listAgents(): Promise<AgentInfo[]> {
     return this.agents;
@@ -62,6 +68,7 @@ class FakeApi implements AccountsApi {
   }
 
   async moveAgent(agentId: string, provider: string): Promise<MoveOutcome> {
+    await this.moveGate;
     this.moves.push(`${agentId}->${provider}`);
     return { agentId: `${agentId}-next`, strategy: "native" };
   }
@@ -86,6 +93,14 @@ class FakeApi implements AccountsApi {
       configDirectory: entry.configDirectory,
     });
     this.states.set(provider, READY);
+  }
+
+  async removeProvider(provider: string): Promise<void> {
+    if (this.removeError !== null) throw this.removeError;
+    await this.onRemoveProvider();
+    this.removed.push(provider);
+    this.entries.delete(provider);
+    this.states.delete(provider);
   }
 
   async latestWorkspaceId(): Promise<string | null> {
@@ -441,6 +456,154 @@ describe("new agents and moves", () => {
     expect(await accounts.beforeCreate(api, plain)).toBe("claude");
     const explicit: CreateRequest = { provider: "claude-full", cwd: "/repo" };
     expect(await accounts.beforeCreate(api, explicit)).toBe("claude-full");
+  });
+});
+
+describe("removing an account", () => {
+  // The renamed folder carries the UTC time of the removal.
+  const MOVED_SUFFIX = ".removed-20261110-070809";
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-10T07:08:09.500Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function failed(error: string): ActionResult {
+    return { ok: false, error, loginWorkspaceId: null };
+  }
+
+  function recordFile(home: string): string {
+    return join(home, "paseo-home", "claude-accounts", "added.json");
+  }
+
+  /** Nothing was removed: the provider, the record entry and the folder are all still there. */
+  async function expectKept(home: string, api: FakeApi, name: string): Promise<void> {
+    expect(api.removed).toEqual([]);
+    expect(await readJson(recordFile(home))).toMatchObject({
+      names: expect.arrayContaining([name]),
+    });
+    expect((await stat(join(home, `.claude-${name}`))).isDirectory()).toBe(true);
+  }
+
+  it("deletes its provider, drops its record and moves its folder out of discovery", async () => {
+    const { home, accounts, api } = await setup();
+    await accounts.add(api, "work");
+    await accounts.add(api, "team");
+    const folder = join(home, ".claude-work");
+    await writeFile(join(folder, ".credentials.json"), "{}");
+    await mkdir(join(folder, "projects"));
+    await writeFile(join(folder, "projects", "chat.jsonl"), "{}\n");
+
+    expect(await accounts.remove(api, "claude-work")).toEqual({
+      ok: true,
+      error: null,
+      loginWorkspaceId: null,
+    });
+
+    const moved = `${folder}${MOVED_SUFFIX}`;
+    expect(api.removed).toEqual(["claude-work"]);
+    expect(api.entries.has("claude-work")).toBe(false);
+    expect(await readJson(recordFile(home))).toEqual({ version: 1, names: ["team"] });
+    await expect(stat(folder)).rejects.toThrow("ENOENT");
+    expect(await readFile(join(moved, "projects", "chat.jsonl"), "utf8")).toBe("{}\n");
+    expect((await stat(join(moved, ".credentials.json"))).isFile()).toBe(true);
+    const listed = (await accounts.list(api)).accounts.map((account) => account.provider);
+    expect(listed).toEqual(["claude", "claude-team"]);
+  });
+
+  it("refuses the main account, an unknown provider and an account Paseo did not add", async () => {
+    const { home, accounts, api } = await setup();
+    const handMade = join(home, ".claude-old");
+    await mkdir(handMade);
+
+    expect(await accounts.remove(api, "claude")).toEqual(
+      failed("The main account cannot be removed"),
+    );
+    expect(await accounts.remove(api, "codex")).toEqual(failed("No account uses codex"));
+    expect(await accounts.remove(api, "claude-old")).toEqual(
+      failed(
+        `Paseo did not add claude-old, so it cannot remove it. Add it again to adopt it first, or delete ${handMade} by hand.`,
+      ),
+    );
+    expect(api.removed).toEqual([]);
+    expect((await stat(handMade)).isDirectory()).toBe(true);
+  });
+
+  it("refuses while agents are on the account or moving to it", async () => {
+    const { home, accounts, api } = await setup();
+    await accounts.add(api, "work");
+    await writeFile(join(home, ".claude-work", ".credentials.json"), "{}");
+
+    api.agents = [agent("a", "claude-work"), agent("b", "claude-work", { inTurn: true })];
+    expect(await accounts.remove(api, "claude-work")).toEqual(
+      failed("Move or archive its 2 agents first"),
+    );
+    api.agents = [agent("a", "claude-work", { status: "closed" })];
+    expect(await accounts.remove(api, "claude-work")).toEqual(
+      failed("Move or archive its agent first"),
+    );
+
+    let release: () => void = () => undefined;
+    api.moveGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    api.agents = [agent("c", "claude")];
+    expect((await accounts.moveIdle(api, "claude", "claude-work")).ok).toBe(true);
+    expect(await accounts.remove(api, "claude-work")).toEqual(
+      failed("Agents are moving to or from claude-work. Wait for that move to finish."),
+    );
+    release();
+    await vi.waitFor(async () => {
+      expect((await accounts.list(api)).moveJob?.done).toBe(true);
+    });
+    await expectKept(home, api, "work");
+  });
+
+  it("refuses when the folder's new name is taken, before changing anything", async () => {
+    const { home, accounts, api } = await setup();
+    await accounts.add(api, "work");
+    const taken = join(home, `.claude-work${MOVED_SUFFIX}`);
+    await mkdir(taken);
+
+    expect(await accounts.remove(api, "claude-work")).toEqual(
+      failed(`${taken} already exists. Try again in a second.`),
+    );
+    await expectKept(home, api, "work");
+  });
+
+  it("keeps the account when the host config cannot drop its provider", async () => {
+    const { home, accounts, api } = await setup();
+    await accounts.add(api, "work");
+    api.removeError = new Error("config.json is read-only");
+
+    expect(await accounts.remove(api, "claude-work")).toEqual(
+      failed(
+        "The claude-work provider was not removed, so the account stays: config.json is read-only",
+      ),
+    );
+    await expectKept(home, api, "work");
+  });
+
+  it("says what is left when the folder cannot move", async () => {
+    const { home, accounts, api } = await setup();
+    await accounts.add(api, "work");
+    const folder = join(home, ".claude-work");
+    const moved = `${folder}${MOVED_SUFFIX}`;
+    // A file takes the new name after the checks, so the rename itself fails.
+    api.onRemoveProvider = () => writeFile(moved, "");
+
+    expect(await accounts.remove(api, "claude-work")).toEqual(
+      failed(
+        `Removed the claude-work provider and its record, but its folder did not move: ENOTDIR: not a directory, rename '${folder}' -> '${moved}'. Rename or delete it by hand.`,
+      ),
+    );
+    expect(api.removed).toEqual(["claude-work"]);
+    expect(await readJson(recordFile(home))).toEqual({ version: 1, names: [] });
+    expect((await stat(folder)).isDirectory()).toBe(true);
   });
 });
 
