@@ -15,7 +15,7 @@ export default function contribute(client: PluginClientContext) {
       id: "open-skills",
       title: "Default skills",
       icon: "BookOpen",
-      keywords: ["claude", "skills", "ub-mode", "antislop", "design"],
+      keywords: ["claude", "skills", "ub-mode", "antislop", "unslop", "design"],
       context: "global",
       onSelect({ openSettings }) {
         openSettings("skills");
