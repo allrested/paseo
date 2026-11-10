@@ -7,12 +7,15 @@ import {
   type BrowserAutomationExecuteRequest,
   type BrowserAutomationExecuteResponse,
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
+import type { CdpBrowserService } from "./cdp/cdp-browser-service.js";
 import { browserToolsFailure, type BrowserToolsResponsePayload } from "./errors.js";
 
 export interface BrowserHostClient {
   id: string;
   hostKind: string;
   supportedCommands: readonly BrowserAutomationCommandName[];
+  /** A host that should receive new tabs even when another host registered after it. */
+  prefersNewTabs?: boolean;
   sendBrowserAutomationRequest(request: BrowserAutomationExecuteRequest): void | Promise<void>;
 }
 
@@ -53,6 +56,8 @@ export class BrowserToolsBroker {
   private readonly browserHostByBrowserId = new Map<string, string>();
   private readonly strandedBrowserHostByBrowserId = new Map<string, string>();
   private registrationSequence = 0;
+  /** The daemon's own Docker Chromium host, when PASEO_BROWSER_CDP_URL is set. */
+  public cdpBrowser: CdpBrowserService | null = null;
 
   public constructor(options: BrowserToolsBrokerOptions) {
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_BROWSER_TOOLS_TIMEOUT_MS;
@@ -108,6 +113,17 @@ export class BrowserToolsBroker {
 
   public getRegisteredClientCount(): number {
     return this.clients.size;
+  }
+
+  /** Records a tab a host opened outside execute(), such as one opened from the UI. */
+  public claimBrowser(clientId: string, browserId: string): void {
+    this.browserHostByBrowserId.set(browserId, clientId);
+    this.strandedBrowserHostByBrowserId.delete(browserId);
+  }
+
+  public releaseBrowser(browserId: string): void {
+    this.browserHostByBrowserId.delete(browserId);
+    this.strandedBrowserHostByBrowserId.delete(browserId);
   }
 
   public async execute(input: BrowserToolsExecuteInput): Promise<BrowserToolsResponsePayload> {
@@ -271,7 +287,7 @@ export class BrowserToolsBroker {
     | { ok: true; value: RegisteredBrowserHost }
     | { ok: false; payload: BrowserToolsResponsePayload } {
     if (command.command === "new_tab") {
-      const host = this.selectMostRecentlyRegisteredHost();
+      const host = this.selectNewTabHost();
       return host
         ? { ok: true, value: host }
         : { ok: false, payload: this.noBrowserHostFailure(requestId) };
@@ -330,6 +346,14 @@ export class BrowserToolsBroker {
         message: `Browser tab ${browserId} is not associated with a connected browser automation host. Call browser_list_tabs and use one of the returned browserId values.`,
       }),
     };
+  }
+
+  private selectNewTabHost(): RegisteredBrowserHost | null {
+    let preferred: RegisteredBrowserHost | null = null;
+    for (const host of this.clients.values()) {
+      if (host.client.prefersNewTabs) preferred = host;
+    }
+    return preferred ?? this.selectMostRecentlyRegisteredHost();
   }
 
   private selectMostRecentlyRegisteredHost(): RegisteredBrowserHost | null {
