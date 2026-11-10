@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Account, MoveJob } from "../shared/rpc.js";
 import {
+  canRemove,
   defaultAccountOptions,
+  defaultAfterRemoval,
   describeAccount,
   describeAgents,
   describeMoveJob,
@@ -10,6 +12,7 @@ import {
   moveTargetOptions,
   nameError,
   needsSignIn,
+  removalNotes,
   type MoveHintInput,
   type SelectOption,
 } from "./view-model.js";
@@ -222,5 +225,32 @@ describe("move action", () => {
     expect(moveHint({ ...ready, jobRunning: true })).toBe(
       "Agents are still moving. Wait for that move to finish.",
     );
+  });
+});
+
+describe("removing an account", () => {
+  it("offers Remove on every account except the main one", () => {
+    const removable = ACCOUNTS.filter((account) => canRemove(account));
+    expect(removable.map((account) => account.provider)).toEqual([
+      "claude-work",
+      "claude-new",
+      "claude-old",
+      "claude-team",
+    ]);
+  });
+
+  it("names the folder, where it moves, what it keeps and how to restore it", () => {
+    expect(removalNotes(WORK)).toEqual([
+      "Paseo deletes the claude-work provider and renames /home/u/.claude-work to /home/u/.claude-work.removed-<yyyymmdd-hhmmss>, in UTC. The account's chat history and login stay in that folder.",
+      "If work is the default account, new Claude agents start on the main account again.",
+      "To restore it, rename the folder back to /home/u/.claude-work, then add the name work again.",
+    ]);
+  });
+
+  it("resets the default only when it names the removed account", () => {
+    expect(defaultAfterRemoval("claude-work", "claude-work")).toBe("claude");
+    expect(defaultAfterRemoval("auto", "claude-work")).toBeNull();
+    expect(defaultAfterRemoval("claude-team", "claude-work")).toBeNull();
+    expect(defaultAfterRemoval(null, "claude-work")).toBeNull();
   });
 });

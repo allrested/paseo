@@ -76,6 +76,10 @@ export function accountsApi(paseo: PaseoApi): AccountsApi {
         },
       });
     },
+    async removeProvider(provider) {
+      // A patch merges, so only `removeProviders` deletes an entry.
+      await paseo.config.patch({ removeProviders: [provider] });
+    },
     async latestWorkspaceId() {
       const { entries } = await paseo.workspaces.list({
         sort: [{ key: "activity_at", direction: "desc" }],

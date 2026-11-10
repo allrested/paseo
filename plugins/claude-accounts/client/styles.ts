@@ -13,6 +13,7 @@ export function useScreenStyles(theme: PluginTheme) {
         maxWidth: 720,
         alignSelf: "center" as const,
       },
+      text: { color: theme.colors.foreground },
       muted: { color: theme.colors.foregroundMuted },
       warning: { color: theme.colors.statusWarning },
       error: { color: theme.colors.statusDanger },
