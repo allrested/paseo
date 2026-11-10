@@ -44,6 +44,11 @@
       "source": "./src/utils/spawn.ts",
       "default": "./dist/server/utils/spawn.js"
     },
+    "./browser-automation/*": {
+      "types": "./dist/server/server/browser-automation/*.d.ts",
+      "source": "./src/server/browser-automation/*.ts",
+      "default": "./dist/server/server/browser-automation/*.js"
+    },
     "./auth": {
       "types": "./dist/server/server/auth.d.ts",
       "source": "./src/server/auth.ts",
