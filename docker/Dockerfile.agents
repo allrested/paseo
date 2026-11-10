@@ -107,8 +107,10 @@ RUN set -eux; \
     kiro-cli --version
 
 # GitHub CLI, from GitHub's own apt repo, plus jq from Debian, which agents
-# reach for on every JSON config. Kept after the Kiro step so editing this does
-# not invalidate that layer and re-download the archive.
+# reach for on every JSON config, and python3, which the ui-ux-pro-max skill
+# from the default-skills built-in runs for its search. Kept after the Kiro
+# step so editing this does not invalidate that layer and re-download the
+# archive.
 RUN set -eux; \
     mkdir -p -m 755 /etc/apt/keyrings; \
     curl -fsSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
@@ -117,10 +119,11 @@ RUN set -eux; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
       > /etc/apt/sources.list.d/github-cli.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends gh jq; \
+    apt-get install -y --no-install-recommends gh jq python3; \
     rm -rf /var/lib/apt/lists/*; \
     gh --version; \
-    jq --version
+    jq --version; \
+    python3 --version
 
 # GitHub's SSH host keys, system-wide.
 #
