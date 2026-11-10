@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CdpConnection } from "./cdp-connection.js";
 import { CdpTab } from "./cdp-tab.js";
 import { startFakeChromium, type FakeChromium } from "./test-utils/fake-chromium.js";
@@ -6,6 +6,24 @@ import { startFakeChromium, type FakeChromium } from "./test-utils/fake-chromium
 // A 1x1 PNG.
 const PNG_1X1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+function trackSettled<T>(promise: Promise<T>): { promise: Promise<T>; settled: boolean } {
+  const tracked = { promise, settled: false };
+  const mark = () => {
+    tracked.settled = true;
+    return undefined;
+  };
+  promise.then(mark, mark);
+  return tracked;
+}
+
+function gate(): { open: () => void; opened: Promise<void> } {
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = () => resolve();
+  });
+  return { open, opened };
+}
 
 describe("CdpTab", () => {
   let chromium: FakeChromium;
@@ -37,6 +55,7 @@ describe("CdpTab", () => {
     });
   });
   afterEach(async () => {
+    vi.useRealTimers();
     tab.dispose();
     await chromium.close();
   });
@@ -77,7 +96,7 @@ describe("CdpTab", () => {
   });
 
   test("loadURL waits for the load event and tracks loading and history", async () => {
-    chromium.handle("Page.navigate", () => ({ frameId: "F" }));
+    chromium.handle("Page.navigate", () => ({ frameId: "F", loaderId: "L" }));
     chromium.handle("Page.getNavigationHistory", () => ({
       currentIndex: 1,
       entries: [
@@ -112,10 +131,51 @@ describe("CdpTab", () => {
     chromium.handle("Page.navigate", (params) =>
       params.url === "https://bad.invalid/"
         ? { errorText: "net::ERR_NAME_NOT_RESOLVED" }
-        : { frameId: "F" },
+        : { frameId: "F", loaderId: "L" },
     );
     await expect(tab.loadURL("https://bad.invalid/")).rejects.toThrow("net::ERR_NAME_NOT_RESOLVED");
     await expect(tab.loadURL("https://example.com/slow")).resolves.toBeUndefined();
+  });
+
+  test("loadURL resolves at once for a fragment-only navigation", async () => {
+    // Chrome answers a same-document navigation without a loaderId, and no load event follows.
+    chromium.handle("Page.navigate", () => ({ frameId: "F" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await expect(tab.loadURL("https://example.com/#section")).resolves.toBeUndefined();
+  });
+
+  test("loadURL stops waiting for the load event after the override", async () => {
+    chromium.handle("Page.navigate", () => ({ frameId: "F", loaderId: "L" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const loading = trackSettled(tab.loadURL("https://example.com/slow"));
+    await settle();
+    await vi.advanceTimersByTimeAsync(199);
+    expect(loading.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(loading.promise).resolves.toBeUndefined();
+  });
+
+  test("loadURL waits 8 s for the load event by default", async () => {
+    chromium.handle("Page.navigate", () => ({ frameId: "F", loaderId: "L" }));
+    const connection = await CdpConnection.open({
+      url: `ws://127.0.0.1:${chromium.port}/devtools/page/${targetId}`,
+    });
+    const defaultTab = await CdpTab.attach({
+      id: 8,
+      connection,
+      initialUrl: "https://example.com/",
+    });
+    try {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const loading = trackSettled(defaultTab.loadURL("https://example.com/slow"));
+      await defaultTab.connection.send("Page.enable");
+      await vi.advanceTimersByTimeAsync(7_999);
+      expect(loading.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(loading.promise).resolves.toBeUndefined();
+    } finally {
+      defaultTab.dispose();
+    }
   });
 
   test("goBack navigates to the previous history entry", async () => {
@@ -183,6 +243,35 @@ describe("CdpTab", () => {
     expect(dialogs.map((dialog) => [dialog.type, dialog.message])).toEqual([["confirm", "Sure?"]]);
     // The second answer goes out after the in-task round trip; one more proves the fake read it.
     await settle();
+    expect(sent("Page.handleJavaScriptDialog").length).toBe(2);
+  });
+
+  test("overlapping captures each record the dialog and none outlives its task", async () => {
+    const first = gate();
+    const second = gate();
+    const firstCapture = tab.captureDialogs(async () => {
+      await first.opened;
+      return "first";
+    });
+    const secondCapture = tab.captureDialogs(async () => {
+      await second.opened;
+      return "second";
+    });
+    chromium.emit(targetId, "Page.javascriptDialogOpening", { type: "alert", message: "both" });
+    await settle();
+    // The first capture ends while the second still runs, so restoring a saved sink cannot work.
+    first.open();
+    const { dialogs: firstDialogs } = await firstCapture;
+    second.open();
+    const { dialogs: secondDialogs } = await secondCapture;
+    expect(firstDialogs.map((dialog) => dialog.message)).toEqual(["both"]);
+    expect(secondDialogs.map((dialog) => dialog.message)).toEqual(["both"]);
+
+    chromium.emit(targetId, "Page.javascriptDialogOpening", { type: "alert", message: "later" });
+    await settle();
+    await settle();
+    expect(firstDialogs.map((dialog) => dialog.message)).toEqual(["both"]);
+    expect(secondDialogs.map((dialog) => dialog.message)).toEqual(["both"]);
     expect(sent("Page.handleJavaScriptDialog").length).toBe(2);
   });
 
