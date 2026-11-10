@@ -8,12 +8,13 @@ import { defaultSkillsSettings } from "./settings.js";
 const vendor = fileURLToPath(new URL("../vendor", import.meta.url));
 
 describe("defaultSkillsSettings", () => {
-  it("turns on the four reviewed skills by default and has no DensePack switch", () => {
+  it("turns on the five reviewed skills by default and has no DensePack switch", () => {
     expect(defaultSkillsSettings.schema.parse({})).toEqual({
       "ub-mode": true,
       "ai-design-skills": true,
       "anti-slop": true,
       "ui-ux-pro-max": true,
+      unslop: true,
     });
   });
 

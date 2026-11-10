@@ -97,10 +97,49 @@ below, and update this file. The plugin replaces its installed copies at the nex
   `npm create nuxt@latest` as setup guidance for those stacks. They are search results the skill
   tells the agent to treat as recommendations, not as instructions.
 
+## unslop
+
+- Repository: https://github.com/heydamir/unslop
+- Commit: `97daa3eb365670ea3f87ed85356cbfcee18105a5` (default branch head on 2026-11-10; an earlier
+  note named `97daa33`, a typo for this commit)
+- Licence: CC BY 4.0, by Damir Sokolovsky (@heydamir, https://heydamir.design/unslop)
+  (`unslop/LICENSE`, the full licence text). CC BY needs credit, a link to the licence and a note
+  of changes, so `unslop/NOTICE` names the author, source, commit and licence and lists the
+  changes below. The author's own credit lines in `SKILL.md` and at the end of each reference file
+  are kept.
+- Kept: `skills/unslop/SKILL.md` and `skills/unslop/references/` (`signs.md`, `tokens.md`,
+  `visuals.md`, `refs.md`, `effects.md`), plus the root `LICENSE`. `effects.md` holds browser
+  canvas code as an example for the agent to adapt into the user's page; nothing in it runs here.
+- Left out: `skills/unslop/scripts/snapshot.mjs` and `story.mjs` (Playwright scripts: the first
+  loads a target URL to save it, the second renders the story video with ffmpeg),
+  `skills/unslop/references/refs/*.webp` (reference images, about 1.3 MB), `skills/unslop/agents/`
+  (Codex `openai.yaml`), `test/`, `examples/`, `README.md`, `CITATION.cff`, `.gitignore`.
+- Edited `SKILL.md`:
+  - Run it, step 1: "Only a link to a live site" ran `node <skill folder>/scripts/snapshot.mjs
+    <url>`. It now says the snapshot step is unavailable in this install, tells the agent not to
+    fetch the page with it or another tool, and to ask the user for the saved HTML or a
+    screenshot. The advice on working on a copy, comparing with the live page, and describing
+    script-drawn backgrounds is kept.
+  - Run it, step 8: "Build the story file and render the video" now builds the story file and says
+    rendering is unavailable here.
+  - Story video intro: the link to `refs/story-dashboard-frames.webp` now says the image is not
+    included.
+  - Story video, step 8 (Render): ran `node <skill folder>/scripts/story.mjs`, told the agent to give
+    the user the command that installs Playwright or ffmpeg, and to pull frames with ffmpeg. It
+    now says the render step is unavailable, not to install Playwright or ffmpeg or write a
+    replacement, and to hand over the story file. Steps 1 to 7 and 9 are unchanged.
+- Edited `references/visuals.md`, Generate it: "offer to connect one, like an MCP server for fal,
+  Replicate, OpenAI images or Higgsfield" now tells the user such a tool would help and leaves
+  connecting it to the user; the agent does not install, download or configure one.
+- Edited `references/refs.md`: a note under the intro says the images are not included and must
+  not be downloaded, and to work from the table's descriptions.
+- Not edited: with an image tool already connected, `visuals.md` sends the prompt to it only after
+  showing the user the prompt, model and size and asking, since generation can cost money. The
+  "Every video carries a small `unslop by @heydamir` credit" rule is the licence credit. The
+  `metadata` links in the frontmatter and the credit links are attribution, not instructions.
+
 ## Not vendored
 
-- unslop (https://github.com/heydamir/unslop): the reviewed commit `97daa33` does not exist in the
-  repository. Its default branch head is `97daa3e`. Nothing was taken until the pin is confirmed.
 - DensePack (https://github.com/Fabian-Galvez/DensePack, commit
   `979a6e0937f7650be5c98f5f648fa993ac64127d`): its SessionStart hook runs `bootstrap.py`, which
   pip-installs Pillow, freetype-py and NumPy from PyPI into the plugin data folder and writes

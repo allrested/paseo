@@ -89,6 +89,8 @@ test("built output compiles and starts every listed built-in", async () => {
       "antislop-human/contrast-check.py",
       "ui-ux-pro-max/scripts/search.py",
       "ui-ux-pro-max/data/stacks/react.csv",
+      "unslop/NOTICE",
+      "unslop/references/signs.md",
     ]) {
       const installed = path.join(home, ".claude", "skills", file);
       assert.ok((await stat(installed).catch(() => null))?.isFile(), `${installed} must exist`);

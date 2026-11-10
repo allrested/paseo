@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PluginSettings, PluginSettingsState } from "@getpaseo/plugin/server";
 import { afterEach, describe, expect, it } from "vitest";
-import type { SkillEntry } from "../shared/catalog.js";
+import { SKILLS, type SkillEntry } from "../shared/catalog.js";
 import type { defaultSkillsSettings } from "../shared/settings.js";
 import { skillPaths } from "./paths.js";
 import { startDefaultSkills } from "./plugin.js";
@@ -34,6 +35,7 @@ function ready(values: Partial<Record<string, boolean>>): State {
       "ai-design-skills": true,
       "anti-slop": true,
       "ui-ux-pro-max": true,
+      unslop: true,
       ...values,
     },
   };
@@ -118,6 +120,50 @@ describe("startDefaultSkills", () => {
     const status = await plugin.status();
     expect(status.status === "done" && status.skills[0]?.folders).toEqual([
       { folder: "ub-mode", state: "off" },
+    ]);
+    expect(await readdir(paths.skillsDirectory)).toEqual([]);
+    await plugin.stop();
+  });
+
+  it("installs the vendored unslop markdown when on and removes it when switched off", async () => {
+    const { paths } = await setup();
+    const unslop = SKILLS.find((skill) => skill.id === "unslop");
+    if (!unslop) throw new Error("unslop is not in the catalog");
+    const fake = fakeSettings(async () => ready({}));
+    const plugin = startDefaultSkills({
+      settings: fake.settings,
+      paths,
+      vendorDirectory: fileURLToPath(new URL("../vendor", import.meta.url)),
+      skills: [unslop],
+      log: () => {},
+    });
+
+    expect(await plugin.status()).toEqual({
+      status: "done",
+      skillsDirectory: paths.skillsDirectory,
+      skills: [{ id: "unslop", folders: [{ folder: "unslop", state: "installed" }] }],
+      recordError: null,
+    });
+    const installed = join(paths.skillsDirectory, "unslop");
+    expect((await readdir(installed)).sort()).toEqual([
+      "LICENSE",
+      "NOTICE",
+      "SKILL.md",
+      "references",
+    ]);
+    expect((await readdir(join(installed, "references"))).sort()).toEqual([
+      "effects.md",
+      "refs.md",
+      "signs.md",
+      "tokens.md",
+      "visuals.md",
+    ]);
+
+    fake.save(ready({ unslop: false }));
+
+    const status = await plugin.status();
+    expect(status.status === "done" && status.skills[0]?.folders).toEqual([
+      { folder: "unslop", state: "off" },
     ]);
     expect(await readdir(paths.skillsDirectory)).toEqual([]);
     await plugin.stop();
