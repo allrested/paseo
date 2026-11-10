@@ -170,3 +170,157 @@ describe("browser automation protocol integration", () => {
     ).toEqual({ enabled: true });
   });
 });
+
+const CDP_TAB = {
+  browserId: "11111111-1111-4111-8111-111111111111",
+  workspaceId: "ws-a",
+  url: "https://example.com/",
+  title: "Example",
+  isLoading: false,
+  canGoBack: false,
+  canGoForward: false,
+  agentActiveUntil: null,
+};
+
+describe("browser.cdp messages", () => {
+  test("parses every inbound request", () => {
+    const messages = [
+      { type: "browser.cdp.tab.open.request", requestId: "r1", workspaceId: "ws-a" },
+      {
+        type: "browser.cdp.tab.open.request",
+        requestId: "r1",
+        workspaceId: "ws-a",
+        url: "https://example.com/",
+      },
+      { type: "browser.cdp.tab.close.request", requestId: "r2", browserId: CDP_TAB.browserId },
+      { type: "browser.cdp.tabs.subscribe.request", requestId: "r3" },
+      { type: "browser.cdp.tabs.subscribe.request", requestId: "r3", workspaceId: "ws-a" },
+      {
+        type: "browser.cdp.view.subscribe.request",
+        requestId: "r4",
+        browserId: CDP_TAB.browserId,
+        width: 390,
+        height: 700,
+        deviceScaleFactor: 2,
+      },
+      {
+        type: "browser.cdp.view.navigate.request",
+        requestId: "r5",
+        browserId: CDP_TAB.browserId,
+        action: { kind: "url", url: "https://example.com/" },
+      },
+      {
+        type: "browser.cdp.view.navigate.request",
+        requestId: "r5",
+        browserId: CDP_TAB.browserId,
+        action: { kind: "back" },
+      },
+      {
+        type: "browser.cdp.view.input.request",
+        subscriptionId: "s1",
+        input: {
+          kind: "mouse",
+          type: "down",
+          x: 10,
+          y: 20,
+          button: "left",
+          buttons: 1,
+          clickCount: 1,
+          modifiers: 0,
+        },
+        viewport: { width: 390, height: 700, deviceScaleFactor: 2 },
+      },
+      {
+        type: "browser.cdp.view.input.request",
+        subscriptionId: "s1",
+        input: { kind: "wheel", x: 1, y: 2, deltaX: 0, deltaY: 120, modifiers: 0 },
+      },
+      {
+        type: "browser.cdp.view.input.request",
+        subscriptionId: "s1",
+        input: { kind: "key", type: "down", key: "a", code: "KeyA", text: "a", modifiers: 0 },
+      },
+      {
+        type: "browser.cdp.view.input.request",
+        subscriptionId: "s1",
+        input: { kind: "text", text: "hello" },
+      },
+    ];
+    for (const message of messages) {
+      expect(SessionInboundMessageSchema.parse(message)).toEqual(message);
+    }
+  });
+
+  test("parses every outbound message", () => {
+    const messages = [
+      {
+        type: "browser.cdp.tab.open.response",
+        payload: { requestId: "r1", tab: CDP_TAB, error: null },
+      },
+      {
+        type: "browser.cdp.tab.open.response",
+        payload: { requestId: "r1", tab: null, error: "browser_no_host" },
+      },
+      { type: "browser.cdp.tab.close.response", payload: { requestId: "r2", error: null } },
+      {
+        type: "browser.cdp.tabs.subscribe.response",
+        payload: {
+          requestId: "r3",
+          subscriptionId: "s0",
+          connected: true,
+          tabs: [CDP_TAB],
+          error: null,
+        },
+      },
+      {
+        type: "browser.cdp.tabs.update",
+        payload: { subscriptionId: "s0", event: { kind: "opened", tab: CDP_TAB } },
+      },
+      {
+        type: "browser.cdp.tabs.update",
+        payload: {
+          subscriptionId: "s0",
+          event: { kind: "state", tab: { ...CDP_TAB, agentActiveUntil: 123 } },
+        },
+      },
+      {
+        type: "browser.cdp.tabs.update",
+        payload: {
+          subscriptionId: "s0",
+          event: {
+            kind: "closed",
+            browserId: CDP_TAB.browserId,
+            workspaceId: "ws-a",
+            lastUrl: "https://example.com/",
+          },
+        },
+      },
+      {
+        type: "browser.cdp.tabs.update",
+        payload: { subscriptionId: "s0", event: { kind: "host", connected: false } },
+      },
+      {
+        type: "browser.cdp.view.subscribe.response",
+        payload: { requestId: "r4", subscriptionId: "s1", error: null },
+      },
+      {
+        type: "browser.cdp.view.update",
+        payload: { subscriptionId: "s1", error: "browser_timeout" },
+      },
+      { type: "browser.cdp.view.navigate.response", payload: { requestId: "r5", error: null } },
+    ];
+    for (const message of messages) {
+      expect(SessionOutboundMessageSchema.parse(message)).toEqual(message);
+    }
+  });
+
+  test("rejects an input kind it does not know", () => {
+    expect(
+      SessionInboundMessageSchema.safeParse({
+        type: "browser.cdp.view.input.request",
+        subscriptionId: "s1",
+        input: { kind: "pinch", scale: 2 },
+      }).success,
+    ).toBe(false);
+  });
+});
