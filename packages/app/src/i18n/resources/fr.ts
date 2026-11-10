@@ -2031,6 +2031,7 @@ export const fr: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Revenir à ce message",
     warning: "Cette action est irréversible",

@@ -1994,6 +1994,7 @@ export const ko: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "이 메시지로 되감기",
     warning: "이 작업은 되돌릴 수 없습니다",

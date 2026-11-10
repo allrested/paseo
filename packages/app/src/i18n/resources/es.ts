@@ -2032,6 +2032,7 @@ export const es: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Rebobinar a este mensaje",
     warning: "Esta acción no se puede deshacer.",
