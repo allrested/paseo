@@ -1,3 +1,8 @@
+import {
+  BROWSER_VIEW_OPCODE,
+  decodeBrowserViewFrame,
+  type BrowserViewFrame,
+} from "./browser-view.js";
 import { decodeDiffFrame, DiffOpcode, type DiffFrame } from "./diff.js";
 import { HOST_ROUTE_OPCODE, decodeHostRouteFrame, type HostRouteFrame } from "./host-route.js";
 import {
@@ -17,11 +22,17 @@ export type BinaryFrame =
   | { kind: "host_route"; frame: HostRouteFrame }
   | { kind: "terminal"; frame: TerminalStreamFrame }
   | { kind: "file_transfer"; frame: FileTransferFrame }
-  | { kind: "plugin"; frame: PluginFrame };
+  | { kind: "plugin"; frame: PluginFrame }
+  | { kind: "browser_view"; frame: BrowserViewFrame };
 
 export function decodeBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
   if (Object.values(DiffOpcode).some((opcode) => opcode === bytes[0])) {
     return { kind: "diff", frame: decodeDiffFrame(bytes) };
+  }
+  // Outside the switch below, which is at the complexity limit.
+  if (bytes[0] === BROWSER_VIEW_OPCODE) {
+    const frame = decodeBrowserViewFrame(bytes);
+    return frame ? { kind: "browser_view", frame } : null;
   }
   return decodeExistingBinaryFrame(bytes);
 }
