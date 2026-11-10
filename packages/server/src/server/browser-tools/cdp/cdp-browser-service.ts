@@ -15,6 +15,7 @@ import { browserToolsFailure } from "../errors.js";
 import { CdpClosedError, CdpTimeoutError, type CdpConnection } from "./cdp-connection.js";
 import { CdpUnreachableError, type CdpEndpoint } from "./cdp-endpoint.js";
 import { CdpTab } from "./cdp-tab.js";
+import { ScreencastHub } from "./screencast-hub.js";
 import type { CdpTabEntry, CdpTabRegistry } from "./tab-registry.js";
 
 export const CDP_HOST_ID = "cdp-browser-host";
@@ -118,6 +119,7 @@ export class CdpBrowserService {
   private readonly activeByWorkspace = new Map<string, string>();
   private readonly listeners = new Set<(event: CdpBrowserEvent) => void>();
   private readonly attachListeners = new Set<(browserId: string) => void>();
+  readonly screencast: ScreencastHub;
 
   private readonly browserRegistry: BrowserRegistry = {
     listRegisteredBrowserIds: () => this.registry.list().map((entry) => entry.browserId),
@@ -146,6 +148,16 @@ export class CdpBrowserService {
     this.minBackoffMs = options.reconnect?.minMs ?? 1_000;
     this.maxBackoffMs = options.reconnect?.maxMs ?? 30_000;
     this.backoffMs = this.minBackoffMs;
+    this.screencast = new ScreencastHub({
+      source: async (browserId) => (await this.attachedTab(browserId))?.connection ?? null,
+      onError: (error) => this.logger.debug({ err: error }, "Screencast error"),
+    });
+    // A tab that reconnects after a timed-out command has a new socket; its viewers follow it.
+    this.onAttached((browserId) => {
+      this.screencast
+        .rebind(browserId)
+        .catch((error: unknown) => this.logger.debug({ err: error }, "Screencast rebind failed"));
+    });
   }
 
   get connected(): boolean {
@@ -361,9 +373,7 @@ export class CdpBrowserService {
         return null;
       }
       this.tabs.set(entry.browserId, tab);
-      connection.onClose(() => {
-        if (this.tabs.get(entry.browserId) === tab) this.tabs.delete(entry.browserId);
-      });
+      connection.onClose(() => this.guard(() => this.onTabSocketClosed(entry.browserId, tab)));
       // The device metrics override belongs to the socket that set it, so a new socket needs it again.
       const viewport = this.viewports.get(entry.browserId);
       if (viewport) {
@@ -377,6 +387,19 @@ export class CdpBrowserService {
       this.logger.debug({ err: error, browserId: entry.browserId }, "CDP tab attach failed");
       return null;
     }
+  }
+
+  /**
+   * A command that timed out closed the tab's socket. Nothing else re-attaches a tab that someone
+   * only watches, so do it here; the new socket's onAttached moves the screencast over.
+   */
+  private onTabSocketClosed(browserId: string, tab: CdpTab): void {
+    if (this.tabs.get(browserId) !== tab) return;
+    this.tabs.delete(browserId);
+    if (!this.registry.get(browserId) || this.screencast.viewerCount(browserId) === 0) return;
+    this.attachedTab(browserId).catch((error: unknown) =>
+      this.logger.debug({ err: error, browserId }, "CDP tab re-attach failed"),
+    );
   }
 
   private async applyViewport(tab: CdpTab, viewport: CdpViewport): Promise<void> {
@@ -428,6 +451,7 @@ export class CdpBrowserService {
     const timer = this.agentTimers.get(entry.browserId);
     if (timer) clearTimeout(timer);
     this.agentTimers.delete(entry.browserId);
+    this.screencast.drop(entry.browserId);
     this.broker.releaseBrowser(entry.browserId);
     this.emit({
       kind: "closed",
