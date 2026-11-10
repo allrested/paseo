@@ -2046,6 +2046,20 @@ export const en = {
       dismiss: "Dismiss",
     },
   },
+  cdpBrowser: {
+    agentActive: "Agent is using this tab",
+    connecting: "Connecting to the browser…",
+    unresponsive: "Page not responding",
+    keyboard: "Show keyboard",
+    closed: {
+      title: "Tab closed",
+      reopen: "Reopen",
+    },
+    unreachable: {
+      title: "Docker browser unreachable",
+      retry: "Retry",
+    },
+  },
   rewind: {
     tooltip: "Rewind to this message",
     warning: "This action cannot be undone",
