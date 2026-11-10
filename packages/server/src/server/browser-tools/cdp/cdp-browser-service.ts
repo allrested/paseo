@@ -6,6 +6,7 @@ import {
   type BrowserAutomationExecuteRequest,
   type BrowserAutomationExecuteResponse,
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
+import type { CdpBrowserErrorCode } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import {
   executeAutomationCommand,
   type BrowserRegistry,
@@ -85,11 +86,17 @@ export function isOpenableUrl(url: string): boolean {
   }
 }
 
-/** The one map from a CDP failure to a browser automation error code. */
-export function cdpErrorCode(error: unknown): BrowserAutomationErrorCode {
+/**
+ * The one map from a CDP failure to an error code, for agent responses and the pane's
+ * browser.cdp messages alike. Every code it returns is in both vocabularies.
+ */
+export function cdpErrorCode(error: unknown): BrowserAutomationErrorCode & CdpBrowserErrorCode {
   if (error instanceof CdpTimeoutError) return "browser_timeout";
   if (error instanceof CdpUnreachableError || error instanceof CdpClosedError)
     return "browser_no_host";
+  // ScreencastHub.watch rejects with this message when the tab has no socket to watch.
+  if (error instanceof Error && error.message === "browser_tab_not_found")
+    return "browser_tab_not_found";
   return "browser_unknown_error";
 }
 
