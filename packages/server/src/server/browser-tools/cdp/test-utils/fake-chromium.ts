@@ -33,6 +33,8 @@ export interface FakeChromium {
   addTarget(input?: Partial<FakeTarget>): FakeTarget;
   destroyTarget(targetId: string): void;
   socketCount(targetId: string): number;
+  /** Drops every socket of one target ("browser" for the browser socket); the target stays. */
+  disconnect(targetId: string): void;
   close(): Promise<void>;
 }
 
@@ -181,6 +183,9 @@ export async function startFakeChromium(): Promise<FakeChromium> {
     addTarget,
     destroyTarget,
     socketCount: (targetId) => sockets.get(targetId)?.size ?? 0,
+    disconnect: (targetId) => {
+      for (const socket of sockets.get(targetId) ?? []) socket.terminate();
+    },
     close: async () => {
       for (const set of sockets.values()) for (const socket of set) socket.terminate();
       wss.close();
