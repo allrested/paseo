@@ -110,6 +110,21 @@ import {
   BrowserAutomationExecuteRequestSchema,
   BrowserAutomationExecuteResponseSchema,
 } from "./browser-automation/rpc-schemas.js";
+import {
+  BrowserCdpTabCloseRequestSchema,
+  BrowserCdpTabCloseResponseSchema,
+  BrowserCdpTabOpenRequestSchema,
+  BrowserCdpTabOpenResponseSchema,
+  BrowserCdpTabsSubscribeRequestSchema,
+  BrowserCdpTabsSubscribeResponseSchema,
+  BrowserCdpTabsUpdateSchema,
+  BrowserCdpViewInputRequestSchema,
+  BrowserCdpViewNavigateRequestSchema,
+  BrowserCdpViewNavigateResponseSchema,
+  BrowserCdpViewSubscribeRequestSchema,
+  BrowserCdpViewSubscribeResponseSchema,
+  BrowserCdpViewUpdateSchema,
+} from "./browser-automation/cdp-view-schemas.js";
 import { BrowserAutomationHostCapabilitySchema } from "./browser-automation/capabilities.js";
 import {
   PaseoConfigRawSchema,
@@ -3604,6 +3619,12 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   HubExecutionAgentValidateRequestSchema,
   HubExecutionControlRequestSchema,
   BrowserAutomationExecuteResponseSchema,
+  BrowserCdpTabOpenRequestSchema,
+  BrowserCdpTabCloseRequestSchema,
+  BrowserCdpTabsSubscribeRequestSchema,
+  BrowserCdpViewSubscribeRequestSchema,
+  BrowserCdpViewInputRequestSchema,
+  BrowserCdpViewNavigateRequestSchema,
   VoiceAudioChunkMessageSchema,
   AbortRequestMessageSchema,
   AudioPlayedMessageSchema,
@@ -4023,6 +4044,9 @@ export const ServerInfoStatusPayloadSchema = z
         // Fork delta (resource manager): the agent.runtime.close RPC.
         // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
         agentRuntimeClose: z.boolean().optional(),
+        // Fork delta (web browser pane): the daemon hosts a Docker Chromium; browser.cdp.* RPCs.
+        // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
+        cdpBrowser: z.boolean().optional(),
         // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
         usageSetting: z.boolean().optional(),
         usageSources: z.boolean().optional(),
@@ -7537,6 +7561,13 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   HubExecutionAgentUpdateSchema,
   HubExecutionAgentStreamSchema,
   BrowserAutomationExecuteRequestSchema,
+  BrowserCdpTabOpenResponseSchema,
+  BrowserCdpTabCloseResponseSchema,
+  BrowserCdpTabsSubscribeResponseSchema,
+  BrowserCdpTabsUpdateSchema,
+  BrowserCdpViewSubscribeResponseSchema,
+  BrowserCdpViewUpdateSchema,
+  BrowserCdpViewNavigateResponseSchema,
   PluginCatalogGetResponseSchema,
   PluginListResponseSchema,
   PluginLogsGetResponseSchema,
