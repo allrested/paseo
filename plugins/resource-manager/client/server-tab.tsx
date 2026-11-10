@@ -1,105 +1,108 @@
 import { useQuery } from "@tanstack/react-query";
-import { Text, View } from "react-native";
+import { useCallback, useEffect, useMemo } from "react";
+import { Pressable, Text, View } from "react-native";
 import { useRpc } from "@getpaseo/plugin/client";
-import { SettingsCard, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
-import { serverRpc, type RemoteSnapshot, type ServerEntry } from "../shared/rpc.js";
+import { serverRpc, type ServerEntry } from "../shared/rpc.js";
+import { DetailBlockView, ResourceCard, TrendBlock, type CardsState } from "./card-views.js";
 import {
-  formatClock,
-  mountRow,
-  processRow,
-  readingView,
-  serverRows,
-  type HostCard,
-  type SectionTitles,
-} from "./format.js";
+  areAllOpen,
+  formatAge,
+  overviewText,
+  snapshotDetails,
+  snapshotSample,
+  snapshotSummary,
+  sortWorstFirst,
+  trendLines,
+  type CardSummary,
+  type TrendPoint,
+} from "./cards.js";
+import { readingView, type HostCard } from "./format.js";
 import type { ScreenStyles } from "./styles.js";
 
 const POLL_MS = 30_000;
+const NO_POINTS: readonly TrendPoint[] = [];
 
 interface ServerTabProps {
   server: ServerEntry;
   hostId: string;
+  cards: CardsState;
   styles: ScreenStyles;
 }
 
-interface SnapshotSectionsProps {
-  snapshot: RemoteSnapshot;
-  readAt: string | null;
-  titles: SectionTitles;
-}
-
-interface ErrorSectionProps {
-  title: string;
-  message: string;
-  styles: ScreenStyles;
-}
-
-interface HostSectionsProps {
+interface Host {
+  /** The card's key among the open cards and in the trend: unique across tabs. */
+  id: string;
   card: HostCard;
+  summary: CardSummary;
+}
+
+interface HostCardViewProps {
+  host: Host;
+  /** When the tab last heard from the daemon, for the reading's age. */
+  now: number;
+  open: boolean;
+  points: readonly TrendPoint[];
+  onToggle(id: string): void;
   styles: ScreenStyles;
 }
 
-function SnapshotSections({ snapshot, readAt, titles }: SnapshotSectionsProps) {
-  const mounts = snapshot.mounts.map(mountRow);
-  const processes = snapshot.processes.map(processRow);
+function HostCardView({ host, now, open, points, onToggle, styles }: HostCardViewProps) {
+  const { card, summary } = host;
+  const { snapshot } = card;
+  const age = formatAge(card.readAt, now);
   return (
-    <>
-      <SettingsSection title={titles.summary}>
-        <SettingsCard>
-          {serverRows(snapshot).map((row) => (
-            <SettingsRow key={row.key} label={row.label} hint={row.value} />
+    <ResourceCard
+      id={host.id}
+      title={card.name}
+      meta={card.address === null ? age : `${card.address} · ${age}`}
+      summary={summary}
+      expandable={snapshot !== null}
+      open={open}
+      onToggle={onToggle}
+      styles={styles}
+    >
+      {snapshot === null || !open
+        ? null
+        : snapshotDetails(snapshot, card.readAt).map((block) => (
+            <DetailBlockView key={block.key} block={block} styles={styles} />
           ))}
-          <SettingsRow
-            label="Last reading"
-            hint={readAt === null ? "None yet" : formatClock(readAt)}
-          />
-        </SettingsCard>
-      </SettingsSection>
-      <SettingsSection title={titles.disks}>
-        <SettingsCard>
-          {mounts.length === 0 ? <SettingsRow label="No disks reported" /> : null}
-          {mounts.map((row) => (
-            <SettingsRow key={row.key} label={row.label} hint={row.value} />
-          ))}
-        </SettingsCard>
-      </SettingsSection>
-      <SettingsSection title={titles.processes}>
-        <SettingsCard>
-          {processes.map((row) => (
-            <SettingsRow key={row.key} label={row.label} hint={row.value} />
-          ))}
-        </SettingsCard>
-      </SettingsSection>
-    </>
-  );
-}
-
-function ErrorSection({ title, message, styles }: ErrorSectionProps) {
-  return (
-    <SettingsSection title={title}>
-      <Text accessibilityRole="alert" style={styles.error}>
-        {message}
-      </Text>
-    </SettingsSection>
-  );
-}
-
-function HostSections({ card, styles }: HostSectionsProps) {
-  return (
-    <>
-      {card.error === null ? null : (
-        <ErrorSection title={card.titles.error} message={card.error} styles={styles} />
+      {snapshot === null || !open ? null : (
+        <TrendBlock lines={trendLines(points, snapshot.cores)} styles={styles} />
       )}
-      {card.snapshot ? (
-        <SnapshotSections snapshot={card.snapshot} readAt={card.readAt} titles={card.titles} />
+    </ResourceCard>
+  );
+}
+
+interface OverviewProps {
+  hosts: readonly Host[];
+  cards: CardsState;
+  styles: ScreenStyles;
+}
+
+function Overview({ hosts, cards, styles }: OverviewProps) {
+  const ids = useMemo(() => hosts.map((host) => host.id), [hosts]);
+  const allOpen = areAllOpen(cards.open, ids);
+  const { setAll } = cards;
+  const press = useCallback(() => setAll(ids, !allOpen), [setAll, ids, allOpen]);
+  // A host with no reading has nothing to open.
+  const canOpen = hosts.some((host) => host.card.snapshot !== null);
+  return (
+    <View style={styles.overview}>
+      <Text style={styles.overviewText}>
+        {overviewText(hosts.map((host) => host.summary.status))}
+      </Text>
+      {canOpen ? (
+        <Pressable accessibilityRole="button" onPress={press}>
+          <Text style={styles.link}>{allOpen ? "Collapse all" : "Expand all"}</Text>
+        </Pressable>
       ) : null}
-    </>
+    </View>
   );
 }
 
 // Mounted only while its tab is selected, so the 30 s poll stops when the tab closes; the
 // server's session then closes 2 minutes after the last read.
-export function ServerTab({ server, hostId, styles }: ServerTabProps) {
+export function ServerTab({ server, hostId, cards, styles }: ServerTabProps) {
   const fetchServer = useRpc(serverRpc);
   const reading = useQuery({
     queryKey: ["resource-manager", hostId, "server", server.id],
@@ -108,7 +111,32 @@ export function ServerTab({ server, hostId, styles }: ServerTabProps) {
     retry: false,
   });
   const data = reading.data;
-  const view = readingView(data, reading.isError ? reading.error.message : null);
+  const requestError = reading.isError ? reading.error.message : null;
+  const view = useMemo(
+    () => readingView(data, requestError, server.name),
+    [data, requestError, server.name],
+  );
+  // Worst first, so the host that needs attention is the one under the thumb.
+  const hosts = useMemo(
+    () =>
+      sortWorstFirst(
+        view.cards.map(
+          (card): Host => ({
+            id: `${server.id}/${card.key}`,
+            card,
+            summary: snapshotSummary(card.snapshot, card.error),
+          }),
+        ),
+        (host) => host.summary.status,
+      ),
+    [view, server.id],
+  );
+  const { record } = cards;
+  useEffect(() => {
+    record(hosts.map((host) => snapshotSample(host.id, host.card.snapshot, host.card.readAt)));
+  }, [record, hosts]);
+  // Ages move when a poll lands or fails, not on a timer of their own.
+  const now = Math.max(reading.dataUpdatedAt, reading.errorUpdatedAt);
   return (
     <View style={styles.stack}>
       <Text style={styles.muted}>{server.source}</Text>
@@ -116,11 +144,24 @@ export function ServerTab({ server, hostId, styles }: ServerTabProps) {
         <Text style={styles.muted}>Reading {server.name}...</Text>
       ) : null}
       {view.error === null ? null : (
-        <ErrorSection title="Unable to read this server" message={view.error} styles={styles} />
+        <Text accessibilityRole="alert" style={styles.error}>
+          Unable to read this server: {view.error}
+        </Text>
       )}
-      {view.cards.map((card) => (
-        <HostSections key={card.key} card={card} styles={styles} />
-      ))}
+      {hosts.length > 1 ? <Overview hosts={hosts} cards={cards} styles={styles} /> : null}
+      <View style={styles.cards}>
+        {hosts.map((host) => (
+          <HostCardView
+            key={host.id}
+            host={host}
+            now={now}
+            open={cards.open.has(host.id)}
+            points={cards.trend.get(host.id) ?? NO_POINTS}
+            onToggle={cards.toggle}
+            styles={styles}
+          />
+        ))}
+      </View>
     </View>
   );
 }
