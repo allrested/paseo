@@ -1,4 +1,8 @@
-import type { KeyboardInputEvent } from "electron";
+// The one field of Electron's KeyboardInputEvent this engine sets. Declared here so the server
+// package needs no Electron types. IsolatedKeyboardInputEvent stays assignable to Electron's type.
+interface KeyboardInputEvent {
+  keyCode: string;
+}
 import type { ActionablePoint } from "./actionability.js";
 import type { CdpCommandSender } from "./cdp-session-queue.js";
 
