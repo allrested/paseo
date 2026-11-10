@@ -110,6 +110,12 @@ and RSS read Linux `/proc`. Without it, a server left running by a crashed daemo
 `external`. Probe, restart, and backoff rules are in the
 [design](superpowers/specs/2026-11-06-shared-mcp-plugin-design.md#supervisor).
 
+Point a definition's `command` at an installed binary, not `npx -y <package>`: npx keeps an
+`npm exec` parent of about 165 MB alive next to each server, which costs most of what sharing the
+server saves. The fork's agents image installs the npm servers it uses at pinned versions; the list
+is in [docker/README.md](../docker/README.md#the-compose-stack). A definition that still uses
+`npx -y` keeps working.
+
 A definition with `bearerToken` puts the plugin's token in the server's env under the `serverEnv`
 name, and in every agent's env under the `agentEnv` name, for configs that send
 `Authorization: Bearer ${VAR}`. Claude Code and Kiro CLI both expand that header. An agent
