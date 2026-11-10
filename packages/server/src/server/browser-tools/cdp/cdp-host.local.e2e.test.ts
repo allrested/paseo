@@ -8,11 +8,20 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { BrowserToolsBroker } from "../broker.js";
 import { CdpBrowserService } from "./cdp-browser-service.js";
 import { CdpEndpoint } from "./cdp-endpoint.js";
+import type { ScreencastFrame } from "./screencast-hub.js";
 import { CdpTabRegistry } from "./tab-registry.js";
 
 const CDP_URL = process.env.PASEO_TEST_CDP_URL;
 const WORKSPACE = "e2e-workspace";
 const logger = { debug: () => {}, warn: console.warn, error: console.error };
+
+async function waitFor(condition: () => boolean, label: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 
 describe.skipIf(!CDP_URL)("CDP host against a real Chromium", () => {
   let dir: string;
@@ -118,7 +127,31 @@ describe.skipIf(!CDP_URL)("CDP host against a real Chromium", () => {
     expect(Buffer.from(String(shot.dataBase64), "base64").subarray(1, 4).toString()).toBe("PNG");
   });
 
-  // Task 11 adds "a frame arrives" here, once ScreencastHub exists (preflight S5-5).
+  // The first frame may be the priming screenshot, so the check waits for one after a DOM change:
+  // the hub primes only once, so that one is a screencast frame.
+  test("a screencast frame arrives after a DOM change", async () => {
+    const frames: ScreencastFrame[] = [];
+    const stop = await service.screencast.watch(browserId, {
+      id: "e2e-viewer",
+      deliver: async (frame) => void frames.push(frame),
+    });
+    try {
+      await waitFor(() => frames.length > 0, "the first frame");
+      const before = frames.at(-1)!.sequence;
+      const tab = await service.attachedTab(browserId);
+      await tab!.executeJavaScript(
+        `document.body.innerHTML = '<h1 style="background:#c00">frame ' + Date.now() + '</h1>'; true`,
+      );
+      await waitFor(() => frames.at(-1)!.sequence > before, "a screencast frame");
+      const frame = frames.at(-1)!;
+      expect([...frame.jpeg.subarray(0, 2)]).toEqual([0xff, 0xd8]);
+      expect(frame.deviceWidth).toBeGreaterThan(0);
+      expect(frame.deviceHeight).toBeGreaterThan(0);
+    } finally {
+      stop();
+    }
+    expect(service.screencast.viewerCount(browserId)).toBe(0);
+  });
 
   test("close_tab removes the tab and the other targets are unchanged", async () => {
     await run({ command: "close_tab", args: { browserId } });
