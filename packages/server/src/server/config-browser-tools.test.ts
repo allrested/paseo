@@ -35,4 +35,35 @@ describe("daemon browser tools config", () => {
 
     expect(loadConfig(home, { env: {} }).browserToolsEnabled).toBe(true);
   });
+
+  test("PASEO_BROWSER_TOOLS_ENABLED is the default when nothing is persisted", async () => {
+    const home = await createPaseoHome({ version: 1 });
+
+    expect(
+      loadConfig(home, { env: { PASEO_BROWSER_TOOLS_ENABLED: "true" } }).browserToolsEnabled,
+    ).toBe(true);
+  });
+
+  test("the persisted setting wins over PASEO_BROWSER_TOOLS_ENABLED", async () => {
+    const home = await createPaseoHome({
+      version: 1,
+      daemon: { browserTools: { enabled: false } },
+    });
+
+    expect(
+      loadConfig(home, { env: { PASEO_BROWSER_TOOLS_ENABLED: "true" } }).browserToolsEnabled,
+    ).toBe(false);
+  });
+
+  test("reads the CDP URL from PASEO_BROWSER_CDP_URL", async () => {
+    const home = await createPaseoHome({ version: 1 });
+
+    expect(loadConfig(home, { env: {} }).browserCdpUrl).toBeUndefined();
+    expect(
+      loadConfig(home, { env: { PASEO_BROWSER_CDP_URL: "  " } }).browserCdpUrl,
+    ).toBeUndefined();
+    expect(
+      loadConfig(home, { env: { PASEO_BROWSER_CDP_URL: "http://127.0.0.1:9222" } }).browserCdpUrl,
+    ).toBe("http://127.0.0.1:9222");
+  });
 });
