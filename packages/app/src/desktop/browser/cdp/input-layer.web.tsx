@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { CdpBrowserViewInput } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import type { CdpInputLayerProps } from "./input-layer-types";
+import { createClickCounter, createPressTracker } from "./press-tracker";
 import { createInputCoalescer, createTouchGesture } from "./touch-gesture";
 import {
   createThrottle,
@@ -12,6 +13,12 @@ import {
 } from "./view-model";
 
 const WHEEL_LINE_PX = 16;
+
+/** Pixels per wheel delta unit: pixels, lines, or pages of the displayed frame. */
+function wheelUnit(deltaMode: number, frameHeight: number): number {
+  if (deltaMode === 1) return WHEEL_LINE_PX;
+  return deltaMode === 2 ? frameHeight : 1;
+}
 
 function isPasteChord(event: KeyboardEvent): boolean {
   return (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
@@ -42,7 +49,20 @@ export function CdpInputLayer({
     const touch = createTouchGesture();
     let touchId: number | null = null;
     const coalescer = createInputCoalescer((input) => latest.current.onInput(input));
+    const tracker = createPressTracker();
+    const clicks = createClickCounter();
     const send = (input: CdpBrowserViewInput) => coalescer.push(input);
+    // Mouse and key presses go through the tracker, so each down gets exactly one up.
+    const sendPress = (input: CdpBrowserViewInput) => {
+      tracker.press(input);
+      send(input);
+    };
+    const sendRelease = (input: CdpBrowserViewInput) => {
+      for (const released of tracker.release(input)) send(released);
+    };
+    const releaseAll = () => {
+      for (const released of tracker.releaseAll()) send(released);
+    };
     const point = (event: { clientX: number; clientY: number }) => {
       const bounds = node.getBoundingClientRect();
       const { rect: displayed, page: pageSize } = latest.current;
@@ -70,13 +90,14 @@ export function CdpInputLayer({
         return;
       }
       node.setPointerCapture(event.pointerId);
-      send({
+      const button = mouseButton(event.button);
+      sendPress({
         kind: "mouse",
         type: "down",
         ...point(event),
-        button: mouseButton(event.button),
+        button,
         buttons: event.buttons,
-        clickCount: Math.max(1, event.detail),
+        clickCount: clicks.press(button, event.clientX, event.clientY),
         modifiers: modifierMask(event),
       });
     };
@@ -87,10 +108,12 @@ export function CdpInputLayer({
       }
       // A drag sends every move (coalesced per frame); a hover is capped at about 30 per second.
       if (event.buttons === 0 && !allowHover()) return;
+      const moved = point(event);
+      tracker.moved(moved.x, moved.y);
       send({
         kind: "mouse",
         type: "move",
-        ...point(event),
+        ...moved,
         button: event.buttons === 0 ? "none" : mouseButton(event.button === -1 ? 0 : event.button),
         buttons: event.buttons,
         clickCount: 0,
@@ -102,25 +125,28 @@ export function CdpInputLayer({
         if (event.pointerId === touchId) endTouch();
         return;
       }
-      send({
+      // The click count of the matching down replaces the placeholder here.
+      sendRelease({
         kind: "mouse",
         type: "up",
         ...point(event),
         button: mouseButton(event.button),
         buttons: event.buttons,
-        clickCount: Math.max(1, event.detail),
+        clickCount: 1,
         modifiers: modifierMask(event),
       });
     };
     const onPointerCancel = (event: PointerEvent) => {
-      if (event.pointerType === "touch" && event.pointerId === touchId) {
+      if (event.pointerType !== "touch") {
+        releaseAll();
+      } else if (event.pointerId === touchId) {
         touchId = null;
         touch.cancel();
       }
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const unit = event.deltaMode === 1 ? WHEEL_LINE_PX : 1;
+      const unit = wheelUnit(event.deltaMode, latest.current.rect.height);
       send({
         kind: "wheel",
         ...point(event),
@@ -140,7 +166,7 @@ export function CdpInputLayer({
       if (isPasteChord(event)) return;
       event.preventDefault();
       const text = keyText(event);
-      send({
+      sendPress({
         kind: "key",
         type: "down",
         key: event.key,
@@ -150,9 +176,9 @@ export function CdpInputLayer({
       });
     };
     const onKeyUp = (event: KeyboardEvent) => {
-      if (document.activeElement !== node || isPasteChord(event)) return;
+      if (document.activeElement !== node) return;
       event.preventDefault();
-      send({
+      sendRelease({
         kind: "key",
         type: "up",
         key: event.key,
@@ -176,9 +202,14 @@ export function CdpInputLayer({
     node.addEventListener("keydown", onKeyDown);
     node.addEventListener("keyup", onKeyUp);
     node.addEventListener("paste", onPaste);
+    node.addEventListener("blur", releaseAll);
+    window.addEventListener("blur", releaseAll);
     node.addEventListener("contextmenu", onContextMenu);
     return () => {
+      releaseAll();
       coalescer.dispose();
+      window.removeEventListener("blur", releaseAll);
+      node.removeEventListener("blur", releaseAll);
       node.removeEventListener("pointerdown", onPointerDown);
       node.removeEventListener("pointermove", onPointerMove);
       node.removeEventListener("pointerup", onPointerUp);
