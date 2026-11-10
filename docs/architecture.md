@@ -326,6 +326,11 @@ from one stable file handle. Each transfer awaits completion of its own physical
 reading the next chunk; it is scoped to the requesting physical socket and does not queue unrelated
 messages or transfers.
 
+Browser view frames use opcode `0x50` (`packages/protocol/src/binary-frames/browser-view.ts`): a JPEG screencast frame
+of a Docker Chromium tab plus its viewport metadata, sent only to the client that subscribed with
+`browser.cdp.view.subscribe.request`. The daemon is a browser tools host when
+`PASEO_BROWSER_CDP_URL` is set; see [docs/docker.md](docker.md#browser).
+
 ### Compatibility rules
 
 - WebSocket schemas are append-only. Add fields, do not remove fields, and never make optional fields required.

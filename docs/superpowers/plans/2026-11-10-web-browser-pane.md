@@ -12,7 +12,7 @@
 
 ## Spec deviations
 
-Each one is where the code or a live test contradicted the spec. The plan follows the better option. Amend the spec in the same commit that lands the plan.
+Each one is where the code or a live test contradicted the spec. The plan follows the better option. Task 18 folds them into the spec sections that own them.
 
 - **D1. The engine moves into the server package, not a new workspace package.** Target: `packages/server/src/server/browser-automation/`, exported as `@getpaseo/server/browser-automation/*`. Desktop already depends on `@getpaseo/server`. A new package would touch the root workspace list, `build:server-deps`, the npm pack list in `docker/base/Dockerfile` and version sync, for seven files.
 - **D2. A tab opens in its own background window** (`Target.createTarget` with `newWindow: true, background: true`), not as a background tab. Measured on the Docker Chromium (Chrome 154): a background tab is `hidden`, produced 0 screencast frames in 3 s, and `requestAnimationFrame` does not fire, which the engine's paint wait needs. A background window is `visible` and produced 11 frames in 3 s. Cost: one extra Chromium window per pane tab on the noVNC desktop.
