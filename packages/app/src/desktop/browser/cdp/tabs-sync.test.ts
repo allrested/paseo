@@ -150,4 +150,32 @@ describe("ensureCdpTabInLayout", () => {
     ]);
     expect(browserTabIds().filter((id) => id === "b5")).toHaveLength(1);
   });
+
+  it("opened first: replaceTabId keeps the tab when the placeholder is alone in a split pane", () => {
+    const store = useWorkspaceLayoutStore.getState();
+    store.openTab({
+      workspaceKey: KEY,
+      target: { kind: "browser", browserId: "first" },
+      intent: "new",
+    });
+    const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[KEY];
+    const firstPane = collectAllPanes(layout.root)[0].id;
+    const splitPane = store.splitPaneEmpty(KEY, {
+      targetPaneId: firstPane,
+      position: "right",
+    }) as string;
+    // The split pane opens with its own new-tab placeholder, the only tab in it.
+    const split = useWorkspaceLayoutStore.getState().layoutByWorkspace[KEY];
+    const placeholder = collectAllPanes(split.root).find((pane) => pane.id === splitPane)
+      ?.tabIds[0] as string;
+    ensureCdpTabInLayout({ serverId: "srv", workspaceId: "ws", browserId: "b6", focus: false });
+    ensureCdpTabInLayout({
+      serverId: "srv",
+      workspaceId: "ws",
+      browserId: "b6",
+      focus: true,
+      replaceTabId: placeholder,
+    });
+    expect(paneBrowserIds().find((pane) => pane.paneId === splitPane)?.browserIds).toEqual(["b6"]);
+  });
 });
