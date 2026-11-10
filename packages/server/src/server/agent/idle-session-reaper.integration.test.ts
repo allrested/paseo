@@ -62,9 +62,40 @@ class ReapableSession implements AgentSession {
     return () => this.subscribers.delete(callback);
   }
 
+  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {}
+
+  async getRuntimeInfo() {
+    return {
+      provider: this.provider,
+      // The manager derives a persistence handle from a runtime session id, so a
+      // provider with nothing to resume from must not report one either.
+      sessionId: this.persistence?.sessionId ?? null,
+      model: this.config.model ?? null,
+      modeId: this.config.modeId ?? null,
+    };
+  }
+
+  async getAvailableModes() {
+    return [];
+  }
+
+  async getCurrentMode() {
+    return null;
+  }
+
+  async setMode(): Promise<void> {}
+
+  getPendingPermissions() {
+    return [];
+  }
+
+  async respondToPermission(): Promise<void> {}
+
   describePersistence(): AgentPersistenceHandle | null {
     return this.persistence;
   }
+
+  async interrupt(): Promise<void> {}
 
   async close(): Promise<void> {
     this.closeCount += 1;
@@ -87,6 +118,22 @@ class ReapableClient implements AgentClient {
     this.sessions.push(session);
     return session;
   }
+
+  async resumeSession(
+    persistence: AgentPersistenceHandle,
+    overrides?: Partial<AgentSessionConfig>,
+  ): Promise<AgentSession> {
+    const session = new ReapableSession(
+      { provider: this.provider, cwd: overrides?.cwd ?? process.cwd() },
+      persistence,
+    );
+    this.sessions.push(session);
+    return session;
+  }
+
+  async fetchCatalog() {
+    return { models: [], modes: [] };
+  }
 }
 
 function handle(): AgentPersistenceHandle {
@@ -97,7 +144,7 @@ async function makeAgent(persistence: AgentPersistenceHandle | null) {
   const cwd = mkdtempSync(join(tmpdir(), "idle-reaper-"));
   const client = new ReapableClient(persistence);
   const manager = new AgentManager({
-    clients: { codex: client as unknown as AgentClient },
+    clients: { codex: client },
     logger,
   });
   const agent = await manager.createAgent({ provider: "codex", cwd }, undefined, {
