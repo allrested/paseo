@@ -1,6 +1,6 @@
 # Web browser pane — design
 
-Date: 2026-11-10. Status: approved design. First sub-project of fork program item 7 (design mode,
+Date: 2026-11-10. Status: approved design, amended on 2026-11-10 with the plan's seven deviations (see Amendments). First sub-project of fork program item 7 (design mode,
 computer use, mobile emulator); design mode builds on it next.
 
 ## Problem
@@ -172,3 +172,33 @@ browser tools on; `docker/docker-compose.agent.yml` sets it from `BROWSER_HOST` 
 - Manual, on a dev daemon pointed at the Docker Chromium: open a tab from the web UI, watch an agent
   use `browser_*` in it, steer it from a phone over the relay, close it from noVNC and see "Tab
   closed".
+
+## Amendments (2026-11-10)
+
+The plan (`docs/superpowers/plans/2026-11-10-web-browser-pane.md`) tested against the Docker Chromium
+and the code, and the owner approved these changes. Where they differ from the text above, they win.
+
+- **D1.** The engine moves into `packages/server/src/server/browser-automation/`, exported as
+  `@getpaseo/server/browser-automation/*`, not into a new workspace package. Desktop already depends
+  on the server package, and a new package would touch the workspace list, the build order, the
+  Docker pack list and version sync.
+- **D2.** A pane tab opens in its own background window (`Target.createTarget` with
+  `newWindow: true, background: true`). A background tab is hidden: it produced no screencast frames
+  and `requestAnimationFrame` did not fire. Each pane tab is one more window on the noVNC desktop.
+- **D3.** `Emulation.setDeviceMetricsOverride` uses `mobile: false`; `true` shrank the page scale. A
+  narrow width gives the responsive layout.
+- **D4.** The tab list and tab events are one owned subscription, `browser.cdp.tabs.subscribe.request`,
+  whose updates carry opened, closed, state and host events. It replaces `tab.list` and the three
+  broadcast events.
+- **D5.** `browser.cdp.view.input.request` has no response.
+- **D6.** Both compose files set `PASEO_BROWSER_CDP_URL=http://127.0.0.1:9222`, the existing loopback
+  sidecar. A new `PASEO_BROWSER_TOOLS_ENABLED` variable is the default for browser tools, and compose
+  sets it to `true`; a saved setting still wins.
+- **D7.** Dialogs are answered through CDP alone. The Electron prompt shim is not ported.
+
+Names: `CdpTabContents` is `CdpTab`, and `CdpBrowserHost` is `CdpBrowserService`, which also serves
+the view. A `browser.cdp.view.update` message reports a closed tab, a lost host and a page that does
+not respond.
+
+Tests use an in-process fake Chromium. One hand-run file runs against a real Chromium and touches
+only the tabs it opens.
