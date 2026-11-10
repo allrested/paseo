@@ -15,7 +15,11 @@ vi.mock("@react-native-async-storage/async-storage", () => {
   };
 });
 
-import { collectAllTabs, useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import {
+  collectAllPanes,
+  collectAllTabs,
+  useWorkspaceLayoutStore,
+} from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { ensureCdpTabInLayout } from "./tabs-sync";
 
@@ -27,6 +31,21 @@ function browserTabIds(): string[] {
   return collectAllTabs(layout.root)
     .filter((tab) => tab.target.kind === "browser")
     .map((tab) => (tab.target.kind === "browser" ? tab.target.browserId : ""));
+}
+
+function paneBrowserIds(): { paneId: string; browserIds: string[] }[] {
+  const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[KEY];
+  if (!layout) return [];
+  const idByTabId = new Map(
+    collectAllTabs(layout.root).map((tab) => [
+      tab.tabId,
+      tab.target.kind === "browser" ? tab.target.browserId : tab.target.kind,
+    ]),
+  );
+  return collectAllPanes(layout.root).map((pane) => ({
+    paneId: pane.id,
+    browserIds: pane.tabIds.map((tabId) => idByTabId.get(tabId) ?? ""),
+  }));
 }
 
 describe("ensureCdpTabInLayout", () => {
@@ -72,5 +91,63 @@ describe("ensureCdpTabInLayout", () => {
       replaceTabId: placeholder,
     });
     expect(browserTabIds()).toEqual(["b3"]);
+  });
+
+  it("opened first: replaceTabId puts the tab at the placeholder's pane and index", () => {
+    const store = useWorkspaceLayoutStore.getState();
+    store.openTab({
+      workspaceKey: KEY,
+      target: { kind: "browser", browserId: "first" },
+      intent: "new",
+    });
+    const placeholder = store.openTab({
+      workspaceKey: KEY,
+      target: { kind: "browser", browserId: "old" },
+      intent: "new",
+    }) as string;
+    store.openTab({
+      workspaceKey: KEY,
+      target: { kind: "browser", browserId: "last" },
+      intent: "new",
+    });
+    // The tabs sync adds the tab first, in the default place.
+    ensureCdpTabInLayout({ serverId: "srv", workspaceId: "ws", browserId: "b4", focus: false });
+    ensureCdpTabInLayout({
+      serverId: "srv",
+      workspaceId: "ws",
+      browserId: "b4",
+      focus: true,
+      replaceTabId: placeholder,
+    });
+    expect(paneBrowserIds().map((pane) => pane.browserIds)).toEqual([["first", "b4", "last"]]);
+  });
+
+  it("opened first: paneId moves the tab into that pane", () => {
+    const store = useWorkspaceLayoutStore.getState();
+    store.openTab({
+      workspaceKey: KEY,
+      target: { kind: "browser", browserId: "first" },
+      intent: "new",
+    });
+    const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[KEY];
+    const firstPane = collectAllPanes(layout.root)[0].id;
+    const otherPane = store.splitPaneEmpty(KEY, {
+      targetPaneId: firstPane,
+      position: "right",
+    }) as string;
+    ensureCdpTabInLayout({ serverId: "srv", workspaceId: "ws", browserId: "b5", focus: false });
+    ensureCdpTabInLayout({
+      serverId: "srv",
+      workspaceId: "ws",
+      browserId: "b5",
+      focus: true,
+      paneId: firstPane,
+    });
+    expect(otherPane).not.toBe(firstPane);
+    expect(paneBrowserIds().find((pane) => pane.paneId === firstPane)?.browserIds).toEqual([
+      "first",
+      "b5",
+    ]);
+    expect(browserTabIds().filter((id) => id === "b5")).toHaveLength(1);
   });
 });
