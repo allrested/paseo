@@ -1,4 +1,4 @@
-import { mkdir, stat } from "node:fs/promises";
+import { lstat, mkdir, rename, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Account, AccountList, ActionResult, MoveIdleResult } from "../shared/rpc.js";
 import { MAIN_PROVIDER, accountProvider } from "../shared/settings.js";
@@ -25,6 +25,7 @@ import {
   accountDirectory,
   claudeConfigFile,
   discoverProfiles,
+  forgetAddedAccount,
   hasCredentials,
   isMainDirectory,
   readAddedAccounts,
@@ -48,6 +49,8 @@ export interface ClaudeAccounts {
   list(api: AccountsApi): Promise<AccountList>;
   add(api: AccountsApi, name: string): Promise<ActionResult>;
   signIn(api: AccountsApi, provider: string): Promise<ActionResult>;
+  /** Removes an account this plugin added. Never rejects. */
+  remove(api: AccountsApi, provider: string): Promise<ActionResult>;
   moveIdle(api: AccountsApi, from: string, to: string): Promise<MoveIdleResult>;
   /** The provider for an `agent.create.before` request. Never rejects. */
   beforeCreate(api: AccountsApi, request: CreateRequest): Promise<string>;
@@ -110,7 +113,7 @@ export function createClaudeAccounts(options: ClaudeAccountsOptions): ClaudeAcco
     intervalMs: options.syncIntervalMs ?? SYNC_INTERVAL_MS,
     logError: options.logError,
   });
-  // Adds run one after another, so two presses cannot interleave their writes.
+  // Adds and removes run one after another, so two presses cannot interleave their writes.
   let adding: Promise<unknown> = Promise.resolve();
 
   async function viewProfiles(api: AccountsApi, view: ViewOptions): Promise<ProfileViews> {
@@ -175,6 +178,60 @@ export function createClaudeAccounts(options: ClaudeAccountsOptions): ClaudeAcco
     );
   }
 
+  async function removeAccount(api: AccountsApi, provider: string): Promise<ActionResult> {
+    if (provider === MAIN_PROVIDER) return failure("The main account cannot be removed");
+    const added = await readAddedAccounts(paths.recordFile);
+    const { accounts } = await discoverProfiles(paths, added);
+    const profile = accounts.find((candidate) => candidate.provider === provider);
+    // Only the main profile has no name, and it is never among `accounts`.
+    if (profile === undefined || profile.name === null) {
+      return failure(`No account uses ${provider}`);
+    }
+    const name = profile.name;
+    const { directory } = profile;
+    if (!profile.added) {
+      return failure(
+        `Paseo did not add ${provider}, so it cannot remove it. Add it again to adopt it first, or delete ${directory} by hand.`,
+      );
+    }
+    const job = runner.current();
+    if (job !== null && !job.done && (job.from === provider || job.to === provider)) {
+      return failure(`Agents are moving to or from ${provider}. Wait for that move to finish.`);
+    }
+    const agents = (await api.listAgents()).filter((agent) => agent.provider === provider).length;
+    if (agents > 0) {
+      return failure(`Move or archive its ${agents === 1 ? "agent" : `${agents} agents`} first`);
+    }
+    // The dot keeps the folder out of discovery: account names cannot contain one.
+    const moved = `${directory}.removed-${removalStamp(new Date())}`;
+    if (await pathExists(moved)) return failure(`${moved} already exists. Try again in a second.`);
+    try {
+      await api.removeProvider(provider);
+    } catch (error) {
+      return failure(
+        `The ${provider} provider was not removed, so the account stays: ${errorMessage(error)}`,
+      );
+    }
+    try {
+      await forgetAddedAccount(paths.recordFile, name);
+    } catch (error) {
+      return failure(
+        `Removed the ${provider} provider, but ${paths.recordFile} was not updated: ${errorMessage(error)}. Press Remove again.`,
+      );
+    }
+    // The pass this starts no longer syncs the account, and awaiting it waits out a pass still
+    // writing into the folder, whose lock would otherwise move along with it.
+    await watcher.tick();
+    try {
+      await rename(directory, moved);
+    } catch (error) {
+      return failure(
+        `Removed the ${provider} provider and its record, but its folder did not move: ${errorMessage(error)}. Rename or delete it by hand.`,
+      );
+    }
+    return { ok: true, error: null, loginWorkspaceId: null };
+  }
+
   return {
     async list(api) {
       const { views, usageError } = await viewProfiles(api, { only: null, withAgents: true });
@@ -183,6 +240,14 @@ export function createClaudeAccounts(options: ClaudeAccountsOptions): ClaudeAcco
     add(api, name) {
       const run = adding
         .then(() => addAccount(api, name))
+        .catch((error: unknown) => failure(errorMessage(error)));
+      adding = run;
+      return run;
+    },
+    // The plugin runs inside the daemon, so every error becomes a failure instead of a rejection.
+    remove(api, provider) {
+      const run = adding
+        .then(() => removeAccount(api, provider))
         .catch((error: unknown) => failure(errorMessage(error)));
       adding = run;
       return run;
@@ -343,6 +408,21 @@ async function makeAccountDirectory(directory: string): Promise<void> {
   }
   if (!(await stat(directory)).isDirectory()) {
     throw new Error(`${directory} exists and is not a directory`);
+  }
+}
+
+/** `yyyymmdd-hhmmss` in UTC. */
+function removalStamp(now: Date): string {
+  return now.toISOString().slice(0, 19).replaceAll("-", "").replaceAll(":", "").replace("T", "-");
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
   }
 }
 

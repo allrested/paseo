@@ -1,5 +1,5 @@
 import type { Account, MoveJob } from "../shared/rpc.js";
-import { AUTO_ACCOUNT, AccountNameSchema } from "../shared/settings.js";
+import { AUTO_ACCOUNT, AccountNameSchema, MAIN_PROVIDER } from "../shared/settings.js";
 
 export interface SelectOption {
   label: string;
@@ -49,6 +49,29 @@ export function needsSignIn(account: Account): boolean {
 /** Agents can start on, or move to, an account whose provider is ready and whose login holds. */
 export function canTakeAgents(account: Account): boolean {
   return account.providerReady && account.signedIn && !account.loginExpired;
+}
+
+/** The row offers Remove on every account but the main one. */
+export function canRemove(account: Account): boolean {
+  return !account.main;
+}
+
+/** The Remove dialog's paragraphs. The server stamps the folder with the UTC time. */
+export function removalNotes(account: Account): string[] {
+  const { provider, directory, label } = account;
+  return [
+    `Paseo deletes the ${provider} provider and renames ${directory} to ${directory}.removed-<yyyymmdd-hhmmss>, in UTC. The account's chat history and login stay in that folder.`,
+    `If ${label} is the default account, new Claude agents start on the main account again.`,
+    `To restore it, rename the folder back to ${directory}, then add the name ${label} again.`,
+  ];
+}
+
+/**
+ * The default account to save once `removed` is gone, or null to leave it. The server cannot write
+ * plugin settings, so the screen that removed the account resets the default.
+ */
+export function defaultAfterRemoval(saved: string | null, removed: string): string | null {
+  return saved === removed ? MAIN_PROVIDER : null;
 }
 
 /** Auto, then every account. A saved account that is gone stays listed so the picker shows it. */
