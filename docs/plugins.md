@@ -97,7 +97,10 @@ The author contract is in [runtime translations](../public-docs/plugins/referenc
 Built-in plugins ship from `plugins/<id>/`, with `paseo-plugin.json`, `index.server.ts`,
 `server/`, and optional client entry and icon. Add the plugin ID to `builtinPlugins` in
 `packages/server/src/server/plugins/builtin/index.ts`; the workspace, build copy, and CI
-checks cover that registry. Unlisted directories do not load.
+checks cover that registry. Unlisted directories do not load. A built-in's default export gets its
+own directory as a second argument, `{ directory }`, for files it ships beside its code; the build
+copy and Docker image carry every file under `plugins/` except tests, `test/` folders and
+`node_modules`. Installed plugins get no second argument.
 
 The `worktree-include` built-in copies gitignored files selected by
 [`.worktreeinclude`](../public-docs/worktrees.md#copy-local-files-with-worktreeinclude)
@@ -294,9 +297,27 @@ after the removal. If that save fails, its error shows under the default account
 stale default keeps plain `claude`. To restore an account, rename its folder back to
 `~/.claude-<name>`, then add the same name again.
 
-Local runs of `scripts/builtin-plugins-dist.test.mjs` and
-`packages/server/src/server/plugins/lifecycle.e2e.test.ts` start every built-in in process, so give
-them `PASEO_HOME=$(mktemp -d)` and `HOME=$(mktemp -d)`, with `CLAUDE_CONFIG_DIR` unset. Otherwise
+The `default-skills` built-in installs third-party Claude Code skills that were reviewed at a
+pinned commit: ub-mode, the AI design skills, Anti Slop and UI/UX Pro Max. At every daemon start,
+and whenever its settings are saved, it copies each skill that is on from
+`plugins/default-skills/vendor/` into `skills/` of the main Claude config folder
+(`$CLAUDE_CONFIG_DIR`, else `~/.claude`). `claude-accounts` links that folder into each account it
+adds, so one copy serves every account; an account added before the folder existed needs Add
+again. It writes no other agent's skills folder. Each folder it creates is recorded with a hash of
+its content in `$PASEO_HOME/default-skills/installed.json`, and a folder counts as the plugin's only
+while it still matches that hash. A folder you made, or one of its folders you edited, is never
+replaced or removed; the skill shows "skipped: a folder with this name exists" on the Skills screen,
+which the "Default skills" Command Center item opens. Turning a skill off removes the plugin's
+folders. Agents see a change when their session starts. UI/UX Pro Max runs `python3`, which the
+fork's agents image installs. To update a pin, follow
+[`vendor/SOURCES.md`](../plugins/default-skills/vendor/SOURCES.md), which also lists every file left
+out or edited and why; the next daemon start replaces the plugin's copies whose content changed.
+`oxlint` and `oxfmt` skip the vendored files, so they stay as reviewed.
+
+`scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
+and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
+run that starts the real built-ins the same environment. Otherwise `default-skills` copies its
+skills into your real Claude skills folder, and
 `shared-mcp`, `heavy-command-gate` and `resource-manager` work in the real `$PASEO_HOME/shared-mcp`,
 `$PASEO_HOME/heavy-command-gate` and `$PASEO_HOME/resource-manager`, and write the gate's shims,
 config and socket there when no daemon owns `gate.sock`; `worktree-include` and `claude-workflows`

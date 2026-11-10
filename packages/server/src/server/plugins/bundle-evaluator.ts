@@ -4,7 +4,8 @@ import * as pluginProviderRuntime from "@getpaseo/plugin/server/provider";
 import * as pluginAcpRuntime from "@getpaseo/plugin/server/acp";
 import * as pluginUsageRuntime from "@getpaseo/plugin/server/usage";
 import * as pluginServerRuntime from "@getpaseo/plugin/server";
-import type { PluginServerContribution } from "@getpaseo/plugin/server";
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginCleanup } from "@getpaseo/plugin";
 import * as zod from "zod";
 import { isPluginClientOnlySdkSpecifier } from "./plugin-sdk-specifiers.js";
 
@@ -25,7 +26,18 @@ function runtimeRequire(name: string): unknown {
   return nodeRequire(name);
 }
 
-export function evaluateBundle(bundle: string): PluginServerContribution {
+/** What a built-in's contribution receives beside the server context. Installed plugins get nothing. */
+export interface BuiltinPluginInfo {
+  /** The built-in's own directory, for files it ships beside its code. */
+  directory: string;
+}
+
+export type EvaluatedContribution = (
+  server: PluginServerContext,
+  builtin?: BuiltinPluginInfo,
+) => PluginCleanup;
+
+export function evaluateBundle(bundle: string): EvaluatedContribution {
   const evaluate: (source: string) => unknown = globalThis.eval;
   const factory = evaluate(bundle);
   if (typeof factory !== "function") throw new Error("Plugin server bundle is not executable");
@@ -35,5 +47,5 @@ export function evaluateBundle(bundle: string): PluginServerContribution {
   if (typeof setup !== "function") {
     throw new Error("Plugin server bundle must default export a function");
   }
-  return setup as PluginServerContribution;
+  return setup as EvaluatedContribution;
 }
