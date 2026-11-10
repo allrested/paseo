@@ -989,6 +989,27 @@ describe("moveAgent", () => {
         "full-access",
       );
     });
+
+    it("carries the agent's options to a handoff between two logins of the same CLI", async () => {
+      const current = requireCtx();
+      const source = await current.client.createAgent({
+        config: { provider: "codex", cwd, providerOptions: { test_feature: true } },
+      });
+      await current.daemon.daemon.agentManager.runAgent(source.id, SOURCE_PROMPT, {
+        clientMessageId: randomUUID(),
+      });
+
+      const result = await moveAgent(deps(), {
+        agentId: source.id,
+        target: { provider: "codex-work" },
+        continueWork: false,
+      });
+
+      expect(result).toMatchObject({ strategy: "handoff", fellBackFromNative: false });
+      expect(
+        current.daemon.daemon.agentManager.getAgent(result.agentId)?.config.providerOptions,
+      ).toEqual({ test_feature: true });
+    });
   });
 
   describe("after a native hop", () => {
