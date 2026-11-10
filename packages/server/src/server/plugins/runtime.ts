@@ -352,11 +352,12 @@ export class PluginRuntime {
     const bundles = await compileDirectoryPlugin(directory, this.daemonVersion, input.id);
     const { manifest } = bundles;
     if (!bundles.serverBundle) throw new Error(`Built-in plugin ${input.id} needs a server entry`);
+    const contribute = evaluateBundle(bundles.serverBundle);
     const loaded = await this.launchPlugin({
       pluginId: input.id,
       pluginDirectory: directory,
       requirements: manifest.requirements,
-      child: new InternalPluginChild(evaluateBundle(bundles.serverBundle)),
+      child: new InternalPluginChild((server) => contribute(server, { directory })),
       bundle: "",
       clientBundle: bundles.clientBundle ?? "",
     });
