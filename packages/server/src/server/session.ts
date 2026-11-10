@@ -12,6 +12,7 @@ import type { WorkspaceBaseBranchSetRequest } from "@getpaseo/protocol/messages"
 
 import { searchTimeline } from "./agent/chat-search/index.js";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
+import { CdpViewSession } from "./browser-tools/cdp/view-session.js";
 import { BrowserAutomationHostCapabilitySchema } from "@getpaseo/protocol/browser-automation/capabilities";
 import type {
   SessionEventSubscription,
@@ -781,6 +782,7 @@ export class Session {
       ),
   );
   private readonly browserToolsBroker: SessionOptions["browserToolsBroker"];
+  private readonly cdpView: CdpViewSession;
   private readonly clientId: string;
   private readonly authorization: SessionAuthorization;
   private appVersion: string | null;
@@ -986,6 +988,10 @@ export class Session {
       clientId: this.clientId,
       sessionId: this.sessionId,
     });
+    this.cdpView = new CdpViewSession(
+      () => this.browserToolsBroker?.cdpBrowser ?? null,
+      this.sessionLogger,
+    );
     this.workspaceFilesSession = new WorkspaceFilesSession({
       host: {
         emit: (msg, source) => this.emitForSource(msg, source),
@@ -2620,7 +2626,29 @@ export class Session {
         return undefined;
       });
     }
-    return undefined;
+    return this.dispatchCdpBrowserMessage(msg);
+  }
+
+  // Fork delta (web browser pane): the daemon-hosted Docker Chromium.
+  private dispatchCdpBrowserMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    const emit = (reply: SessionOutboundMessage) => this.emit(reply);
+    switch (msg.type) {
+      case "browser.cdp.tabs.subscribe.request":
+        return this.cdpView.subscribeTabs(msg, this.delivery, emit);
+      case "browser.cdp.view.subscribe.request":
+        return this.cdpView.subscribeView(msg, this.delivery, emit);
+      case "browser.cdp.view.input.request":
+        this.cdpView.input(msg);
+        return Promise.resolve();
+      case "browser.cdp.view.navigate.request":
+        return this.cdpView.navigate(msg, emit);
+      case "browser.cdp.tab.open.request":
+        return this.cdpView.openTab(msg, emit);
+      case "browser.cdp.tab.close.request":
+        return this.cdpView.closeTab(msg, emit);
+      default:
+        return undefined;
+    }
   }
 
   private async dispatchInboundMessage(msg: SessionInboundMessage, source?: object): Promise<void> {
