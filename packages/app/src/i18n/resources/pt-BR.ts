@@ -2026,6 +2026,7 @@ export const ptBR: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Voltar para esta mensagem",
     warning: "Esta ação não pode ser desfeita",

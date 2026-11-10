@@ -1969,6 +1969,7 @@ export const zhCN: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "回退到此消息",
     warning: "此操作无法撤销",

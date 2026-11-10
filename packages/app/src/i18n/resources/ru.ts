@@ -2026,6 +2026,7 @@ export const ru: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Вернуться к этому сообщению",
     warning: "Это действие нельзя отменить.",
