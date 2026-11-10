@@ -27,7 +27,8 @@ interface HistoryEntry {
   title: string;
 }
 
-const DEFAULT_LOAD_TIMEOUT_MS = 30_000;
+// Below the 10 s CDP command timeout and the broker's 15 s, so a slow page still answers navigate.
+const DEFAULT_LOAD_TIMEOUT_MS = 8_000;
 const MAX_CONSOLE_MESSAGES = 500;
 
 export class CdpTab implements TabContents {
@@ -40,7 +41,8 @@ export class CdpTab implements TabContents {
   private historyIndex = 0;
   private history: HistoryEntry[] = [];
   private readonly consoleMessages: BrowserAutomationConsoleLogEntry[] = [];
-  private dialogSink: BrowserAutomationDialogEvent[] | null = null;
+  // One list per running captureDialogs call: commands on a tab are not serialized.
+  private readonly dialogSinks = new Set<BrowserAutomationDialogEvent[]>();
   private inputChain: Promise<void> = Promise.resolve();
   private readonly loadWaiters = new Set<() => void>();
   private readonly onState: () => void;
@@ -132,8 +134,13 @@ export class CdpTab implements TabContents {
 
   async loadURL(url: string): Promise<void> {
     const loaded = this.waitForLoad();
-    const response = await this.connection.send<{ errorText?: string }>("Page.navigate", { url });
+    const response = await this.connection.send<{ loaderId?: string; errorText?: string }>(
+      "Page.navigate",
+      { url },
+    );
     if (response.errorText) throw new Error(response.errorText);
+    // A same-document navigation (a fragment change) has no loader, and no load event follows.
+    if (!response.loaderId) return;
     await loaded;
   }
 
@@ -192,12 +199,11 @@ export class CdpTab implements TabContents {
     task: () => Promise<T>,
   ): Promise<{ result: T; dialogs: BrowserAutomationDialogEvent[] }> {
     const dialogs: BrowserAutomationDialogEvent[] = [];
-    const previous = this.dialogSink;
-    this.dialogSink = dialogs;
+    this.dialogSinks.add(dialogs);
     try {
       return { result: await task(), dialogs };
     } finally {
-      this.dialogSink = previous;
+      this.dialogSinks.delete(dialogs);
     }
   }
 
@@ -257,8 +263,8 @@ export class CdpTab implements TabContents {
     on("Page.javascriptDialogOpening", (params) => {
       // An unanswered dialog blocks the page, and with it every later command.
       const event = handledDialogEvent(params);
-      if (this.dialogSink && this.dialogSink.length < MAX_DIALOGS_PER_COMMAND)
-        this.dialogSink.push(event);
+      for (const sink of this.dialogSinks)
+        if (sink.length < MAX_DIALOGS_PER_COMMAND) sink.push(event);
       this.detached(() =>
         this.connection.send("Page.handleJavaScriptDialog", {
           accept: dialogAcceptValue(event.type),
