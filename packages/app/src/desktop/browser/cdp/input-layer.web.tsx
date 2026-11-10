@@ -13,10 +13,15 @@ import {
 
 const WHEEL_LINE_PX = 16;
 
+function isPasteChord(event: KeyboardEvent): boolean {
+  return (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
+}
+
 /**
  * A focusable element over the frame. Keys reach the page only while this element itself has
  * focus, so the URL field and every other app input keep their own keys. Ctrl/Cmd+L moves focus
- * to the URL field. The local clipboard is never read or sent.
+ * to the URL field. Paste goes through the browser paste event, so the clipboard text is sent
+ * only when the user pastes; it is never read at any other time.
  */
 export function CdpInputLayer({
   rect,
@@ -131,6 +136,8 @@ export function CdpInputLayer({
         latest.current.onFocusUrl();
         return;
       }
+      // Let the browser raise its paste event; onPaste sends the text.
+      if (isPasteChord(event)) return;
       event.preventDefault();
       const text = keyText(event);
       send({
@@ -143,7 +150,7 @@ export function CdpInputLayer({
       });
     };
     const onKeyUp = (event: KeyboardEvent) => {
-      if (document.activeElement !== node) return;
+      if (document.activeElement !== node || isPasteChord(event)) return;
       event.preventDefault();
       send({
         kind: "key",
@@ -152,6 +159,11 @@ export function CdpInputLayer({
         code: event.code,
         modifiers: modifierMask(event),
       });
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      event.preventDefault();
+      const text = event.clipboardData?.getData("text/plain");
+      if (text) send({ kind: "text", text });
     };
     const onContextMenu = (event: Event) => event.preventDefault();
 
@@ -163,6 +175,7 @@ export function CdpInputLayer({
     node.addEventListener("wheel", onWheel, { passive: false });
     node.addEventListener("keydown", onKeyDown);
     node.addEventListener("keyup", onKeyUp);
+    node.addEventListener("paste", onPaste);
     node.addEventListener("contextmenu", onContextMenu);
     return () => {
       coalescer.dispose();
@@ -173,6 +186,7 @@ export function CdpInputLayer({
       node.removeEventListener("wheel", onWheel);
       node.removeEventListener("keydown", onKeyDown);
       node.removeEventListener("keyup", onKeyUp);
+      node.removeEventListener("paste", onPaste);
       node.removeEventListener("contextmenu", onContextMenu);
     };
   }, []);
