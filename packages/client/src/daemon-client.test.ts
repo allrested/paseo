@@ -17,7 +17,9 @@ import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
 import { ChunkedTransport } from "@getpaseo/protocol/chunked-transport";
 import { BROWSER_AUTOMATION_COMMAND_NAMES } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import {
+  decodeBrowserViewFrame,
   decodeFileTransferFrame,
+  encodeBrowserViewFrame,
   encodeFileTransferFrame,
   FileTransferOpcode,
 } from "@getpaseo/protocol/binary-frames/index";
@@ -10254,4 +10256,155 @@ describe("provider options across daemon versions", () => {
       providerOptions: { sandbox_mode: "read-only" },
     });
   });
+});
+
+const CDP_TAB = {
+  browserId: "11111111-1111-4111-8111-111111111111",
+  workspaceId: "ws-a",
+  url: "https://example.com/",
+  title: "Example",
+  isLoading: false,
+  canGoBack: false,
+  canGoForward: false,
+  agentActiveUntil: null,
+};
+
+async function connectCdpClient(features: Record<string, boolean>) {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen({ features });
+  await connectPromise;
+  return { client, mock };
+}
+
+test("openCdpBrowserTab sends browser.cdp.tab.open and resolves with the tab", async () => {
+  const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
+  const promise = client.openCdpBrowserTab({ workspaceId: "ws-a", url: "https://example.com/" });
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "browser.cdp.tab.open.request",
+    workspaceId: "ws-a",
+    url: "https://example.com/",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.tab.open.response",
+      payload: { requestId: request.requestId, tab: CDP_TAB, error: null },
+    }),
+  );
+  await expect(promise).resolves.toEqual(CDP_TAB);
+});
+
+test("openCdpBrowserTab rejects with the daemon's error code", async () => {
+  const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
+  const promise = client.openCdpBrowserTab({ workspaceId: "ws-a" });
+  const request = parseSentFrame(mock.sent[0]);
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.tab.open.response",
+      payload: { requestId: request.requestId, tab: null, error: "browser_no_host" },
+    }),
+  );
+  await expect(promise).rejects.toThrow("browser_no_host");
+});
+
+test("the Cdp browser methods refuse a host without the feature", async () => {
+  const { client, mock } = await connectCdpClient({ ownedSubscriptions: true });
+  await expect(client.openCdpBrowserTab({ workspaceId: "ws-a" })).rejects.toThrow(
+    "This host has no Docker browser.",
+  );
+  await expect(client.closeCdpBrowserTab(CDP_TAB.browserId)).rejects.toThrow(
+    "This host has no Docker browser.",
+  );
+  expect(() => client.sendCdpBrowserViewInput("s1", { kind: "text", text: "x" })).toThrow(
+    "This host has no Docker browser.",
+  );
+  expect(mock.sent).toHaveLength(0);
+});
+
+test("sendCdpBrowserViewInput sends one message and waits for nothing", async () => {
+  const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
+  client.sendCdpBrowserViewInput(
+    "s1",
+    { kind: "wheel", x: 1, y: 2, deltaX: 0, deltaY: 120, modifiers: 0 },
+    { width: 390, height: 700, deviceScaleFactor: 2 },
+  );
+  expect(mock.sent).toHaveLength(1);
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "browser.cdp.view.input.request",
+    subscriptionId: "s1",
+    input: { kind: "wheel", x: 1, y: 2, deltaX: 0, deltaY: 120, modifiers: 0 },
+    viewport: { width: 390, height: 700, deviceScaleFactor: 2 },
+  });
+});
+
+test("observeCdpBrowserView routes binary frames to its observer", async () => {
+  const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
+  const view = client.observeCdpBrowserView({
+    browserId: CDP_TAB.browserId,
+    width: 390,
+    height: 700,
+    deviceScaleFactor: 2,
+  });
+  const frames: Array<ReturnType<typeof decodeBrowserViewFrame>> = [];
+  view.subscribe({
+    snapshot: () => {},
+    update: () => {},
+    binary: (bytes) => frames.push(decodeBrowserViewFrame(bytes)),
+  });
+  await vi.waitFor(() => expect(mock.sent).toHaveLength(1));
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "browser.cdp.view.subscribe.request",
+    browserId: CDP_TAB.browserId,
+    width: 390,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.view.subscribe.response",
+      payload: { requestId: request.requestId, subscriptionId: "sub-view-1", error: null },
+    }),
+  );
+  await view.ready;
+  const frame = {
+    subscriptionId: "sub-view-1",
+    sequence: 1,
+    deviceWidth: 390,
+    deviceHeight: 700,
+    pageScaleFactor: 1,
+    scrollX: 0,
+    scrollY: 0,
+    jpeg: new Uint8Array([0xff, 0xd8]),
+  };
+  mock.triggerMessage(encodeBrowserViewFrame(frame));
+  mock.triggerMessage(
+    encodeBrowserViewFrame({ ...frame, subscriptionId: "someone-else", sequence: 2 }),
+  );
+  expect(frames).toEqual([frame]);
+  const release = view.release();
+  await vi.waitFor(() => expect(mock.sent).toHaveLength(2));
+  const releaseRequest = parseSentFrame(mock.sent[1]);
+  expect(releaseRequest).toMatchObject({
+    type: "subscription.release.request",
+    subscriptionId: "sub-view-1",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "subscription.release.response",
+      payload: {
+        requestId: releaseRequest.requestId,
+        subscriptionId: "sub-view-1",
+        released: true,
+      },
+    }),
+  );
+  await release;
 });

@@ -181,11 +181,19 @@ import {
   TerminalStreamOpcode,
   type FileTransferFrame,
   assertPluginWireValue,
+  BROWSER_VIEW_OPCODE,
+  decodeBrowserViewFrame,
   decodePluginFrame,
   encodePluginInputFrame,
   isPluginFrameOpcode,
   PluginFrameOpcode,
 } from "@getpaseo/protocol/binary-frames/index";
+import type {
+  CdpBrowserNavigateAction,
+  CdpBrowserTabState,
+  CdpBrowserViewInput,
+  CdpBrowserViewport,
+} from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import {
   createRelayE2eeTransportFactory,
   createRelayUpgradeTransportFactory,
@@ -2839,6 +2847,7 @@ export class DaemonClient {
         if (query.type === "workspace.setup.subscribe.request")
           this.requireWorkspaceSetupObservation();
         if (query.type === "plugin.rpc.subscribe.request") this.requirePluginSubscriptions();
+        if (query.type.startsWith("browser.cdp.")) this.requireCdpBrowser();
         const requestId = this.createRequestId(options?.requestId);
         const request = SessionInboundMessageSchema.parse({ ...query, requestId });
         try {
@@ -2892,6 +2901,89 @@ export class DaemonClient {
       { type: "browser.host.register.request", ...registration },
       options,
     );
+  }
+
+  // Fork delta (web browser pane): the daemon-hosted Docker Chromium.
+  // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
+  private requireCdpBrowser(): void {
+    if (this.getLastServerInfoMessage()?.features?.cdpBrowser !== true) {
+      throw new Error("This host has no Docker browser.");
+    }
+  }
+
+  async openCdpBrowserTab(input: {
+    workspaceId: string;
+    url?: string;
+  }): Promise<CdpBrowserTabState> {
+    this.requireCdpBrowser();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.tab.open.response">({
+        message: {
+          type: "browser.cdp.tab.open.request",
+          workspaceId: input.workspaceId,
+          ...(input.url ? { url: input.url } : {}),
+        },
+      });
+    if (!payload.tab) throw new Error(payload.error ?? "browser_unknown_error");
+    return payload.tab;
+  }
+
+  async closeCdpBrowserTab(browserId: string): Promise<void> {
+    this.requireCdpBrowser();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.tab.close.response">({
+        message: { type: "browser.cdp.tab.close.request", browserId },
+      });
+    if (payload.error) throw new Error(payload.error);
+  }
+
+  observeCdpBrowserTabs(
+    input?: { workspaceId?: string },
+    options?: { signal?: AbortSignal },
+  ): OwnedSubscription<CorrelatedResponsePayload<"browser.cdp.tabs.subscribe.response">> {
+    return this.observe(
+      "browser.cdp.tabs.subscribe.response",
+      {
+        type: "browser.cdp.tabs.subscribe.request",
+        ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      },
+      options,
+    );
+  }
+
+  /** Frames reach the observer's `binary` callback whole; decode with decodeBrowserViewFrame. */
+  observeCdpBrowserView(
+    input: { browserId: string; width: number; height: number; deviceScaleFactor: number },
+    options?: { signal?: AbortSignal },
+  ): OwnedSubscription<CorrelatedResponsePayload<"browser.cdp.view.subscribe.response">> {
+    return this.observe(
+      "browser.cdp.view.subscribe.response",
+      { type: "browser.cdp.view.subscribe.request", ...input },
+      options,
+    );
+  }
+
+  sendCdpBrowserViewInput(
+    subscriptionId: string,
+    input: CdpBrowserViewInput,
+    viewport?: CdpBrowserViewport,
+  ): void {
+    this.requireCdpBrowser();
+    this.sendSessionMessage({
+      type: "browser.cdp.view.input.request",
+      subscriptionId,
+      input,
+      ...(viewport ? { viewport } : {}),
+    });
+  }
+
+  async navigateCdpBrowserView(browserId: string, action: CdpBrowserNavigateAction): Promise<void> {
+    this.requireCdpBrowser();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.view.navigate.response">({
+        message: { type: "browser.cdp.view.navigate.request", browserId, action },
+      });
+    if (payload.error) throw new Error(payload.error);
   }
 
   observeEvents(
@@ -7645,6 +7737,13 @@ export class DaemonClient {
     }
     if (rawBytes[0] >= 0x40 && rawBytes[0] <= 0x4f) {
       this.diffStreams.receive(rawBytes);
+      return true;
+    }
+    if (rawBytes[0] === BROWSER_VIEW_OPCODE) {
+      const frame = decodeBrowserViewFrame(rawBytes);
+      this.consecutiveLivenessFailures = 0;
+      // The observer gets the whole frame: its metadata sits between the id and the JPEG.
+      if (frame) this.owned.receiveBinary(frame.subscriptionId, rawBytes);
       return true;
     }
     if (isPluginFrameOpcode(rawBytes[0])) {
