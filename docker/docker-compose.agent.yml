@@ -61,6 +61,12 @@ services:
     environment:
       PASEO_PASSWORD: ${PASEO_PASSWORD:-change-me}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES:-}
+      # The daemon's own browser host. paseo-cdp puts the Chromium's CDP on this
+      # container's loopback, the only address Chrome's Host check accepts
+      # without a lookup. Set PASEO_BROWSER_CDP_URL to an empty string to turn
+      # the host off.
+      PASEO_BROWSER_CDP_URL: ${PASEO_BROWSER_CDP_URL-http://127.0.0.1:9222}
+      PASEO_BROWSER_TOOLS_ENABLED: ${PASEO_BROWSER_TOOLS_ENABLED:-true}
       TZ: ${TZ:-Asia/Jakarta}
       GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-}
       GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-}
