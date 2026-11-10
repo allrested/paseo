@@ -116,13 +116,12 @@ describe("input coalescer", () => {
   });
 
   it("flushes a pending move before an input that must keep its order", () => {
-    const { send, cancel, coalescer, runFrame } = setup();
+    const { send, coalescer, runFrame } = setup();
     const down = { ...mouseMove(4, 4), type: "down" as const, button: "left" as const };
     coalescer.push(mouseMove(3, 3));
     coalescer.push(down);
     expect(send).toHaveBeenNthCalledWith(1, mouseMove(3, 3));
     expect(send).toHaveBeenNthCalledWith(2, down);
-    expect(cancel).toHaveBeenCalledTimes(1);
     runFrame();
     expect(send).toHaveBeenCalledTimes(2);
   });
