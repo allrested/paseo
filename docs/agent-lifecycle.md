@@ -368,7 +368,7 @@ The response names the strategy:
   is missing, cannot be copied, or has diverged in the target login (`fellBackFromNative`). The
   successor is a new session that gets a text history of the session, built without a model. The
   target reads that history as text and loses tool-level fidelity. A handoff between two providers
-  of the same CLI keeps the agent's mode, when the target offers it, and its feature values; a
+  of the same CLI keeps the agent's mode, when the target offers it, and its options; a
   handoff to another CLI starts in that CLI's default mode.
 
 Paseo keeps no timeline for an archived agent: archive drops the in-memory timeline, and reading it
