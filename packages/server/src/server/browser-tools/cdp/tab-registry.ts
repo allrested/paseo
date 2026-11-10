@@ -114,9 +114,7 @@ export class CdpTabRegistry {
   private schedule(): void {
     this.dirty = true;
     if (this.writing) return;
-    this.writing = this.drain().finally(() => {
-      this.writing = null;
-    });
+    this.writing = this.drain();
   }
 
   private async drain(): Promise<void> {
@@ -128,5 +126,7 @@ export class CdpTabRegistry {
         this.report(error);
       }
     }
+    // Same synchronous turn as the dirty check: no gap where a change goes unwritten.
+    this.writing = null;
   }
 }
