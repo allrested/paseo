@@ -209,9 +209,14 @@ folder or one above it. A `.mcp.json` in a folder Claude Code does not trust is 
 screen names it when it lists an ssh-mcp entry. Entries that expand to the same command, arguments
 and env share one tab, under the first source. When the tab opens, the plugin starts the entry's
 server, connects to it as an MCP client, and sends one fixed command that reads memory, load,
-disks, and processes. The session closes 2 minutes after the tab closes, and counts under the
-daemon group while it runs. An entry shows even where `disabledMcpjsonServers` keeps Claude from
-starting it, and a config change shows the next time the screen opens, at most a minute later.
+disks, and processes. An entry with several ssh-mcp 2.x profiles shows one card per host: each
+reading lists the hosts with `list-connections` and sends the command to each one through
+`run-command` with its `profile`, over the entry's one session, so a profile that `reload-config`
+adds shows at the next reading. That is one command per host every 30 s while the tab is open, and
+each counts against the profile's `commandQuotaPerDay` when one is set. The session closes 2
+minutes after the tab closes, and counts under the daemon group while it runs. An entry shows even
+where `disabledMcpjsonServers` keeps Claude from starting it, and a config change shows the next
+time the screen opens, at most a minute later.
 Each session's pid file is in `$PASEO_HOME/resource-manager/run/`, and on Linux the next daemon
 start stops any session a crashed daemon left behind.
 
@@ -224,7 +229,8 @@ default.
 ssh-mcp returns at most 1 MiB of output, so on a host with about 40,000 processes or more the
 process list is cut short without an error. `df` fails on a stale network mount, and the tab then
 shows its error, with the last reading under it once there was one. A hung NFS mount holds the
-reading until ssh-mcp's 60 s timeout.
+reading until ssh-mcp's 60 s timeout. With several hosts, each host has these limits on its own,
+and while one hangs, the tab still shows the hosts that answered.
 
 `plugins/resource-manager/server/local/procfs.ts` is a byte-for-byte copy of
 `plugins/shared-mcp/server/procfs.ts`, because a built-in cannot import another built-in's files.
