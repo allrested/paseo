@@ -141,6 +141,7 @@ import { useWorkspaceArchiveUndoRunning } from "@/workspace/archive-undo";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/desktop/browser/resident-webviews";
 import { createWorkspaceBrowser, useBrowserStore } from "@/desktop/browser/store";
+import { useWorkspaceCdpBrowser } from "@/desktop/browser/cdp/use-workspace-cdp-browser";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -1359,6 +1360,11 @@ function WorkspaceScreenContent({
   const workspaceSetupStatus = getWorkspaceSetupStatus(workspaceDescriptor);
   const claimFailedSetupSurface = useWorkspaceSetupStore((state) => state.claimFailedSetupSurface);
   const supportsSetupObservation = useHostFeature(normalizedServerId, "workspaceSetupObservation");
+  const cdpBrowser = useWorkspaceCdpBrowser({
+    client,
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+  });
   const showWorkspaceSetup = shouldShowWorkspaceSetup(
     workspaceSetupStatus,
     supportsSetupObservation,
@@ -1434,13 +1440,14 @@ function WorkspaceScreenContent({
       }
       if (input.target?.kind === "browser") {
         const { browserId } = input.target;
+        cdpBrowser.close(browserId);
         useBrowserStore.getState().removeBrowser(browserId);
         removeResidentBrowserWebview(browserId);
         void getDesktopHost()?.browser?.unregisterWorkspaceBrowser?.(browserId);
       }
       closeWorkspaceTab(persistenceKey, normalizedTabId);
     },
-    [closeWorkspaceTab, hideWorkspaceAgent, persistenceKey, unpinWorkspaceAgent],
+    [cdpBrowser, closeWorkspaceTab, hideWorkspaceAgent, persistenceKey, unpinWorkspaceAgent],
   );
 
   const focusedPaneTabState = useMemo(
@@ -1856,6 +1863,10 @@ function WorkspaceScreenContent({
 
   const handleCreateBrowserTab = useCallback(
     (input?: { paneId?: string }) => {
+      if (cdpBrowser.enabled) {
+        cdpBrowser.open({ paneId: input?.paneId });
+        return;
+      }
       if (!persistenceKey || !getIsElectron()) {
         return;
       }
@@ -1866,7 +1877,7 @@ function WorkspaceScreenContent({
         paneLocalPlacement(input?.paneId),
       );
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [cdpBrowser, openWorkspaceTabFocused, persistenceKey],
   );
 
   const handleCreateNewTab = useCallback(
@@ -1909,14 +1920,26 @@ function WorkspaceScreenContent({
         });
         return;
       }
+      if (cdpBrowser.enabled) {
+        cdpBrowser.open(
+          destination.kind === "replace"
+            ? { replaceTabId: destination.tabId }
+            : { paneId: destination.paneId },
+        );
+        return;
+      }
       const { browserId } = createWorkspaceBrowser();
       openTarget({ kind: "browser", browserId });
     },
-    [createTerminal, createWorkspaceTab, persistenceKey, replaceWorkspaceTabTarget],
+    [cdpBrowser, createTerminal, createWorkspaceTab, persistenceKey, replaceWorkspaceTabTarget],
   );
 
   const handleOpenUrlInBrowserTab = useCallback(
     (url: string) => {
+      if (cdpBrowser.enabled) {
+        cdpBrowser.open({ url });
+        return;
+      }
       if (!persistenceKey || !getIsElectron()) {
         return;
       }
@@ -1927,7 +1950,7 @@ function WorkspaceScreenContent({
         FOCUSED_PANE_PLACEMENT,
       );
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [cdpBrowser, openWorkspaceTabFocused, persistenceKey],
   );
 
   useDesktopBrowserNewTabRequests({
@@ -3324,7 +3347,7 @@ function WorkspaceScreenContent({
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
-  const showCreateBrowserTab = getIsElectron();
+  const showCreateBrowserTab = cdpBrowser.canCreateTab;
   const newTabLauncher = useMemo<NewTabLauncher>(
     () => ({
       showChanges: isGitCheckout,
