@@ -109,7 +109,9 @@ services:
       # CDP has no authentication whatsoever: anything reaching port 9222
       # controls the browser and every session logged into it. It is never
       # published to the host — see the sidecars below. Do not add a ports entry.
-      CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=*"
+      # The last two flags keep a window rendering while another window covers it.
+      # Without them a covered browser-pane tab sends no frames and hangs on input.
+      CHROME_CLI: "--remote-debugging-port=9222 --remote-allow-origins=* --disable-backgrounding-occluded-windows --disable-renderer-backgrounding"
       # Postman runs in the same desktop session so an agent can drive it
       # over CDP. Set POSTMAN_AUTOSTART=false to get a plain browser back.
       POSTMAN_AUTOSTART: ${POSTMAN_AUTOSTART:-true}
