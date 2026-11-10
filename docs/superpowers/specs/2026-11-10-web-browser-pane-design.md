@@ -1,7 +1,8 @@
 # Web browser pane — design
 
-Date: 2026-11-10. Status: approved design, amended on 2026-11-10 with the plan's seven deviations (see Amendments). First sub-project of fork program item 7 (design mode,
-computer use, mobile emulator); design mode builds on it next.
+Date: 2026-11-10. Status: approved design, updated to the build on branch `feat/web-browser-pane`
+(the plan's deviations D1 to D7 are folded in). First sub-project of fork program item 7 (design
+mode, computer use, mobile emulator); design mode builds on it next.
 
 ## Problem
 
@@ -30,31 +31,32 @@ audio, isolated profiles, more than one Chromium per daemon, and any change to t
 
 ## Decisions
 
-| Question      | Decision                                                                                                                                                                                                               |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Goal          | Watch, steer and agent tools on one tab: people and agents drive the same target.                                                                                                                                      |
-| Clients       | Web UI and native mobile. Electron keeps its own webview pane.                                                                                                                                                         |
-| Pixels        | The daemon streams `Page.startScreencast` JPEG frames over the session WebSocket as binary frames. noVNC embedding was rejected: it shows the whole window, has its own auth and is not reachable over the relay.      |
-| Profile       | The Chromium's shared default profile, so agents reuse the user's logins. Every instance on that Chromium can see the tabs, as today.                                                                                  |
-| Packaging     | Fork core (server, protocol, app), gated by `PASEO_BROWSER_CDP_URL`. The plugin API cannot register a browser host or carry binary streams. With the variable unset, behaviour is upstream's.                          |
-| Automation    | The Electron CDP automation engine moves into a shared workspace package, `@getpaseo/browser-automation`, used by desktop and server. Copying would stop upstream fixes; importing desktop from server is circular.    |
-| CDP client    | Raw CDP only, never Playwright attach (it wedges the tab it holds). The host name is resolved on every connect and the request carries an IP `Host` header, because Chrome rejects any other `Host` and the IP churns. |
-| Ownership     | The daemon lists, drives and closes only targets in its own registry. It never touches the user's other tabs, other instances' tabs or Postman.                                                                        |
-| Host routing  | When the CDP host is configured it always takes `new_tab`. Existing tabs keep their host. `list_tabs` keeps merging hosts.                                                                                             |
-| Viewport size | Last interacting client wins, as for terminal PTY size, through `Emulation.setDeviceMetricsOverride`. An agent `resize` holds until a person interacts again.                                                          |
-| Concurrency   | No lock between people and agents. The pane shows "Agent is using this tab" for 3 s after each agent command on it.                                                                                                    |
-| Permissions   | View subscribe and tab list need `workspace.read`. Input, navigate, open and close need `workspace.write`, as `browser.automation.execute` does.                                                                       |
-| Limits        | At most 10 frames per second, JPEG quality 60, frame size the pane's size times device pixel ratio (capped at 2), at most 1920×1080. Screencast runs only while someone watches.                                       |
+| Question      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Goal          | Watch, steer and agent tools on one tab: people and agents drive the same target.                                                                                                                                                                                                                                                                                                                                                                    |
+| Clients       | Web UI and native mobile. Electron keeps its own webview pane.                                                                                                                                                                                                                                                                                                                                                                                       |
+| Pixels        | The daemon streams `Page.startScreencast` JPEG frames over the session WebSocket as binary frames. noVNC embedding was rejected: it shows the whole window, has its own auth and is not reachable over the relay.                                                                                                                                                                                                                                    |
+| Profile       | The Chromium's shared default profile, so agents reuse the user's logins. Every instance on that Chromium can see the tabs, as today.                                                                                                                                                                                                                                                                                                                |
+| Packaging     | Fork core (server, protocol, app), gated by `PASEO_BROWSER_CDP_URL`. The plugin API cannot register a browser host or carry binary streams. With the variable unset, behaviour is upstream's.                                                                                                                                                                                                                                                        |
+| Automation    | The Electron CDP automation engine moves into the server package, `packages/server/src/server/browser-automation/`, exported as `@getpaseo/server/browser-automation/*` and used by desktop and server. Desktop already depends on the server package. A new workspace package would touch the workspace list, the build order, the Docker pack list and version sync. Copying would stop upstream fixes; importing desktop from server is circular. |
+| CDP client    | Raw CDP only, never Playwright attach (it wedges the tab it holds). The host name is resolved on every connect and the request carries an IP `Host` header, because Chrome rejects any other `Host` and the IP churns.                                                                                                                                                                                                                               |
+| Ownership     | The daemon lists, drives and closes only targets in its own registry. It never touches the user's other tabs, other instances' tabs or Postman.                                                                                                                                                                                                                                                                                                      |
+| Host routing  | When the CDP host is configured it always takes `new_tab`. Existing tabs keep their host. `list_tabs` keeps merging hosts.                                                                                                                                                                                                                                                                                                                           |
+| Viewport size | Last interacting client wins, as for terminal PTY size, through `Emulation.setDeviceMetricsOverride` with `mobile: false`. `mobile: true` gave a page scale of 0.398 on a 390 px viewport; a narrow width alone gives the responsive layout. An agent `resize` holds until a person interacts again.                                                                                                                                                 |
+| Concurrency   | No lock between people and agents. The pane shows "Agent is using this tab" for 3 s after each agent command on it.                                                                                                                                                                                                                                                                                                                                  |
+| Permissions   | View subscribe and tab list need `workspace.read`. Input, navigate, open and close need `workspace.write`, as `browser.automation.execute` does.                                                                                                                                                                                                                                                                                                     |
+| Limits        | At most 10 frames per second, JPEG quality 60, frame size the pane's size times device pixel ratio (capped at 2), at most 1920×1080. Screencast runs only while someone watches.                                                                                                                                                                                                                                                                     |
 
 ## Components
 
-### `packages/browser-automation` (new workspace package)
+### Engine: `packages/server/src/server/browser-automation/`
 
 Moved from `packages/desktop/src/features/browser-automation/`: `service.ts`, `snapshot-engine.ts`,
 `aria-snapshot-script.ts`, `actionability.ts`, `trusted-input.ts`, `dialog-handling.ts`,
-`cdp-session-queue.ts` and their tests. Desktop imports them from the package; the Electron-only
-files (`ipc.ts` and the webview glue) stay in desktop. Keep each moved file byte-identical in the
-move commit so rebases follow the rename, and make import-path edits in a separate commit.
+`cdp-session-queue.ts` and their tests. Desktop imports them as
+`@getpaseo/server/browser-automation/*`; the Electron-only files (`ipc.ts` and the webview glue)
+stay in desktop. Each moved file stayed byte-identical in the move commit so rebases follow the
+rename, and the import-path edits are a separate commit.
 
 ### Server: `packages/server/src/server/browser-tools/cdp/`
 
@@ -66,7 +68,7 @@ move commit so rebases follow the rename, and make import-path edits in a separa
   `$PASEO_HOME`, written atomically as `docs/data-model.md` describes. At start it drops entries
   whose target is gone from `/json/list`. A target whose `openerId` is a registered target joins
   that target's workspace (popups).
-- `CdpTabContents`: implements the engine's `TabContents`:
+- `CdpTab`: implements the engine's `TabContents`:
 
   | `TabContents`         | CDP                                                            |
   | --------------------- | -------------------------------------------------------------- |
@@ -82,10 +84,14 @@ move commit so rebases follow the rename, and make import-path edits in a separa
   | `captureDialogs`      | `Page.javascriptDialogOpening` + `Page.handleJavaScriptDialog` |
   | `sendDebugCommand`    | pass-through to the target session                             |
 
-- `CdpBrowserHost`: a `BrowserHostClient` with host kind `docker-chromium` that runs
-  `executeAutomationCommand` from the shared package against a `BrowserRegistry` built on
-  `CdpTabRegistry`. It registers with the broker once CDP answers and unregisters when it stops
-  answering.
+  Dialogs are answered through CDP alone: `CdpTab` answers every `Page.javascriptDialogOpening`
+  with the engine's policy (`dialogAcceptValue`) and records it. The Electron prompt shim is not
+  ported; it exists because Electron's webview cannot answer `prompt`.
+
+- `CdpBrowserService`: a `BrowserHostClient` with host kind `docker-chromium` that runs
+  `executeAutomationCommand` from the engine against a `BrowserRegistry` built on
+  `CdpTabRegistry`, and also serves the pane's view. It registers with the broker once CDP answers
+  and unregisters when it stops answering.
 - `ScreencastHub`: one screencast per watched tab, shared by every viewer of that tab. It starts on
   the first subscriber and stops on the last.
 - Broker change: a host flagged as the preferred new-tab host takes `new_tab`; otherwise the
@@ -95,12 +101,17 @@ move commit so rebases follow the rename, and make import-path edits in a separa
 
 Dotted RPCs per `docs/rpc-namespacing.md`, all fields optional where they extend existing types:
 
-- `browser.cdp.tab.open|close|list.request` / `.response`; events `browser.cdp.tab.opened`,
-  `browser.cdp.tab.closed`, `browser.cdp.tab.state` (URL, title, loading, back/forward availability,
-  `agentActiveUntil`).
-- `browser.cdp.view.subscribe.request` (owned subscription; carries the pane's pixel size),
-  `browser.cdp.view.input.request` (mouse, wheel, key, text), `browser.cdp.view.navigate.request`
-  (URL, back, forward, reload).
+- `browser.cdp.tab.open|close.request` / `.response`.
+- `browser.cdp.tabs.subscribe.request`: one owned subscription for the tab list and tab events.
+  The response is the workspace's tab list; `browser.cdp.tabs.update` carries `opened`, `closed`,
+  `state` (URL, title, loading, back/forward availability, `agentActiveUntil`) and `host` events.
+  The repo has no broadcast-to-workspace path, and an owned subscription replays its snapshot on
+  reconnect, which is the reconcile when a workspace opens.
+- `browser.cdp.view.subscribe.request` (owned subscription; carries the pane's pixel size);
+  `browser.cdp.view.update` reports a closed tab, a lost host and a page that does not respond.
+- `browser.cdp.view.input.request` (mouse, wheel, key, text) has no response: input is a stream,
+  as `diff.unsubscribe.request` is a request with no reply.
+- `browser.cdp.view.navigate.request` (URL, back, forward, reload).
 - A binary frame kind next to the terminal and file-transfer frames in `shared/binary-frames/`: JPEG
   bytes plus viewport metadata (CSS size, page scale, scroll offsets, frame sequence), addressed to the
   subscription.
@@ -112,13 +123,18 @@ Dotted RPCs per `docs/rpc-namespacing.md`, all fields optional where they extend
   when the feature is on, and keep today's "unavailable" text otherwise.
 - The pane shows the latest frame scaled to fit, maps pointer and touch to page CSS pixels, and has
   the toolbar. "New browser tab" in the workspace opens a CDP tab.
-- The app adds a browser tab to the workspace layout on `browser.cdp.tab.opened`, as the Electron
-  handler does for agent tabs, and reconciles the layout with `tab.list` when a workspace opens.
+- The app adds a browser tab to the workspace layout on the `opened` tabs event, as the Electron
+  handler does for agent tabs, and reconciles the layout with the subscription's snapshot when a
+  workspace opens.
 
 ## Data flow
 
-Opening: UI or agent `new_tab` → `Target.createTarget` with `background: true` (the noVNC window
-keeps its focus) → registry entry → `tab.opened` event to clients that have the workspace.
+Opening: UI or agent `new_tab` → `Target.createTarget` with `newWindow: true, background: true` →
+registry entry → `opened` tabs event to clients that have the workspace. Each tab gets its own
+window: on Chrome 154 a background tab is hidden, produced no screencast frames in 3 s, and
+`requestAnimationFrame` did not fire, which the engine's paint wait needs; a background window is
+visible and produced 11 frames in 3 s. Each pane tab is one more window on the noVNC desktop. A
+window that another window covers completely stops rendering, so its pane gets no frames.
 
 Watching: a visible pane subscribes; hiding the pane or backgrounding the app unsubscribes. The
 subscriber gets the cached last frame at once, or one `Page.captureScreenshot` when none is cached.
@@ -157,48 +173,21 @@ Chromium restart) drops from the registry, and its pane shows "Tab closed" with 
 
 ## Configuration
 
-`docker/docker-compose.yml` sets `PASEO_BROWSER_CDP_URL` to its own `browser-cdp` sidecar and turns
-browser tools on; `docker/docker-compose.agent.yml` sets it from `BROWSER_HOST` and
-`BROWSER_CDP_PORT`. `docs/docker.md` names the variable and the ownership rule.
+Both compose files set `PASEO_BROWSER_CDP_URL=http://127.0.0.1:9222`, the existing loopback
+`paseo-cdp` sidecar. `PASEO_BROWSER_TOOLS_ENABLED` is the default for browser tools, and compose sets
+it to `true`; a saved setting still wins. `CdpEndpoint` resolves the host name on every connect and
+builds WebSocket URLs from its own origin. `docs/docker.md` names the variables and the ownership
+rule.
 
 ## Testing
 
-- Unit: registry reconcile and popup adoption, hub fan-out and newest-frame backpressure, ack pacing,
-  broker new-tab routing, pane coordinate mapping, frame codec round trip.
-- Integration: one e2e file runs `CdpBrowserHost` and `ScreencastHub` against a real headless
-  Chromium: open, navigate, snapshot, click by ref, screenshot, a frame arrives, close. The plan
-  decides how CI provides Chromium.
-- The moved engine's existing tests run from the new package.
+- Unit, against an in-process fake Chromium: registry reconcile and popup adoption, hub fan-out and
+  newest-frame backpressure, ack pacing, broker new-tab routing, pane coordinate mapping, frame
+  codec round trip.
+- Integration: one hand-run e2e file (`cdp-host.local.e2e.test.ts`) runs `CdpBrowserService` and
+  `ScreencastHub` against a real Chromium and touches only the tabs it opens: open, navigate,
+  snapshot, click by ref, screenshot, a frame arrives, close.
+- The moved engine's existing tests run from `packages/server/src/server/browser-automation/`.
 - Manual, on a dev daemon pointed at the Docker Chromium: open a tab from the web UI, watch an agent
   use `browser_*` in it, steer it from a phone over the relay, close it from noVNC and see "Tab
   closed".
-
-## Amendments (2026-11-10)
-
-The plan (`docs/superpowers/plans/2026-11-10-web-browser-pane.md`) tested against the Docker Chromium
-and the code, and the owner approved these changes. Where they differ from the text above, they win.
-
-- **D1.** The engine moves into `packages/server/src/server/browser-automation/`, exported as
-  `@getpaseo/server/browser-automation/*`, not into a new workspace package. Desktop already depends
-  on the server package, and a new package would touch the workspace list, the build order, the
-  Docker pack list and version sync.
-- **D2.** A pane tab opens in its own background window (`Target.createTarget` with
-  `newWindow: true, background: true`). A background tab is hidden: it produced no screencast frames
-  and `requestAnimationFrame` did not fire. Each pane tab is one more window on the noVNC desktop.
-- **D3.** `Emulation.setDeviceMetricsOverride` uses `mobile: false`; `true` shrank the page scale. A
-  narrow width gives the responsive layout.
-- **D4.** The tab list and tab events are one owned subscription, `browser.cdp.tabs.subscribe.request`,
-  whose updates carry opened, closed, state and host events. It replaces `tab.list` and the three
-  broadcast events.
-- **D5.** `browser.cdp.view.input.request` has no response.
-- **D6.** Both compose files set `PASEO_BROWSER_CDP_URL=http://127.0.0.1:9222`, the existing loopback
-  sidecar. A new `PASEO_BROWSER_TOOLS_ENABLED` variable is the default for browser tools, and compose
-  sets it to `true`; a saved setting still wins.
-- **D7.** Dialogs are answered through CDP alone. The Electron prompt shim is not ported.
-
-Names: `CdpTabContents` is `CdpTab`, and `CdpBrowserHost` is `CdpBrowserService`, which also serves
-the view. A `browser.cdp.view.update` message reports a closed tab, a lost host and a page that does
-not respond.
-
-Tests use an in-process fake Chromium. One hand-run file runs against a real Chromium and touches
-only the tabs it opens.
