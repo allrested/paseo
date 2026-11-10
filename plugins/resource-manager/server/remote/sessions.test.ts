@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ServerReading } from "../../shared/rpc.js";
+import type { HostReading, ServerReading } from "../../shared/rpc.js";
 import { writeFakeProc, type FakePidSpace } from "../local/fake-proc.js";
 import type { PidRecord } from "../pid-files.js";
 import type { SshServer } from "./discovery.js";
@@ -10,7 +10,7 @@ import { FakeSessionClient, FakeStarter, FakeTimers, SAMPLE_ANSWER } from "./fak
 import { McpSessionError, type ToolCallResult } from "./mcp-stdio-client.js";
 import { REMOTE_COMMAND } from "./remote-output.js";
 import { REMOTE_OUTPUT_SAMPLE, REMOTE_SNAPSHOT_SAMPLE } from "./remote-output-sample.js";
-import { RemoteSessions, SHUTDOWN_MESSAGE, WAITING_MESSAGE } from "./sessions.js";
+import { LIST_TOOL, RemoteSessions, SHUTDOWN_MESSAGE, WAITING_MESSAGE } from "./sessions.js";
 
 const SPACE: FakePidSpace = { pidNamespace: "pid:[4026531836]", bootId: "boot-1" };
 const ID = "0123456789abcdef";
@@ -45,6 +45,40 @@ function server(overrides: Partial<SshServer> = {}): SshServer {
 
 function ok(readAt = T0_ISO): ServerReading {
   return { id: ID, snapshot: REMOTE_SNAPSHOT_SAMPLE, readAt, error: null };
+}
+
+// ssh-mcp 2.24.0 list-connections lines (build/tools/session-tools.js).
+const PROD_LINE = "prod: deploy@10.0.0.1:22 [connected] sessions=0 role=operator";
+const DB_LINE = "db: root@10.0.0.2:22 [disconnected] sessions=0 role=operator";
+const CACHE_LINE = "cache: root@10.0.0.3:22 [disconnected] sessions=0 role=operator";
+const REFUSED = "Error (code 255): ssh: connect to host 10.0.0.2 port 22: Connection refused";
+
+function listed(...lines: string[]): ToolCallResult {
+  return { isError: false, text: lines.join("\n") };
+}
+
+function hostOk(profile: string, label: string, readAt = T0_ISO): HostReading {
+  return { profile, label, snapshot: REMOTE_SNAPSHOT_SAMPLE, readAt, error: null };
+}
+
+function multi(...hosts: HostReading[]): ServerReading {
+  return { id: ID, snapshot: null, readAt: null, error: null, hosts };
+}
+
+function runFor(profile?: string): { name: string; args: Record<string, unknown> } {
+  const args =
+    profile === undefined ? { command: REMOTE_COMMAND } : { command: REMOTE_COMMAND, profile };
+  return { name: "run-command", args };
+}
+
+/** A 2.x client whose list-connections gives these answers in order; run-command reads. */
+function listingClient(...lists: ToolCallResult[]): FakeSessionClient {
+  const client = new FakeSessionClient(["read-command", "run-command", LIST_TOOL]);
+  client.route = (call) => {
+    if (call.name !== LIST_TOOL) return undefined;
+    return lists.length > 1 ? lists.shift() : lists[0];
+  };
+  return client;
 }
 
 function flush(): Promise<void> {
@@ -104,8 +138,10 @@ describe("RemoteSessions", () => {
     };
     starter.queue.push(new FakeSessionClient(["read-command", "run-command"], [answer]));
 
-    await expect(sessions().read(server())).resolves.toEqual(ok());
-    expect(starter.clients[0].calls[0].name).toBe("run-command");
+    await expect(sessions().read(server())).resolves.toStrictEqual(ok());
+    expect(starter.clients[0].calls).toEqual([
+      { name: "run-command", args: { command: REMOTE_COMMAND } },
+    ]);
   });
 
   it("shows a failed run-command's exit code and stderr, not its output", async () => {
@@ -325,5 +361,206 @@ describe("RemoteSessions", () => {
 
     expect(existsSync(file)).toBe(false);
     expect(logs).toEqual([]);
+  });
+});
+
+describe("RemoteSessions with an ssh-mcp entry of several profiles", () => {
+  it("reads every host over one session with its profile, and re-lists hosts on each read", async () => {
+    const client = listingClient(
+      listed(PROD_LINE, DB_LINE),
+      listed(PROD_LINE, DB_LINE, CACHE_LINE),
+    );
+    starter.queue.push(client);
+    const remote = sessions();
+
+    await expect(remote.read(server())).resolves.toStrictEqual(
+      multi(hostOk("prod", "deploy@10.0.0.1:22"), hostOk("db", "root@10.0.0.2:22")),
+    );
+    timers.advance(30_000);
+    await expect(remote.read(server())).resolves.toMatchObject({
+      hosts: [{ profile: "prod" }, { profile: "db" }, { profile: "cache", error: null }],
+    });
+
+    expect(starter.started).toHaveLength(1);
+    expect(client.calls).toEqual([
+      { name: LIST_TOOL, args: {} },
+      runFor("prod"),
+      runFor("db"),
+      { name: LIST_TOOL, args: {} },
+      runFor("prod"),
+      runFor("db"),
+      runFor("cache"),
+    ]);
+  });
+
+  it("shows a failed host's error under its last reading, and keeps the other host and the session", async () => {
+    const client = listingClient(listed(PROD_LINE, DB_LINE));
+    starter.queue.push(client);
+    const remote = sessions();
+    await remote.read(server());
+
+    client.route = (call) => {
+      if (call.name === LIST_TOOL) return listed(PROD_LINE, DB_LINE);
+      return call.args.profile === "db" ? { isError: true, text: REFUSED } : undefined;
+    };
+    timers.advance(30_000);
+
+    await expect(remote.read(server())).resolves.toStrictEqual(
+      multi(hostOk("prod", "deploy@10.0.0.1:22", "2026-11-06T09:00:30.000Z"), {
+        ...hostOk("db", "root@10.0.0.2:22"),
+        error: REFUSED,
+      }),
+    );
+    expect(client.closed).toBe(false);
+  });
+
+  it("shows a host's unreadable output as that host's error", async () => {
+    const client = listingClient(listed(PROD_LINE, DB_LINE));
+    const route = client.route;
+    client.route = (call) =>
+      call.args.profile === "db" ? { isError: false, text: "garbage" } : route?.(call);
+    starter.queue.push(client);
+
+    await expect(sessions().read(server())).resolves.toStrictEqual(
+      multi(hostOk("prod", "deploy@10.0.0.1:22"), {
+        profile: "db",
+        label: "root@10.0.0.2:22",
+        snapshot: null,
+        readAt: null,
+        error: "The output has no meminfo section",
+      }),
+    );
+    expect(client.closed).toBe(false);
+  });
+
+  it("keeps the hosts that read when another loses the session, then starts a new one", async () => {
+    const lost = new McpSessionError("ssh-mcp did not answer tools/call within 70 s");
+    const client = listingClient(listed(PROD_LINE, DB_LINE));
+    const route = client.route;
+    client.route = (call) => (call.args.profile === "db" ? lost : route?.(call));
+    starter.queue.push(client);
+    const remote = sessions();
+
+    await expect(remote.read(server())).resolves.toStrictEqual(
+      multi(hostOk("prod", "deploy@10.0.0.1:22"), {
+        profile: "db",
+        label: "root@10.0.0.2:22",
+        snapshot: null,
+        readAt: null,
+        error: lost.message,
+      }),
+    );
+    await flush();
+    expect(client.closeCount).toBe(1);
+
+    starter.queue.push(listingClient(listed(PROD_LINE, DB_LINE)));
+    await expect(remote.read(server())).resolves.toStrictEqual(
+      multi(hostOk("prod", "deploy@10.0.0.1:22"), hostOk("db", "root@10.0.0.2:22")),
+    );
+    expect(starter.started).toHaveLength(2);
+  });
+
+  it("shows the hosts that answered and keeps the rest when the 40 s wait runs out", async () => {
+    const client = listingClient(listed(PROD_LINE, DB_LINE));
+    starter.queue.push(client);
+    const remote = sessions();
+    await remote.read(server());
+
+    const slow = deferred<ToolCallResult>();
+    const route = client.route;
+    client.route = (call) => (call.args.profile === "db" ? slow.promise : route?.(call));
+    timers.advance(30_000);
+    const waiting = remote.read(server());
+    await flush();
+    timers.advance(40_000);
+
+    await expect(waiting).resolves.toStrictEqual({
+      ...multi(
+        hostOk("prod", "deploy@10.0.0.1:22", "2026-11-06T09:00:30.000Z"),
+        hostOk("db", "root@10.0.0.2:22"),
+      ),
+      error: WAITING_MESSAGE,
+    });
+    slow.resolve(SAMPLE_ANSWER);
+    await flush();
+  });
+
+  it("shows a list-connections error and keeps each host's last reading and the session", async () => {
+    const unconfigured = "No SSH profiles are configured. Write /home/me/.ssh-mcp/config.toml";
+    const client = listingClient(listed(PROD_LINE, DB_LINE), {
+      isError: true,
+      text: unconfigured,
+    });
+    starter.queue.push(client);
+    const remote = sessions();
+    await remote.read(server());
+
+    timers.advance(30_000);
+    await expect(remote.read(server())).resolves.toStrictEqual({
+      ...multi(hostOk("prod", "deploy@10.0.0.1:22"), hostOk("db", "root@10.0.0.2:22")),
+      error: unconfigured,
+    });
+    expect(client.calls.slice(3)).toEqual([{ name: LIST_TOOL, args: {} }]);
+    expect(client.closed).toBe(false);
+  });
+
+  it("shows a list-connections error on the first read without reading any host", async () => {
+    const client = listingClient({ isError: true, text: "Profile store unreadable" });
+    starter.queue.push(client);
+
+    await expect(sessions().read(server())).resolves.toStrictEqual({
+      id: ID,
+      snapshot: null,
+      readAt: null,
+      error: "Profile store unreadable",
+    });
+    expect(client.calls).toEqual([{ name: LIST_TOOL, args: {} }]);
+  });
+
+  it("reads one profile without a profile argument, as before", async () => {
+    const client = listingClient(listed(PROD_LINE));
+    starter.queue.push(client);
+
+    await expect(sessions().read(server())).resolves.toStrictEqual(ok());
+    expect(client.calls).toEqual([{ name: LIST_TOOL, args: {} }, runFor()]);
+  });
+
+  it("reads without a profile argument when list-connections names no host it can read", async () => {
+    const client = listingClient(listed("No connections."));
+    starter.queue.push(client);
+
+    await expect(sessions().read(server())).resolves.toStrictEqual(ok());
+    expect(client.calls).toEqual([{ name: LIST_TOOL, args: {} }, runFor()]);
+  });
+
+  it("goes back to one reading when a reload leaves one profile", async () => {
+    const client = listingClient(listed(PROD_LINE, DB_LINE), listed(PROD_LINE));
+    starter.queue.push(client);
+    const remote = sessions();
+    await remote.read(server());
+
+    timers.advance(30_000);
+    await expect(remote.read(server())).resolves.toStrictEqual(ok("2026-11-06T09:00:30.000Z"));
+  });
+
+  it("does not show a host's old reading once a reload gives its profile a new address", async () => {
+    const moved = "db: root@10.0.0.9:22 [disconnected] sessions=0 role=operator";
+    const client = listingClient(listed(PROD_LINE, DB_LINE));
+    starter.queue.push(client);
+    const remote = sessions();
+    await remote.read(server());
+
+    client.route = (call) => {
+      if (call.name === LIST_TOOL) return listed(PROD_LINE, moved);
+      return call.args.profile === "db" ? { isError: true, text: REFUSED } : undefined;
+    };
+    timers.advance(30_000);
+
+    await expect(remote.read(server())).resolves.toMatchObject({
+      hosts: [
+        { profile: "prod", error: null },
+        { profile: "db", label: "root@10.0.0.9:22", snapshot: null, readAt: null, error: REFUSED },
+      ],
+    });
   });
 });
