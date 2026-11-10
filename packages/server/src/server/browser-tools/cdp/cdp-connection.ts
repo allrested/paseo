@@ -69,7 +69,14 @@ export class CdpConnection {
   }
 
   static open(options: CdpConnectionOptions): Promise<CdpConnection> {
-    const onError = options.onError ?? (() => {});
+    // A throwing caller callback must not escape into a socket handler or timer.
+    const onError = (error: unknown) => {
+      try {
+        options.onError?.(error);
+      } catch {
+        // nothing left to report to
+      }
+    };
     return new Promise<CdpConnection>((resolve, reject) => {
       let settled = false;
       const socket = new WebSocket(options.url, {
@@ -182,6 +189,10 @@ export class CdpConnection {
       message = JSON.parse(raw);
     } catch (error) {
       this.onError(error);
+      return;
+    }
+    if (typeof message !== "object" || message === null) {
+      this.onError(new Error("CDP frame is not an object"));
       return;
     }
     if (typeof message.id === "number") {
