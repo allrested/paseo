@@ -389,8 +389,16 @@ describe("CdpBrowserService", () => {
         new CdpTimeoutError("Runtime.evaluate", 10),
         new CdpUnreachableError("down"),
         new CdpClosedError(),
+        // The screencast hub's watch rejects with this when the tab has no socket.
+        new Error("browser_tab_not_found"),
         new Error("other"),
       ].map(cdpErrorCode),
-    ).toEqual(["browser_timeout", "browser_no_host", "browser_no_host", "browser_unknown_error"]);
+    ).toEqual([
+      "browser_timeout",
+      "browser_no_host",
+      "browser_no_host",
+      "browser_tab_not_found",
+      "browser_unknown_error",
+    ]);
   });
 });

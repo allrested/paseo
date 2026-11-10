@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentManager } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
+import type { CdpBrowserService } from "./browser-tools/cdp/cdp-browser-service.js";
 import type { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import type { DaemonConfigStore } from "./daemon-config-store.js";
 import type { DownloadTokenStore } from "./file-download/token-store.js";
@@ -30,6 +31,7 @@ interface BrowserToolsDaemonHarness {
   connectBrowserHostClient(
     options?: ConnectBrowserHostClientOptions,
   ): Promise<BrowserHostClientHandle>;
+  connectClient(): Promise<DaemonClient>;
   stop(): Promise<void>;
 }
 
@@ -197,6 +199,16 @@ describe("WebSocketServer browser tools wiring", () => {
     expect(harness.broker.getRegisteredClientCount()).toBe(1);
     expect(harness.broker.getPendingRequestCount()).toBe(0);
   });
+
+  it("advertises cdpBrowser only when the daemon built a CDP browser service", async () => {
+    const harness = await startBrowserToolsDaemonHarness();
+    const without = await harness.connectClient();
+    expect(without.getLastServerInfoMessage()?.features?.cdpBrowser).toBeUndefined();
+
+    harness.broker.cdpBrowser = createStub<CdpBrowserService>({});
+    const withService = await harness.connectClient();
+    expect(withService.getLastServerInfoMessage()?.features?.cdpBrowser).toBe(true);
+  });
 });
 
 async function startBrowserToolsDaemonHarness(): Promise<BrowserToolsDaemonHarness> {
@@ -247,6 +259,17 @@ async function startBrowserToolsDaemonHarness(): Promise<BrowserToolsDaemonHarne
           await waitFor(() => broker.getRegisteredClientCount() === 0);
         },
       };
+    },
+    async connectClient() {
+      const client = new DaemonClient({
+        url,
+        clientType: "browser",
+        connectTimeoutMs: 500,
+        reconnect: { enabled: false },
+      });
+      clients.add(client);
+      await client.connect();
+      return client;
     },
     async stop() {
       await Promise.all(Array.from(clients, (client) => client.close()));

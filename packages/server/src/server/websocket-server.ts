@@ -2060,6 +2060,10 @@ export class VoiceAssistantWebSocketServer {
         usageHeadsUp: true,
         // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
         agentRuntimeClose: true,
+        // Fork delta (web browser pane). True when PASEO_BROWSER_CDP_URL is set, reachable or not:
+        // the pane shows "unreachable" with Retry, which is more use than no pane.
+        // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
+        ...(this.browserToolsBroker?.cdpBrowser ? { cdpBrowser: true } : {}),
         // COMPAT(relayProtectedSecurity): added in v0.13.0, remove gate after 2027-04-21.
         relayProtectedSecurity: true,
         usageSetting: true,
