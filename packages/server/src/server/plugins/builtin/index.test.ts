@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -74,6 +74,31 @@ test("listed client bundle is published while plugins are disabled; unlisted dir
     expect(catalog[0]?.clientBundle).toContain("builtin-client-marker");
   } finally {
     await client.close();
+    await daemon.close();
+  }
+}, 60_000);
+
+test("a built-in's contribution receives its own directory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "paseo-builtin-directory-"));
+  roots.push(root);
+  const directory = await fixture(root, "located");
+  const observed = path.join(root, "observed.txt");
+  await writeFile(
+    path.join(directory, "index.server.ts"),
+    `import { writeFileSync } from "node:fs";
+export default function contribute(_server: unknown, builtin: { directory: string }) {
+  writeFileSync(${JSON.stringify(observed)}, builtin.directory);
+  return () => {};
+}`,
+  );
+  const daemon = await createTestPaseoDaemon({
+    daemonVersion: "0.9.2",
+    pluginsEnabled: false,
+    builtinPlugins: new BuiltinPluginLoader(root, ["located"]),
+  });
+  try {
+    expect(await readFile(observed, "utf8")).toBe(directory);
+  } finally {
     await daemon.close();
   }
 }, 60_000);
