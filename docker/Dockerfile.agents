@@ -32,11 +32,6 @@ USER root
 # after an ARG sees it, so a new value reinstalls them. Local builds leave it
 # empty and keep the cache.
 ARG CLI_REFRESH=
-# @playwright/mcp is installed but its browsers deliberately are not: it runs
-# with --cdp-endpoint against the `browser` service, so it drives that Chromium
-# instead of launching its own. That keeps ~500MB of browser binaries out of
-# this image and, more importantly, puts the agents and you in the same browser.
-#
 # The chown belongs in THIS layer, not a later one. These packages are ~1.4 GB;
 # a `chown -R` in a separate RUN rewrites every one of those files into a new
 # layer and grows the image by that much, for a metadata change. Setting the
@@ -51,8 +46,34 @@ RUN npm install -g \
   @anthropic-ai/claude-code \
   @openai/codex \
   opencode-ai \
-  @playwright/mcp \
   && chown -R paseo:paseo /usr/local/lib/node_modules
+
+# MCP servers that the shared-mcp built-in runs once per container, pinned
+# because their flags and HTTP behaviour are what the server definitions were
+# written against. Definitions call the installed bins (`playwright-mcp`,
+# `context7-mcp`, `mcp-gitlab`) rather than `npx -y <pkg>@<version>`: npx keeps
+# an `npm exec` parent of about 165 MB alive next to every server. `npx -y`
+# still works for a config that uses it; it fetches into the npm cache as before.
+#
+# @playwright/mcp is installed but its browsers deliberately are not: it runs
+# with --cdp-endpoint against the `browser` service, so it drives that Chromium
+# instead of launching its own. That keeps ~500MB of browser binaries out of
+# this image and, more importantly, puts the agents and you in the same browser.
+#
+# Root-owned on purpose: nothing updates these in place, and a version bump is a
+# change here. CLI_REFRESH reruns this step too, but the pins hold the versions,
+# and the loop fails the build if npm installed anything other than the pin.
+RUN set -eux; \
+    npm install -g \
+      @playwright/mcp@0.0.81 \
+      @upstash/context7-mcp@4.0.4 \
+      @zereight/mcp-gitlab@2.1.52; \
+    for pin in @playwright/mcp@0.0.81 @upstash/context7-mcp@4.0.4 @zereight/mcp-gitlab@2.1.52; do \
+      name="${pin%@*}"; want="${pin##*@}"; \
+      got="$(node -p "require('/usr/local/lib/node_modules/${name}/package.json').version")"; \
+      [ "$got" = "$want" ] || { echo "$name is $got, expected $want" >&2; exit 1; }; \
+    done; \
+    command -v playwright-mcp context7-mcp mcp-gitlab
 
 # Kiro CLI has no npm package, so it comes from Amazon's release archive.
 #
