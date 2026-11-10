@@ -43,8 +43,14 @@ agent auth, and troubleshooting notes.
 | `browser-cdp` | Publishes Chromium's CDP port onto the Compose network |
 | `paseo-cdp`   | Puts that CDP port on `paseo`'s loopback               |
 
-`Dockerfile.agents` adds Claude Code, Codex, OpenCode, Kiro CLI, GitHub CLI and
-Playwright MCP.
+`Dockerfile.agents` adds Claude Code, Codex, OpenCode, Kiro CLI and GitHub CLI,
+unpinned, and three MCP servers at pinned versions for the `shared-mcp` built-in:
+`@playwright/mcp` 0.0.81 (`playwright-mcp`), `@upstash/context7-mcp` 4.0.4
+(`context7-mcp`) and `@zereight/mcp-gitlab` 2.1.52 (`mcp-gitlab`), each on
+`PATH` in `/usr/local/bin`. Shared-mcp definitions call those bins; see
+[docs/plugins.md](../docs/plugins.md) for why not `npx -y`. To move a server to a
+new version, change its pin in `Dockerfile.agents` and check its flags against
+the definition before tagging.
 
 ### Deploying
 
