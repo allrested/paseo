@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text } from "react-native";
-import { useRpc, useSettings, type PluginScreenProps } from "@getpaseo/plugin/client";
 import {
+  useRpc,
+  useSettings,
+  type PluginScreenProps,
+  type SettingsState,
+} from "@getpaseo/plugin/client";
+import {
+  Modal,
   ScrollView,
   SettingsAction,
   SettingsCard,
@@ -16,6 +22,7 @@ import {
   addAccountRpc,
   listAccountsRpc,
   moveIdleRpc,
+  removeAccountRpc,
   signInRpc,
   type Account,
   type ActionResult,
@@ -25,7 +32,9 @@ import { useScreenStyles, type ScreenStyles } from "./styles.js";
 import {
   MOVE_CONFIRM_MS,
   accountLabel,
+  canRemove,
   defaultAccountOptions,
+  defaultAfterRemoval,
   describeAccount,
   describeMoveJob,
   moveActionLabel,
@@ -33,6 +42,7 @@ import {
   moveTargetOptions,
   nameError,
   needsSignIn,
+  removalNotes,
 } from "./view-model.js";
 
 const ACCOUNTS_KEY = ["claude-accounts", "list"] as const;
@@ -44,6 +54,9 @@ const SIGN_IN_HINT = "Opens claude auth login in a terminal of your most recent 
 const NAME_HINT = "Lowercase letters, digits and dashes, such as work";
 const ADD_HINT = "Creates the account's directory and provider, then opens its sign-in terminal";
 const NO_TARGET_HINT = "No other signed-in account can take agents";
+const REMOVE_HINT = "Deletes its provider and moves its folder aside, with its history and login";
+
+type AccountsSettings = SettingsState<typeof claudeAccountsSettings.schema>;
 
 type OpenWorkspace = (workspaceId: string) => void;
 
@@ -54,6 +67,7 @@ interface Reply {
 
 interface DefaultAccountProps {
   accounts: readonly Account[];
+  settings: AccountsSettings;
   styles: ScreenStyles;
 }
 
@@ -62,6 +76,14 @@ interface AccountCardProps {
   accounts: readonly Account[];
   jobRunning: boolean;
   openWorkspace: OpenWorkspace;
+  onRemoved: (provider: string) => void;
+  styles: ScreenStyles;
+}
+
+interface RemoveAccountActionProps {
+  account: Account;
+  onRemoved: (provider: string) => void;
+  styles: ScreenStyles;
 }
 
 interface SignInActionProps {
@@ -90,8 +112,8 @@ function followLogin(result: ActionResult, openWorkspace: OpenWorkspace): void {
   if (result.loginWorkspaceId !== null) openWorkspace(result.loginWorkspaceId);
 }
 
-function DefaultAccount({ accounts, styles }: DefaultAccountProps) {
-  const settings = useSettings(claudeAccountsSettings);
+// The screen owns the settings, so a reset after Remove shows its error under this picker.
+function DefaultAccount({ accounts, settings, styles }: DefaultAccountProps) {
   const saved = settings.status === "ready" ? settings.values.defaultAccount : null;
   const options = useMemo(() => defaultAccountOptions(accounts, saved), [accounts, saved]);
   const change = useCallback(
@@ -236,7 +258,64 @@ function MoveIdleAction({ account, accounts, jobRunning }: MoveIdleActionProps) 
   );
 }
 
-function AccountCard({ account, accounts, jobRunning, openWorkspace }: AccountCardProps) {
+function RemoveAccountAction({ account, onRemoved, styles }: RemoveAccountActionProps) {
+  const [open, setOpen] = useState(false);
+  const callRemove = useRpc(removeAccountRpc);
+  const queryClient = useQueryClient();
+  const remove = useMutation({
+    mutationFn: () => callRemove({ provider: account.provider }),
+    // A refusal keeps the dialog open with its reason.
+    onSuccess: (result: ActionResult) => {
+      if (!result.ok) return;
+      setOpen(false);
+      onRemoved(account.provider);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY }),
+  });
+  const { mutate, reset } = remove;
+  const openDialog = useCallback(() => {
+    reset();
+    setOpen(true);
+  }, [reset]);
+  const confirm = useCallback(() => mutate(), [mutate]);
+  return (
+    <>
+      <SettingsAction
+        testID={`claude-accounts-remove-${account.provider}`}
+        label="Remove account"
+        hint={REMOVE_HINT}
+        actionLabel="Remove"
+        onPress={openDialog}
+      />
+      <Modal title={`Remove ${account.label}`} open={open} onOpenChange={setOpen}>
+        <Modal.Content>
+          {removalNotes(account).map((note) => (
+            <Text key={note} style={styles.text}>
+              {note}
+            </Text>
+          ))}
+          <SettingsAction
+            testID={`claude-accounts-remove-confirm-${account.provider}`}
+            label={`Remove ${account.label}`}
+            error={actionError(remove.error, remove.data)}
+            actionLabel={remove.isPending ? "Removing..." : "Remove"}
+            disabled={remove.isPending}
+            onPress={confirm}
+          />
+        </Modal.Content>
+      </Modal>
+    </>
+  );
+}
+
+function AccountCard({
+  account,
+  accounts,
+  jobRunning,
+  openWorkspace,
+  onRemoved,
+  styles,
+}: AccountCardProps) {
   const problems = account.problems.length === 0 ? null : account.problems.join("\n");
   return (
     <SettingsCard>
@@ -251,6 +330,9 @@ function AccountCard({ account, accounts, jobRunning, openWorkspace }: AccountCa
       ) : null}
       {account.agents.total > 0 ? (
         <MoveIdleAction account={account} accounts={accounts} jobRunning={jobRunning} />
+      ) : null}
+      {canRemove(account) ? (
+        <RemoveAccountAction account={account} onRemoved={onRemoved} styles={styles} />
       ) : null}
     </SettingsCard>
   );
@@ -308,6 +390,7 @@ function AddAccount({ openWorkspace }: AddAccountProps) {
 
 export function AccountsScreen({ theme, navigation }: PluginScreenProps) {
   const styles = useScreenStyles(theme);
+  const settings = useSettings(claudeAccountsSettings);
   const listAccounts = useRpc(listAccountsRpc);
   // The interval belongs to the query observer, so polling stops when the screen unmounts. Retries
   // are off: a failed fetch shows at once, and the next poll is the retry.
@@ -321,6 +404,17 @@ export function AccountsScreen({ theme, navigation }: PluginScreenProps) {
   const openWorkspace = useCallback(
     (workspaceId: string) => navigate?.({ workspaceId }),
     [navigate],
+  );
+  // A save that fails shows under the default account picker; the removal stays done, and a
+  // default naming a gone account starts agents on plain claude.
+  const resetDefault = useCallback(
+    (removed: string) => {
+      if (settings.status !== "ready") return;
+      const next = defaultAfterRemoval(settings.values.defaultAccount, removed);
+      if (next === null) return;
+      void settings.save({ ...settings.values, defaultAccount: next }, settings.revision);
+    },
+    [settings],
   );
   const { refetch } = list;
   const retry = useCallback(() => {
@@ -348,7 +442,7 @@ export function AccountsScreen({ theme, navigation }: PluginScreenProps) {
     <ScrollView contentContainerStyle={styles.content}>
       <SettingsSection title="Default account">
         <SettingsCard>
-          <DefaultAccount accounts={data.accounts} styles={styles} />
+          <DefaultAccount accounts={data.accounts} settings={settings} styles={styles} />
         </SettingsCard>
       </SettingsSection>
       <SettingsSection title="Accounts">
@@ -368,6 +462,8 @@ export function AccountsScreen({ theme, navigation }: PluginScreenProps) {
             accounts={data.accounts}
             jobRunning={jobRunning}
             openWorkspace={openWorkspace}
+            onRemoved={resetDefault}
+            styles={styles}
           />
         ))}
       </SettingsSection>
