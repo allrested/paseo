@@ -3,7 +3,7 @@ import { MOVED_FROM_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { resolveMoveBackChain } from "./move-agent.js";
 
 function lookup(movedFrom: Record<string, string | null>) {
-  return async (agentId: string) => {
+  return async (agentId: string): Promise<Record<string, string> | null> => {
     if (!(agentId in movedFrom)) return null;
     const from = movedFrom[agentId];
     return from ? { [MOVED_FROM_AGENT_ID_LABEL]: from } : {};
