@@ -298,8 +298,8 @@ stale default keeps plain `claude`. To restore an account, rename its folder bac
 `~/.claude-<name>`, then add the same name again.
 
 The `default-skills` built-in installs third-party Claude Code skills that were reviewed at a
-pinned commit: ub-mode, the AI design skills, Anti Slop and UI/UX Pro Max. At every daemon start,
-and whenever its settings are saved, it copies each skill that is on from
+pinned commit: ub-mode, the AI design skills, Anti Slop, UI/UX Pro Max and unslop. At every daemon
+start, and whenever its settings are saved, it copies each skill that is on from
 `plugins/default-skills/vendor/` into `skills/` of the main Claude config folder
 (`$CLAUDE_CONFIG_DIR`, else `~/.claude`). `claude-accounts` links that folder into each account it
 adds, so one copy serves every account; an account added before the folder existed needs Add
@@ -309,7 +309,8 @@ while it still matches that hash. A folder you made, or one of its folders you e
 replaced or removed; the skill shows "skipped: a folder with this name exists" on the Skills screen,
 which the "Default skills" Command Center item opens. Turning a skill off removes the plugin's
 folders. Agents see a change when their session starts. UI/UX Pro Max runs `python3`, which the
-fork's agents image installs. To update a pin, follow
+fork's agents image installs. unslop ships without its Playwright scripts, so its live-site
+snapshot and story video steps are unavailable. To update a pin, follow
 [`vendor/SOURCES.md`](../plugins/default-skills/vendor/SOURCES.md), which also lists every file left
 out or edited and why; the next daemon start replaces the plugin's copies whose content changed.
 `oxlint` and `oxfmt` skip the vendored files, so they stay as reviewed.
