@@ -5,7 +5,7 @@ import type { FrameRect } from "./view-model";
 export function CdpFrameImage({ jpeg, rect }: { jpeg: Uint8Array; rect: FrameRect }) {
   const ref = useRef<HTMLImageElement>(null);
   useEffect(() => {
-    const url = URL.createObjectURL(new Blob([jpeg.slice().buffer], { type: "image/jpeg" }));
+    const url = URL.createObjectURL(new Blob([jpeg as BlobPart], { type: "image/jpeg" }));
     if (ref.current) ref.current.src = url;
     // The decoded frame stays on screen after its URL is revoked.
     return () => URL.revokeObjectURL(url);
