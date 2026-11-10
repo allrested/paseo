@@ -308,6 +308,65 @@ describe("CdpBrowserService", () => {
     ).toEqual({ width: 1920, height: 240, deviceScaleFactor: 1, mobile: false });
   });
 
+  test("a viewer's frames come from the tab's socket and stop when the tab closes", async () => {
+    await started();
+    const tab = await newTab();
+    const targetId = [...chromium.targets.keys()][0];
+    const frames: number[] = [];
+    await service.screencast.watch(tab.browserId, {
+      id: "v",
+      deliver: async (frame) => void frames.push(frame.sequence),
+    });
+    expect(chromium.commands.some((command) => command.method === "Page.startScreencast")).toBe(
+      true,
+    );
+    chromium.emit(targetId, "Page.screencastFrame", {
+      data: Buffer.from([0xff, 0xd8]).toString("base64"),
+      sessionId: 1,
+      metadata: {
+        deviceWidth: 800,
+        deviceHeight: 600,
+        pageScaleFactor: 1,
+        scrollOffsetX: 0,
+        scrollOffsetY: 0,
+      },
+    });
+    await until(() => frames.length > 0, "a frame");
+    await service.closeTab(tab.browserId);
+    expect(service.screencast.viewerCount(tab.browserId)).toBe(0);
+  });
+
+  test("a watched tab re-attaches after a timed-out command and its viewer keeps getting frames", async () => {
+    await started();
+    const tab = await newTab();
+    const targetId = [...chromium.targets.keys()][0];
+    const frames: number[] = [];
+    await service.screencast.watch(tab.browserId, {
+      id: "v",
+      deliver: async (frame) => void frames.push(frame.sequence),
+    });
+    const starts = () =>
+      chromium.commands.filter((command) => command.method === "Page.startScreencast").length;
+    expect(starts()).toBe(1);
+    chromium.stall("Runtime.evaluate");
+    const payload = await broker.execute({
+      command: { command: "evaluate", args: { browserId: tab.browserId, function: "() => 1" } },
+      workspaceId: "ws-a",
+      timeoutMs: 10_000,
+    });
+    expect(payload).toMatchObject({ ok: false, error: { code: "browser_timeout" } });
+    // No input, agent command or new subscribe follows: the service re-attaches on its own.
+    await until(() => starts() === 2, "the screencast to restart on the new socket");
+    await until(() => chromium.socketCount(targetId) === 1, "the old socket to close");
+    chromium.emit(targetId, "Page.screencastFrame", {
+      data: Buffer.from([0xff, 0xd8]).toString("base64"),
+      sessionId: 2,
+      metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1 },
+    });
+    await until(() => frames.length > 0, "a frame from the new socket");
+    expect(service.screencast.viewerCount(tab.browserId)).toBe(1);
+  });
+
   test("clampViewport holds the limits", () => {
     expect(clampViewport({ width: 5000, height: 10, deviceScaleFactor: 0.5 })).toEqual({
       width: 1920,
