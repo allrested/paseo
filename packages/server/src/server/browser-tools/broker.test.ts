@@ -941,4 +941,81 @@ describe("BrowserToolsBroker", () => {
     });
     expect(broker.getPendingRequestCount()).toBe(0);
   });
+
+  describe("new tab host preference", () => {
+    const TAB = "11111111-1111-4111-8111-111111111111";
+    const host = (id: string, broker: BrowserToolsBroker, prefersNewTabs?: boolean) => {
+      const seen: string[] = [];
+      broker.registerClient({
+        id,
+        hostKind: id,
+        supportedCommands: ["new_tab", "list_tabs", "reload"],
+        ...(prefersNewTabs ? { prefersNewTabs } : {}),
+        sendBrowserAutomationRequest: (request) => {
+          seen.push(request.command.command);
+          broker.receiveResponse(
+            {
+              type: "browser.automation.execute.response",
+              payload:
+                request.command.command === "new_tab"
+                  ? {
+                      requestId: request.requestId,
+                      ok: true,
+                      result: {
+                        command: "new_tab",
+                        browserId: TAB,
+                        workspaceId: "ws",
+                        url: "about:blank",
+                      },
+                    }
+                  : {
+                      requestId: request.requestId,
+                      ok: true,
+                      result: { command: "reload", browserId: TAB },
+                    },
+            },
+            [id],
+          );
+        },
+      });
+      return seen;
+    };
+
+    test("a host that prefers new tabs takes new_tab over a later host", async () => {
+      const broker = new BrowserToolsBroker({});
+      const docker = host("docker", broker, true);
+      const desktop = host("desktop", broker);
+      const result = await broker.execute({
+        command: { command: "new_tab", args: {} },
+        workspaceId: "ws",
+      });
+      expect(result.ok).toBe(true);
+      expect(docker).toEqual(["new_tab"]);
+      expect(desktop).toEqual([]);
+    });
+
+    test("without a preferring host the most recent host still takes new_tab", async () => {
+      const broker = new BrowserToolsBroker({});
+      const first = host("first", broker);
+      const second = host("second", broker);
+      await broker.execute({ command: { command: "new_tab", args: {} }, workspaceId: "ws" });
+      expect(first).toEqual([]);
+      expect(second).toEqual(["new_tab"]);
+    });
+
+    test("a claimed tab routes to its host until it is released", async () => {
+      const broker = new BrowserToolsBroker({});
+      const docker = host("docker", broker, true);
+      const desktop = host("desktop", broker);
+      broker.claimBrowser("docker", TAB);
+      await broker.execute({ command: { command: "reload", args: { browserId: TAB } } });
+      expect(docker).toEqual(["reload"]);
+      expect(desktop).toEqual([]);
+      broker.releaseBrowser(TAB);
+      const result = await broker.execute({
+        command: { command: "reload", args: { browserId: TAB } },
+      });
+      expect(result).toMatchObject({ ok: false, error: { code: "browser_tab_not_found" } });
+    });
+  });
 });
