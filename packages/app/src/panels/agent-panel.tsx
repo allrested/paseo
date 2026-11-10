@@ -990,6 +990,8 @@ function ChatAgentContent({
   );
 }
 
+// Fork delta (session move): the move banner takes this component over the complexity limit.
+// eslint-disable-next-line complexity
 const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   serverId,
   workspaceId,
