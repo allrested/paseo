@@ -178,66 +178,49 @@ export function processRow(entry: RemoteProcess): Row {
   };
 }
 
-export interface SectionTitles {
-  error: string;
-  summary: string;
-  disks: string;
-  processes: string;
-}
-
 export interface HostCard {
   key: string;
-  titles: SectionTitles;
+  name: string;
+  /** The profile's user@host:port. Null for an entry with one host, which reports none. */
+  address: string | null;
   snapshot: RemoteSnapshot | null;
   readAt: string | null;
-  /** The host's own error. Null for an entry with one host, whose error is the entry's. */
   error: string | null;
 }
 
 export interface ReadingView {
-  /** Shown above the cards: the request's error, else the entry's. */
+  /** Shown above the cards: an entry with several hosts' own error, or a failed first request. */
   error: string | null;
   cards: HostCard[];
 }
 
-const SERVER_TITLES: SectionTitles = {
-  error: "Unable to read this server",
-  summary: "Server",
-  disks: "Disks",
-  processes: "Top processes",
-};
-
-function hostTitles(host: HostReading): SectionTitles {
-  const name = `${host.profile} (${host.label})`;
-  return {
-    error: `Unable to read ${name}`,
-    summary: name,
-    disks: `Disks on ${host.profile}`,
-    processes: `Top processes on ${host.profile}`,
-  };
-}
-
-/** One card per host of an ssh-mcp entry; an entry with one host gets one card, as before. */
+/**
+ * One card per host of an ssh-mcp entry. An entry with one host gets one card under the entry's
+ * name, and that card carries the entry's error.
+ */
 export function readingView(
   reading: ServerReading | undefined,
   requestError: string | null,
+  entryName: string,
 ): ReadingView {
   if (reading === undefined) return { error: requestError, cards: [] };
   const error = requestError ?? reading.error;
   if (reading.hosts === undefined || reading.hosts.length === 0) {
     const card: HostCard = {
       key: "server",
-      titles: SERVER_TITLES,
+      name: entryName,
+      address: null,
       snapshot: reading.snapshot,
       readAt: reading.readAt,
-      error: null,
+      error,
     };
-    return { error, cards: [card] };
+    return { error: null, cards: [card] };
   }
   const cards = reading.hosts.map(
-    (host): HostCard => ({
+    (host: HostReading): HostCard => ({
       key: host.profile,
-      titles: hostTitles(host),
+      name: host.profile,
+      address: host.label,
       snapshot: host.snapshot,
       readAt: host.readAt,
       error: host.error,
