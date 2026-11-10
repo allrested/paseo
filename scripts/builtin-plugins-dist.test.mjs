@@ -26,6 +26,12 @@ async function findEntry(directory, names) {
 
 test("built output compiles and starts every listed built-in", async () => {
   assert.equal(resolveBuiltinPluginsRoot(), packagedRoot);
+  // Built-ins run in this process and read its env: default-skills writes into the Claude config
+  // folder, and others write under PASEO_HOME. Keep them off the real ones.
+  const home = await mkdtemp(path.join(os.tmpdir(), "builtin-dist-home-"));
+  process.env.HOME = home;
+  process.env.PASEO_HOME = path.join(home, ".paseo");
+  delete process.env.CLAUDE_CONFIG_DIR;
   const { version } = JSON.parse(
     await readFile(path.join(repoRoot, "packages/server/package.json"), "utf8"),
   );
@@ -76,8 +82,20 @@ test("built output compiles and starts every listed built-in", async () => {
         );
       }
     }
+    // Stopping waits for default-skills' first sync, which copies its vendor files from the build.
+    await runtime.stopAll();
+    for (const file of [
+      "ub-mode/SKILL.md",
+      "antislop-human/contrast-check.py",
+      "ui-ux-pro-max/scripts/search.py",
+      "ui-ux-pro-max/data/stacks/react.csv",
+    ]) {
+      const installed = path.join(home, ".claude", "skills", file);
+      assert.ok((await stat(installed).catch(() => null))?.isFile(), `${installed} must exist`);
+    }
   } finally {
     await runtime.stopAll();
     await rm(settingsDirectory, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 });
