@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import type { AddressInfo } from "node:net";
+import { WebSocketServer, type WebSocket } from "ws";
 import {
   CdpClosedError,
   CdpCommandError,
@@ -91,5 +93,58 @@ describe("CdpConnection", () => {
     await expect(
       CdpConnection.open({ url: "ws://127.0.0.1:1/devtools/page/x", connectTimeoutMs: 500 }),
     ).rejects.toBeInstanceOf(CdpClosedError);
+  });
+});
+
+function answerEveryCommand(socket: WebSocket): void {
+  socket.on("message", (data) => {
+    const { id } = JSON.parse(String(data)) as { id: number };
+    socket.send(JSON.stringify({ id, result: {} }));
+  });
+}
+
+describe("CdpConnection against a raw server", () => {
+  let server: WebSocketServer;
+  let url: string;
+  const sockets: WebSocket[] = [];
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    server.on("connection", (socket) => {
+      sockets.push(socket);
+      answerEveryCommand(socket);
+    });
+  });
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) socket.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  test("ignores null, number and string frames, reports them and keeps working", async () => {
+    const errors: unknown[] = [];
+    const connection = await CdpConnection.open({ url, onError: (error) => errors.push(error) });
+    for (const frame of ["null", "42", '"text"']) sockets[0].send(frame);
+    await expect(connection.send("Page.enable")).resolves.toEqual({});
+    expect(connection.closed).toBe(false);
+    expect(errors).toHaveLength(3);
+    connection.close();
+  });
+
+  test("an onError that throws does not escape", async () => {
+    const calls: unknown[] = [];
+    const connection = await CdpConnection.open({
+      url,
+      onError: (error) => {
+        calls.push(error);
+        throw new Error("onError failed");
+      },
+    });
+    sockets[0].send("not json");
+    await expect(connection.send("Page.enable")).resolves.toEqual({});
+    expect(calls).toHaveLength(1);
+    expect(connection.closed).toBe(false);
+    connection.close();
   });
 });
