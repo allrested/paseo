@@ -1,0 +1,125 @@
+import { expect, test } from "vitest";
+import {
+  ACTIVITY_INTERVAL_MS,
+  describeActivity,
+  startActivityPoller,
+  type ActivityItem,
+  type ActivityPoller,
+} from "./activity.js";
+import { createFakeClock, settle, type FakeClock } from "./fake-clock.js";
+
+test("names the newest item it knows", () => {
+  expect(
+    describeActivity([
+      { type: "user_message" },
+      { type: "tool_call", name: "Bash", status: "running" },
+    ]),
+  ).toBe("Running Bash");
+  expect(describeActivity([{ type: "tool_call", name: "Read", status: "completed" }])).toBe(
+    "Ran Read",
+  );
+  expect(
+    describeActivity([
+      { type: "tool_call", name: "Read", status: "completed" },
+      { type: "assistant_message" },
+    ]),
+  ).toBe("Writing a reply");
+  expect(describeActivity([{ type: "reasoning" }])).toBe("Thinking");
+  expect(describeActivity([{ type: "user_message" }, { type: "todo" }])).toBe("Reading the prompt");
+  expect(describeActivity([{ type: "todo" }])).toBe(null);
+  expect(describeActivity([])).toBe(null);
+});
+
+test("cuts a tool name to 60 characters", () => {
+  const name = "x".repeat(80);
+  expect(describeActivity([{ type: "tool_call", name, status: "running" }])).toBe(
+    `Running ${"x".repeat(60)}`,
+  );
+});
+
+interface PollerHarness {
+  clock: FakeClock;
+  running: string[];
+  tails: Map<string, ActivityItem[]>;
+  reads: string[];
+  changes: Record<string, string>[];
+  logs: string[];
+  poller: ActivityPoller;
+}
+
+function startHarness(running: string[], tails: Map<string, ActivityItem[]>): PollerHarness {
+  const clock = createFakeClock();
+  const reads: string[] = [];
+  const changes: Record<string, string>[] = [];
+  const logs: string[] = [];
+  const poller = startActivityPoller({
+    running: () => running,
+    tail: async (agentId) => {
+      reads.push(agentId);
+      const items = tails.get(agentId);
+      if (!items) throw new Error(`no timeline for ${agentId}`);
+      return items;
+    },
+    timers: clock,
+    log: (message) => logs.push(message),
+    onChange: (activity) => changes.push({ ...activity }),
+  });
+  return { clock, running, tails, reads, changes, logs, poller };
+}
+
+test("reads each running agent once per interval and reports only changes", async () => {
+  const tails = new Map<string, ActivityItem[]>([
+    ["a", [{ type: "tool_call", name: "Bash", status: "running" }]],
+  ]);
+  const harness = startHarness(["a"], tails);
+  await settle();
+  expect(harness.changes).toEqual([{ a: "Running Bash" }]);
+
+  harness.clock.advance(ACTIVITY_INTERVAL_MS - 1);
+  await settle();
+  expect(harness.reads).toEqual(["a"]);
+
+  harness.clock.advance(1);
+  await settle();
+  expect(harness.reads).toEqual(["a", "a"]);
+  expect(harness.changes).toEqual([{ a: "Running Bash" }]);
+
+  tails.set("a", [{ type: "assistant_message" }]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  expect(harness.changes).toEqual([{ a: "Running Bash" }, { a: "Writing a reply" }]);
+  harness.poller.stop();
+});
+
+test("an agent that stops running loses its line", async () => {
+  const running = ["a"];
+  const harness = startHarness(running, new Map([["a", [{ type: "reasoning" }]]]));
+  await settle();
+  running.length = 0;
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  expect(harness.changes).toEqual([{ a: "Thinking" }, {}]);
+  harness.poller.stop();
+});
+
+test("a failed read keeps the agent's last line and is logged", async () => {
+  const tails = new Map<string, ActivityItem[]>([["a", [{ type: "reasoning" }]]]);
+  const harness = startHarness(["a"], tails);
+  await settle();
+  tails.delete("a");
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  expect(harness.changes).toEqual([{ a: "Thinking" }]);
+  expect(harness.logs).toEqual(["[office] activity of a: no timeline for a"]);
+  harness.poller.stop();
+});
+
+test("stop ends the reads and leaves no timer", async () => {
+  const harness = startHarness(["a"], new Map([["a", [{ type: "reasoning" }]]]));
+  await settle();
+  harness.poller.stop();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS * 3);
+  await settle();
+  expect(harness.reads).toEqual(["a"]);
+  expect(harness.clock.pending()).toBe(0);
+});
