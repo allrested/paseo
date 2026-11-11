@@ -1,5 +1,6 @@
-// Web only. Every function is called only when Platform.OS === "web" (office-surface.tsx), and
-// none touches the DOM at module top level, because esbuild bundles this file for every platform.
+// Web only. Every function is called only when layout.platform is "web" (office-surface.tsx),
+// and none touches the DOM at module top level, because esbuild bundles this file for every
+// platform.
 
 export function hasWebGL2(): boolean {
   if (typeof document === "undefined") return false;
