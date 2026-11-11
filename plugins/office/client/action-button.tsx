@@ -25,12 +25,14 @@ function messageOf(error: unknown): string {
 
 /**
  * A label is imperative ("Send"), so its failure reads "Unable to send: ...". A message that
- * already starts "Unable to" (the board service's errors) is shown as it is, not prefixed twice.
+ * already starts "Unable to" (the board service's errors) is shown as it is, not prefixed twice,
+ * and an error that says nothing leaves no colon behind.
  */
 export function failureText(label: string, error: unknown): string {
-  const message = messageOf(error);
+  const message = messageOf(error).trim();
   if (message.startsWith("Unable to")) return message;
-  return `Unable to ${label.charAt(0).toLowerCase()}${label.slice(1)}: ${message}`;
+  const failure = `Unable to ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+  return message === "" ? failure : `${failure}: ${message}`;
 }
 
 function buttonStyle(
@@ -93,11 +95,23 @@ export function ActionButton({
     ({ pressed }: PressableStateCallbackType) => buttonStyle(styles, primary, dim, pressed),
     [styles, primary, dim],
   );
+  const shown = pending ? pendingLabel : label;
   return (
     <View style={styles.actionButton}>
-      <Pressable accessibilityRole="button" disabled={dim} onPress={press} style={style}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={shown}
+        disabled={dim}
+        onPress={press}
+        style={style}
+      >
+        {primary ? null : <View style={styles.buttonFill} />}
         <Text style={primary ? styles.buttonPrimaryText : styles.buttonText} numberOfLines={1}>
-          {pending ? pendingLabel : label}
+          {shown}
+        </Text>
+        {/* "Approve" turning into "Approving..." would widen the button and move its neighbour. */}
+        <Text aria-hidden style={styles.buttonSpacer} numberOfLines={1}>
+          {pending ? label : pendingLabel}
         </Text>
       </Pressable>
       {error ? (

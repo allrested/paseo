@@ -3,8 +3,9 @@ import { Text, View } from "react-native";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { Modal, TextInput } from "@getpaseo/plugin/client/ui";
 import type { AgentStatus, OfficeAgent } from "../shared/contracts.js";
-import { ActionButton } from "./action-button.js";
-import { agentMeta, agentTitle, answerableInOffice } from "./model.js";
+import { ActionButton, failureText } from "./action-button.js";
+import { reasonLabel } from "./attention-strip.js";
+import { agentMeta, agentTitle, answerableInOffice, attentionReason } from "./model.js";
 import { PermissionActions } from "./permission-actions.js";
 import type { OfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";
@@ -18,6 +19,12 @@ export const STATUS_LABELS: Record<AgentStatus, string> = {
   error: "Error",
   closed: "Closed",
 };
+
+/** The agent's state in words, the same in a row and in the card: what it needs comes first. */
+export function stateLabel(agent: OfficeAgent): string {
+  const reason = attentionReason(agent);
+  return reason === null ? STATUS_LABELS[agent.status] : reasonLabel(reason);
+}
 
 /** The box after a send: cleared only if it still holds what was sent, so later typing stays. */
 export function textAfterSend(current: string, sent: string): string {
@@ -46,7 +53,6 @@ function AgentCardBody({
     navigation?.openAgent({ agentId: agent.id });
     onClose();
   }, [navigation, agent.id, onClose]);
-  const stop = useCallback(() => actions.cancel(agent.id), [actions, agent.id]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -54,6 +60,16 @@ function AgentCardBody({
       mounted.current = false;
     };
   }, []);
+  // Stop shares its row with Open session, so its error goes under the row, at the row's width.
+  const [stopError, setStopError] = useState<string | null>(null);
+  const stop = useCallback(async () => {
+    setStopError(null);
+    try {
+      await actions.cancel(agent.id);
+    } catch (caught) {
+      if (mounted.current) setStopError(failureText("Stop", caught));
+    }
+  }, [actions, agent.id]);
   const send = useCallback(async () => {
     const sent = text.trim();
     await actions.send(agent.id, sent);
@@ -66,7 +82,7 @@ function AgentCardBody({
     <View style={styles.sheet}>
       <View style={styles.sheetStatus}>
         <Text style={styles.muted}>
-          {agentMeta(agent)} · {STATUS_LABELS[agent.status]}
+          {agentMeta(agent)} · {stateLabel(agent)}
         </Text>
         {activity ? <Text style={styles.sheetText}>{activity}</Text> : null}
       </View>
@@ -80,17 +96,29 @@ function AgentCardBody({
         />
       ))}
       {navigation || running ? (
-        <View style={styles.actions}>
-          {navigation ? (
-            <ActionButton
-              label="Open session"
-              pendingLabel="Opening..."
-              onPress={openSession}
-              styles={styles}
-            />
-          ) : null}
-          {running ? (
-            <ActionButton label="Stop" pendingLabel="Stopping..." onPress={stop} styles={styles} />
+        <View style={styles.sheetActions}>
+          <View style={styles.actions}>
+            {navigation ? (
+              <ActionButton
+                label="Open session"
+                pendingLabel="Opening..."
+                onPress={openSession}
+                styles={styles}
+              />
+            ) : null}
+            {running ? (
+              <ActionButton
+                label="Stop"
+                pendingLabel="Stopping..."
+                onPress={stop}
+                styles={styles}
+              />
+            ) : null}
+          </View>
+          {stopError ? (
+            <Text accessibilityRole="alert" style={styles.actionError}>
+              {stopError}
+            </Text>
           ) : null}
         </View>
       ) : null}
