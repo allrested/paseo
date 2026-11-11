@@ -417,6 +417,8 @@ describe("CdpBrowserService", () => {
     const watchedAt800 = async () => {
       await started();
       const tab = await newTab();
+      // The agent's new_tab showed the badge; the checks below run with no agent on the tab.
+      now += AGENT_ACTIVITY_MS;
       const targetId = [...chromium.targets.keys()][0];
       let delivered = 0;
       await service.screencast.watch(tab.browserId, {
@@ -477,6 +479,38 @@ describe("CdpBrowserService", () => {
       expect(overrides().slice(setCount)).toEqual([
         { width: 390, height: 700, deviceScaleFactor: 1, mobile: false },
       ]);
+    });
+
+    const answersAtOnce = () => ({ result: { type: "undefined" } });
+    const paintsTallWhileRunning = (_params: Record<string, unknown>, target: string) => {
+      now += AGENT_ACTIVITY_MS + 1_000;
+      chromium.emit(target, "Page.screencastFrame", frameOfSize(800, 4000));
+      return answersAtOnce();
+    };
+
+    test("leaves frames alone while an agent command runs on the tab and while its badge shows", async () => {
+      const { tab, overrides, frame, setCount } = await watchedAt800();
+      // A full-page screenshot changes the emulated size while it captures; a frame may come out
+      // then. The command outlasts the badge, which counts from its start.
+      chromium.handle("Runtime.evaluate", paintsTallWhileRunning);
+      await broker.execute({
+        command: { command: "evaluate", args: { browserId: tab.browserId, function: "() => 1" } },
+        workspaceId: "ws-a",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(overrides().slice(setCount)).toEqual([]);
+      // The agent's next command answers at once; its badge still shows.
+      chromium.handle("Runtime.evaluate", answersAtOnce);
+      await broker.execute({
+        command: { command: "evaluate", args: { browserId: tab.browserId, function: "() => 1" } },
+        workspaceId: "ws-a",
+      });
+      await frame(1368, 934);
+      expect(overrides().slice(setCount)).toEqual([]);
+      // Once the badge has cleared, a frame of another size is re-applied again.
+      now += AGENT_ACTIVITY_MS;
+      await frame(1368, 934);
+      expect(overrides().slice(setCount)).toEqual([SET]);
     });
 
     test("stops after three re-applies that did not take, with one warn", async () => {
