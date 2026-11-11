@@ -1,56 +1,57 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
-import type { OfficeAgent } from "../shared/contracts.js";
-import { STATUS_LABELS } from "./agent-card.js";
-import { reasonLabel } from "./attention-strip.js";
-import {
-  agentMeta,
-  agentTitle,
-  attentionReason,
-  dotTone,
-  type OfficeRoom,
-  type OfficeRow,
-} from "./model.js";
+import { stateLabel } from "./agent-card.js";
+import { agentMeta, agentTitle, dotTone, type OfficeRoom, type OfficeRow } from "./model.js";
 import { PermissionActions } from "./permission-actions.js";
 import type { OfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";
 
-/** The agent's state in words, so it does not rest on the dot's colour. */
-function stateLabel(agent: OfficeAgent): string {
-  const reason = attentionReason(agent);
-  return reason === null ? STATUS_LABELS[agent.status] : reasonLabel(reason);
+/** Lit is under a finger or a pointer. */
+function rowStyle(styles: OfficeStyles, child: boolean, lit: boolean) {
+  if (child) return lit ? styles.rowChildPressed : styles.rowChild;
+  return lit ? styles.rowPressed : styles.row;
 }
 
-function rowStyle(styles: OfficeStyles, child: boolean, pressed: boolean) {
-  if (child) return pressed ? styles.rowChildPressed : styles.rowChild;
-  return pressed ? styles.rowPressed : styles.row;
+function wrapperStyle(styles: OfficeStyles, child: boolean, endsGroup: boolean) {
+  if (!child) return styles.rowDivider;
+  return endsGroup ? styles.rowGroupEnd : undefined;
 }
 
 interface AgentRowProps {
   row: OfficeRow;
+  /** The last child of its parent. */
+  endsGroup: boolean;
   styles: OfficeStyles;
   actions: AgentActions;
   onSelect(agentId: string): void;
+  onOpenSession: ((agentId: string) => void) | undefined;
 }
 
-function AgentRow({ row, styles, actions, onSelect }: AgentRowProps) {
+function AgentRow({ row, endsGroup, styles, actions, onSelect, onOpenSession }: AgentRowProps) {
   const { agent } = row;
   const child = row.depth === 1;
   const press = useCallback(() => onSelect(agent.id), [agent.id, onSelect]);
+  const openSession = useCallback(() => onOpenSession?.(agent.id), [agent.id, onOpenSession]);
+  // The row styles itself and holds no other pressable: its requests sit beside it, not in it.
+  const [hovered, setHovered] = useState(false);
+  const hoverIn = useCallback(() => setHovered(true), []);
+  const hoverOut = useCallback(() => setHovered(false), []);
   const pressableStyle = useCallback(
-    ({ pressed }: PressableStateCallbackType) => rowStyle(styles, child, pressed),
-    [styles, child],
+    ({ pressed }: PressableStateCallbackType) => rowStyle(styles, child, pressed || hovered),
+    [styles, child, hovered],
   );
   const title = agentTitle(agent);
   const tone = dotTone(agent);
   const state = stateLabel(agent);
   return (
-    <View style={child ? undefined : styles.rowDivider}>
+    <View style={wrapperStyle(styles, child, endsGroup)}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title}: ${state}`}
         onPress={press}
+        onHoverIn={hoverIn}
+        onHoverOut={hoverOut}
         style={pressableStyle}
       >
         <View style={styles.lead}>
@@ -83,6 +84,7 @@ function AgentRow({ row, styles, actions, onSelect }: AgentRowProps) {
               permission={permission}
               actions={actions}
               styles={styles}
+              onOpenSession={onOpenSession ? openSession : undefined}
             />
           ))}
         </View>
@@ -96,9 +98,10 @@ interface RoomCardProps {
   styles: OfficeStyles;
   actions: AgentActions;
   onSelectAgent(agentId: string): void;
+  onOpenSession: ((agentId: string) => void) | undefined;
 }
 
-function RoomCard({ room, styles, actions, onSelectAgent }: RoomCardProps) {
+function RoomCard({ room, styles, actions, onSelectAgent, onOpenSession }: RoomCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
@@ -112,13 +115,15 @@ function RoomCard({ room, styles, actions, onSelectAgent }: RoomCardProps) {
         ) : null}
       </View>
       {room.rows.length === 0 ? <Text style={styles.empty}>No agents</Text> : null}
-      {room.rows.map((row) => (
+      {room.rows.map((row, index) => (
         <AgentRow
           key={row.agent.id}
           row={row}
+          endsGroup={row.depth === 1 && room.rows[index + 1]?.depth !== 1}
           styles={styles}
           actions={actions}
           onSelect={onSelectAgent}
+          onOpenSession={onOpenSession}
         />
       ))}
     </View>
@@ -130,10 +135,18 @@ export interface StructureViewProps {
   styles: OfficeStyles;
   actions: AgentActions;
   onSelectAgent(agentId: string): void;
+  /** Opens an agent's session from its row. Absent on a host that gives no navigation. */
+  onOpenSession?(agentId: string): void;
 }
 
 /** The office as cards: one per room, the lobby first (or the tab's own room). */
-export function StructureView({ rooms, styles, actions, onSelectAgent }: StructureViewProps) {
+export function StructureView({
+  rooms,
+  styles,
+  actions,
+  onSelectAgent,
+  onOpenSession,
+}: StructureViewProps) {
   return (
     <ScrollView contentContainerStyle={styles.content}>
       {rooms.map((room) => (
@@ -143,6 +156,7 @@ export function StructureView({ rooms, styles, actions, onSelectAgent }: Structu
           styles={styles}
           actions={actions}
           onSelectAgent={onSelectAgent}
+          onOpenSession={onOpenSession}
         />
       ))}
     </ScrollView>
