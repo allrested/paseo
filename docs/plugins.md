@@ -317,6 +317,18 @@ a pin, follow
 out or edited and why; the next daemon start replaces the plugin's copies whose content changed.
 `oxlint` and `oxfmt` skip the vendored files, so they stay as reviewed.
 
+The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
+opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which
+lists that workspace's room first. Each workspace is a room, and the lobby holds agents without a
+workspace. A row shows the agent's state, provider and model, and for a running agent a "doing
+now" line taken from the newest timeline item's kind, never its text. Tapping a row opens a card
+that opens the session, sends a prompt, answers a tool, mode or other permission (a plan or a
+question says to answer it in the session), or stops the running turn with the SDK's `cancel()`.
+The server keeps one directory from subscribed `agents.list` and `workspaces.list` calls (the
+first 200 of each) and streams a compact projection over the `office.state` subscription; the
+directory and the 5 s "doing now" reads run only while an office surface is open. Design:
+[the spec](superpowers/specs/2026-11-11-agent-office-design.md).
+
 `scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
 and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
 run that starts the real built-ins the same environment. Otherwise `default-skills` copies its
