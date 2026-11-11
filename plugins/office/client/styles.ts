@@ -9,9 +9,15 @@ export interface OfficeStyles {
   headerRow: ViewStyle;
   headerControls: ViewStyle;
   control: ViewStyle;
+  controlDisabled: ViewStyle;
   controlLabel: TextStyle;
   switchTrack: { false: string; true: string };
   switchThumb: string;
+  /** The switch the surface draws itself: its track on and off, and the thumb in each. */
+  switchOn: ViewStyle;
+  switchOff: ViewStyle;
+  switchOnThumb: ViewStyle;
+  switchOffThumb: ViewStyle;
   placeholderColor: string;
   content: ViewStyle;
   muted: TextStyle;
@@ -85,6 +91,9 @@ export interface OfficeStyles {
 // The app's two control sizes (packages/app/src/components/ui/control-geometry.ts).
 const TOUCH_CONTROL = 44;
 const POINTER_CONTROL = 32;
+// The app's two switch sizes (SWITCH_TOUCH and SWITCH_POINTER in the same file).
+const TOUCH_SWITCH = { width: 44, height: 26, thumb: 22 };
+const POINTER_SWITCH = { width: 34, height: 20, thumb: 16 };
 const DOT = 8;
 const DOT_GAP = 12;
 /** Where a row's text starts, from the row's own left edge. A child's dot sits on this rail. */
@@ -160,6 +169,26 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
     };
     // A child sits closer to its parent than two top-level agents sit to each other.
     const rowChild: ViewStyle = { ...row, paddingVertical: 8, paddingLeft: pad + TEXT_RAIL };
+    const control: ViewStyle = {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      minHeight: controlHeight,
+    };
+    const switchSize = touch ? TOUCH_SWITCH : POINTER_SWITCH;
+    // The thumb sits inside the track, at the end the track's alignItems names.
+    const track: ViewStyle = {
+      width: switchSize.width,
+      height: switchSize.height,
+      borderRadius: switchSize.height / 2,
+      padding: (switchSize.height - switchSize.thumb) / 2,
+      justifyContent: "center",
+    };
+    const thumb: ViewStyle = {
+      width: switchSize.thumb,
+      height: switchSize.thumb,
+      borderRadius: switchSize.thumb / 2,
+    };
     const stripItem: ViewStyle = {
       flexDirection: "row",
       alignItems: "flex-start",
@@ -191,12 +220,23 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
         columnGap: 16,
         paddingHorizontal: pad,
       },
-      control: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: controlHeight },
+      control,
+      controlDisabled: { ...control, opacity: 0.5 },
       controlLabel: { ...base, color: colors.foregroundMuted },
       // An off track in the border colour disappears on a dark surface0, so off is the muted grey:
       // the surface0 thumb then stands 3:1 or more off both tracks in every built-in theme.
       switchTrack: { false: colors.foregroundMuted, true: colors.accent },
       switchThumb: colors.surface0,
+      // The same tracks. The thumb on the accent is the accent's own ink, as in the app's switch:
+      // 3.1:1 or more in every built-in theme, where surface0 falls to 3.0:1 in the dark one.
+      switchOn: { ...track, alignItems: "flex-end", backgroundColor: colors.accent },
+      switchOff: {
+        ...track,
+        alignItems: "flex-start",
+        backgroundColor: colors.foregroundMuted,
+      },
+      switchOnThumb: { ...thumb, backgroundColor: colors.accentForeground },
+      switchOffThumb: { ...thumb, backgroundColor: colors.surface0 },
       placeholderColor: colors.foregroundMuted,
       content: { paddingHorizontal: pad, paddingTop: pad, paddingBottom: 24, gap: 12 },
       muted: { ...base, color: colors.foregroundMuted },
