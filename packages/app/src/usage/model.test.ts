@@ -11,6 +11,7 @@ import {
   resolveUsageView,
   settleReports,
   upsertReport,
+  usageWindowCountdown,
   usageWindowRowLabel,
   type UsageHost,
   type UsageQueryState,
@@ -178,6 +179,39 @@ describe("usageWindowRowLabel", () => {
     ).toBe("Pin Claude Session, 31% · resets in 2h");
     expect(usageWindowRowLabel({ pinLabel: "Pin Codex Weekly", value: "—", trailing: null })).toBe(
       "Pin Codex Weekly, —",
+    );
+  });
+});
+
+describe("usageWindowCountdown", () => {
+  const now = Date.parse("2026-11-11T00:00:00.000Z");
+  const atRisk = { runsOutAt: "2026-11-11T02:00:00.000Z", shortfallPct: 12 };
+  const notAtRisk = { runsOutAt: null, shortfallPct: null };
+
+  it("shows the reset for a window at risk on the Usage page", () => {
+    expect(usageWindowCountdown({ window: atRisk, retained: false, showsRunOut: false, now })).toBe(
+      "reset",
+    );
+  });
+
+  it("shows the run-out for a window at risk in an agent's usage", () => {
+    expect(usageWindowCountdown({ window: atRisk, retained: false, showsRunOut: true, now })).toBe(
+      "runsOut",
+    );
+  });
+
+  it("shows the reset for a window not at risk on both surfaces", () => {
+    for (const showsRunOut of [false, true]) {
+      expect(usageWindowCountdown({ window: notAtRisk, retained: false, showsRunOut, now })).toBe(
+        "reset",
+      );
+    }
+  });
+
+  it("shows the reset for a retained report whose run-out time has passed", () => {
+    const passed = { runsOutAt: "2026-11-10T23:00:00.000Z", shortfallPct: 12 };
+    expect(usageWindowCountdown({ window: passed, retained: true, showsRunOut: true, now })).toBe(
+      "reset",
     );
   });
 });
