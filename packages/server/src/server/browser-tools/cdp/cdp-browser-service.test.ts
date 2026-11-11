@@ -407,6 +407,102 @@ describe("CdpBrowserService", () => {
     expect(service.screencast.viewerCount(tab.browserId)).toBe(0);
   });
 
+  describe("frames of another size than the one set", () => {
+    const frameOfSize = (deviceWidth: number, deviceHeight: number) => ({
+      data: Buffer.from([0xff, 0xd8]).toString("base64"),
+      sessionId: 1,
+      metadata: { deviceWidth, deviceHeight, pageScaleFactor: 1 },
+    });
+    /** A watched tab whose viewport the daemon set to 800x600, and a frame sender. */
+    const watchedAt800 = async () => {
+      await started();
+      const tab = await newTab();
+      const targetId = [...chromium.targets.keys()][0];
+      let delivered = 0;
+      await service.screencast.watch(tab.browserId, {
+        id: "v",
+        deliver: async () => void (delivered += 1),
+      });
+      await service.setViewport(
+        tab.browserId,
+        { width: 800, height: 600, deviceScaleFactor: 1 },
+        "viewer-1",
+      );
+      const overrides = () =>
+        chromium.commands
+          .filter((command) => command.method === "Emulation.setDeviceMetricsOverride")
+          .map((command) => command.params);
+      const frame = async (width: number, height: number) => {
+        const before = delivered;
+        chromium.emit(targetId, "Page.screencastFrame", frameOfSize(width, height));
+        await until(() => delivered > before, "the frame");
+        // A re-apply would go out right after the frame; give it the time to.
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      };
+      return { tab, overrides, frame, setCount: overrides().length };
+    };
+    const SET = { width: 800, height: 600, deviceScaleFactor: 1, mobile: false };
+
+    test("re-applies the size set, at most once a second", async () => {
+      const { overrides, frame, setCount } = await watchedAt800();
+      now += 1_000;
+      // The tab's Chromium window was resized: frames report the window's view size.
+      await frame(1368, 934);
+      expect(overrides().slice(setCount)).toEqual([SET]);
+      await frame(1368, 934);
+      now += 999;
+      await frame(1368, 934);
+      expect(overrides().slice(setCount)).toEqual([SET]);
+      now += 1;
+      await frame(1368, 934);
+      expect(overrides().slice(setCount)).toEqual([SET, SET]);
+    });
+
+    test("leaves the frames of a resize that is still settling alone", async () => {
+      const { tab, overrides, frame } = await watchedAt800();
+      now += 1_000;
+      await service.setViewport(
+        tab.browserId,
+        { width: 390, height: 700, deviceScaleFactor: 1 },
+        "viewer-2",
+      );
+      const setCount = overrides().length;
+      // Frames of the old size still come while Chromium applies the new one.
+      now += 500;
+      await frame(800, 600);
+      expect(overrides().length).toBe(setCount);
+      // A frame of the new size ends the settling: a later mismatch is the window's.
+      await frame(390, 700);
+      await frame(800, 600);
+      expect(overrides().slice(setCount)).toEqual([
+        { width: 390, height: 700, deviceScaleFactor: 1, mobile: false },
+      ]);
+    });
+
+    test("stops after three re-applies that did not take, with one warn", async () => {
+      let viewportWarnings = 0;
+      await service.stop();
+      build({
+        ...logger,
+        warn: (_details: unknown, message?: string) => {
+          if (String(message).includes("viewport")) viewportWarnings += 1;
+        },
+      });
+      const { overrides, frame, setCount } = await watchedAt800();
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        now += 1_000;
+        await frame(1368, 934);
+      }
+      expect(overrides().slice(setCount)).toEqual([SET, SET, SET]);
+      expect(viewportWarnings).toBe(1);
+      // A frame of the size set ends the run; the next mismatch is re-applied again.
+      await frame(800, 600);
+      now += 1_000;
+      await frame(1368, 934);
+      expect(overrides().slice(setCount)).toEqual([SET, SET, SET, SET]);
+    });
+  });
+
   test("a watched tab re-attaches after a timed-out command and its viewer keeps getting frames", async () => {
     await started();
     const tab = await newTab();
