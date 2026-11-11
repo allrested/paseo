@@ -27,6 +27,13 @@ export const AGENT_ACTIVITY_MS = 3000;
  */
 export const CDP_COMMAND_TIMEOUT_MS = 10_000;
 const AGENT_VIEWPORT_OWNER = "agent";
+/** Each daemon tab is a Chromium window with its own renderer, in the user's logged-in browser. */
+export const MAX_DAEMON_TABS = 10;
+/**
+ * upload checks the path in the daemon's container, and Chromium runs in another one that does
+ * not have the file, so the Docker host does not offer it.
+ */
+const CDP_HOST_COMMANDS = BROWSER_AUTOMATION_COMMAND_NAMES.filter((name) => name !== "upload");
 
 type Payload = BrowserAutomationExecuteResponse["payload"];
 
@@ -219,6 +226,11 @@ export class CdpBrowserService {
     if (!browser) throw new CdpUnreachableError("The Docker browser is unreachable.");
     const url = input.url ?? "about:blank";
     if (!isOpenableUrl(url)) throw new Error("Only http and https URLs can be opened.");
+    if (this.registry.list().length >= MAX_DAEMON_TABS) {
+      throw new Error(
+        `The Docker browser already has ${MAX_DAEMON_TABS} open tabs. Close a tab before opening another.`,
+      );
+    }
     // A background tab is hidden: it paints no screencast frames and its requestAnimationFrame
     // never fires. A background window is visible and does not take focus from the noVNC desktop.
     const { targetId } = await browser.send<{ targetId: string }>("Target.createTarget", {
@@ -325,7 +337,7 @@ export class CdpBrowserService {
       this.unregister = this.broker.registerClient({
         id: CDP_HOST_ID,
         hostKind: "docker-chromium",
-        supportedCommands: BROWSER_AUTOMATION_COMMAND_NAMES,
+        supportedCommands: CDP_HOST_COMMANDS,
         prefersNewTabs: true,
         sendBrowserAutomationRequest: (request) => this.handleRequest(request),
       });
