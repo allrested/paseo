@@ -268,15 +268,22 @@ export class CdpBrowserService {
     return attach;
   }
 
+  /** Whether this size, once clamped, differs from the one the tab was last given. */
+  viewportDiffers(browserId: string, viewport: CdpViewport): boolean {
+    const next = clampViewport(viewport);
+    const current = this.viewports.get(browserId);
+    return (
+      !current ||
+      current.width !== next.width ||
+      current.height !== next.height ||
+      current.deviceScaleFactor !== next.deviceScaleFactor
+    );
+  }
+
   /** Resolves with the clamped size, which is what the page gets. */
   async setViewport(browserId: string, viewport: CdpViewport, owner: string): Promise<CdpViewport> {
     const next = clampViewport(viewport);
-    const current = this.viewports.get(browserId);
-    const same =
-      current &&
-      current.width === next.width &&
-      current.height === next.height &&
-      current.deviceScaleFactor === next.deviceScaleFactor;
+    const same = !this.viewportDiffers(browserId, viewport);
     this.viewports.set(browserId, { ...next, owner });
     if (same) return next;
     const tab = await this.attachedTab(browserId);
