@@ -495,7 +495,8 @@ export class CdpBrowserService {
    */
   private checkFrameSize(browserId: string, width: number, height: number): void {
     const set = this.viewports.get(browserId);
-    if (!set) return;
+    // A frame without size metadata says nothing about the size.
+    if (!set || width <= 0 || height <= 0) return;
     // A full-page screenshot (captureBeyondViewport) changes the emulated size while it captures;
     // an override sent then would cut the capture short. The agent's own frames are left alone.
     if (this.agentCommands.has(browserId) || this.agentBadgeShows(browserId)) return;
