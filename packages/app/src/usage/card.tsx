@@ -196,6 +196,7 @@ function UsageCardBody({
               retained={retained}
               display={display}
               pinnable={pinnable}
+              showsRunOut={agentId !== undefined}
             />
           ))}
           {balances.map((balance) => (
@@ -266,6 +267,7 @@ function CardWindowBar({
   window,
   display,
   pinnable,
+  showsRunOut,
   retained,
 }: {
   retained: boolean;
@@ -273,6 +275,7 @@ function CardWindowBar({
   window: UsageWindow;
   display: UsageDisplay;
   pinnable: boolean;
+  showsRunOut: boolean;
 }) {
   const { t } = useTranslation();
   const pin = useMemo(
@@ -287,6 +290,7 @@ function CardWindowBar({
       retained={retained}
       displayAs={display.displayAs}
       pinnable={pinnable}
+      showsRunOut={showsRunOut}
       pinned={display.isPinned(pin)}
       onTogglePin={toggle}
       pinLabel={`${t("providerUsage.pin")} ${entry.sourceLabel} ${formatProviderUsageLabel(window.id, window.label, t)}`}

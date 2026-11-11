@@ -12,7 +12,7 @@ import {
   formatRunsOutLabel,
 } from "./format";
 import { UsageMeter } from "./meter";
-import { displayPercent, usageWindowRowLabel } from "./model";
+import { displayPercent, usageWindowCountdown, usageWindowRowLabel } from "./model";
 import { UsageResetLine } from "./reset-line";
 import type { UsageDisplayAs } from "./preferences";
 import { windowTone } from "./tone";
@@ -27,10 +27,16 @@ export function UsageWindowBar({
   onTogglePin,
   pinLabel,
   pinTestID,
+  showsRunOut,
   retained = false,
 }: {
   retained?: boolean;
   window: UsageWindow;
+  /**
+   * Whether a window on pace to run out shows when it runs out in place of its reset. An agent's
+   * usage does; the Usage page always shows the reset.
+   */
+  showsRunOut: boolean;
   displayAs: UsageDisplayAs;
   /** Whether the row pins the window to the sidebar. When false the row is a plain bar. */
   pinnable: boolean;
@@ -45,10 +51,7 @@ export function UsageWindowBar({
   const tone = windowTone(window);
 
   const now = useRelativeTimeTick({ enabled: window.runsOutAt != null || window.resetsAt != null });
-  const isAtRisk =
-    window.runsOutAt != null &&
-    window.shortfallPct != null &&
-    (!retained || Date.parse(window.runsOutAt) > now);
+  const isAtRisk = usageWindowCountdown({ window, retained, showsRunOut, now }) === "runsOut";
   const countdown = isAtRisk
     ? formatRunsOutLabel(window.runsOutAt, now, t)
     : formatResetLabel(window.resetsAt, retained, now, t);
