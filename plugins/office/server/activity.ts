@@ -5,7 +5,8 @@ import type { Timers } from "./timers.js";
 export const ACTIVITY_INTERVAL_MS = 5000;
 /** Timeline items read from the tail of each running agent. */
 export const ACTIVITY_TAIL_LIMIT = 10;
-const TOOL_NAME_MAX = 60;
+// Providers put free text (a command, a path) in a tool name; only identifier-like names are shown.
+const TOOL_NAME = /^[A-Za-z0-9_.:-]{1,60}$/;
 
 /** The fields read from a timeline item; every AgentTimelineItem satisfies it. */
 export interface ActivityItem {
@@ -17,9 +18,11 @@ export interface ActivityItem {
 /** One line for the newest item it recognises. Never quotes prompt or tool text. */
 export function describeActivity(items: readonly ActivityItem[]): string | null {
   for (const item of items.toReversed()) {
-    if (item.type === "tool_call" && typeof item.name === "string" && item.name.length > 0) {
+    if (item.type === "tool_call") {
       const verb = item.status === "running" ? "Running" : "Ran";
-      return `${verb} ${item.name.slice(0, TOOL_NAME_MAX)}`;
+      const tool =
+        typeof item.name === "string" && TOOL_NAME.test(item.name) ? item.name : "a tool";
+      return `${verb} ${tool}`;
     }
     if (item.type === "assistant_message") return "Writing a reply";
     if (item.type === "reasoning") return "Thinking";
@@ -61,7 +64,7 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
       const line = describeActivity(await ports.tail(agentId));
       if (line !== null) next[agentId] = line;
     } catch (error) {
-      ports.log(`[office] activity of ${agentId}: ${errorMessage(error)}`);
+      if (!stopped) ports.log(`[office] activity of ${agentId}: ${errorMessage(error)}`);
       const kept = previous[agentId];
       if (kept !== undefined) next[agentId] = kept;
     }

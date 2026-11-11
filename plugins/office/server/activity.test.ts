@@ -30,10 +30,19 @@ test("names the newest item it knows", () => {
   expect(describeActivity([])).toBe(null);
 });
 
-test("cuts a tool name to 60 characters", () => {
-  const name = "x".repeat(80);
-  expect(describeActivity([{ type: "tool_call", name, status: "running" }])).toBe(
-    `Running ${"x".repeat(60)}`,
+test("shows a tool name only when it looks like an identifier", () => {
+  const running = (name: unknown) =>
+    describeActivity([{ type: "tool_call", name, status: "running" }]);
+  expect(running("Bash")).toBe("Running Bash");
+  expect(running("mcp__paseo__list_agents")).toBe("Running mcp__paseo__list_agents");
+  expect(running("x".repeat(60))).toBe(`Running ${"x".repeat(60)}`);
+  expect(running("x".repeat(61))).toBe("Running a tool");
+  expect(running("rm -rf /tmp/x")).toBe("Running a tool");
+  expect(running(`/home/user/${"dir/".repeat(20)}file.ts`)).toBe("Running a tool");
+  expect(running("")).toBe("Running a tool");
+  expect(running("Bash\nrm -rf x")).toBe("Running a tool");
+  expect(describeActivity([{ type: "tool_call", name: "Read file", status: "completed" }])).toBe(
+    "Ran a tool",
   );
 });
 
@@ -122,4 +131,52 @@ test("stop ends the reads and leaves no timer", async () => {
   await settle();
   expect(harness.reads).toEqual(["a"]);
   expect(harness.clock.pending()).toBe(0);
+});
+
+test("a throwing port is logged and the poller keeps going", async () => {
+  const clock = createFakeClock();
+  const logs: string[] = [];
+  let calls = 0;
+  const poller = startActivityPoller({
+    running: () => {
+      calls += 1;
+      if (calls === 1) throw new Error("directory gone");
+      return [];
+    },
+    tail: async () => [],
+    timers: clock,
+    log: (message) => logs.push(message),
+    onChange: () => {},
+  });
+  await settle();
+  expect(logs).toEqual(["[office] activity failed: directory gone"]);
+  expect(clock.pending()).toBe(1);
+  clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  expect(calls).toBe(2);
+  poller.stop();
+});
+
+test("a read that fails after stop is not logged and changes nothing", async () => {
+  const clock = createFakeClock();
+  const logs: string[] = [];
+  const changes: Record<string, string>[] = [];
+  const rejects: ((error: Error) => void)[] = [];
+  const poller = startActivityPoller({
+    running: () => ["a"],
+    tail: () =>
+      new Promise<readonly ActivityItem[]>((_resolve, reject) => {
+        rejects.push(reject);
+      }),
+    timers: clock,
+    log: (message) => logs.push(message),
+    onChange: (activity) => changes.push({ ...activity }),
+  });
+  await settle();
+  poller.stop();
+  rejects[0]?.(new Error("late failure"));
+  await settle();
+  expect(logs).toEqual([]);
+  expect(changes).toEqual([]);
+  expect(clock.pending()).toBe(0);
 });
