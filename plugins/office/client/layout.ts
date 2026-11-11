@@ -207,6 +207,7 @@ function roomLayout(
 }
 
 function boundsOf(rooms: readonly RoomLayout[]): Bounds {
+  if (rooms.length === 0) return { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
   const xs = rooms.map((room) => room.center.x);
   const zs = rooms.map((room) => room.center.z);
   return {
