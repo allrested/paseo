@@ -15,6 +15,14 @@ export interface ScenePalette {
   monitorLit: string;
   robotBody: string;
   robotHead: string;
+  /** Eyes are drawn on the visor. */
+  robotEye: string;
+  /** The lamp on a robot's antenna: unlit, and lit while the robot works. */
+  lampOff: string;
+  lampOn: string;
+  /** The pool of light a lit screen throws on its desk. */
+  glow: string;
+  glowOpacity: number;
   shadowOpacity: number;
   lightWarning: string;
   lightDanger: string;
@@ -158,13 +166,15 @@ function sceneTint(colors: PluginTheme["colors"]): string {
 
 /**
  * WCAG contrast each part holds against the room floor; nothing that carries state goes under
- * 3:1. Amber is a light colour, so on a light floor the warning light can only darken to just
- * past 3:1. The head is the darker part of a robot in both schemes: the visor sits on it, and
- * so does the light above it when seen from the camera.
+ * 3:1. Amber is a light colour, so on a light floor the warning lamp can only darken to just
+ * past 3:1. The head is the darker part of a robot in both schemes: the visor sits on it. An
+ * unlit lamp says nothing, so it alone stays under 3:1.
  */
 interface ContrastPlan {
   robotHead: number;
   robotBody: number;
+  lampOff: number;
+  lampOn: number;
   monitorLit: number;
   wall: number;
   lightWarning: number;
@@ -177,6 +187,8 @@ interface ContrastPlan {
 const LIGHT_PLAN: ContrastPlan = {
   robotHead: 8,
   robotBody: 5.2,
+  lampOff: 2,
+  lampOn: 4.2,
   monitorLit: 4,
   wall: 3,
   lightWarning: 3.2,
@@ -189,6 +201,8 @@ const LIGHT_PLAN: ContrastPlan = {
 const DARK_PLAN: ContrastPlan = {
   robotHead: 3.2,
   robotBody: 4,
+  lampOff: 2.2,
+  lampOn: 6.5,
   monitorLit: 5,
   wall: 5.4,
   lightWarning: 7.5,
@@ -201,9 +215,9 @@ const DARK_PLAN: ContrastPlan = {
 /**
  * The office in the app's own tones. Surfaces are steps between the app surface and the
  * foreground (ground, room floor, desk); robots are the muted foreground as graphite; the accent tints the
- * glass and lights the screens; the theme's warning and danger hues, at full strength, are used
- * for the lights above the robots and nowhere else. Screens, visors, lights, notes and planes
- * are drawn unlit, so their colours reach the screen as given.
+ * glass and lights the screens; a robot's lamp takes the list view's dot colours, with the
+ * theme's warning and danger hues at full strength, which are used nowhere else. Screens, visors,
+ * eyes, lamps, notes and planes are drawn unlit, so their colours reach the screen as given.
  */
 export function scenePalette(theme: PluginTheme): ScenePalette {
   const c = theme.colors;
@@ -213,6 +227,8 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
   const roomFloor = mix(c.surface0, c.foreground, dark ? 0.05 : 0.08);
   const tint = sceneTint(c);
   const onFloor = (color: string, ratio: number) => standOff(color, roomFloor, ratio);
+  const monitorLit = onFloor(tint, plan.monitorLit);
+  const desk = dark ? mix(c.surface2, c.foreground, 0.12) : mix(c.surface0, c.foreground, 0.03);
   return {
     dark,
     background: mix(c.surface0, c.surface0, 0),
@@ -226,13 +242,21 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
     wallOpacity: 0.2,
     // A desk top is lighter than the floor in both schemes, like card on a model's base. In a
     // light room that leaves the robots as the only dark things, so empty desks recede.
-    desk: dark ? mix(c.surface2, c.foreground, 0.12) : mix(c.surface0, c.foreground, 0.03),
-    // An unused screen stays close to its desk, so the 12 desks of an empty room recede.
-    monitorDim: dark ? mix(c.surface0, BLACK, 0.35) : mix(c.surface1, c.foreground, 0.22),
-    monitorLit: onFloor(tint, plan.monitorLit),
+    desk,
+    // An unused screen is a shade darker than the desk it lies in, so empty desks recede.
+    monitorDim: mix(desk, dark ? BLACK : c.foreground, dark ? 0.32 : 0.1),
+    monitorLit,
     robotBody: onFloor(c.foregroundMuted, plan.robotBody),
     // Dark enough in both schemes for the visor, an identity colour for a dark surface.
     robotHead: onFloor(c.foregroundMuted, plan.robotHead),
+    // Visors are identity colours for a dark surface in both schemes, so eyes are dark in both.
+    robotEye: dark ? mix(c.surface0, BLACK, 0.45) : mix(c.foreground, BLACK, 0.1),
+    // The list view's dots: muted for an agent at rest, the success colour for one at work.
+    lampOff: onFloor(c.foregroundMuted, plan.lampOff),
+    lampOn: onFloor(c.statusSuccess, plan.lampOn),
+    // By night a lit screen is the light in the room. By day its pool is a faint wash.
+    glow: dark ? mix(monitorLit, c.foreground, 0.35) : monitorLit,
+    glowOpacity: dark ? 0.55 : 0.14,
     shadowOpacity: dark ? 0.35 : 0.18,
     lightWarning: onFloor(saturated(c.statusWarning), plan.lightWarning),
     lightDanger: onFloor(saturated(c.statusDanger), plan.lightDanger),
