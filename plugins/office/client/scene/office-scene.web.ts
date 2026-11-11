@@ -1,21 +1,25 @@
 // Web only: created by scene-view.tsx after three.js loaded. Nothing here runs at import time.
 import { DOOR_WIDTH, ROOM_WIDTH, WALL_HEIGHT, type Bounds } from "../layout.js";
 import {
-  CAMERA_BACK,
   CAMERA_EASE_MS,
-  CAMERA_HEIGHT,
+  RISE_SCALE,
   TAP_SLOP_PX,
   cameraPosition,
   easeView,
+  firstView,
   focusOn,
   frameBounds,
   frustumFor,
+  groundSpan,
   panBy,
   pixelRatioFor,
   pixelsPerUnit,
   screenPoint,
+  shiftOnScreen,
   wheelFactor,
   type CameraView,
+  type FrameMargins,
+  type GroundSpan,
   type ScreenPoint,
   type Viewport,
 } from "./camera.js";
@@ -104,8 +108,6 @@ const LIGHT_RADIUS = 0.2;
 const LIGHT_Y = 2.3;
 /** The light never gets smaller than this on screen (radius, CSS pixels). */
 const LIGHT_MIN_PX = 5;
-/** World height that covers one world unit of screen height, the camera looking down. */
-const RISE_PER_SCREEN_UNIT = Math.hypot(CAMERA_HEIGHT, CAMERA_BACK) / CAMERA_BACK;
 /** Chest height of a robot: where a tap is measured from. */
 const CHEST_Y = 1;
 /** A room's name plate, in CSS pixels: it keeps its size on screen at every zoom. */
@@ -115,8 +117,13 @@ const LABEL_FONT_STACK =
   "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 /** How far a raised arm leans out, in radians. */
 const ARM_SPLAY = 0.35;
-/** The first framing leaves this much less at each side than the layout's own margin. */
-const FRAME_INSET = 1;
+/** A name plate's middle stands this far above the top of its room's back wall. */
+const PLATE_RISE = 0.45;
+/**
+ * What the first view keeps clear: the whiteboard stands at the back of the first rooms and the
+ * name plates above their walls, and on a phone every pixel at the sides is scale.
+ */
+const FIRST_MARGINS: FrameMargins = { rise: 2.2, top: 10, side: 8, bottom: 12 };
 /** Room to spare around a room when the camera frames it. */
 const ROOM_FRAME = { side: 0.6, back: 2, front: 1 };
 
@@ -515,12 +522,27 @@ function drawLabel(
   return size;
 }
 
-/** Where a room's name plate hangs: on the front glass, from the room's left corner. */
+/**
+ * Where a room's name plate hangs: over the back left corner, the first point of the room on
+ * screen. The plates of a column start on one line, each above the room it names.
+ */
 function labelAnchor(room: RoomPlan): WorldPoint {
   return {
     x: room.center.x - ROOM_WIDTH / 2,
-    y: WALL_HEIGHT / 2,
-    z: room.center.z + room.depth / 2,
+    y: WALL_HEIGHT + PLATE_RISE,
+    z: room.center.z - room.depth / 2,
+  };
+}
+
+/** The ground a room's slab covers. */
+function roomFootprint(room: RoomPlan): Bounds {
+  const halfWidth = (ROOM_WIDTH + WALL_THICKNESS) / 2;
+  const halfDepth = (room.depth + WALL_THICKNESS) / 2;
+  return {
+    minX: room.center.x - halfWidth,
+    maxX: room.center.x + halfWidth,
+    minZ: room.center.z - halfDepth,
+    maxZ: room.center.z + halfDepth,
   };
 }
 
@@ -536,12 +558,6 @@ function roomBounds(room: RoomPlan): Bounds {
 /** An arm above the shoulder leans away from the head, so a raised hand shows beside it. */
 function armSplay(angle: number): number {
   return Math.max(0, -Math.cos(angle)) * ARM_SPLAY;
-}
-
-/** The office's bounds, drawn in at the sides: on a phone every pixel of width is scale. */
-function frameOf(bounds: Bounds): Bounds {
-  const inset = Math.min(FRAME_INSET, (bounds.maxX - bounds.minX) / 4);
-  return { ...bounds, minX: bounds.minX + inset, maxX: bounds.maxX - inset };
 }
 
 /**
@@ -607,6 +623,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     bounds: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
     columns: 0,
   };
+  /** The ground the rooms cover, as the camera sees it: what is framed and panned over. */
+  let span: GroundSpan = groundSpan([]);
   let colors: ScenePalette | null = null;
   const enteredAt = new Map<string, number>();
   let viewport: Viewport = { width: 0, height: 0 };
@@ -719,8 +737,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       const top = at.y - label.height / 2;
       const dx = Math.round(at.x * ratio) / ratio - at.x;
       const dy = Math.round(top * ratio) / ratio - top;
-      const lift = (dy * RISE_PER_SCREEN_UNIT) / perUnit;
-      label.sprite.position.set(anchor.x + dx / perUnit, anchor.y - lift, anchor.z);
+      const snapped = shiftOnScreen(view, viewport, anchor, dx, dy);
+      label.sprite.position.set(snapped.x, snapped.y, snapped.z);
       label.sprite.scale.set(label.width / perUnit, label.height / perUnit, 1);
     }
   }
@@ -770,7 +788,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     // Zoomed out, a light at its true size is a pixel or two: it grows to stay findable, and
     // rises so that its lower edge stays where it was on screen, clear of the head.
     const grow = Math.max(1, LIGHT_MIN_PX / (LIGHT_RADIUS * pixelsPerUnit(view, viewport)));
-    rig.light.position.set(0, LIGHT_Y + LIGHT_RADIUS * (grow - 1) * RISE_PER_SCREEN_UNIT, 0);
+    rig.light.position.set(0, LIGHT_Y + LIGHT_RADIUS * (grow - 1) * RISE_SCALE, 0);
     rig.light.scale.set(grow, grow, grow);
     const lit: Lit = { warnings: 0, dangers: 0 };
     plan.robots.forEach((robot, index) => writeRobot(robot, index, now, lit));
@@ -820,7 +838,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
 
   /** The view a goal asks for, or null when its room or robot is not in the plan. */
   function goalView(goal: FocusGoal): CameraView | null {
-    if (goal === "office") return frameBounds(frameOf(plan.bounds), viewport);
+    if (goal === "office") return firstView(span, viewport, FIRST_MARGINS);
     if ("roomId" in goal) {
       const room = plan.rooms.find((candidate) => candidate.roomId === goal.roomId);
       return room ? roomView(room) : null;
@@ -830,9 +848,9 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   }
 
   /**
-   * Puts the whole office in frame: once when it never was, and again for as long as nobody has
-   * moved the camera (on resize and when rooms come or go). A focus asked for before its room or
-   * robot could be shown is shown instead, once. The first framing jumps.
+   * Puts the office in frame (`firstView`): once when it never was, and again for as long as
+   * nobody has moved the camera (on resize and when rooms come, go or grow). A focus asked for
+   * before its room or robot could be shown is shown instead, once. The first framing jumps.
    */
   function frameOffice(ease: boolean): void {
     const wasFramed = focus.framed;
@@ -948,12 +966,12 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     if (gesture && distance(at, gesture.start) > TAP_SLOP_PX) gesture.moved = true;
     if (pointers.size === 1 && gesture?.moved) {
       canvas.style.cursor = "grabbing";
-      steer(panBy(view, at.x - last.x, at.y - last.y, viewport, plan.bounds));
+      steer(panBy(view, at.x - last.x, at.y - last.y, viewport, span));
       return;
     }
     const next = pinchState();
     if (next !== null && pinch !== null && pinch.spread > 0) {
-      steer(pinchView(view, pinch, next, viewport, plan.bounds));
+      steer(pinchView(view, pinch, next, viewport, span));
     }
     pinch = next;
   }
@@ -978,7 +996,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
 
   function onWheel(event: WheelEvent): void {
     event.preventDefault();
-    steer(zoomAbout(view, wheelFactor(event.deltaY), pointerAt(event), viewport, plan.bounds));
+    steer(zoomAbout(view, wheelFactor(event.deltaY), pointerAt(event), viewport, span));
   }
 
   function onContextLost(event: Event): void {
@@ -1024,6 +1042,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       // office that emptied is framed again when its rooms come back. Both jump, without easing.
       focus = replan(focus, dealtAgain(plan, nextPlan) || nextPlan.rooms.length === 0);
       plan = nextPlan;
+      span = groundSpan(nextPlan.rooms.map(roomFootprint));
       colors = nextPalette;
       applyPalette(materials, nextPalette);
       background.set(nextPalette.background);
