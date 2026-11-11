@@ -118,9 +118,26 @@ export function targetAt(
   return nearby === null ? null : { roomId: nearby };
 }
 
-/** A pointer event's position in the canvas's CSS pixels. */
-export function canvasPoint(client: ClientPoint, rect: ClientRect): ScreenPoint {
-  return { x: client.clientX - rect.left, y: client.clientY - rect.top };
+/** Canvas pixels per page pixel along one side; 1 while either size is unknown. */
+function scaleOf(canvasSize: number, pageSize: number): number {
+  if (canvasSize <= 0 || pageSize <= 0) return 1;
+  return canvasSize / pageSize;
+}
+
+/**
+ * A pointer event's position in the canvas's CSS pixels. A CSS transform on an ancestor (a sheet
+ * sliding in at `scale()`) draws the canvas at another size than its own, so the offset from its
+ * box is scaled back.
+ */
+export function canvasPoint(
+  client: ClientPoint,
+  rect: ClientRect,
+  viewport: Viewport,
+): ScreenPoint {
+  return {
+    x: (client.clientX - rect.left) * scaleOf(viewport.width, rect.width),
+    y: (client.clientY - rect.top) * scaleOf(viewport.height, rect.height),
+  };
 }
 
 /** Zooms by `factor` and keeps the ground under `at` where it is on screen. */
@@ -138,7 +155,11 @@ export function zoomAbout(
   return panBy(zoomed, -dx, -dy, viewport, bounds);
 }
 
-/** One move of a two-finger pinch: zooms about the new midpoint, then follows its move. */
+/**
+ * One move of a two-finger pinch: the ground under the old midpoint follows the fingers to the
+ * new one, then the zoom keeps it there. Zooming first would leave it off by the midpoint's move
+ * times the zoom change.
+ */
 export function pinchView(
   view: CameraView,
   before: PinchState,
@@ -146,8 +167,8 @@ export function pinchView(
   viewport: Viewport,
   bounds: Bounds,
 ): CameraView {
-  const zoomed = zoomAbout(view, after.spread / before.spread, after.middle, viewport, bounds);
   const dx = after.middle.x - before.middle.x;
   const dy = after.middle.y - before.middle.y;
-  return panBy(zoomed, dx, dy, viewport, bounds);
+  const panned = panBy(view, dx, dy, viewport, bounds);
+  return zoomAbout(panned, after.spread / before.spread, after.middle, viewport, bounds);
 }

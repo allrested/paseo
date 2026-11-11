@@ -19,6 +19,16 @@ import {
   type ScreenPoint,
   type Viewport,
 } from "./camera.js";
+import {
+  INITIAL_FOCUS,
+  replan,
+  requestFocus,
+  settle,
+  takeCamera,
+  type FocusGoal,
+  type FocusState,
+  type FocusTarget,
+} from "./focus.js";
 import type { ScenePalette } from "./palette.js";
 import {
   PLATE_HEIGHT_PX,
@@ -598,14 +608,12 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   let ratio = 1;
   let view: CameraView = { x: 0, z: 0, zoom: 1 };
   let easing: { from: CameraView; to: CameraView; start: number } | null = null;
-  /** True until the user or a focus request moves the camera: the view then follows the office. */
-  let following = true;
-  let framed = false;
-  let pendingFocus: string | null = null;
+  let focus: FocusState = INITIAL_FOCUS;
   let onScreen = true;
-  let visible = true;
+  let visible = document.visibilityState === "visible";
   /** Set by dispose and by a lost context: after either, nothing is drawn again. */
   let stopped = false;
+  let contextLost = false;
   let frameRequest: number | null = null;
   let typingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -800,25 +808,47 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     return { x: whole.x, z: whole.z, zoom: Math.min(whole.zoom, focusOn(view, room.center).zoom) };
   }
 
+  function isShown(target: FocusTarget): boolean {
+    if ("roomId" in target) return plan.rooms.some((room) => room.roomId === target.roomId);
+    return plan.robots.some((robot) => robot.agentId === target.agentId);
+  }
+
+  /** The view a goal asks for, or null when its room or robot is not in the plan. */
+  function goalView(goal: FocusGoal): CameraView | null {
+    if (goal === "office") return frameBounds(frameOf(plan.bounds), viewport);
+    if ("roomId" in goal) {
+      const room = plan.rooms.find((candidate) => candidate.roomId === goal.roomId);
+      return room ? roomView(room) : null;
+    }
+    const robot = plan.robots.find((candidate) => candidate.agentId === goal.agentId);
+    return robot ? focusOn(view, robot.seat) : null;
+  }
+
   /**
-   * Puts the whole office in frame, for as long as nobody has moved the camera: at first, when
-   * the container changes size, and when rooms come or go. A room asked for before the first
-   * framing is framed instead.
+   * Puts the whole office in frame: once when it never was, and again for as long as nobody has
+   * moved the camera (on resize and when rooms come or go). A focus asked for before its room or
+   * robot could be shown is shown instead, once. The first framing jumps.
    */
   function frameOffice(ease: boolean): void {
-    if (!following || viewport.width === 0 || plan.rooms.length === 0) return;
-    const room = plan.rooms.find((candidate) => candidate.roomId === pendingFocus);
-    const next = room ? roomView(room) : frameBounds(frameOf(plan.bounds), viewport);
-    if (room) {
-      following = false;
-      pendingFocus = null;
-    }
+    const wasFramed = focus.framed;
+    const ready = viewport.width !== 0 && plan.rooms.length > 0;
+    const step = settle(focus, ready, isShown);
+    focus = step.state;
+    const next = step.goal === null ? null : goalView(step.goal);
+    if (next === null) return;
     const target = easing?.to ?? view;
     const same = next.x === target.x && next.z === target.z && next.zoom === target.zoom;
-    if (framed && same) return;
-    if (ease && framed) moveTo(next);
+    if (wasFramed && same) return;
+    if (ease && wasFramed) moveTo(next);
     else setView(next);
-    framed = true;
+  }
+
+  /** A focus from the host or a plate tap: eased to at once, or kept until it can be shown. */
+  function focusOnTarget(target: FocusTarget): void {
+    const step = requestFocus(focus, target, isShown(target));
+    focus = step.state;
+    const next = step.goal === null ? null : goalView(step.goal);
+    if (next !== null) moveTo(next);
   }
 
   function resizeToContainer(): void {
@@ -866,7 +896,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   }
 
   function pointerAt(event: { clientX: number; clientY: number }): ScreenPoint {
-    return canvasPoint(event, canvas.getBoundingClientRect());
+    return canvasPoint(event, canvas.getBoundingClientRect(), viewport);
   }
 
   const pointers = new Map<number, ScreenPoint>();
@@ -882,9 +912,9 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     };
   }
 
-  function takeCamera(next: CameraView): void {
-    following = false;
-    pendingFocus = null;
+  /** The user dragged, pinched or turned the wheel: the camera stops following the office. */
+  function steer(next: CameraView): void {
+    focus = takeCamera(focus);
     setView(next);
   }
 
@@ -913,12 +943,12 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     if (gesture && distance(at, gesture.start) > TAP_SLOP_PX) gesture.moved = true;
     if (pointers.size === 1 && gesture?.moved) {
       canvas.style.cursor = "grabbing";
-      takeCamera(panBy(view, at.x - last.x, at.y - last.y, viewport, plan.bounds));
+      steer(panBy(view, at.x - last.x, at.y - last.y, viewport, plan.bounds));
       return;
     }
     const next = pinchState();
     if (next !== null && pinch !== null && pinch.spread > 0) {
-      takeCamera(pinchView(view, pinch, next, viewport, plan.bounds));
+      steer(pinchView(view, pinch, next, viewport, plan.bounds));
     }
     pinch = next;
   }
@@ -927,7 +957,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     const target = pickAt(at);
     if (target === null) return;
     if ("agentId" in target) options.onSelectAgent(target.agentId);
-    else focusRoom(target.roomId);
+    else focusOnTarget(target);
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -943,12 +973,13 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
 
   function onWheel(event: WheelEvent): void {
     event.preventDefault();
-    takeCamera(zoomAbout(view, wheelFactor(event.deltaY), pointerAt(event), viewport, plan.bounds));
+    steer(zoomAbout(view, wheelFactor(event.deltaY), pointerAt(event), viewport, plan.bounds));
   }
 
   function onContextLost(event: Event): void {
     event.preventDefault();
     stopped = true;
+    contextLost = true;
     cancelFrames();
     options.onContextLost();
   }
@@ -957,20 +988,12 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     refreshVisible();
   }
 
-  function focusRoom(roomId: string): void {
-    const room = plan.rooms.find((candidate) => candidate.roomId === roomId);
-    if (!room || !framed) {
-      pendingFocus = roomId;
-      return;
-    }
-    following = false;
-    moveTo(roomView(room));
-  }
-
   const resizeObserver = new ResizeObserver(() => resizeToContainer());
   resizeObserver.observe(container);
   const intersectionObserver = new IntersectionObserver((entries) => {
-    onScreen = entries.some((entry) => entry.isIntersecting);
+    // Records come in order: when the container was shown and hidden again, the last one counts.
+    const latest = entries[entries.length - 1];
+    if (latest) onScreen = latest.isIntersecting;
     refreshVisible();
   });
   intersectionObserver.observe(container);
@@ -994,10 +1017,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       for (const agentId of enteredAt.keys()) if (!present.has(agentId)) enteredAt.delete(agentId);
       // After a new grid (a phone turned on its side) the old view shows the wrong place, and an
       // office that emptied is framed again when its rooms come back. Both jump, without easing.
-      if (roomsMoved(plan, nextPlan) || nextPlan.rooms.length === 0) {
-        following = true;
-        framed = false;
-      }
+      focus = replan(focus, roomsMoved(plan, nextPlan) || nextPlan.rooms.length === 0);
       plan = nextPlan;
       colors = nextPalette;
       applyPalette(materials, nextPalette);
@@ -1006,17 +1026,13 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       writeDesks(stage, nextPlan, nextPalette);
       writeLabels(nextPalette);
       frameOffice(true);
-      if (pendingFocus !== null && framed) focusRoom(pendingFocus);
       invalidate();
     },
     focusRoom(roomId) {
-      focusRoom(roomId);
+      focusOnTarget({ roomId });
     },
     focusAgent(agentId) {
-      const robot = plan.robots.find((candidate) => candidate.agentId === agentId);
-      if (!robot || !framed) return;
-      following = false;
-      moveTo(focusOn(view, robot.seat));
+      focusOnTarget({ agentId });
     },
     dispose() {
       stopped = true;
@@ -1039,8 +1055,9 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       for (const material of Object.values(materials)) material.dispose();
       shadowTexture.dispose();
       // The listener is gone, so this does not report a lost context; it frees the context now
-      // instead of when the canvas is collected (browsers cap live contexts).
-      renderer.forceContextLoss();
+      // instead of when the canvas is collected (browsers cap live contexts). A context that is
+      // already lost has nothing to free, and three.js warns when asked.
+      if (!contextLost) renderer.forceContextLoss();
       renderer.dispose();
       canvas.remove();
     },
