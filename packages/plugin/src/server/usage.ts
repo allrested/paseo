@@ -71,6 +71,11 @@ export const UsageScopeSchema = z.discriminatedUnion("kind", [
     provider: z.string(),
     model: z.string().optional(),
     env: z.record(z.string(), z.string()),
+    /**
+     * The provider's own id for the session, when it has one (for Claude, the Claude Code
+     * session id). Absent before the session has one and for providers that do not report it.
+     */
+    sessionId: z.string().optional(),
   }),
 ]);
 export type UsageScope = z.infer<typeof UsageScopeSchema>;
