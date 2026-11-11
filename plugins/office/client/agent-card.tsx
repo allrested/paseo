@@ -62,6 +62,11 @@ function AgentCardBody({
   }, []);
   // Stop shares its row with Open session, so its error goes under the row, at the row's width.
   const [stopError, setStopError] = useState<string | null>(null);
+  const running = agent.status === "running";
+  // Once the turn ended, Stop is gone, and so is its failure.
+  useEffect(() => {
+    if (!running) setStopError(null);
+  }, [running]);
   const stop = useCallback(async () => {
     setStopError(null);
     try {
@@ -75,7 +80,6 @@ function AgentCardBody({
     await actions.send(agent.id, sent);
     if (mounted.current) setText((current) => textAfterSend(current, sent));
   }, [actions, agent.id, text]);
-  const running = agent.status === "running";
   // One accent button per sheet (docs/design.md section 3): while Approve is on it, Send is plain.
   const approving = agent.permissions.some((permission) => answerableInOffice(permission.kind));
   return (
@@ -115,7 +119,7 @@ function AgentCardBody({
               />
             ) : null}
           </View>
-          {stopError ? (
+          {running && stopError ? (
             <Text accessibilityRole="alert" style={styles.actionError}>
               {stopError}
             </Text>
