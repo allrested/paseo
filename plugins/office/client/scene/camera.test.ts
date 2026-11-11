@@ -14,6 +14,8 @@ import {
   frustumFor,
   panBy,
   pixelRatioFor,
+  pixelsPerUnit,
+  screenPoint,
   wheelFactor,
   zoomBy,
 } from "./camera.js";
@@ -127,4 +129,29 @@ test("easing ends exactly on the target view", () => {
   const from = { x: 0.1, z: 0.3, zoom: 0.35 };
   const to = { x: 0.7, z: -0.1, zoom: 2.9 };
   expect(easeView(from, to, 1)).toEqual(to);
+});
+
+test("a world point lands on the pixel it is drawn at", () => {
+  const view = { x: 2, z: 3, zoom: 0.5 };
+  const perUnit = (844 * 0.5) / VIEW_HEIGHT;
+  expect(pixelsPerUnit(view, PHONE)).toBe(perUnit);
+  expect(screenPoint(view, PHONE, { x: 2, y: 0, z: 3 })).toEqual({ x: 195, y: 422 });
+  expect(screenPoint(view, PHONE, { x: 3, y: 0, z: 3 }).x).toBeCloseTo(195 + perUnit, 9);
+  // Towards the camera is down the screen, by 1 / GROUND_SCALE of the distance.
+  expect(screenPoint(view, PHONE, { x: 2, y: 0, z: 3 + GROUND_SCALE }).y).toBeCloseTo(
+    422 + perUnit,
+    9,
+  );
+  // Height is up the screen, shortened by the camera looking down.
+  const lift = CAMERA_BACK / Math.hypot(CAMERA_HEIGHT, CAMERA_BACK);
+  expect(screenPoint(view, PHONE, { x: 2, y: 1, z: 3 }).y).toBeCloseTo(422 - perUnit * lift, 9);
+});
+
+test("dragging a point to the middle of the screen makes it the point the camera looks at", () => {
+  const view = { x: 2, z: 3, zoom: 0.5 };
+  const wide = { minX: -50, maxX: 50, minZ: -50, maxZ: 50 };
+  const at = screenPoint(view, PHONE, { x: 5, y: 0, z: -4 });
+  const moved = panBy(view, 195 - at.x, 422 - at.y, PHONE, wide);
+  expect(moved.x).toBeCloseTo(5, 9);
+  expect(moved.z).toBeCloseTo(-4, 9);
 });
