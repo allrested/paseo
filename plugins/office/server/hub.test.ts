@@ -1,8 +1,10 @@
 import { expect, test } from "vitest";
 import type { OfficeAgent, OfficeEvent, Post } from "../shared/contracts.js";
 import { createFakeClock, settle, type FakeClock } from "./fake-clock.js";
+import { newestAgents } from "./paseo-directory.js";
 import {
   DIRECTORY_FLUSH_MS,
+  DIRECTORY_RESTART_MS,
   createHub,
   type DirectoryView,
   type Hub,
@@ -23,6 +25,19 @@ function agent(id: string, status: OfficeAgent["status"]): OfficeAgent {
   };
 }
 
+interface Deferred {
+  promise: Promise<void>;
+  release(): void;
+}
+
+function deferred(): Deferred {
+  let release: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
 function note(id: string): Post {
   return {
     id,
@@ -40,7 +55,13 @@ interface FakeDirectory {
   opens: number;
   stops: number;
   failure: Error | null;
+  /** When set, an open waits for it before it reports the first view. */
+  openGate: Promise<void> | null;
+  /** When set, a stop waits for it after it counted. */
+  stopGate: Promise<void> | null;
   emit(view: DirectoryView): void;
+  /** The open directory ends on its own, as when the client drops its subscription. */
+  end(): void;
 }
 
 interface FakeActivity {
@@ -60,13 +81,17 @@ interface Harness {
 function startHarness(initial: DirectoryView): Harness {
   const clock = createFakeClock();
   let directoryListener: ((view: DirectoryView) => void) | null = null;
+  let endListener: (() => void) | null = null;
   let activityListener: ((activity: Readonly<Record<string, string>>) => void) | null = null;
   let runningList: () => readonly string[] = () => [];
   const directory: FakeDirectory = {
     opens: 0,
     stops: 0,
     failure: null,
+    openGate: null,
+    stopGate: null,
     emit: (view) => directoryListener?.(view),
+    end: () => endListener?.(),
   };
   const activity: FakeActivity = {
     starts: 0,
@@ -75,14 +100,18 @@ function startHarness(initial: DirectoryView): Harness {
     emit: (next) => activityListener?.(next),
   };
   const ports: HubPorts = {
-    async openDirectory(listener) {
+    async openDirectory(listener, onEnd) {
       directory.opens += 1;
       if (directory.failure) throw directory.failure;
+      if (directory.openGate) await directory.openGate;
       directoryListener = listener;
+      endListener = onEnd ?? null;
       listener(initial);
       return async () => {
         directory.stops += 1;
         directoryListener = null;
+        endListener = null;
+        if (directory.stopGate) await directory.stopGate;
       };
     },
     startActivity(running, listener) {
@@ -247,4 +276,117 @@ test("a directory that cannot open refuses the subscriber, and the next one trie
   expect(next.events).toHaveLength(1);
   next.controller.abort();
   await next.done;
+});
+
+function officeOf(agents: OfficeAgent[]): OfficeEvent {
+  return {
+    type: "snapshot",
+    state: { agents, workspaces: [], activity: {}, boards: {}, wake: EMPTY_WAKE },
+  };
+}
+
+test("a subscriber that arrives while a cancelled start closes the directory gets a live office", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  const open = deferred();
+  const close = deferred();
+  harness.directory.openGate = open.promise;
+  const left = subscribe(harness.hub);
+  await settle();
+  left.controller.abort();
+  harness.directory.openGate = null;
+  harness.directory.stopGate = close.promise;
+  open.release();
+  await settle();
+  expect(harness.directory.stops).toBe(1);
+
+  const arrived = subscribe(harness.hub);
+  await settle();
+  close.release();
+  await settle();
+  await left.done;
+  expect(harness.directory.opens).toBe(2);
+  expect(left.events).toEqual([]);
+  expect(arrived.events).toEqual([officeOf([agent("a", "idle")])]);
+
+  harness.directory.emit({ agents: [agent("a", "running")], workspaces: [] });
+  harness.clock.advance(DIRECTORY_FLUSH_MS);
+  expect(arrived.events.slice(1)).toEqual([{ type: "agents", agents: [agent("a", "running")] }]);
+  arrived.controller.abort();
+  await arrived.done;
+});
+
+test("a directory that ends on its own restarts while subscribers remain, at most once per window", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  const first = subscribe(harness.hub);
+  const second = subscribe(harness.hub);
+  await settle();
+  const office = officeOf([agent("a", "idle")]);
+
+  harness.directory.end();
+  await settle();
+  expect(harness.directory.stops).toBe(1);
+  expect(harness.directory.opens).toBe(2);
+  expect(harness.activity.starts).toBe(2);
+  expect(first.events).toEqual([office, office]);
+  expect(second.events).toEqual([office, office]);
+
+  harness.directory.end();
+  await settle();
+  harness.clock.advance(DIRECTORY_RESTART_MS - 1);
+  await settle();
+  expect(harness.directory.opens).toBe(2);
+  harness.clock.advance(1);
+  await settle();
+  expect(harness.directory.opens).toBe(3);
+  expect(first.events).toEqual([office, office, office]);
+  expect(second.events).toEqual([office, office, office]);
+
+  harness.directory.end();
+  first.controller.abort();
+  second.controller.abort();
+  await Promise.all([first.done, second.done]);
+  await settle();
+  expect(harness.directory.stops).toBe(3);
+  harness.clock.advance(DIRECTORY_RESTART_MS);
+  await settle();
+  expect(harness.directory.opens).toBe(3);
+  expect(harness.clock.pending()).toBe(0);
+});
+
+test("a subscriber gets its snapshot before any change made while the directory was starting", async () => {
+  const harness = startHarness({ agents: [], workspaces: [] });
+  const open = deferred();
+  harness.directory.openGate = open.promise;
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.hub.setBoard("lobby", [note("p1")]);
+  open.release();
+  await settle();
+  expect(subscriber.events).toEqual([
+    {
+      type: "snapshot",
+      state: {
+        agents: [],
+        workspaces: [],
+        activity: {},
+        boards: { lobby: [note("p1")] },
+        wake: EMPTY_WAKE,
+      },
+    },
+  ]);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+function createdAgent(index: number): OfficeAgent {
+  return {
+    ...agent(`a${index}`, "idle"),
+    createdAt: new Date(Date.UTC(2026, 10, 11, 8, 0, index)).toISOString(),
+  };
+}
+
+test("the directory keeps the 200 newest agents, oldest first", () => {
+  const agents: OfficeAgent[] = [];
+  for (let index = 0; index < 202; index += 1) agents.push(createdAgent(index));
+  expect(newestAgents(agents.toReversed())).toEqual(agents.slice(2));
 });

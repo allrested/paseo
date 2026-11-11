@@ -11,6 +11,8 @@ import type { Timers } from "./timers.js";
 
 /** Directory updates come in bursts while agents stream; one event per window is enough. */
 export const DIRECTORY_FLUSH_MS = 300;
+/** A directory that ends on its own is reopened at most once per window. */
+export const DIRECTORY_RESTART_MS = 5000;
 
 export interface DirectoryView {
   agents: readonly OfficeAgent[];
@@ -23,8 +25,14 @@ export interface HubSubscriber {
 }
 
 export interface HubPorts {
-  /** Starts the directory; calls onChange with the first view before it resolves. */
-  openDirectory(onChange: (view: DirectoryView) => void): Promise<() => Promise<void>>;
+  /**
+   * Starts the directory; calls onChange with the first view before it resolves. onEnd runs when
+   * the directory stops on its own and will report no more changes.
+   */
+  openDirectory(
+    onChange: (view: DirectoryView) => void,
+    onEnd?: () => void,
+  ): Promise<() => Promise<void>>;
   startActivity(
     running: () => readonly string[],
     onChange: (activity: Readonly<Record<string, string>>) => void,
@@ -54,6 +62,8 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
 
 export function createHub(ports: HubPorts): Hub {
   const subscribers = new Set<HubSubscriber>();
+  // Subscribers whose snapshot went out; changes reach only them, so a snapshot comes first.
+  const ready = new WeakSet<HubSubscriber>();
   let view = EMPTY_VIEW;
   let sentAgents = "";
   let sentWorkspaces = "";
@@ -64,6 +74,10 @@ export function createHub(ports: HubPorts): Hub {
   let stopDirectory: (() => Promise<void>) | null = null;
   let stopActivity: (() => void) | null = null;
   let cancelFlush: (() => void) | null = null;
+  // Each start and each idle moves on, so an old directory's end or a stale start is ignored.
+  let generation = 0;
+  let cancelCooldown: (() => void) | null = null;
+  let restartQueued: number | null = null;
 
   function snapshot(): OfficeSnapshot {
     const copy: Record<string, Post[]> = {};
@@ -79,7 +93,7 @@ export function createHub(ports: HubPorts): Hub {
 
   function broadcast(event: OfficeEvent): void {
     for (const subscriber of subscribers) {
-      if (subscriber.signal.aborted) continue;
+      if (subscriber.signal.aborted || !ready.has(subscriber)) continue;
       subscriber
         .push(event)
         .catch((error: unknown) => ports.log(`[office] push failed: ${errorMessage(error)}`));
@@ -123,8 +137,10 @@ export function createHub(ports: HubPorts): Hub {
   }
 
   async function start(): Promise<void> {
-    const stop = await ports.openDirectory(onDirectory);
-    if (subscribers.size === 0) {
+    generation += 1;
+    const mine = generation;
+    const stop = await ports.openDirectory(onDirectory, () => onDirectoryEnd(mine));
+    if (subscribers.size === 0 || mine !== generation) {
       view = EMPTY_VIEW;
       await stop();
       return;
@@ -136,14 +152,55 @@ export function createHub(ports: HubPorts): Hub {
   }
 
   async function ensureStarted(): Promise<void> {
-    if (stopDirectory !== null) return;
-    starting ??= start().finally(() => {
-      starting = null;
-    });
-    await starting;
+    // A start that found nobody waiting closes its directory; whoever arrived meanwhile starts again.
+    while (stopDirectory === null && subscribers.size > 0) {
+      starting ??= start().finally(() => {
+        starting = null;
+      });
+      await starting;
+    }
+  }
+
+  async function restart(): Promise<void> {
+    await idle();
+    if (subscribers.size === 0) return;
+    try {
+      await ensureStarted();
+    } catch (error) {
+      // Try again once the window passed, while anyone is still attached.
+      restartQueued = generation;
+      throw error;
+    }
+    broadcast({ type: "snapshot", state: snapshot() });
+  }
+
+  function runRestart(): void {
+    restartQueued = null;
+    cancelCooldown = ports.timers.setTimeout(onCooldownEnd, DIRECTORY_RESTART_MS);
+    restart().catch((error: unknown) =>
+      ports.log(`[office] directory restart failed: ${errorMessage(error)}`),
+    );
+  }
+
+  function onCooldownEnd(): void {
+    cancelCooldown = null;
+    try {
+      if (restartQueued === generation && subscribers.size > 0) runRestart();
+      else restartQueued = null;
+    } catch (error) {
+      ports.log(`[office] directory restart failed: ${errorMessage(error)}`);
+    }
+  }
+
+  function onDirectoryEnd(of: number): void {
+    if (of !== generation) return;
+    ports.log("[office] directory ended; restarting it");
+    if (cancelCooldown === null) runRestart();
+    else restartQueued = of;
   }
 
   async function idle(): Promise<void> {
+    generation += 1;
     cancelFlush?.();
     cancelFlush = null;
     stopActivity?.();
@@ -184,6 +241,7 @@ export function createHub(ports: HubPorts): Hub {
         throw error;
       }
       if (subscriber.signal.aborted) return;
+      ready.add(subscriber);
       await subscriber.push({ type: "snapshot", state: snapshot() });
       await waitForAbort(subscriber.signal);
     },
@@ -206,6 +264,9 @@ export function createHub(ports: HubPorts): Hub {
     },
     async stop() {
       subscribers.clear();
+      cancelCooldown?.();
+      cancelCooldown = null;
+      restartQueued = null;
       await idle();
     },
   };
