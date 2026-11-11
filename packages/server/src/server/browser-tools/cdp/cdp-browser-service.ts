@@ -337,6 +337,11 @@ export class CdpBrowserService {
     return this.viewports.get(browserId)?.owner ?? null;
   }
 
+  /** The agent's browser_resize set the size, and no person's input has taken it since. */
+  agentOwnsViewport(browserId: string): boolean {
+    return this.viewportOwner(browserId) === AGENT_VIEWPORT_OWNER;
+  }
+
   private async connect(): Promise<void> {
     if (this.stopped || this.connecting || this.browser) return;
     this.connecting = true;
@@ -682,7 +687,8 @@ export class CdpBrowserService {
     }
     this.noteAgentActivity(browserId);
     if (command.command === "resize") {
-      // An agent's size holds until a person interacts with the pane again.
+      // An agent's size holds until a person sends input on the tab (pointer, touch, key or text).
+      // A pane's size-only claim (shown again, reconnect, layout change) does not take it.
       const { width, height } = await this.setViewport(
         browserId,
         { width: command.args.width, height: command.args.height, deviceScaleFactor: 1 },

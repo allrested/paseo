@@ -37,6 +37,7 @@ const FRAME = {
 describe("CdpViewSession", () => {
   let chromium: FakeChromium;
   let dir: string;
+  let broker: BrowserToolsBroker;
   let service: CdpBrowserService;
   let session: CdpViewSession;
   let delivery: SessionDelivery;
@@ -66,10 +67,11 @@ describe("CdpViewSession", () => {
   beforeEach(async () => {
     chromium = await startFakeChromium();
     dir = await mkdtemp(path.join(os.tmpdir(), "paseo-cdp-view-"));
+    broker = new BrowserToolsBroker({});
     service = new CdpBrowserService({
       endpoint: new CdpEndpoint({ url: chromium.url, commandTimeoutMs: 300 }),
       registry: new CdpTabRegistry(path.join(dir, "cdp-tabs.json")),
-      broker: new BrowserToolsBroker({}),
+      broker,
       logger,
       reconnect: { minMs: 20, maxMs: 40 },
     });
@@ -272,7 +274,7 @@ describe("CdpViewSession", () => {
     const targetId = [...chromium.targets.keys()][0];
     const { subscriptionId } = await subscribeView(tab.browserId);
     await until(() => sentTo(targetId, "Page.startScreencast").length === 1, "the screencast");
-    return { targetId, ...resizingInput(subscriptionId, targetId) };
+    return { browserId: tab.browserId, targetId, ...resizingInput(subscriptionId, targetId) };
   };
   const FULL_TAP = (x: number) => [
     ["mouseMoved", x],
@@ -346,6 +348,28 @@ describe("CdpViewSession", () => {
     await until(() => binary.length > 0, "a frame of the new size");
     await tap(5);
     expect(mouseEvents()).toEqual(FULL_TAP(5));
+  });
+
+  test("a size-only claim leaves an agent's size alone; a person's next input takes it", async () => {
+    const { browserId, targetId, send, tap, mouseEvents } = await watchedTab();
+    await broker.execute({
+      command: { command: "resize", args: { browserId, width: 640, height: 480 } },
+      workspaceId: "ws-a",
+    });
+    const overrides = () => sentTo(targetId, "Emulation.setDeviceMetricsOverride");
+    const before = overrides().length;
+    // The pane comes back to the foreground, long after the agent's last command.
+    await send({ kind: "resize" });
+    expect(overrides().slice(before)).toEqual([]);
+    expect(service.viewportOwner(browserId)).toBe("agent");
+
+    await tap(5);
+    expect(overrides().slice(before)).toEqual([
+      { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false },
+    ]);
+    expect(service.viewportOwner(browserId)).not.toBe("agent");
+    // The tap was aimed at a frame of the agent's size: its move resized, the rest was dropped.
+    expect(mouseEvents()).toEqual([["mouseMoved", 5]]);
   });
 
   test("with no frame of the new size, presses go through again after a short wait", async () => {
