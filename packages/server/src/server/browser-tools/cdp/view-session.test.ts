@@ -236,12 +236,12 @@ describe("CdpViewSession", () => {
     });
   });
 
-  test("a press aimed at the frame from before a resize only resizes; the next one clicks", async () => {
-    const tab = await openTab();
-    const targetId = [...chromium.targets.keys()][0];
-    const { subscriptionId } = await subscribeView(tab.browserId);
-    await until(() => sentTo(targetId, "Page.startScreencast").length === 1, "the screencast");
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+  const frameOfSize = (deviceWidth: number, deviceHeight: number) => ({
+    ...FRAME,
+    metadata: { ...FRAME.metadata, deviceWidth, deviceHeight },
+  });
+  /** Inputs that carry a 1200x800 pane, spaced so none is dropped as backlog. */
+  const resizingInput = (subscriptionId: string, targetId: string) => {
     const send = async (
       input: Extract<SessionInboundMessage, { type: "browser.cdp.view.input.request" }>["input"],
     ) => {
@@ -251,19 +251,38 @@ describe("CdpViewSession", () => {
         input,
         viewport: { width: 1200, height: 800, deviceScaleFactor: 1 },
       });
-      await settle();
+      await new Promise((resolve) => setTimeout(resolve, 50));
     };
     const mouse = { kind: "mouse", y: 6, clickCount: 1, modifiers: 0 } as const;
-    // The pane taps as a move, a press, a drag and a release, each spaced so none is dropped as backlog.
-    const tap = async (x: number) => {
-      await send({ ...mouse, x, type: "move", button: "none", buttons: 0 });
-      await send({ ...mouse, x, type: "down", button: "left", buttons: 1 });
-      await send({ ...mouse, x, type: "move", button: "none", buttons: 1 });
-      await send({ ...mouse, x, type: "up", button: "left", buttons: 0 });
+    return {
+      send,
+      // The pane taps as a move, a press, a drag and a release.
+      tap: async (x: number) => {
+        await send({ ...mouse, x, type: "move", button: "none", buttons: 0 });
+        await send({ ...mouse, x, type: "down", button: "left", buttons: 1 });
+        await send({ ...mouse, x, type: "move", button: "none", buttons: 1 });
+        await send({ ...mouse, x, type: "up", button: "left", buttons: 0 });
+      },
+      mouseEvents: () =>
+        sentTo(targetId, "Input.dispatchMouseEvent").map((params) => [params.type, params.x]),
     };
-    const mouseEvents = () =>
-      sentTo(targetId, "Input.dispatchMouseEvent").map((params) => [params.type, params.x]);
+  };
+  const watchedTab = async () => {
+    const tab = await openTab();
+    const targetId = [...chromium.targets.keys()][0];
+    const { subscriptionId } = await subscribeView(tab.browserId);
+    await until(() => sentTo(targetId, "Page.startScreencast").length === 1, "the screencast");
+    return { targetId, ...resizingInput(subscriptionId, targetId) };
+  };
+  const FULL_TAP = (x: number) => [
+    ["mouseMoved", x],
+    ["mousePressed", x],
+    ["mouseMoved", x],
+    ["mouseReleased", x],
+  ];
 
+  test("a press aimed at the frame from before a resize only resizes; the next one clicks", async () => {
+    const { targetId, send, tap, mouseEvents } = await watchedTab();
     await tap(5);
     await send({ kind: "key", type: "down", key: "Enter", code: "Enter", modifiers: 0 });
     expect(sentTo(targetId, "Emulation.setDeviceMetricsOverride").at(-1)).toMatchObject({
@@ -276,16 +295,48 @@ describe("CdpViewSession", () => {
       "keyDown",
     ]);
 
-    chromium.emit(targetId, "Page.screencastFrame", FRAME);
+    chromium.emit(targetId, "Page.screencastFrame", frameOfSize(1200, 800));
     await until(() => binary.length > 0, "a frame of the new size");
+    await tap(7);
+    expect(mouseEvents()).toEqual([["mouseMoved", 5], ...FULL_TAP(7)]);
+  });
+
+  test("a frame of the old size does not end the wait for the new one", async () => {
+    const { targetId, tap, mouseEvents } = await watchedTab();
+    await tap(5);
+    chromium.emit(targetId, "Page.screencastFrame", FRAME);
+    await until(() => binary.length > 0, "a frame of the old size");
     await tap(7);
     expect(mouseEvents()).toEqual([
       ["mouseMoved", 5],
       ["mouseMoved", 7],
-      ["mousePressed", 7],
-      ["mouseMoved", 7],
-      ["mouseReleased", 7],
     ]);
+  });
+
+  test("a frame of the new size that arrives while the resize settles counts", async () => {
+    const { tap, mouseEvents } = await watchedTab();
+    // Chromium paints the new size before it answers the override.
+    chromium.handle("Emulation.setDeviceMetricsOverride", (params, target) => {
+      chromium.emit(
+        target,
+        "Page.screencastFrame",
+        frameOfSize(Number(params.width), Number(params.height)),
+      );
+      return {};
+    });
+    await tap(5);
+    expect(binary.length).toBeGreaterThan(0);
+    expect(mouseEvents()).toEqual(FULL_TAP(5));
+  });
+
+  test("with no frame of the new size, presses go through again after a short wait", async () => {
+    session = new CdpViewSession(() => service, logger, { resizeFrameWaitMs: 150 });
+    const { tap, mouseEvents } = await watchedTab();
+    await tap(5);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await tap(7);
+    expect(binary).toEqual([]);
+    expect(mouseEvents()).toEqual([["mouseMoved", 5], ...FULL_TAP(7)]);
   });
 
   test("input for a subscription this session does not own is ignored", async () => {
