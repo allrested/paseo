@@ -136,8 +136,10 @@ describe("Claude SDK env", () => {
     );
 
     try {
+      expect(session.usageSession?.()?.sessionId).toBeUndefined();
       const result = await session.run("env check");
       expect(result.sessionId).toBe("managed-agent-env-session");
+      expect(session.usageSession?.()?.sessionId).toBe("managed-agent-env-session");
       expect(capturedEnv?.PASEO_AGENT_ID).toBe(launchContext.env?.PASEO_AGENT_ID);
       expect(capturedEnv?.PASEO_TEST_FLAG).toBe(launchContext.env?.PASEO_TEST_FLAG);
       expect(capturedEnv?.MCP_TIMEOUT).toBe("claude-startup-timeout");
@@ -211,6 +213,7 @@ describe("Claude SDK env", () => {
       const descriptor = session.usageSession?.();
       expect(descriptor?.env.PASEO_TEST_FLAG).toBe("resume-launch-value");
       expect(descriptor?.sessionKey).toEqual(expect.any(String));
+      expect(descriptor?.sessionId).toBe("persisted-session");
       expect(queryFactory).not.toHaveBeenCalled();
       const result = await session.run("resume env check");
       expect(session.usageSession?.()?.sessionKey).toBe(descriptor?.sessionKey);

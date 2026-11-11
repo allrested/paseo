@@ -685,6 +685,8 @@ export interface AgentUsageSession {
   model?: string;
   env: Record<string, string>;
   sessionKey: string;
+  /** The provider's own session id, once it has one; usage sources may map it to an account. */
+  sessionId?: string;
 }
 
 export interface AgentSession {
