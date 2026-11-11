@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { useRetainedPanelActive } from "@/components/retained-panel";
-import { isNative } from "@/constants/platform";
 import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
 import { useAppVisible } from "@/hooks/use-app-visible";
+import { usePointerCapabilities } from "@/hooks/pointer-capabilities";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { CdpFrameImage } from "./frame-image";
@@ -63,6 +63,8 @@ const CdpToolbar = memo(function CdpToolbar({
   onShowKeyboard,
 }: ToolbarProps) {
   const { t } = useTranslation();
+  // Native always reports a touch screen; on web a mouse-only desktop gets no keyboard button.
+  const { touchScreen } = usePointerCapabilities();
   const record = useBrowserStore((state) => state.browsersById[browserId] ?? null);
   const url = record?.url ?? "";
   const editing = useRef(false);
@@ -125,7 +127,7 @@ const CdpToolbar = memo(function CdpToolbar({
         style={styles.urlInput}
         uniProps={urlInputMapping}
       />
-      {isNative ? (
+      {touchScreen ? (
         <ToolbarButton disabled={blocked} label={t("cdpBrowser.keyboard")} onPress={onShowKeyboard}>
           <ThemedKeyboard size={ICON_SIZE} uniProps={iconMapping} />
         </ToolbarButton>
