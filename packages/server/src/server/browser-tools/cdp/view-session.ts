@@ -308,7 +308,11 @@ export class CdpViewSession {
     view.chain = view.chain
       .then(async () => {
         try {
-          if (msg.viewport) {
+          // A size-only claim never takes the size from an agent's browser_resize; the size comes
+          // back to a person with their next input, which carries it too.
+          const heldByAgent =
+            msg.input.kind === "resize" && service.agentOwnsViewport(view.browserId);
+          if (msg.viewport && !heldByAgent) {
             // The last client to interact or resize its pane sets the size; a press it aimed at the
             // old size is stale.
             const resized = service.viewportDiffers(view.browserId, msg.viewport);
