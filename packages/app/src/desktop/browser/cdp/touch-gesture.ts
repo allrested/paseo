@@ -7,26 +7,33 @@ interface Point {
 }
 
 export interface TouchGesture {
-  start(point: Point): void;
+  /** `stale`: the frame on screen is not of the claimed size (see isStaleFrame). */
+  start(point: Point, stale: boolean): void;
   move(point: Point): CdpBrowserViewInput[];
-  end(): CdpBrowserViewInput[];
+  end(stale: boolean): CdpBrowserViewInput[];
   /** Drops the touch without a click, for a system-cancelled gesture. */
   cancel(): void;
 }
 
-/** Touch on the frame: a tap is a click, a drag is a scroll. Points are page CSS pixels. No pinch zoom. */
+/**
+ * Touch on the frame: a tap is a click, a drag is a scroll. Points are page CSS pixels. No pinch zoom.
+ * A touch on a stale frame, at its start or its end, sends only the move: the move carries the
+ * pane's size to the daemon (and takes it back from an agent), the press would land off target.
+ */
 export function createTouchGesture(): TouchGesture {
   let origin: Point | null = null;
   let last: Point | null = null;
   let scrolling = false;
+  let startedStale = false;
   return {
-    start(point) {
+    start(point, stale) {
       origin = point;
       last = point;
       scrolling = false;
+      startedStale = stale;
     },
     move(point) {
-      if (!origin || !last) return [];
+      if (!origin || !last || startedStale) return [];
       if (!scrolling && Math.hypot(point.x - origin.x, point.y - origin.y) < TOUCH_SLOP_PX)
         return [];
       scrolling = true;
@@ -42,16 +49,27 @@ export function createTouchGesture(): TouchGesture {
       last = point;
       return [wheel];
     },
-    end() {
+    end(stale) {
       const point = origin;
+      // A drag that began on a stale frame never scrolled, so it ends like a tap.
       const tapped = point !== null && !scrolling;
+      const dropped = startedStale || stale;
       origin = null;
       last = null;
       scrolling = false;
+      startedStale = false;
       if (!tapped || !point) return [];
       const base = { kind: "mouse" as const, x: point.x, y: point.y, modifiers: 0 };
+      const move: CdpBrowserViewInput = {
+        ...base,
+        type: "move",
+        button: "none",
+        buttons: 0,
+        clickCount: 0,
+      };
+      if (dropped) return [move];
       return [
-        { ...base, type: "move", button: "none", buttons: 0, clickCount: 0 },
+        move,
         { ...base, type: "down", button: "left", buttons: 1, clickCount: 1 },
         { ...base, type: "up", button: "left", buttons: 0, clickCount: 1 },
       ];
@@ -60,6 +78,7 @@ export function createTouchGesture(): TouchGesture {
       origin = null;
       last = null;
       scrolling = false;
+      startedStale = false;
     },
   };
 }
