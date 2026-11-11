@@ -346,7 +346,7 @@ export class CdpViewSession {
       if (!tab) return respond("browser_tab_not_found");
       const { action } = msg;
       if (action.kind === "url") {
-        if (!isOpenableUrl(action.url)) return respond("browser_unknown_error");
+        if (!isOpenableUrl(action.url)) return respond("browser_url_refused");
         // Not tab.loadURL: that waits for the load event, and the toolbar should not wait for it.
         const result = await tab.connection.send<{ errorText?: string }>("Page.navigate", {
           url: action.url,
