@@ -13,6 +13,14 @@ export const ROOM_PITCH_X = 15;
 export const ROOM_GAP = 3;
 export const WALL_HEIGHT = 1.2;
 export const DOOR_WIDTH = 2;
+/**
+ * The camera looks at the office from this far round to the right, in radians (scene/camera.ts).
+ * The rooms keep their walls square to the world, and their places are dealt along the camera's
+ * own directions, so on screen a column of rooms runs straight down and the columns start level.
+ * Seen from above, the places are a grid turned by this angle.
+ */
+export const VIEW_TURN = (26 * Math.PI) / 180;
+const TURN_TAN = Math.tan(VIEW_TURN);
 /** From the back wall to the first row of desks: the whiteboard's strip and room to walk. */
 const BACK_STRIP = 2.5;
 /** From the last row of desks to the front wall. */
@@ -174,7 +182,13 @@ function dealRooms(
   return cells;
 }
 
-/** The middle of each room's floor: column by column, each room behind the last one. */
+/**
+ * The middle of each room's floor: column by column, each room behind the last one. A room hangs
+ * from the middle of its back wall, which stays where it is when the room grows by a row. Going
+ * down a column the rooms step to the right, and each column starts further back than the one
+ * to its left: both by the tangent of the view's turn, which is what keeps them upright and
+ * level on screen.
+ */
 function roomCenters(
   rooms: readonly Sized[],
   cells: ReadonlyMap<string, GridCell>,
@@ -187,7 +201,10 @@ function roomCenters(
   for (const { room, cell } of ordered) {
     if (!cell) continue;
     const back = backs.get(cell.gx) ?? 0;
-    centers.set(room.roomId, { x: cell.gx * ROOM_PITCH_X, z: back + room.depth / 2 });
+    centers.set(room.roomId, {
+      x: cell.gx * ROOM_PITCH_X + back * TURN_TAN,
+      z: back - cell.gx * ROOM_PITCH_X * TURN_TAN + room.depth / 2,
+    });
     backs.set(cell.gx, back + room.depth + ROOM_GAP);
   }
   return centers;
