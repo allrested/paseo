@@ -9,7 +9,7 @@ import type {
 } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import { useToast } from "@/contexts/toast-context";
 import { viewStatusForError, type CdpViewStatus } from "./view-model";
-import { cdpNavigateErrorStatus } from "./workspace-browser";
+import { cdpNavigateErrorKey, cdpNavigateErrorStatus } from "./workspace-browser";
 
 export interface CdpViewFrame {
   jpeg: Uint8Array;
@@ -128,7 +128,7 @@ export function useCdpView(input: {
         (error) => {
           const failed = cdpNavigateErrorStatus(error);
           if (failed) setStatus(failed);
-          else toast.error(t("cdpBrowser.navigateFailed"));
+          else toast.error(t(cdpNavigateErrorKey(error)));
         },
       );
     },
