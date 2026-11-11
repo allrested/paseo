@@ -240,6 +240,7 @@ export function CdpBrowserPane({
     active: panelActive && appVisible,
     viewport,
     hostConnected,
+    agentActive,
   });
   const [reopenError, setReopenError] = useState<"failed" | "unreachable" | null>(null);
   let status: CdpViewStatus = supported ? view.status : "unreachable";

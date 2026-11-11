@@ -54,5 +54,8 @@ export async function dispatchViewInput(
     case "text":
       await send("Input.insertText", { text: input.text });
       return;
+    case "resize":
+      // Only a viewport claim; the page gets nothing, not even a pointer move.
+      return;
   }
 }

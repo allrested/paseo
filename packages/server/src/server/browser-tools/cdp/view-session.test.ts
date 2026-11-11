@@ -329,6 +329,25 @@ describe("CdpViewSession", () => {
     expect(mouseEvents()).toEqual(FULL_TAP(5));
   });
 
+  test("a size-only claim resizes once and sends nothing to the page; the next tap clicks", async () => {
+    const { targetId, send, tap, mouseEvents } = await watchedTab();
+    const overrides = () => sentTo(targetId, "Emulation.setDeviceMetricsOverride");
+    const before = overrides().length;
+    await send({ kind: "resize" });
+    await send({ kind: "resize" });
+    expect(overrides().slice(before)).toEqual([
+      { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false },
+    ]);
+    expect(mouseEvents()).toEqual([]);
+    expect(sentTo(targetId, "Input.dispatchKeyEvent")).toEqual([]);
+    expect(sentTo(targetId, "Input.insertText")).toEqual([]);
+
+    chromium.emit(targetId, "Page.screencastFrame", frameOfSize(1200, 800));
+    await until(() => binary.length > 0, "a frame of the new size");
+    await tap(5);
+    expect(mouseEvents()).toEqual(FULL_TAP(5));
+  });
+
   test("with no frame of the new size, presses go through again after a short wait", async () => {
     session = new CdpViewSession(() => service, logger, { resizeFrameWaitMs: 150 });
     const { tap, mouseEvents } = await watchedTab();

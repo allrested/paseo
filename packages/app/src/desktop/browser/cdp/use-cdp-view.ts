@@ -9,6 +9,7 @@ import type {
 } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import { useToast } from "@/contexts/toast-context";
 import { viewStatusForError, type CdpViewStatus } from "./view-model";
+import { createViewportClaim, type ViewportClaim } from "./viewport-claim";
 import { cdpNavigateErrorKey, cdpNavigateErrorStatus } from "./workspace-browser";
 
 export interface CdpViewFrame {
@@ -36,6 +37,8 @@ export function useCdpView(input: {
   active: boolean;
   viewport: CdpBrowserViewport | null;
   hostConnected: boolean;
+  /** The "Agent is using this tab" badge shows; the pane does not claim its size meanwhile. */
+  agentActive: boolean;
 }): {
   frame: CdpViewFrame | null;
   status: CdpViewStatus;
@@ -43,12 +46,14 @@ export function useCdpView(input: {
   navigate(action: CdpBrowserNavigateAction): void;
   retry(): void;
 } {
-  const { client, browserId, active, hostConnected } = input;
+  const { client, browserId, active, hostConnected, agentActive } = input;
   const [frame, setFrame] = useState<CdpViewFrame | null>(null);
   const [status, setStatus] = useState<CdpViewStatus>("connecting");
   const [attempt, setAttempt] = useState(0);
   const subscriptionId = useRef<string | null>(null);
-  // The size at subscribe time only seeds the tab; later sizes travel with each input.
+  // The live subscription as state, so a new one claims the pane's size.
+  const [liveSubscription, setLiveSubscription] = useState<string | null>(null);
+  // The size at subscribe time only seeds the tab; later sizes travel with a resize claim or an input.
   const viewport = useRef(input.viewport);
   viewport.current = input.viewport;
   const measured = input.viewport !== null;
@@ -67,6 +72,7 @@ export function useCdpView(input: {
         // A reconnect makes a new subscription on the daemon, whose frames count from 1 again.
         lastSequence = 0;
         subscriptionId.current = snapshot.subscriptionId;
+        setLiveSubscription(snapshot.subscriptionId);
         setStatus("live");
       },
       update: (message) => {
@@ -91,6 +97,7 @@ export function useCdpView(input: {
     });
     return () => {
       subscriptionId.current = null;
+      setLiveSubscription(null);
       unsubscribe();
       void observation.release().catch(() => {});
     };
@@ -107,18 +114,40 @@ export function useCdpView(input: {
     if (!was && hostConnected && statusRef.current === "unreachable") setAttempt((n) => n + 1);
   }, [hostConnected]);
 
+  // The size also travels without input, so the first tap after a resize hits a frame of its size.
+  const claim = useRef<ViewportClaim | null>(null);
+
   const sendInput = useCallback(
     (event: CdpBrowserViewInput) => {
       const id = subscriptionId.current;
       if (!client || !id) return;
+      const size = viewport.current;
       try {
-        client.sendCdpBrowserViewInput(id, event, viewport.current ?? undefined);
+        client.sendCdpBrowserViewInput(id, event, size ?? undefined);
       } catch {
         // The socket dropped between frames; the subscription's reconnect restores input.
+        return;
       }
+      if (size) claim.current?.noteSent(size);
     },
     [client],
   );
+
+  useEffect(() => {
+    const current = createViewportClaim(() => sendInput({ kind: "resize" }));
+    claim.current = current;
+    return () => {
+      current.dispose();
+      if (claim.current === current) claim.current = null;
+    };
+  }, [sendInput]);
+  useEffect(() => {
+    claim.current?.update({
+      subscriptionId: liveSubscription,
+      viewport: input.viewport,
+      agentActive,
+    });
+  }, [liveSubscription, input.viewport, agentActive]);
 
   const navigate = useCallback(
     (action: CdpBrowserNavigateAction) => {
