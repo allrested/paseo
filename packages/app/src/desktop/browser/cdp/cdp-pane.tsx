@@ -15,6 +15,7 @@ import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { CdpFrameImage } from "./frame-image";
 import { CdpInputLayer } from "./input-layer";
+import type { CdpKeyboardHandle } from "./input-layer-types";
 import { useCdpTabsStore } from "./tabs-store";
 import { reopenCdpTab } from "./tabs-sync";
 import { withHttpForHostPort } from "./workspace-browser";
@@ -52,7 +53,9 @@ interface ToolbarProps {
   blocked: boolean;
   urlInputRef: RefObject<EditingTextInputHandle | null>;
   onNavigate(action: CdpBrowserNavigateAction): void;
-  onShowKeyboard(): void;
+  keyboardOn: boolean;
+  onKeyboardPressIn(): void;
+  onToggleKeyboard(): void;
 }
 
 const CdpToolbar = memo(function CdpToolbar({
@@ -60,7 +63,9 @@ const CdpToolbar = memo(function CdpToolbar({
   blocked,
   urlInputRef,
   onNavigate,
-  onShowKeyboard,
+  keyboardOn,
+  onKeyboardPressIn,
+  onToggleKeyboard,
 }: ToolbarProps) {
   const { t } = useTranslation();
   // Native always reports a touch screen; on web a mouse-only desktop gets no keyboard button.
@@ -128,7 +133,13 @@ const CdpToolbar = memo(function CdpToolbar({
         uniProps={urlInputMapping}
       />
       {touchScreen ? (
-        <ToolbarButton disabled={blocked} label={t("cdpBrowser.keyboard")} onPress={onShowKeyboard}>
+        <ToolbarButton
+          disabled={blocked}
+          label={t("cdpBrowser.keyboard")}
+          onPress={onToggleKeyboard}
+          onPressIn={onKeyboardPressIn}
+          selected={keyboardOn}
+        >
           <ThemedKeyboard size={ICON_SIZE} uniProps={iconMapping} />
         </ToolbarButton>
       ) : null}
@@ -242,8 +253,21 @@ export function CdpBrowserPane({
 
   const urlInput = useRef<EditingTextInputHandle>(null);
   const focusUrl = useCallback(() => urlInput.current?.focus(), []);
-  const [keyboardRequest, setKeyboardRequest] = useState(0);
-  const showKeyboard = useCallback(() => setKeyboardRequest((value) => value + 1), []);
+  const keyboard = useRef<CdpKeyboardHandle>(null);
+  const [keyboardOn, setKeyboardOn] = useState(false);
+  // On web the button takes focus before its press fires, which turns the keyboard off; the state
+  // read at press-in is what the user saw.
+  const keyboardAtPress = useRef<boolean | null>(null);
+  const noteKeyboardAtPress = useCallback(() => {
+    keyboardAtPress.current = keyboard.current?.isOn() ?? false;
+  }, []);
+  // Called inside the press, so iOS Safari raises the keyboard for the field's focus().
+  const toggleKeyboard = useCallback(() => {
+    const wasOn = keyboardAtPress.current ?? keyboard.current?.isOn() ?? false;
+    keyboardAtPress.current = null;
+    if (wasOn) keyboard.current?.hide();
+    else keyboard.current?.show();
+  }, []);
 
   const [reopening, setReopening] = useState(false);
   const reopen = useCallback(() => {
@@ -274,7 +298,9 @@ export function CdpBrowserPane({
         blocked={blocked}
         browserId={browserId}
         onNavigate={view.navigate}
-        onShowKeyboard={showKeyboard}
+        keyboardOn={keyboardOn}
+        onKeyboardPressIn={noteKeyboardAtPress}
+        onToggleKeyboard={toggleKeyboard}
         urlInputRef={urlInput}
       />
       <View onLayout={handleLayout} style={styles.viewport}>
@@ -282,7 +308,8 @@ export function CdpBrowserPane({
           <>
             <CdpFrameImage jpeg={frame.jpeg} rect={rect} />
             <CdpInputLayer
-              keyboardRequest={keyboardRequest}
+              keyboardRef={keyboard}
+              onKeyboardChange={setKeyboardOn}
               onFocusPane={onFocusPane}
               onFocusUrl={focusUrl}
               onInput={view.sendInput}
