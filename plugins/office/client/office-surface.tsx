@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Pressable, Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
@@ -63,6 +71,8 @@ const SENTENCE_START = /^(?!Paseo\b)[A-Z][a-z]+(?=\s|$)/;
  * browser, the host), so it may start with a capital and end with a full stop.
  */
 export function problemText(failure: string, reason: string): string {
+  // A reason that is already a failure sentence is shown as it is, as failureText does.
+  if (reason.trim().startsWith("Unable to")) return reason.trim();
   const text = reason.trim().replace(/[.\s]+$/, "");
   if (text === "") return failure;
   const first = SENTENCE_START.test(text) ? text.charAt(0).toLowerCase() : text.charAt(0);
@@ -90,12 +100,100 @@ export function savedThreeD(setting: ThreeDSetting): boolean | null {
   return setting.status === "ready" ? setting.values.threeD : true;
 }
 
+/** The device's 3D setting as the switch's saves see it; null while it is read or unreadable. */
+export interface StoredSwitch {
+  /** Null when the stored document is not a valid setting: any tap overwrites it. */
+  value: boolean | null;
+  revision: string;
+}
+
+/** A save of the switch the surface started, and how far it got. */
+export interface SwitchSave {
+  value: boolean;
+  /** The revision it was saved against. */
+  against: string;
+  /**
+   * saving: not back yet. saved: stored, the store's new revision not yet read. failed: refused,
+   * the store is read again. checked: refused, and the store was read again.
+   */
+  phase: "saving" | "saved" | "failed" | "checked";
+}
+
+/** The switch's taps against the device store: at most one save in flight. */
+export interface SwitchSync {
+  /** The last tap while it is not known to be stored; null shows the stored value. */
+  wanted: boolean | null;
+  save: SwitchSave | null;
+  /** Saves retried after a conflict since the last tap. */
+  retries: number;
+}
+
+export type SwitchEvent =
+  | { type: "tap"; value: boolean }
+  | { type: "start"; value: boolean; against: string; retry: boolean }
+  | { type: "returned"; stored: boolean }
+  | { type: "checked" }
+  | { type: "settle" };
+
 /**
- * Whether a save that came back settles the switch, so the surface can stop holding the choice
- * itself: only when the device stored it and no later tap asked for the other side.
+ * idle: no tap waits. wait: a save or a read is on its way. save: store the last tap. settle: the
+ * store holds the last tap, so stop holding it here. give-up: the store refused it; the switch
+ * keeps showing the tap until the next tap or the surface closes.
  */
-export function settlesSwitch(stored: boolean, turn: number, latestTurn: number): boolean {
-  return stored && turn === latestTurn;
+export type SwitchStep =
+  | { kind: "idle" | "wait" | "settle" | "give-up" }
+  | { kind: "save"; value: boolean; against: string; retry: boolean };
+
+export const IDLE_SWITCH: SwitchSync = { wanted: null, save: null, retries: 0 };
+
+/** One retry per conflict; a second conflict for the same tap gives up. */
+const CONFLICT_RETRIES = 1;
+
+export function switchSync(sync: SwitchSync, event: SwitchEvent): SwitchSync {
+  switch (event.type) {
+    case "tap": {
+      // A save still on its way stays in flight; a refused one is forgotten, so the tap tries anew.
+      const busy = sync.save?.phase === "saving" || sync.save?.phase === "saved";
+      return { wanted: event.value, save: busy ? sync.save : null, retries: 0 };
+    }
+    case "start":
+      return {
+        ...sync,
+        save: { value: event.value, against: event.against, phase: "saving" },
+        retries: sync.retries + (event.retry ? 1 : 0),
+      };
+    case "returned":
+      if (sync.save === null) return sync;
+      return { ...sync, save: { ...sync.save, phase: event.stored ? "saved" : "failed" } };
+    case "checked":
+      if (sync.save?.phase !== "failed") return sync;
+      return { ...sync, save: { ...sync.save, phase: "checked" } };
+    case "settle":
+      return IDLE_SWITCH;
+  }
+}
+
+/**
+ * What the switch does next, given the last tap, what the device holds and the save in flight.
+ * Every save goes against the revision the store holds now, so taps are stored in their order.
+ * A refused save is judged once the store was read again: a revision that moved is a conflict
+ * and is retried once; one that did not move is a refusal for another reason, never retried.
+ */
+export function nextSwitchStep(sync: SwitchSync, stored: StoredSwitch | null): SwitchStep {
+  if (sync.wanted === null) return { kind: "idle" };
+  if (stored === null) return { kind: "wait" };
+  const { save } = sync;
+  let conflict = false;
+  if (save !== null) {
+    if (save.phase === "saving") return { kind: "wait" };
+    if (stored.revision === save.against) {
+      return save.phase === "checked" ? { kind: "give-up" } : { kind: "wait" };
+    }
+    conflict = save.phase !== "saved";
+  }
+  if (stored.value === sync.wanted) return { kind: "settle" };
+  if (conflict && sync.retries >= CONFLICT_RETRIES) return { kind: "give-up" };
+  return { kind: "save", value: sync.wanted, against: stored.revision, retry: conflict };
 }
 
 /** "fallback" is the structure view under the "Try 3D again" banner. */
@@ -131,35 +229,38 @@ function useThreeD(platform: Platform): ThreeDState {
   const available = useMemo(() => platform === "web" && hasWebGL2(), [platform]);
   // The view follows the switch at once. A choice the device could not store stays here, so the
   // switch still does what it says until the surface closes.
-  const [unsaved, setUnsaved] = useState<boolean | null>(null);
-  // Counts the taps. Two fast taps save against the same revision, and the first save coming
-  // back must not undo the second tap. Closing the surface counts as one more turn, so a save
-  // that comes back afterwards sets nothing.
-  const turn = useRef(0);
-  useEffect(
-    () => () => {
-      turn.current += 1;
-    },
-    [],
-  );
+  const [sync, dispatch] = useReducer(switchSync, IDLE_SWITCH);
+  // A save or a read that comes back after the surface closed sets nothing and saves nothing.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const revision =
     settings.status === "ready" || settings.status === "invalid" ? settings.revision : null;
-  const { save } = settings;
-  const toggle = useCallback(
-    (next: boolean) => {
-      turn.current += 1;
-      const mine = turn.current;
-      setUnsaved(next);
-      if (revision === null) return;
-      async function store(against: string): Promise<void> {
-        const stored = await save({ threeD: next }, against);
-        if (settlesSwitch(stored, mine, turn.current)) setUnsaved(null);
-      }
-      void store(revision);
-    },
-    [save, revision],
-  );
-  return { available, on: available ? (unsaved ?? savedThreeD(settings)) : false, toggle };
+  const storedValue = settings.status === "ready" ? settings.values.threeD : null;
+  const { save, reload } = settings;
+  useEffect(() => {
+    const stored = revision === null ? null : { value: storedValue, revision };
+    const step = nextSwitchStep(sync, stored);
+    if (step.kind === "settle") dispatch({ type: "settle" });
+    if (step.kind !== "save") return;
+    dispatch({ type: "start", value: step.value, against: step.against, retry: step.retry });
+    async function store(value: boolean, against: string): Promise<void> {
+      const ok = await save({ threeD: value }, against);
+      if (!mounted.current) return;
+      dispatch({ type: "returned", stored: ok });
+      if (ok) return;
+      // Read the store again: its revision tells a conflict from a refusal.
+      await reload().catch(() => undefined);
+      if (mounted.current) dispatch({ type: "checked" });
+    }
+    void store(step.value, step.against);
+  }, [sync, revision, storedValue, save, reload]);
+  const toggle = useCallback((next: boolean) => dispatch({ type: "tap", value: next }), []);
+  return { available, on: available ? (sync.wanted ?? savedThreeD(settings)) : false, toggle };
 }
 
 interface ThreeDSwitchProps {

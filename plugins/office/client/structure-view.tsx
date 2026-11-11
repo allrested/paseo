@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import { stateLabel } from "./agent-card.js";
 import { agentMeta, agentTitle, dotTone, type OfficeRoom, type OfficeRow } from "./model.js";
@@ -37,10 +37,10 @@ function AgentRow({ row, endsGroup, styles, actions, onSelect, onOpenSession }: 
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
-  const pressableStyle = useCallback(
-    ({ pressed }: PressableStateCallbackType) => rowStyle(styles, child, pressed || hovered),
-    [styles, child, hovered],
-  );
+  const [pressed, setPressed] = useState(false);
+  const pressIn = useCallback(() => setPressed(true), []);
+  const pressOut = useCallback(() => setPressed(false), []);
+  const lit = pressed || hovered;
   const title = agentTitle(agent);
   const tone = dotTone(agent);
   const state = stateLabel(agent);
@@ -50,10 +50,13 @@ function AgentRow({ row, endsGroup, styles, actions, onSelect, onOpenSession }: 
         accessibilityRole="button"
         accessibilityLabel={`${title}: ${state}`}
         onPress={press}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
         onHoverIn={hoverIn}
         onHoverOut={hoverOut}
-        style={pressableStyle}
+        style={rowStyle(styles, child, lit)}
       >
+        {lit ? <View style={styles.pressedFill} /> : null}
         <View style={styles.lead}>
           <View style={styles.dot[tone]} />
         </View>

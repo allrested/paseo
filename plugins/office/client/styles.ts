@@ -25,11 +25,18 @@ export interface OfficeStyles {
   /** Holds the banner in the column and gives it the side padding. */
   bannerSlot: ViewStyle;
   bannerText: TextStyle;
-  /** The strip's scroller: in the column on a wide screen, to the screen edges on a phone. */
+  /**
+   * Holds the strip's scroller: inside the cards' rails on a wide screen, so scrolled entries
+   * stop where the cards do, and to the screen edges on a phone.
+   */
+  stripRail: ViewStyle;
+  /** The strip's scroller, as wide as its rail. */
   stripScroll: ViewStyle;
   strip: ViewStyle;
   stripItem: ViewStyle;
   stripItemPressed: ViewStyle;
+  /** The fill of a row or a strip entry under a finger or a pointer: a layer, as buttonFill is. */
+  pressedFill: ViewStyle;
   stripBody: ViewStyle;
   stripTitle: TextStyle;
   stripReason: Record<AttentionReason, TextStyle>;
@@ -146,11 +153,20 @@ export function useOfficeStyles(
       backgroundColor,
     });
     const state = (color: string): TextStyle => ({ ...small, flexShrink: 0, color });
-    // PluginTheme has no surface3 or interactionHighlight. The border colour is surface3 in the
-    // light theme and sits beside surface2 in the dark ones, so it is the fill of a row under a
-    // finger or a pointer. surface2 itself is 1.05:1 against a surface1 card in the light theme,
-    // which no one would see.
-    const raised = colors.border;
+    // The app's secondary button is surface3, which PluginTheme lacks, and the border colour is
+    // 1.07 to 1.16:1 against a dark card. A fifth of the muted grey is the light theme's
+    // surface3 again (1.28:1) and 1.35 to 1.61:1 in the dark ones. It fills the plain button, and
+    // a row or a strip entry under a finger or a pointer, as a layer of its own, so its opacity
+    // does not fade what is drawn on it.
+    const fill: ViewStyle = {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      backgroundColor: colors.foregroundMuted,
+      opacity: 0.2,
+    };
     // The plain button is filled by buttonFill, a layer inside it; the accent button fills itself.
     const button: ViewStyle = {
       minHeight: controlHeight,
@@ -212,6 +228,8 @@ export function useOfficeStyles(
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface1,
+      // Clips the pressed fill to the rounded corners.
+      overflow: "hidden",
     };
     return {
       screen: { flex: 1, backgroundColor: colors.surface0 },
@@ -266,11 +284,15 @@ export function useOfficeStyles(
         gap: 8,
       },
       bannerText: { ...base, color: colors.statusDanger },
-      stripScroll: column,
-      // The vertical padding leaves room for an entry's focus ring inside the scroll view.
-      strip: { gap: 8, paddingVertical: 4, paddingHorizontal: pad },
+      stripRail: compact ? column : { ...column, paddingHorizontal: pad },
+      stripScroll: { width: "100%" },
+      // The vertical padding leaves room for an entry's focus ring inside the scroll view. On a
+      // phone the side padding puts the entries at rest on the cards' rails.
+      strip: { gap: 8, paddingVertical: 4, paddingHorizontal: compact ? pad : 0 },
       stripItem,
-      stripItemPressed: { ...stripItem, backgroundColor: raised },
+      // A pressed row or entry keeps its own box: the fill is the pressedFill layer inside it.
+      stripItemPressed: stripItem,
+      pressedFill: fill,
       stripBody: { flexShrink: 1 },
       stripTitle: { ...base, color: colors.foreground },
       stripReason: {
@@ -292,9 +314,9 @@ export function useOfficeStyles(
       // A child row has 8 px under it and a top-level row 12.
       rowGroupEnd: { paddingBottom: 4 },
       row,
-      rowPressed: { ...row, backgroundColor: raised },
+      rowPressed: row,
       rowChild,
-      rowChildPressed: { ...rowChild, backgroundColor: raised },
+      rowChildPressed: rowChild,
       lead: { height: 20, justifyContent: "center" },
       rowBody: { flex: 1, minWidth: 0, gap: 2 },
       rowHeading: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -344,18 +366,7 @@ export function useOfficeStyles(
       // Shrinks with its row, so a long error wraps instead of widening the screen.
       actionButton: { flexShrink: 1, maxWidth: "100%", gap: 4 },
       button,
-      // The app's secondary button is surface3, which PluginTheme lacks, and the border colour is
-      // 1.07 to 1.16:1 against a dark card. A fifth of the muted grey is the light theme's
-      // surface3 again (1.28:1) and 1.35 to 1.61:1 in the dark ones.
-      buttonFill: {
-        position: "absolute",
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0,
-        backgroundColor: colors.foregroundMuted,
-        opacity: 0.2,
-      },
+      buttonFill: fill,
       buttonSpacer: { ...buttonLabel, height: 0, opacity: 0 },
       buttonPressed: { ...button, opacity: 0.85 },
       buttonPrimary,
