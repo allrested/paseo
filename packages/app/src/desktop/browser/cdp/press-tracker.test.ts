@@ -121,6 +121,26 @@ describe("click counter", () => {
     expect(counter.press("left", 16, 10)).toBe(1);
   });
 
+  it("a press dropped on a stale frame does not count: the next sent press is a single click", () => {
+    const time = { now: 1000 };
+    const counter = createClickCounter(at(time));
+    counter.drop();
+    time.now = 1200;
+    expect(counter.press("left", 10, 10)).toBe(1);
+  });
+
+  it("a dropped press ends a series: the next sent press does not double the one before", () => {
+    const time = { now: 1000 };
+    const counter = createClickCounter(at(time));
+    expect(counter.press("left", 10, 10)).toBe(1);
+    time.now = 1150;
+    counter.drop();
+    time.now = 1300;
+    expect(counter.press("left", 10, 10)).toBe(1);
+    time.now = 1450;
+    expect(counter.press("left", 10, 10)).toBe(2);
+  });
+
   it("starts over for another button", () => {
     const time = { now: 1000 };
     const counter = createClickCounter(at(time));
@@ -201,6 +221,36 @@ describe("press tracker on a stale frame", () => {
     tracker.release(mouse("up"));
     expect(tracker.press(mouse("down"), false)).toBe(true);
     expect(tracker.release(mouse("up"))).toEqual([mouse("up")]);
+  });
+
+  it("a chord released by pointer moves leaves no dropped press behind", () => {
+    const tracker = createPressTracker();
+    // Left down on a stale frame, right pressed while it is held: pointer events report the
+    // second button and the release of the first as moves with a new buttons mask.
+    tracker.press(mouse("down"), true);
+    tracker.held(1 | 2);
+    expect(tracker.dragAllowed()).toBe(false);
+    tracker.held(2);
+    expect(tracker.dragAllowed()).toBe(true);
+    expect(tracker.release(mouse("up", 10, 20, "right"))).toEqual([]);
+    expect(tracker.dragAllowed()).toBe(true);
+  });
+
+  it("keeps a dropped press while its button is still held", () => {
+    const tracker = createPressTracker();
+    tracker.press(mouse("down", 10, 20, "right"), true);
+    tracker.held(2);
+    expect(tracker.dragAllowed()).toBe(false);
+    tracker.held(0);
+    expect(tracker.dragAllowed()).toBe(true);
+  });
+
+  it("a pointer cancel clears a dropped press", () => {
+    const tracker = createPressTracker();
+    tracker.press(mouse("down"), true);
+    tracker.held(1 | 2);
+    expect(tracker.releaseAll()).toEqual([]);
+    expect(tracker.dragAllowed()).toBe(true);
   });
 
   it("releaseAll sends no up for a press dropped as stale", () => {

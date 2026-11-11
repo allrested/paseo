@@ -8,6 +8,9 @@ type MouseInput = Extract<CdpBrowserViewInput, { kind: "mouse" }>;
 type KeyInput = Extract<CdpBrowserViewInput, { kind: "key" }>;
 type MouseButton = MouseInput["button"];
 
+/** The bit of each button in PointerEvent.buttons. */
+const BUTTON_BITS: Record<MouseButton, number> = { none: 0, left: 1, right: 2, middle: 4 };
+
 /** The daemon clamps a claimed size to these bounds (see CdpBrowserViewportSchema). */
 const CLAIM_WIDTH = { min: 320, max: 1920 };
 const CLAIM_HEIGHT = { min: 240, max: 1080 };
@@ -36,6 +39,11 @@ export interface PressTracker {
   press(input: CdpBrowserViewInput, stale?: boolean): boolean;
   /** A drag move may go: no button pressed on a stale frame is held. */
   dragAllowed(): boolean;
+  /**
+   * The PointerEvent `buttons` mask now held. A second button pressed or released while another
+   * is held comes as a move, not a down or up, so a dropped press ends when its bit clears.
+   */
+  held(buttons: number): void;
   /** Keeps the position a held button is released at. */
   moved(x: number, y: number): void;
   /** The inputs to send for a mouse up or key up: nothing if it was never pressed. */
@@ -81,6 +89,9 @@ export function createPressTracker(): PressTracker {
       return true;
     },
     dragAllowed: () => dropped.size === 0,
+    held(mask) {
+      for (const button of dropped) if ((mask & BUTTON_BITS[button]) === 0) dropped.delete(button);
+    },
     moved(x, y) {
       for (const [button, down] of buttons) buttons.set(button, { ...down, x, y });
     },
@@ -122,6 +133,8 @@ const CLICK_SLOP_PX = 5;
 export interface ClickCounter {
   /** The click count for a press: 2 and up for a repeat on the same button, in time and place. */
   press(button: MouseButton, x: number, y: number): number;
+  /** A press dropped on a stale frame: it does not count, and the next press starts at 1. */
+  drop(): void;
 }
 
 /** PointerEvent.detail is 0 on pointerdown and pointerup, so the layer counts clicks itself. */
@@ -139,6 +152,9 @@ export function createClickCounter(now: () => number = Date.now): ClickCounter {
       const count = repeat && previous ? previous.count + 1 : 1;
       previous = { button, x, y, time, count };
       return count;
+    },
+    drop() {
+      previous = null;
     },
   };
 }
