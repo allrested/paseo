@@ -56,3 +56,14 @@ export const SKILLS = [
 ] as const satisfies readonly SkillEntry[];
 
 export type SkillId = (typeof SKILLS)[number]["id"];
+
+/** One switch for several catalog entries. It stores nothing: its state is its members' switches. */
+export interface SkillBundle {
+  label: string;
+  members: readonly SkillId[];
+}
+
+export const DESIGN_BUNDLE = {
+  label: "Good Paseo design",
+  members: ["ai-design-skills", "anti-slop", "ui-ux-pro-max", "unslop"],
+} as const satisfies SkillBundle;
