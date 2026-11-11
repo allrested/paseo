@@ -25,7 +25,13 @@ import {
   type OfficeRoom,
 } from "./model.js";
 import { fakeOffice } from "./scene/fake-office.js";
-import { SceneView, type FocusRequest } from "./scene/scene-view.js";
+import {
+  NO_LAYOUT,
+  SceneView,
+  type FocusRequest,
+  type SceneLayout,
+  type SceneLayoutKeeper,
+} from "./scene/scene-view.js";
 import { hasWebGL2 } from "./scene/web-env.web.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
@@ -352,6 +358,7 @@ interface SurfaceBodyProps {
   theme: PluginTheme;
   focusRoomId: string | null;
   focusRequest: FocusRequest | null;
+  layoutKeeper: SceneLayoutKeeper;
   styles: OfficeStyles;
   actions: AgentActions;
   onSelectAgent(agentId: string): void;
@@ -367,6 +374,7 @@ function SurfaceBody({
   theme,
   focusRoomId,
   focusRequest,
+  layoutKeeper,
   styles,
   actions,
   onSelectAgent,
@@ -398,6 +406,7 @@ function SurfaceBody({
         styles={styles}
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}
+        layoutKeeper={layoutKeeper}
         onSelectAgent={onSelectAgent}
         onProblem={onSceneProblem}
       />
@@ -441,6 +450,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
   const [focusRequest] = useState<FocusRequest | null>(null);
   const closeCard = useCallback(() => setSelectedId(null), []);
+  // The rooms' places outlive the scene: 3D off and on, "Try 3D again" and an error keep them.
+  const sceneLayout = useRef<SceneLayout>(NO_LAYOUT);
   const openSession = useCallback(
     (agentId: string) => navigation?.openAgent({ agentId }),
     [navigation],
@@ -491,6 +502,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         theme={theme}
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}
+        layoutKeeper={sceneLayout}
         styles={styles}
         actions={actions}
         onSelectAgent={setSelectedId}
