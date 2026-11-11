@@ -1,12 +1,41 @@
-import type { CdpBrowserViewInput } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
+import type {
+  CdpBrowserViewInput,
+  CdpBrowserViewport,
+} from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
+import type { Size } from "./view-model";
 
 type MouseInput = Extract<CdpBrowserViewInput, { kind: "mouse" }>;
 type KeyInput = Extract<CdpBrowserViewInput, { kind: "key" }>;
 type MouseButton = MouseInput["button"];
 
+/** The daemon clamps a claimed size to these bounds (see CdpBrowserViewportSchema). */
+const CLAIM_WIDTH = { min: 320, max: 1920 };
+const CLAIM_HEIGHT = { min: 240, max: 1080 };
+const SIZE_TOLERANCE_PX = 1;
+
+/**
+ * The frame on screen is not of the size the pane claims, so a press mapped on it would land on
+ * the page laid out at the new size. Sizes are CSS pixels; the scale factor does not count. Before
+ * the first frame or the first measure nothing is stale.
+ */
+export function isStaleFrame(frame: Size, claimed: CdpBrowserViewport | null): boolean {
+  if (!claimed || frame.width <= 0 || frame.height <= 0) return false;
+  const clamp = (value: number, bounds: { min: number; max: number }) =>
+    Math.round(Math.min(bounds.max, Math.max(bounds.min, value)));
+  return (
+    Math.abs(frame.width - clamp(claimed.width, CLAIM_WIDTH)) > SIZE_TOLERANCE_PX ||
+    Math.abs(frame.height - clamp(claimed.height, CLAIM_HEIGHT)) > SIZE_TOLERANCE_PX
+  );
+}
+
 export interface PressTracker {
-  /** Records a mouse down or key down that was sent to the page. */
-  press(input: CdpBrowserViewInput): void;
+  /**
+   * Records a mouse down or key down; false when it must not be sent. A mouse down on a stale frame
+   * is dropped, with its drag and its release, even if a fresh frame arrives before the release.
+   */
+  press(input: CdpBrowserViewInput, stale?: boolean): boolean;
+  /** A drag move may go: no button pressed on a stale frame is held. */
+  dragAllowed(): boolean;
   /** Keeps the position a held button is released at. */
   moved(x: number, y: number): void;
   /** The inputs to send for a mouse up or key up: nothing if it was never pressed. */
@@ -23,6 +52,7 @@ export interface PressTracker {
 export function createPressTracker(): PressTracker {
   const buttons = new Map<MouseButton, MouseInput>();
   const keys = new Map<string, KeyInput>();
+  const dropped = new Set<MouseButton>();
 
   const keyUp = (down: KeyInput): KeyInput => ({
     kind: "key",
@@ -39,15 +69,24 @@ export function createPressTracker(): PressTracker {
   });
 
   return {
-    press(input) {
-      if (input.kind === "mouse" && input.type === "down") buttons.set(input.button, input);
-      else if (input.kind === "key" && input.type === "down") keys.set(input.code, input);
+    press(input, stale = false) {
+      if (input.kind === "mouse" && input.type === "down") {
+        if (stale) {
+          dropped.add(input.button);
+          return false;
+        }
+        dropped.delete(input.button);
+        buttons.set(input.button, input);
+      } else if (input.kind === "key" && input.type === "down") keys.set(input.code, input);
+      return true;
     },
+    dragAllowed: () => dropped.size === 0,
     moved(x, y) {
       for (const [button, down] of buttons) buttons.set(button, { ...down, x, y });
     },
     release(input) {
       if (input.kind === "mouse" && input.type === "up") {
+        dropped.delete(input.button);
         const down = buttons.get(input.button);
         if (!down) return [];
         buttons.delete(input.button);
@@ -71,6 +110,7 @@ export function createPressTracker(): PressTracker {
       ];
       buttons.clear();
       keys.clear();
+      dropped.clear();
       return released;
     },
   };

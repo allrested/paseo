@@ -2,7 +2,7 @@ import { useEffect, useImperativeHandle, useMemo, useRef, type CSSProperties } f
 import { useTranslation } from "react-i18next";
 import type { CdpBrowserViewInput } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import type { CdpInputLayerProps } from "./input-layer-types";
-import { createClickCounter, createPressTracker } from "./press-tracker";
+import { createClickCounter, createPressTracker, isStaleFrame } from "./press-tracker";
 import { attachSoftKeyboardField } from "./soft-keyboard-field";
 import { createInputCoalescer, createTouchGesture } from "./touch-gesture";
 import {
@@ -41,6 +41,7 @@ function isPasteChord(event: KeyboardEvent): boolean {
 export function CdpInputLayer({
   rect,
   page,
+  viewport,
   onInput,
   onFocusUrl,
   onFocusPane,
@@ -53,8 +54,16 @@ export function CdpInputLayer({
   const keyboardOn = useRef(false);
   const endComposition = useRef<() => void>(() => {});
   // Handlers read the latest props without re-attaching DOM listeners on every frame.
-  const latest = useRef({ rect, page, onInput, onFocusUrl, onFocusPane, onKeyboardChange });
-  latest.current = { rect, page, onInput, onFocusUrl, onFocusPane, onKeyboardChange };
+  const latest = useRef({
+    rect,
+    page,
+    viewport,
+    onInput,
+    onFocusUrl,
+    onFocusPane,
+    onKeyboardChange,
+  });
+  latest.current = { rect, page, viewport, onInput, onFocusUrl, onFocusPane, onKeyboardChange };
 
   useImperativeHandle(
     keyboardRef,
@@ -90,10 +99,10 @@ export function CdpInputLayer({
     const tracker = createPressTracker();
     const clicks = createClickCounter();
     const send = (input: CdpBrowserViewInput) => coalescer.push(input);
+    const stale = () => isStaleFrame(latest.current.page, latest.current.viewport);
     // Mouse and key presses go through the tracker, so each down gets exactly one up.
-    const sendPress = (input: CdpBrowserViewInput) => {
-      tracker.press(input);
-      send(input);
+    const sendPress = (input: CdpBrowserViewInput, onStaleFrame = false) => {
+      if (tracker.press(input, onStaleFrame)) send(input);
     };
     const sendRelease = (input: CdpBrowserViewInput) => {
       for (const released of tracker.release(input)) send(released);
@@ -115,7 +124,7 @@ export function CdpInputLayer({
     };
     const endTouch = () => {
       touchId = null;
-      sendAll(touch.end());
+      sendAll(touch.end(stale()));
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -131,20 +140,23 @@ export function CdpInputLayer({
       if (event.pointerType === "touch") {
         if (touchId !== null) return;
         touchId = event.pointerId;
-        touch.start(point(event));
+        touch.start(point(event), stale());
         return;
       }
       node.setPointerCapture(event.pointerId);
       const button = mouseButton(event.button);
-      sendPress({
-        kind: "mouse",
-        type: "down",
-        ...point(event),
-        button,
-        buttons: event.buttons,
-        clickCount: clicks.press(button, event.clientX, event.clientY),
-        modifiers: modifierMask(event),
-      });
+      sendPress(
+        {
+          kind: "mouse",
+          type: "down",
+          ...point(event),
+          button,
+          buttons: event.buttons,
+          clickCount: clicks.press(button, event.clientX, event.clientY),
+          modifiers: modifierMask(event),
+        },
+        stale(),
+      );
     };
     const onPointerMove = (event: PointerEvent) => {
       if (event.pointerType === "touch") {
@@ -153,6 +165,8 @@ export function CdpInputLayer({
       }
       // A drag sends every move (coalesced per frame); a hover is capped at about 30 per second.
       if (event.buttons === 0 && !allowHover()) return;
+      // The drag of a press dropped on a stale frame is dropped too.
+      if (event.buttons !== 0 && !tracker.dragAllowed()) return;
       const moved = point(event);
       tracker.moved(moved.x, moved.y);
       send({
