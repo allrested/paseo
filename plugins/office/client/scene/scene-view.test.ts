@@ -30,7 +30,7 @@ function office(): OfficeModel {
   return buildOfficeModel(fakeOffice());
 }
 
-/** The fake office after one workspace was archived: the rooms behind it keep their cells. */
+/** The fake office after one workspace was archived: the other rooms keep their columns. */
 function officeWithout(workspaceId: string): OfficeModel {
   const state = fakeOffice();
   return buildOfficeModel({
@@ -66,20 +66,20 @@ test("a container that was never measured has no size", () => {
   expect(shape).toEqual({ sized: false, columns: undefined });
 });
 
-test("a tall container puts two rooms to a row and a wide one lets them spiral", () => {
+test("a tall container stacks the rooms in one column and a wide one gets two", () => {
   const shapes: ContainerShape[] = [shapeAfter([PHONE]), shapeAfter([TABLET])];
   expect(shapes).toEqual([
+    { sized: true, columns: 1 },
     { sized: true, columns: 2 },
-    { sized: true, columns: undefined },
   ]);
 });
 
-test("a hidden container keeps the grid it had", () => {
-  const shape: ContainerShape = shapeAfter([PHONE, HIDDEN]);
+test("a hidden container keeps the columns it had", () => {
+  const shape: ContainerShape = shapeAfter([TABLET, HIDDEN]);
   expect(shape).toEqual({ sized: true, columns: 2 });
 });
 
-test("a size that gives the same grid is not a new shape", () => {
+test("a size that gives the same columns is not a new shape", () => {
   const first = shapeAfter([PHONE]);
   const same: boolean = shapeAfterResize(first, 400, 700) === first;
   expect(same).toEqual(true);
@@ -88,33 +88,39 @@ test("a size that gives the same grid is not a new shape", () => {
 test("phone, hidden, phone again is one layout, not three", () => {
   const layouts = layoutsAfter(office(), [PHONE, HIDDEN, PHONE]);
   expect(new Set(layouts).size).toEqual(1);
-  expect(layouts[0]?.roomById.get("w-load")?.cell).toEqual({ gx: 0, gz: 2 });
+  expect(layouts[0]?.roomById.get("w-load")?.cell).toEqual({ gx: 0, gz: 4 });
 });
 
-test("a container turned on its side is laid out again in the other grid", () => {
+test("a container turned on its side is laid out again in the other columns", () => {
   const layouts = layoutsAfter(office(), [PHONE, TABLET]);
   const cells = layouts.map((layout) => layout?.roomById.get("w-load")?.cell);
+  // The last of one column on a phone; the deepest room, so the first of the second column.
   expect(cells).toEqual([
-    { gx: 0, gz: 2 },
-    { gx: -1, gz: 1 },
+    { gx: 0, gz: 4 },
+    { gx: 1, gz: 0 },
   ]);
 });
 
 test("a new model is laid out with the cells the last layout gave", () => {
   const first = nextLayout(NO_LAYOUT, office(), 2);
-  const second = nextLayout(first, officeWithout("w-docs"), 2);
+  const second = nextLayout(first, officeWithout("w-main"), 2);
+  // It keeps its column and moves up to the place the archived room left.
   expect([cellOf(first, "w-infra"), cellOf(second, "w-infra")]).toEqual([
-    { gx: 0, gz: 1 },
+    { gx: 0, gz: 2 },
     { gx: 0, gz: 1 },
   ]);
 });
 
 test("an office with no rooms is not laid out and the rooms return to their cells", () => {
-  const before = nextLayout(nextLayout(NO_LAYOUT, office(), 2), officeWithout("w-docs"), 2);
+  const before = nextLayout(nextLayout(NO_LAYOUT, office(), 2), officeWithout("w-main"), 2);
   const empty = nextLayout(before, NO_ROOMS, 2);
-  const after = nextLayout(empty, officeWithout("w-docs"), 2);
+  const after = nextLayout(empty, officeWithout("w-main"), 2);
   expect(empty.layout).toEqual(null);
   expect(empty.memory).toEqual(before.memory);
-  // Laid out from nothing, the room would take the free cell in the row above: { gx: 1, gz: 1 }.
+  // Laid out from nothing, the room would be dealt into the other column: { gx: 1, gz: 1 }.
   expect(cellOf(after, "w-infra")).toEqual({ gx: 0, gz: 1 });
+  expect(cellOf(nextLayout(NO_LAYOUT, officeWithout("w-main"), 2), "w-infra")).toEqual({
+    gx: 1,
+    gz: 1,
+  });
 });
