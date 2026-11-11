@@ -32,6 +32,20 @@ export interface Frustum {
   bottom: number;
 }
 
+const ORIGIN_BOUNDS: Bounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+
+/** Inverted or non-finite bounds (an office with no rooms) count as zero-size bounds at the origin. */
+function usableBounds(bounds: Bounds): Bounds {
+  const { minX, maxX, minZ, maxZ } = bounds;
+  const finite = [minX, maxX, minZ, maxZ].every(Number.isFinite);
+  return finite && minX <= maxX && minZ <= maxZ ? bounds : ORIGIN_BOUNDS;
+}
+
+/** A zero-size side counts as 1 px, so a hidden tab gives a finite, non-degenerate aspect. */
+function aspectOf(viewport: Viewport): number {
+  return Math.max(1, viewport.width) / Math.max(1, viewport.height);
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -42,7 +56,7 @@ export function pixelRatioFor(devicePixelRatio: number, coarsePointer: boolean):
 }
 
 export function frustumFor(viewport: Viewport): Frustum {
-  const aspect = viewport.width / Math.max(1, viewport.height);
+  const aspect = aspectOf(viewport);
   const halfHeight = VIEW_HEIGHT / 2;
   return {
     left: -halfHeight * aspect,
@@ -56,8 +70,9 @@ export function cameraPosition(view: CameraView): { x: number; y: number; z: num
   return { x: view.x, y: CAMERA_HEIGHT, z: view.z + CAMERA_BACK };
 }
 
-export function frameBounds(bounds: Bounds, viewport: Viewport): CameraView {
-  const aspect = viewport.width / Math.max(1, viewport.height);
+export function frameBounds(rawBounds: Bounds, viewport: Viewport): CameraView {
+  const bounds = usableBounds(rawBounds);
+  const aspect = aspectOf(viewport);
   const width = Math.max(1, bounds.maxX - bounds.minX);
   const depth = Math.max(1, bounds.maxZ - bounds.minZ);
   const zoom = Math.min((VIEW_HEIGHT * aspect) / width, (VIEW_HEIGHT * GROUND_SCALE) / depth);
@@ -74,8 +89,9 @@ export function panBy(
   dx: number,
   dy: number,
   viewport: Viewport,
-  bounds: Bounds,
+  rawBounds: Bounds,
 ): CameraView {
+  const bounds = usableBounds(rawBounds);
   const perPixel = VIEW_HEIGHT / view.zoom / Math.max(1, viewport.height);
   return {
     x: clamp(view.x - dx * perPixel, bounds.minX, bounds.maxX),
@@ -101,8 +117,8 @@ export function easeView(from: CameraView, to: CameraView, progress: number): Ca
   const t = clamp(progress, 0, 1);
   const eased = t * t * (3 - 2 * t);
   return {
-    x: from.x + (to.x - from.x) * eased,
-    z: from.z + (to.z - from.z) * eased,
-    zoom: from.zoom + (to.zoom - from.zoom) * eased,
+    x: from.x * (1 - eased) + to.x * eased,
+    z: from.z * (1 - eased) + to.z * eased,
+    zoom: from.zoom * (1 - eased) + to.zoom * eased,
   };
 }
