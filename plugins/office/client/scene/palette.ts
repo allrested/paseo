@@ -199,8 +199,8 @@ const DARK_PLAN: ContrastPlan = {
 };
 
 /**
- * The office in the app's own tones. Surfaces step from the app surface towards the foreground
- * (ground, room floor, desk); robots are the muted foreground as graphite; the accent tints the
+ * The office in the app's own tones. Surfaces are steps between the app surface and the
+ * foreground (ground, room floor, desk); robots are the muted foreground as graphite; the accent tints the
  * glass and lights the screens; the theme's warning and danger hues, at full strength, are used
  * for the lights above the robots and nowhere else. Screens, visors, lights, notes and planes
  * are drawn unlit, so their colours reach the screen as given.
@@ -220,10 +220,13 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
     // tone of its own would show there as a hard edge. Light themes get a hair off pure white.
     floor: mix(c.surface0, c.foreground, dark ? 0 : 0.02),
     roomFloor,
-    // Glass is mostly neutral; the tint only colours it faintly.
+    // Glass is mostly neutral; the tint only colours it faintly. It is thin: a wall's face is
+    // shaded, and at a third opaque the front wall of a room came out as a grey band.
     wall: onFloor(mix(c.foregroundMuted, tint, 0.4), plan.wall),
-    wallOpacity: 0.32,
-    desk: mix(c.surface2, c.foreground, 0.12),
+    wallOpacity: 0.2,
+    // A desk top is lighter than the floor in both schemes, like card on a model's base. In a
+    // light room that leaves the robots as the only dark things, so empty desks recede.
+    desk: dark ? mix(c.surface2, c.foreground, 0.12) : mix(c.surface0, c.foreground, 0.03),
     // An unused screen stays close to its desk, so the 12 desks of an empty room recede.
     monitorDim: dark ? mix(c.surface0, BLACK, 0.35) : mix(c.surface1, c.foreground, 0.22),
     monitorLit: onFloor(tint, plan.monitorLit),
