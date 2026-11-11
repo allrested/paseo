@@ -115,3 +115,17 @@ test("the warning light is lighter than the danger light, so the two differ with
     );
   }
 });
+
+test("a desk top is lighter than its floor, so in a light room the robots are the dark things", () => {
+  for (const palette of [scenePalette(theme({})), scenePalette(theme(DARK))]) {
+    expect(relativeLuminance(palette.desk)).toBeGreaterThan(relativeLuminance(palette.roomFloor));
+  }
+  expect(scenePalette(theme({})).desk).toBe("#f8f8f8");
+  expect(scenePalette(theme(DARK)).desk).toBe("#37373a");
+});
+
+test("glass is thin: the room behind a wall shows through it", () => {
+  for (const palette of [scenePalette(theme({})), scenePalette(theme(DARK))]) {
+    expect(palette.wallOpacity).toBe(0.2);
+  }
+});
