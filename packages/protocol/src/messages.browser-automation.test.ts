@@ -245,6 +245,12 @@ describe("browser.cdp messages", () => {
         subscriptionId: "s1",
         input: { kind: "text", text: "hello" },
       },
+      {
+        type: "browser.cdp.view.input.request",
+        subscriptionId: "s1",
+        input: { kind: "resize" },
+        viewport: { width: 390, height: 700, deviceScaleFactor: 2 },
+      },
     ];
     for (const message of messages) {
       expect(SessionInboundMessageSchema.parse(message)).toEqual(message);

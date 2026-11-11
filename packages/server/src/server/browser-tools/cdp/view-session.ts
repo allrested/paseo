@@ -309,13 +309,14 @@ export class CdpViewSession {
       .then(async () => {
         try {
           if (msg.viewport) {
-            // The last interacting client sets the size; a press it aimed at the old size is stale.
+            // The last client to interact or resize its pane sets the size; a press it aimed at the
+            // old size is stale.
             const resized = service.viewportDiffers(view.browserId, msg.viewport);
             const size = await service.setViewport(view.browserId, msg.viewport, view.viewerId);
             // A frame of the new size may already have been sent while the resize settled.
             if (resized && !sameSize(view.frameSize, size)) this.awaitFrame(view, size);
           }
-          if (isStale(view, msg.input)) return undefined;
+          if (msg.input.kind === "resize" || isStale(view, msg.input)) return undefined;
           const tab = await service.attachedTab(view.browserId);
           if (!tab) return undefined;
           await dispatchViewInput(
