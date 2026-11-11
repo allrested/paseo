@@ -96,11 +96,17 @@ export function resolveTerminalVirtualKeyboardRows(input: {
     : TERMINAL_VIRTUAL_KEYBOARD_ROWS;
 }
 
+// A tablet browser is web and wide, yet its only keyboard may be the on-screen
+// one, which has no arrows, Esc, Tab or Ctrl. A touch screen next to a mouse
+// or trackpad (hybrid laptops) keeps the desktop behaviour.
 export function shouldShowTerminalVirtualKeyBar(input: {
   isNative: boolean;
   isCompact: boolean;
+  finePointer: boolean;
+  touchScreen: boolean;
 }): boolean {
-  return input.isNative || input.isCompact;
+  const isTouchOnly = input.touchScreen && !input.finePointer;
+  return input.isNative || input.isCompact || isTouchOnly;
 }
 
 export function getTerminalVirtualKeyboardControlId(
