@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
@@ -26,6 +26,49 @@ import { useOffice, type OfficeState } from "./use-office.js";
 
 export type OfficeSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
 
+type Platform = OfficeSurfaceProps["layout"]["platform"];
+
+/** What a browser says about its pointers. */
+export interface PointerFacts {
+  /** Any pointer of the device is coarse: `(any-pointer: coarse)`. */
+  anyCoarse: boolean;
+  touchPoints: number;
+}
+
+/**
+ * The app's hasTouchScreen (packages/app/src/hooks/pointer-capabilities.ts), which a plugin cannot
+ * import: native is always a touch screen, a browser answers for itself, and where there is no
+ * browser to ask the answer is no.
+ */
+export function hasTouchScreen(platform: Platform, pointer: PointerFacts | null): boolean {
+  if (platform !== "web") return true;
+  return pointer !== null && (pointer.anyCoarse || pointer.touchPoints > 0);
+}
+
+// Web only: the surface asks when layout.platform is "web", and nothing asks at module top level.
+function readPointer(): PointerFacts | null {
+  if (typeof window === "undefined") return null;
+  return {
+    anyCoarse:
+      typeof window.matchMedia === "function" && window.matchMedia("(any-pointer: coarse)").matches,
+    touchPoints: window.navigator.maxTouchPoints,
+  };
+}
+
+// A word with a sentence's capital ("Unexpected", "Failed"), not a name such as WebGL or Paseo.
+const SENTENCE_START = /^(?!Paseo\b)[A-Z][a-z]+(?=\s|$)/;
+
+/**
+ * A failure and its reason as one sentence. The reason comes from outside (three.js, the
+ * browser, the host), so it may start with a capital and end with a full stop.
+ */
+export function problemText(failure: string, reason: string): string {
+  const text = reason.trim().replace(/[.\s]+$/, "");
+  if (text === "") return failure;
+  const first = SENTENCE_START.test(text) ? text.charAt(0).toLowerCase() : text.charAt(0);
+  return `${failure}: ${first}${text.slice(1)}`;
+}
+
 /** The selection to keep: none once its agent has left the model or the data stopped being live. */
 export function keptSelection(
   selectedId: string | null,
@@ -45,6 +88,14 @@ export type ThreeDSetting =
 export function savedThreeD(setting: ThreeDSetting): boolean | null {
   if (setting.status === "loading") return null;
   return setting.status === "ready" ? setting.values.threeD : true;
+}
+
+/**
+ * Whether a save that came back settles the switch, so the surface can stop holding the choice
+ * itself: only when the device stored it and no later tap asked for the other side.
+ */
+export function settlesSwitch(stored: boolean, turn: number, latestTurn: number): boolean {
+  return stored && turn === latestTurn;
 }
 
 /** "fallback" is the structure view under the "Try 3D again" banner. */
@@ -75,22 +126,36 @@ interface ThreeDState {
 }
 
 /** The per-device 3D switch. Off, and everywhere 3D is unavailable, three.js is never loaded. */
-function useThreeD(platform: OfficeSurfaceProps["layout"]["platform"]): ThreeDState {
+function useThreeD(platform: Platform): ThreeDState {
   const settings = useSettings(officeDeviceSettings);
   const available = useMemo(() => platform === "web" && hasWebGL2(), [platform]);
   // The view follows the switch at once. A choice the device could not store stays here, so the
   // switch still does what it says until the surface closes.
   const [unsaved, setUnsaved] = useState<boolean | null>(null);
+  // Counts the taps. Two fast taps save against the same revision, and the first save coming
+  // back must not undo the second tap. Closing the surface counts as one more turn, so a save
+  // that comes back afterwards sets nothing.
+  const turn = useRef(0);
+  useEffect(
+    () => () => {
+      turn.current += 1;
+    },
+    [],
+  );
   const revision =
     settings.status === "ready" || settings.status === "invalid" ? settings.revision : null;
   const { save } = settings;
   const toggle = useCallback(
     (next: boolean) => {
-      async function store(): Promise<void> {
-        setUnsaved(next);
-        if (revision !== null && (await save({ threeD: next }, revision))) setUnsaved(null);
+      turn.current += 1;
+      const mine = turn.current;
+      setUnsaved(next);
+      if (revision === null) return;
+      async function store(against: string): Promise<void> {
+        const stored = await save({ threeD: next }, against);
+        if (settlesSwitch(stored, mine, turn.current)) setUnsaved(null);
       }
-      void store();
+      void store(revision);
     },
     [save, revision],
   );
@@ -105,10 +170,14 @@ interface ThreeDSwitchProps {
 }
 
 /**
- * Drawn here because a plugin cannot import the app's switch
- * (packages/app/src/components/ui/switch.tsx): the same role, state and sizes. react-native's
- * Switch is 40 x 20 on web whatever the pointer, and its thumb is a fixed teal while on. The
- * label is inside the target, so the row is 44 px tall on a touch screen and says what it turns.
+ * Drawn here, with the role, state and sizes of the app's switch
+ * (packages/app/src/components/ui/switch.tsx). A plugin can render that switch through
+ * SettingsSwitch (@getpaseo/plugin/client/ui), and it follows the theme with a 44 x 44 target,
+ * but only as a settings row: 16 px of padding on every side, the label outside the target and,
+ * on a phone, stacked over the switch. In this header at 390 px wide that row measured 104 px
+ * tall. Here the label is inside the target, so the row is 44 px tall on a touch screen, says
+ * what it turns, and has room for more controls beside it. react-native's Switch is 40 x 20 on
+ * web whatever the pointer, and its thumb is a fixed teal while on.
  */
 function ThreeDSwitch({ value, onChange, styles }: ThreeDSwitchProps) {
   const on = value ?? true;
@@ -137,12 +206,29 @@ interface SceneProblemProps {
   styles: OfficeStyles;
 }
 
+interface ProblemBannerProps {
+  text: string;
+  styles: OfficeStyles;
+  children?: ReactNode;
+}
+
+/** A failure in the app's bordered banner, with room for a way out under the sentence. */
+function ProblemBanner({ text, styles, children }: ProblemBannerProps) {
+  return (
+    <View style={styles.bannerSlot}>
+      <View style={styles.banner}>
+        <Text accessibilityRole="alert" style={styles.bannerText}>
+          {text}
+        </Text>
+        {children}
+      </View>
+    </View>
+  );
+}
+
 function SceneProblem({ message, onRetry, styles }: SceneProblemProps) {
   return (
-    <View style={styles.banner}>
-      <Text accessibilityRole="alert" style={styles.bannerText}>
-        Unable to show the 3D view: {message}
-      </Text>
+    <ProblemBanner text={problemText("Unable to show the 3D view", message)} styles={styles}>
       <View style={styles.actions}>
         <ActionButton
           label="Try 3D again"
@@ -151,7 +237,7 @@ function SceneProblem({ message, onRetry, styles }: SceneProblemProps) {
           styles={styles}
         />
       </View>
-    </View>
+    </ProblemBanner>
   );
 }
 
@@ -168,6 +254,7 @@ interface SurfaceBodyProps {
   styles: OfficeStyles;
   actions: AgentActions;
   onSelectAgent(agentId: string): void;
+  onOpenSession: ((agentId: string) => void) | undefined;
   onSceneProblem(message: string): void;
 }
 
@@ -182,22 +269,23 @@ function SurfaceBody({
   styles,
   actions,
   onSelectAgent,
+  onOpenSession,
   onSceneProblem,
 }: SurfaceBodyProps) {
   if (office.subscription.status === "error") {
+    const { message } = office.subscription.error;
     return (
-      <Text accessibilityRole="alert" style={styles.error}>
-        Unable to load the office: {office.subscription.error.message}
-      </Text>
+      <ProblemBanner text={problemText("Unable to load the office", message)} styles={styles} />
     );
   }
   // Closed means the plugin's handler finished, and the hook does not subscribe again: without
   // this the rows would stay on screen and never change.
   if (office.subscription.status === "closed") {
     return (
-      <Text accessibilityRole="alert" style={styles.error}>
-        Unable to show live agents: the host closed the office. Reopen it
-      </Text>
+      <ProblemBanner
+        text="Unable to show live agents: the host closed the office. Reopen it."
+        styles={styles}
+      />
     );
   }
   if (!office.loaded || waiting) return <Text style={styles.sceneStatus}>Loading...</Text>;
@@ -215,7 +303,13 @@ function SurfaceBody({
     );
   }
   return (
-    <StructureView rooms={rooms} styles={styles} actions={actions} onSelectAgent={onSelectAgent} />
+    <StructureView
+      rooms={rooms}
+      styles={styles}
+      actions={actions}
+      onSelectAgent={onSelectAgent}
+      onOpenSession={onOpenSession}
+    />
   );
 }
 
@@ -223,7 +317,13 @@ function SurfaceBody({
 export function OfficeSurface(props: OfficeSurfaceProps) {
   const { theme, layout, navigation } = props;
   const focusRoomId = "workspaceId" in props ? props.workspaceId : null;
-  const styles = useOfficeStyles(theme, layout.compact);
+  // Asked once for the surface's life, like the app: a mouse plugged into a tablet does not
+  // shrink its controls.
+  const touchScreen = useMemo(
+    () => hasTouchScreen(layout.platform, layout.platform === "web" ? readPointer() : null),
+    [layout.platform],
+  );
+  const styles = useOfficeStyles(theme, layout.compact, touchScreen);
   const office = useOffice();
   const actions = useAgentActions();
   const threeD = useThreeD(layout.platform);
@@ -240,6 +340,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
   const [focusRequest] = useState<FocusRequest | null>(null);
   const closeCard = useCallback(() => setSelectedId(null), []);
+  const openSession = useCallback(
+    (agentId: string) => navigation?.openAgent({ agentId }),
+    [navigation],
+  );
   const retryScene = useCallback(() => setSceneProblem(null), []);
   // Turning the switch asks for 3D anew, so an old failure does not stand in its way.
   const { toggle } = threeD;
@@ -289,6 +393,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         styles={styles}
         actions={actions}
         onSelectAgent={setSelectedId}
+        onOpenSession={navigation ? openSession : undefined}
         onSceneProblem={setSceneProblem}
       />
       <AgentCard
