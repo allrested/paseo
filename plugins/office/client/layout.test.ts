@@ -326,3 +326,52 @@ test("a view too narrow for another column of legible robots does not get one", 
   expect(columnsFor({ width: 600, height: 300 })).toBe(1);
   expect(columnsFor({ width: 0, height: 0 })).toBe(1);
 });
+
+/** What a reader of the layout sees of each room: its place, its rows and its seats. */
+function places(result: ReturnType<typeof run>) {
+  return result.layout.rooms.map((room) => ({
+    roomId: room.roomId,
+    cell: room.cell,
+    rows: room.rows,
+    center: room.center,
+    seats: room.seats.map((seat) => [seat.agentId, seat.index]),
+  }));
+}
+
+test("a snapshot that holds only the lobby for a moment leaves every room its place, rows and seats", () => {
+  const ids = ["w1", "w2", "w3"];
+  const agents = [...crew("w1", 5), ...crew("w2", 2), ...crew("w3", 1)];
+  const full = run(snapshot(ids, agents), EMPTY_LAYOUT_MEMORY, 2);
+  // A reconnect: the agents arrived before their workspaces, so every agent stands in the lobby.
+  const lobbyOnly = run(snapshot([], agents), full.memory, 2);
+  const empty = run(snapshot([], []), lobbyOnly.memory, 2);
+  const again = run(snapshot(ids, agents), empty.memory, 2);
+  expect(places(again)).toEqual(places(full));
+});
+
+test("a room that drops out of one snapshot comes back to its place", () => {
+  const ids = ["w1", "w2", "w3", "w4"];
+  const first = run(snapshot(ids, crew("w2", 5)), EMPTY_LAYOUT_MEMORY, 2);
+  const without = run(snapshot(["w1", "w3", "w4"], []), first.memory, 2);
+  const back = run(snapshot(ids, crew("w2", 5)), without.memory, 2);
+  expect(places(back)).toEqual(places(first));
+});
+
+test("an office that only ever had the lobby remembers its seats", () => {
+  const before = run(snapshot([], crew("lobby", 3)));
+  const after = run(snapshot([], crew("lobby", 3).slice(1)), before.memory);
+  expect(after.layout.seatOf.get("lobby-2")?.index).toBe(4);
+});
+
+test("a room that comes back takes its own place, not that of the room that moved up", () => {
+  const first = run(snapshot(["w1", "w2", "w3"], []), EMPTY_LAYOUT_MEMORY, 1);
+  const without = run(snapshot(["w1", "w3"], []), first.memory, 1);
+  expect(cells(without)).toEqual([
+    ["lobby", 0, 0],
+    ["w1", 0, 1],
+    ["w3", 0, 2],
+  ]);
+  // The workspaces come back listed in another order: the places stand.
+  const back = run(snapshot(["w3", "w2", "w1"], []), without.memory, 1);
+  expect(cells(back).sort()).toEqual(cells(first).sort());
+});

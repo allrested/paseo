@@ -39,6 +39,11 @@ export interface SceneViewProps {
   /** The workspace tab's room; the camera starts on it. */
   focusRoomId: string | null;
   focusRequest: FocusRequest | null;
+  /**
+   * The layout and its memory, kept by the surface: the rooms keep their places when this view
+   * goes and comes back (3D off and on, "Try 3D again", a subscription error).
+   */
+  layoutKeeper: SceneLayoutKeeper;
   onSelectAgent(agentId: string): void;
   /** three.js could not load, the scene could not start, or the WebGL context was lost. */
   onProblem(message: string): void;
@@ -86,6 +91,11 @@ export const NO_LAYOUT: SceneLayout = {
   memory: EMPTY_LAYOUT_MEMORY,
 };
 
+/** Where the surface keeps the scene's layout between two lives of the view (a React ref). */
+export interface SceneLayoutKeeper {
+  current: SceneLayout;
+}
+
 /**
  * Lays the office out again only for a new model or a new grid. An office with no rooms is not
  * laid out and the memory stays as it was, so the rooms return to their cells and seats.
@@ -127,6 +137,7 @@ export function SceneView({
   styles,
   focusRoomId,
   focusRequest,
+  layoutKeeper,
   onSelectAgent,
   onProblem,
 }: SceneViewProps) {
@@ -134,7 +145,6 @@ export function SceneView({
   const loadState = useSyncExternalStore(subscribe, read, read);
   const fetchAsset = useRpc(assetRpc);
   const sceneRef = useRef<OfficeScene | null>(null);
-  const layoutRef = useRef<SceneLayout>(NO_LAYOUT);
   const handlers = useRef({ onSelectAgent, onProblem });
   const [shape, setShape] = useState<ContainerShape>(UNMEASURED);
   const palette = useMemo(() => scenePalette(theme), [theme]);
@@ -213,11 +223,11 @@ export function SceneView({
   useEffect(() => {
     const scene = sceneRef.current;
     if (scene === null) return;
-    const next = nextLayout(layoutRef.current, model, columns);
-    layoutRef.current = next;
+    const next = nextLayout(layoutKeeper.current, model, columns);
+    layoutKeeper.current = next;
     const plan = next.layout === null ? NO_ROOMS : buildScenePlan(model, next.layout, palette);
     scene.update(plan, palette);
-  }, [model, columns, palette, three, sized]);
+  }, [model, columns, palette, three, sized, layoutKeeper]);
 
   // A request that was already there when this view appeared was made for the structure view.
   const handledNonce = useRef(focusRequest?.nonce ?? 0);
