@@ -113,6 +113,32 @@ export function focusOn(view: CameraView, point: Point): CameraView {
   return { x: point.x, z: point.z, zoom: Math.max(view.zoom, FOCUS_ZOOM) };
 }
 
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+/** CSS pixels that one world unit covers across the screen. */
+export function pixelsPerUnit(view: CameraView, viewport: Viewport): number {
+  return (Math.max(1, viewport.height) * view.zoom) / VIEW_HEIGHT;
+}
+
+/** Where a world point is drawn, in CSS pixels from the viewport's top left corner. */
+export function screenPoint(
+  view: CameraView,
+  viewport: Viewport,
+  point: { x: number; y: number; z: number },
+): ScreenPoint {
+  const perUnit = pixelsPerUnit(view, viewport);
+  // The camera's up axis: height lifts a point on screen, distance from the camera lowers it.
+  const reach = Math.hypot(CAMERA_HEIGHT, CAMERA_BACK);
+  const up = (point.y * CAMERA_BACK - (point.z - view.z) * CAMERA_HEIGHT) / reach;
+  return {
+    x: viewport.width / 2 + (point.x - view.x) * perUnit,
+    y: viewport.height / 2 - up * perUnit,
+  };
+}
+
 export function easeView(from: CameraView, to: CameraView, progress: number): CameraView {
   const t = clamp(progress, 0, 1);
   const eased = t * t * (3 - 2 * t);
