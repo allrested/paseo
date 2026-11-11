@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { CdpBrowserViewInput } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import type { CdpInputLayerProps } from "./input-layer-types";
 import { createClickCounter, createPressTracker } from "./press-tracker";
-import { softKeyboardStep, type SoftKeyboardEvent } from "./soft-keyboard";
+import { createSoftKeyboard, type SoftKeyboardEvent } from "./soft-keyboard";
 import { createInputCoalescer, createTouchGesture } from "./touch-gesture";
 import {
   createThrottle,
@@ -26,17 +26,33 @@ function isPasteChord(event: KeyboardEvent): boolean {
   return (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
 }
 
+interface SoftKeyboardWiring {
+  field: HTMLTextAreaElement;
+  /** The layer over the frame. */
+  frame: HTMLElement;
+  send(input: CdpBrowserViewInput): void;
+  isOn(): boolean;
+  /** The field lost focus to something other than the frame. */
+  turnOff(): void;
+}
+
 /**
  * Wires the hidden field that raises a touch browser's on-screen keyboard. Its events reach it
  * only while it has focus, and it is a sibling of the layer, so the layer's key and paste
  * listeners never see the same keystroke. The field is emptied after every committed piece.
+ * While the keyboard is on, focus that lands on the frame goes straight back to the field, inside
+ * the same tap, so the keyboard stays up.
  */
-function attachSoftKeyboardField(
-  field: HTMLTextAreaElement,
-  send: (input: CdpBrowserViewInput) => void,
-): () => void {
+function attachSoftKeyboardField({
+  field,
+  frame,
+  send,
+  isOn,
+  turnOff,
+}: SoftKeyboardWiring): () => void {
+  const keyboard = createSoftKeyboard();
   const apply = (event: Event, mapped: SoftKeyboardEvent) => {
-    const step = softKeyboardStep(mapped);
+    const step = keyboard.step(mapped);
     if (step.cancel) event.preventDefault();
     for (const input of step.inputs) send(input);
   };
@@ -56,6 +72,10 @@ function attachSoftKeyboardField(
   const onInputEvent = (event: Event) => {
     if (!(event as InputEvent).isComposing) clear();
   };
+  const onCompositionStart = (event: CompositionEvent) =>
+    apply(event, { type: "compositionstart" });
+  const onCompositionUpdate = (event: CompositionEvent) =>
+    apply(event, { type: "compositionupdate", data: event.data });
   const onCompositionEnd = (event: CompositionEvent) => {
     apply(event, { type: "compositionend", data: event.data });
     clear();
@@ -63,18 +83,34 @@ function attachSoftKeyboardField(
   // The text comes from the paste the user made; the clipboard is never read otherwise.
   const onPaste = (event: ClipboardEvent) =>
     apply(event, { type: "paste", text: event.clipboardData?.getData("text/plain") ?? "" });
+  // The URL field, another control or the keyboard's own hide key take focus: the keyboard is off.
+  const onFieldBlur = (event: FocusEvent) => {
+    if (event.relatedTarget !== frame && isOn()) turnOff();
+  };
+  // A browser that still moved focus to the frame on a tap gets it moved back before the tap ends.
+  const onFrameFocus = () => {
+    if (isOn()) field.focus({ preventScroll: true });
+  };
 
   field.addEventListener("keydown", onKeyDown);
   field.addEventListener("beforeinput", onBeforeInput);
   field.addEventListener("input", onInputEvent);
+  field.addEventListener("compositionstart", onCompositionStart);
+  field.addEventListener("compositionupdate", onCompositionUpdate);
   field.addEventListener("compositionend", onCompositionEnd);
   field.addEventListener("paste", onPaste);
+  field.addEventListener("blur", onFieldBlur);
+  frame.addEventListener("focus", onFrameFocus);
   return () => {
     field.removeEventListener("keydown", onKeyDown);
     field.removeEventListener("beforeinput", onBeforeInput);
     field.removeEventListener("input", onInputEvent);
+    field.removeEventListener("compositionstart", onCompositionStart);
+    field.removeEventListener("compositionupdate", onCompositionUpdate);
     field.removeEventListener("compositionend", onCompositionEnd);
     field.removeEventListener("paste", onPaste);
+    field.removeEventListener("blur", onFieldBlur);
+    frame.removeEventListener("focus", onFrameFocus);
   };
 }
 
@@ -84,10 +120,11 @@ function attachSoftKeyboardField(
  * to the URL field. Paste goes through the browser paste event, so the clipboard text is sent
  * only when the user pastes; it is never read at any other time.
  *
- * On a touch screen the toolbar's keyboard button focuses a hidden field next to the layer, which
- * raises the on-screen keyboard. The keyboard stays up until the field loses focus: a tap on the
- * frame (which focuses the layer and clicks), the URL field, any other app control, or the
- * keyboard's own dismiss key. Pressing the button again raises it again.
+ * On a touch screen the toolbar's keyboard button turns on the on-screen keyboard by focusing a
+ * hidden field next to the layer. While it is on, taps and drags on the frame go to the page and
+ * the field keeps focus, so the keyboard stays up. It goes off when the button is pressed again,
+ * or when the field loses focus to anything but the frame: the URL field, another control, or the
+ * keyboard's own hide key.
  */
 export function CdpInputLayer({
   rect,
@@ -95,26 +132,38 @@ export function CdpInputLayer({
   onInput,
   onFocusUrl,
   onFocusPane,
-  keyboardRequest,
+  keyboardRef,
+  onKeyboardChange,
 }: CdpInputLayerProps) {
   const { t } = useTranslation();
   const element = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+  const keyboardOn = useRef(false);
   // Handlers read the latest props without re-attaching DOM listeners on every frame.
-  const latest = useRef({ rect, page, onInput, onFocusUrl, onFocusPane });
-  latest.current = { rect, page, onInput, onFocusUrl, onFocusPane };
+  const latest = useRef({ rect, page, onInput, onFocusUrl, onFocusPane, onKeyboardChange });
+  latest.current = { rect, page, onInput, onFocusUrl, onFocusPane, onKeyboardChange };
 
-  // A layer mounted after a request (the frame came back) does not raise the keyboard by itself.
-  const handledRequest = useRef(keyboardRequest);
-  // A layout effect runs inside the button's event, which iOS Safari needs to show the keyboard.
-  useLayoutEffect(() => {
-    const target = field.current;
-    if (keyboardRequest === handledRequest.current || !target) return;
-    handledRequest.current = keyboardRequest;
-    // Android keeps a field focused after its keyboard is dismissed; focus() alone does not raise it again.
-    if (document.activeElement === target) target.blur();
-    target.focus({ preventScroll: true });
-  }, [keyboardRequest]);
+  useImperativeHandle(
+    keyboardRef,
+    () => ({
+      show() {
+        const target = field.current;
+        if (!target) return;
+        // Android keeps a field focused after its keyboard is hidden; focus() alone does not raise it.
+        if (document.activeElement === target) target.blur();
+        target.focus({ preventScroll: true });
+        keyboardOn.current = true;
+        latest.current.onKeyboardChange(true);
+      },
+      hide() {
+        keyboardOn.current = false;
+        field.current?.blur();
+        latest.current.onKeyboardChange(false);
+      },
+      isOn: () => keyboardOn.current,
+    }),
+    [],
+  );
 
   useEffect(() => {
     const node = element.current;
@@ -156,7 +205,9 @@ export function CdpInputLayer({
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      node.focus({ preventScroll: true });
+      // With the keyboard on, cancelling the press keeps focus (and the keyboard) on the field.
+      if (keyboardOn.current) event.preventDefault();
+      else node.focus({ preventScroll: true });
       latest.current.onFocusPane?.();
       if (event.pointerType === "touch") {
         if (touchId !== null) return;
@@ -280,9 +331,20 @@ export function CdpInputLayer({
     node.addEventListener("blur", releaseAll);
     window.addEventListener("blur", releaseAll);
     node.addEventListener("contextmenu", onContextMenu);
-    const detachSoftKeyboard = attachSoftKeyboardField(softKeyboard, send);
+    const turnOff = () => {
+      keyboardOn.current = false;
+      latest.current.onKeyboardChange(false);
+    };
+    const detachSoftKeyboard = attachSoftKeyboardField({
+      field: softKeyboard,
+      frame: node,
+      send,
+      isOn: () => keyboardOn.current,
+      turnOff,
+    });
     return () => {
       detachSoftKeyboard();
+      if (keyboardOn.current) turnOff();
       releaseAll();
       coalescer.dispose();
       window.removeEventListener("blur", releaseAll);
