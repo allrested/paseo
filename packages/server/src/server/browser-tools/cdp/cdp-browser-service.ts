@@ -82,7 +82,7 @@ export interface CdpBrowserServiceOptions {
   endpoint: CdpEndpoint;
   registry: CdpTabRegistry;
   broker: BrowserToolsBroker;
-  logger: Pick<Logger, "debug" | "warn" | "error">;
+  logger: Pick<Logger, "debug" | "info" | "warn" | "error">;
   now?: () => number;
   createBrowserId?: () => string;
   reconnect?: { minMs: number; maxMs: number };
@@ -116,7 +116,7 @@ export class CdpBrowserService {
   private readonly endpoint: CdpEndpoint;
   private readonly registry: CdpTabRegistry;
   private readonly broker: BrowserToolsBroker;
-  private readonly logger: Pick<Logger, "debug" | "warn" | "error">;
+  private readonly logger: Pick<Logger, "debug" | "info" | "warn" | "error">;
   private readonly now: () => number;
   private readonly createBrowserId: () => string;
   private readonly minBackoffMs: number;
@@ -127,6 +127,8 @@ export class CdpBrowserService {
   private stopped = true;
   private loaded = false;
   private connecting = false;
+  /** Set once an unreachable Chromium was logged at warn, so retries do not repeat it. */
+  private reportedUnreachable = false;
   private backoffMs: number;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private nextTabId = 1;
@@ -353,8 +355,16 @@ export class CdpBrowserService {
       for (const entry of this.registry.list())
         this.broker.claimBrowser(CDP_HOST_ID, entry.browserId);
       this.emit({ kind: "host", connected: true });
+      if (this.reportedUnreachable) this.logger.info("Docker browser CDP is reachable again");
+      this.reportedUnreachable = false;
     } catch (error) {
-      this.logger.debug({ err: error }, "Docker browser CDP is unreachable");
+      // Warn once per outage; the retries log at debug.
+      if (this.reportedUnreachable) {
+        this.logger.debug({ err: error }, "Docker browser CDP is unreachable");
+      } else {
+        this.logger.warn({ err: error }, "Docker browser CDP is unreachable");
+        this.reportedUnreachable = true;
+      }
       this.scheduleReconnect();
     } finally {
       this.connecting = false;

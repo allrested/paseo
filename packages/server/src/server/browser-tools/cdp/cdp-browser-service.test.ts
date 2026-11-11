@@ -17,7 +17,7 @@ import { CdpEndpoint, CdpUnreachableError } from "./cdp-endpoint.js";
 import { CdpTabRegistry } from "./tab-registry.js";
 import { startFakeChromium, type FakeChromium } from "./test-utils/fake-chromium.js";
 
-const logger = { debug: () => {}, warn: () => {}, error: () => {} };
+const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
 async function until(condition: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 3000;
@@ -37,7 +37,7 @@ describe("CdpBrowserService", () => {
   let reachable: boolean;
   let now: number;
 
-  const build = () => {
+  const build = (log = logger) => {
     service = new CdpBrowserService({
       endpoint: new CdpEndpoint({
         url: `http://chromium-host:${chromium.port}`,
@@ -51,7 +51,7 @@ describe("CdpBrowserService", () => {
       }),
       registry: new CdpTabRegistry(file),
       broker,
-      logger,
+      logger: log,
       now: () => now,
       reconnect: { minMs: 20, maxMs: 40 },
     });
@@ -308,6 +308,23 @@ describe("CdpBrowserService", () => {
       workspaceId: "ws-a",
       lastUrl: "https://example.com/old",
     });
+  });
+
+  test("an unreachable Chromium is logged once at warn, and its return at info", async () => {
+    const lines: string[] = [];
+    const record = (level: string) => (context: unknown, message?: string) =>
+      void lines.push(`${level} ${message ?? String(context)}`);
+    build({ debug: () => {}, info: record("info"), warn: record("warn"), error: record("error") });
+    reachable = false;
+    service.start();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(lines).toEqual(["warn Docker browser CDP is unreachable"]);
+    reachable = true;
+    await until(() => service.connected, "the reconnect");
+    expect(lines).toEqual([
+      "warn Docker browser CDP is unreachable",
+      "info Docker browser CDP is reachable again",
+    ]);
   });
 
   test("a disconnect unregisters the host and reports it", async () => {

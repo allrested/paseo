@@ -13,7 +13,7 @@ import { CdpTabRegistry } from "./tab-registry.js";
 
 const CDP_URL = process.env.PASEO_TEST_CDP_URL;
 const WORKSPACE = "e2e-workspace";
-const logger = { debug: () => {}, warn: console.warn, error: console.error };
+const logger = { debug: () => {}, info: () => {}, warn: console.warn, error: console.error };
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 10_000;
