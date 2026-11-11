@@ -61,10 +61,25 @@ test("the office is framed once even when the camera was moved before the first 
   expect(settle(first.state, true, shownAll)).toEqual({ state: MOVED, goal: null });
 });
 
-test("an agent asked for before the first framing is kept and shown at the first framing", () => {
+test("an agent asked for before the first framing is dropped, and the whole office is shown first", () => {
   const asked = requestFocus(INITIAL_FOCUS, AGENT, true);
-  expect(asked).toEqual({ state: { ...INITIAL_FOCUS, pending: AGENT }, goal: null });
-  expect(settle(asked.state, true, shownAll)).toEqual({ state: MOVED, goal: AGENT });
+  expect(asked).toEqual({ state: INITIAL_FOCUS, goal: null });
+  expect(settle(asked.state, true, shownAll)).toEqual({
+    state: { ...INITIAL_FOCUS, framed: true },
+    goal: "office",
+  });
+});
+
+test("an agent with no robot in the plan is dropped and does not pull the camera later", () => {
+  const asked = requestFocus(MOVED, AGENT, false);
+  expect(asked).toEqual({ state: MOVED, goal: null });
+  // The agent gets a desk after an unrelated update: the camera stays where the user left it.
+  expect(settle(asked.state, true, shownAll)).toEqual({ state: MOVED, goal: null });
+});
+
+test("an agent that cannot be shown leaves an older pending room waiting", () => {
+  const waiting: FocusState = { ...MOVED, pending: ROOM };
+  expect(requestFocus(waiting, AGENT, false)).toEqual({ state: waiting, goal: null });
 });
 
 test("a room asked for before the first framing is shown at the first framing", () => {
