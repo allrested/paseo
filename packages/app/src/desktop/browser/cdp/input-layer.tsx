@@ -74,7 +74,9 @@ export function CdpInputLayer({
       // A multiline field puts "\n" in the text; Enter goes only through onKeyPress.
       const typed = value.replaceAll("\n", "");
       if (typed) coalescer.push({ kind: "text", text: typed });
-      input.current?.reset();
+      // reset() would remount the native input on every key; replacing the text keeps it mounted.
+      // Clearing may report "" back on Android, which sends nothing and clears nothing again.
+      if (value) input.current?.replaceText("");
     },
     [coalescer],
   );
