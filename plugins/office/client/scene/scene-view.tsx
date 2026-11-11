@@ -48,7 +48,7 @@ export interface SceneViewProps {
 export interface ContainerShape {
   /** False until the container first had a size. No scene is created before that. */
   sized: boolean;
-  /** Rooms to a row for the container's shape; undefined is the spiral (`columnsFor`). */
+  /** Columns of rooms for the container's shape (`columnsFor`); undefined until it has a size. */
   columns: number | undefined;
 }
 
@@ -56,9 +56,9 @@ export const UNMEASURED: ContainerShape = { sized: false, columns: undefined };
 
 /**
  * The shape after the container measured `width` x `height`. A hidden workspace tab is
- * `display: none` and measures 0 x 0, which `columnsFor` reads as a wide view: it keeps the last
+ * `display: none` and measures 0 x 0, which is no view to count columns for: it keeps the last
  * shape instead, so showing the tab again does not move the rooms or the camera. A size that
- * gives the grid already in use returns `previous` itself, so nothing is laid out again.
+ * gives the columns already in use returns `previous` itself, so nothing is laid out again.
  */
 export function shapeAfterResize(
   previous: ContainerShape,
@@ -105,6 +105,7 @@ const NO_ROOMS: ScenePlan = {
   rooms: [],
   robots: [],
   bounds: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
+  columns: 0,
 };
 const CONTEXT_LOST = "the graphics context was lost";
 

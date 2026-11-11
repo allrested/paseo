@@ -181,12 +181,24 @@ test("the scene animates smoothly while someone walks, slowly while someone type
   expect(animationNeed([walker, typist], entered, 0, true)).toBe("none");
 });
 
-test("every room has its 12 main desks, plus a side desk per seated child", () => {
+test("every room has a desk at each main seat of its rows, plus a side desk per seated child", () => {
   const scene = plan([agent("a", { status: "running" }), agent("c", { parentAgentId: "a" })]);
   const desks = deskPlans(scene);
-  expect(desks).toHaveLength(2 * 12 + 1);
+  // The lobby and the room have one row of four desks each.
+  expect(desks).toHaveLength(2 * 4 + 1);
   const parent = scene.robots.find((item) => item.agentId === "a");
   expect(desks.filter((desk) => desk.screenLit)).toEqual([
     { x: parent?.seat.x, z: (parent?.seat.z ?? 0) + DESK_OFFSET_Z, screenLit: true },
   ]);
+});
+
+test("a room that needs a second row gets its desks, and the plan says how deep each room is", () => {
+  const five = ["a", "b", "c", "d", "e"].map((id) => agent(id));
+  const scene = plan(five);
+  expect(scene.rooms.map((room) => [room.roomId, room.rows, room.depth])).toEqual([
+    ["lobby", 1, 6],
+    ["w1", 2, 8.5],
+  ]);
+  expect(deskPlans(scene)).toHaveLength(4 + 8);
+  expect(scene.columns).toBe(2);
 });
