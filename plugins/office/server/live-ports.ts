@@ -11,7 +11,7 @@ export function liveHubPorts(
   log: (message: string) => void,
 ): HubPorts {
   return {
-    openDirectory: (onChange) => openPaseoDirectory(holder.require(), onChange, log),
+    openDirectory: (onChange, onEnd) => openPaseoDirectory(holder.require(), onChange, log, onEnd),
     startActivity: (running, onChange) => {
       const paseo = holder.require();
       const poller = startActivityPoller({
