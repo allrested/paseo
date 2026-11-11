@@ -20,6 +20,14 @@ import { startFakeChromium, type FakeChromium } from "./test-utils/fake-chromium
 
 const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
+/** A JPEG start and frame header of this pixel size; enough for the daemon to read the size. */
+function jpegOfSize(width: number, height: number): string {
+  const header = [0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 0xff];
+  return Buffer.from([...header, width >> 8, width & 0xff, 0x03, ...Array(9).fill(0)]).toString(
+    "base64",
+  );
+}
+
 async function until(condition: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 3000;
   while (!condition()) {
@@ -38,7 +46,7 @@ describe("CdpBrowserService", () => {
   let reachable: boolean;
   let now: number;
 
-  const build = (log = logger) => {
+  const build = (log = logger, frameWaitMs?: number) => {
     service = new CdpBrowserService({
       endpoint: new CdpEndpoint({
         url: `http://chromium-host:${chromium.port}`,
@@ -55,6 +63,7 @@ describe("CdpBrowserService", () => {
       logger: log,
       now: () => now,
       reconnect: { minMs: 20, maxMs: 40 },
+      frameWaitMs,
     });
     service.subscribe((event) => events.push(event));
   };
@@ -423,7 +432,7 @@ describe("CdpBrowserService", () => {
       const targetId = [...chromium.targets.keys()][0];
       let delivered = 0;
       let lastSize: [number, number] | null = null;
-      await service.screencast.watch(tab.browserId, {
+      const unwatch = await service.screencast.watch(tab.browserId, {
         id: "v",
         deliver: async (sent) => {
           delivered += 1;
@@ -446,7 +455,14 @@ describe("CdpBrowserService", () => {
         // A re-apply would go out right after the frame; give it the time to.
         await new Promise((resolve) => setTimeout(resolve, 30));
       };
-      return { tab, overrides, frame, setCount: overrides().length, viewerSize: () => lastSize };
+      return {
+        tab,
+        overrides,
+        frame,
+        setCount: overrides().length,
+        viewerSize: () => lastSize,
+        unwatch,
+      };
     };
     const SET = { width: 800, height: 600, deviceScaleFactor: 1, mobile: false };
 
@@ -604,6 +620,157 @@ describe("CdpBrowserService", () => {
         { width: 844, height: 245, deviceScaleFactor: 1, mobile: false },
         { width: 844, height: 245, deviceScaleFactor: 1, mobile: false },
       ]);
+    });
+
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const captures = () =>
+      chromium.commands.filter((command) => command.method === "Page.captureScreenshot").length;
+    /** The page follows each override, and a capture shows it at the size it has. */
+    const trackedPage = () => {
+      const page = { width: 0, height: 0 };
+      chromium.handle("Emulation.setDeviceMetricsOverride", (params) => {
+        page.width = Number(params.width);
+        page.height = Number(params.height);
+        return {};
+      });
+      chromium.handle("Page.captureScreenshot", () => ({
+        data: jpegOfSize(page.width, page.height),
+      }));
+      return page;
+    };
+    const untilViewerShows = (viewerSize: () => [number, number] | null, size: string) =>
+      until(() => viewerSize()?.join("x") === size, `a frame of ${size}`);
+    const crashes = () => {
+      throw new Error("Target crashed");
+    };
+    /** An agent command that outlasts its badge, answering after this long. */
+    const slowAgentCommand = (ms: number, meanwhile?: () => void) => () => {
+      now += AGENT_ACTIVITY_MS + 1_000;
+      meanwhile?.();
+      return sleep(ms).then(answersAtOnce);
+    };
+    const agentEvaluates = (browserId: string) =>
+      broker.execute({
+        command: { command: "evaluate", args: { browserId, function: "() => 1" } },
+        workspaceId: "ws-a",
+      });
+
+    test("with no frame of the size set, captures one after the wait; the viewer gets it", async () => {
+      await service.stop();
+      build(logger, 50);
+      trackedPage();
+      const { viewerSize } = await watchedAt800();
+      await untilViewerShows(viewerSize, "800x600");
+      const taken = captures();
+      await sleep(150);
+      expect(captures()).toBe(taken);
+    });
+
+    test("a frame of the size set before the wait ends cancels the capture", async () => {
+      await service.stop();
+      build(logger, 150);
+      trackedPage();
+      const { tab, frame, viewerSize } = await watchedAt800();
+      const before = captures();
+      await frame(800, 600);
+      await sleep(250);
+      expect(captures()).toBe(before);
+      // A size with no frame of its own is still captured.
+      await service.setViewport(
+        tab.browserId,
+        { width: 390, height: 700, deviceScaleFactor: 1 },
+        "viewer-2",
+      );
+      await untilViewerShows(viewerSize, "390x700");
+      expect(captures()).toBe(before + 1);
+    });
+
+    test("stops after three captures that bring no frame, with one warn", async () => {
+      let frameWarnings = 0;
+      await service.stop();
+      build(
+        {
+          ...logger,
+          warn: (_details: unknown, message?: string) => {
+            if (String(message).includes("no frame")) frameWarnings += 1;
+          },
+        },
+        30,
+      );
+      chromium.handle("Page.captureScreenshot", crashes);
+      await watchedAt800();
+      // The viewer's priming screenshot has gone out; the captures counted start after it.
+      const before = captures();
+      const warned = () => frameWarnings > 0;
+      await until(warned, "the warning");
+      await sleep(150);
+      expect(captures() - before).toBe(3);
+      expect(frameWarnings).toBe(1);
+    });
+
+    test("nothing is captured once the last viewer left or the tab closed", async () => {
+      await service.stop();
+      build(logger, 50);
+      trackedPage();
+      const { tab, unwatch } = await watchedAt800();
+      unwatch();
+      const before = captures();
+      await sleep(150);
+      expect(captures()).toBe(before);
+      // Watched again, a new size with no frame is captured; closing the tab stops the wait.
+      const sizes: string[] = [];
+      await service.screencast.watch(tab.browserId, {
+        id: "v2",
+        deliver: async (sent) => void sizes.push(`${sent.deviceWidth}x${sent.deviceHeight}`),
+      });
+      await service.setViewport(
+        tab.browserId,
+        { width: 390, height: 700, deviceScaleFactor: 1 },
+        "viewer-2",
+      );
+      const captured = () => sizes.includes("390x700");
+      await until(captured, "a captured frame");
+      await service.setViewport(
+        tab.browserId,
+        { width: 640, height: 480, deviceScaleFactor: 1 },
+        "viewer-2",
+      );
+      await service.closeTab(tab.browserId);
+      const atClose = captures();
+      await sleep(150);
+      expect(captures()).toBe(atClose);
+    });
+
+    test("captures nothing while an agent command runs, and checks when it ends", async () => {
+      await service.stop();
+      build(logger, 60);
+      trackedPage();
+      const { tab, viewerSize } = await watchedAt800();
+      const before = captures();
+      chromium.handle("Runtime.evaluate", slowAgentCommand(250));
+      await agentEvaluates(tab.browserId);
+      expect(captures()).toBe(before);
+      await untilViewerShows(viewerSize, "800x600");
+      expect(captures()).toBe(before + 1);
+    });
+
+    test("a window size skipped during an agent command is re-applied when it ends", async () => {
+      await service.stop();
+      build(logger, 40);
+      const page = trackedPage();
+      const { tab, overrides, setCount, viewerSize } = await watchedAt800();
+      const target = [...chromium.targets.keys()][0];
+      // The window is resized while the agent works; the page paints once and then sits still.
+      const windowResized = () => {
+        page.width = 1368;
+        page.height = 934;
+        chromium.emit(target, "Page.screencastFrame", frameOfSize(1368, 934));
+      };
+      chromium.handle("Runtime.evaluate", slowAgentCommand(150, windowResized));
+      await agentEvaluates(tab.browserId);
+      expect(overrides().slice(setCount)).toEqual([]);
+      await untilViewerShows(viewerSize, "800x600");
+      expect(overrides().slice(setCount)).toEqual([SET]);
     });
 
     test("ignores a frame that reports no size", async () => {
