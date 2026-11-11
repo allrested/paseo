@@ -12,7 +12,9 @@ import {
   type Viewport,
 } from "./camera.js";
 import {
+  canvasPoint,
   labelUnder,
+  pinchView,
   robotNear,
   targetAt,
   zoomAbout,
@@ -122,6 +124,22 @@ test("after a zoom a tap picks the robot where it is drawn now", () => {
   expect(targetAt(screen, NO_PLATES, [ROBOT], before)).toBeNull();
 });
 
+test("a canvas drawn at half its size maps the pointer back to canvas pixels", () => {
+  const rect = { left: 10, top: 20, width: 195, height: 422 };
+  expect(canvasPoint({ clientX: 60, clientY: 120 }, rect, PHONE)).toEqual({ x: 100, y: 200 });
+  const chest = screenPoint(VIEW, PHONE, ROBOT.chest);
+  const client = { clientX: rect.left + chest.x / 2, clientY: rect.top + chest.y / 2 };
+  const at = canvasPoint(client, rect, PHONE);
+  expect(targetAt(SCREEN, NO_PLATES, [ROBOT], at)).toEqual({ agentId: "robot" });
+});
+
+test("a canvas at its own size, or with no size, only moves the pointer by the offset", () => {
+  const sized = { left: 10, top: 20, width: 390, height: 844 };
+  expect(canvasPoint({ clientX: 60, clientY: 120 }, sized, PHONE)).toEqual({ x: 50, y: 100 });
+  const empty = { left: 10, top: 20, width: 0, height: 0 };
+  expect(canvasPoint({ clientX: 60, clientY: 120 }, empty, PHONE)).toEqual({ x: 50, y: 100 });
+});
+
 test("zooming about a point keeps the ground under it where it is on screen", () => {
   const ground: WorldPoint = { x: 4, y: 0, z: -3 };
   const at = screenPoint(VIEW, PHONE, ground);
@@ -135,4 +153,16 @@ test("zooming about a point keeps the ground under it where it is on screen", ()
 test("a zoom already at its limit does not move the camera", () => {
   const atMax: CameraView = { x: 1, z: 2, zoom: 3 };
   expect(zoomAbout(atMax, 2, { x: 10, y: 10 }, PHONE, OPEN)).toEqual(atMax);
+});
+
+test("a pinch keeps the ground under the fingers between them as they move", () => {
+  const ground: WorldPoint = { x: -3, y: 0, z: 2 };
+  const middle = screenPoint(VIEW, PHONE, ground);
+  const before = { spread: 100, middle };
+  const after = { spread: 130, middle: offset(middle, 30, -20) };
+  const pinched = pinchView(VIEW, before, after, PHONE, OPEN);
+  expect(pinched.zoom).toBeCloseTo(1.3, 9);
+  const drawn = screenPoint(pinched, PHONE, ground);
+  expect(drawn.x).toBeCloseTo(after.middle.x, 6);
+  expect(drawn.y).toBeCloseTo(after.middle.y, 6);
 });

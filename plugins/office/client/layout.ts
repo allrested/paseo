@@ -108,6 +108,12 @@ export function rowCells(count: number, columns: number): GridCell[] {
 /**
  * The column count for a view of this size. Rooms are wider than deep on screen, so a view that
  * is taller than wide stacks them two to a row; a wide view lets them spiral around the lobby.
+ *
+ * `2` means two rooms to a row, `undefined` means the spiral; pass either to `layoutOffice` as is.
+ * A 0 x 0 size also gives `undefined`, but it is no view at all: a hidden tab (`display: none`)
+ * measures 0 x 0. A caller must not pass a 0 x 0 size to decide the grid. While its container is
+ * 0 x 0 it keeps the last grid and does not lay the office out again, or a phone's two-column
+ * office turns into a spiral, loses its remembered cells and is framed anew on every tab switch.
  */
 export function columnsFor(viewport: { width: number; height: number }): number | undefined {
   return viewport.height > viewport.width ? 2 : undefined;
