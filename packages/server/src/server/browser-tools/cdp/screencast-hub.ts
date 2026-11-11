@@ -29,13 +29,20 @@ export interface ScreencastViewer {
 export interface ScreencastHubOptions {
   source: (browserId: string) => Promise<ScreencastSource | null>;
   onError?: (error: unknown) => void;
-  /** Each screencast frame of a tab, before it is fanned out. Not called for the priming screenshot. */
+  /**
+   * Each screencast frame of a tab, and each refresh, before it is fanned out. Not called for the
+   * priming screenshot.
+   */
   onFrame?: (browserId: string, frame: ScreencastFrame) => void;
   /**
    * Corrects the page size a screencast frame reports, before the cache, viewers or onFrame see
    * it. Not called for the priming screenshot, whose size comes from the layout metrics.
    */
   frameSize?: (browserId: string, reported: FrameSize) => FrameSize;
+  /** The tab's device scale factor, which turns a screenshot's pixel size into CSS pixels. */
+  deviceScaleFactor?: (browserId: string) => number;
+  /** Nothing watches the tab any more: its last viewer left, or it was dropped. */
+  onIdle?: (browserId: string) => void;
   minFrameIntervalMs?: number;
 }
 
@@ -69,6 +76,32 @@ interface Watched {
 
 function num(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** Start-of-frame markers, which carry the picture size: 0xc0 to 0xcf except DHT, JPG and DAC. */
+function isStartOfFrame(marker: number): boolean {
+  return marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+}
+
+/** The pixel size in a JPEG's frame header, or null when the bytes are not a JPEG this can read. */
+export function jpegSize(jpeg: Uint8Array): FrameSize | null {
+  if (jpeg[0] !== 0xff || jpeg[1] !== 0xd8) return null;
+  let at = 2;
+  while (at + 9 <= jpeg.length) {
+    if (jpeg[at] !== 0xff) return null;
+    const marker = jpeg[at + 1];
+    if (marker === 0xff) {
+      at += 1;
+      continue;
+    }
+    if (isStartOfFrame(marker)) {
+      const height = (jpeg[at + 5] << 8) | jpeg[at + 6];
+      const width = (jpeg[at + 7] << 8) | jpeg[at + 8];
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    at += 2 + ((jpeg[at + 2] << 8) | jpeg[at + 3]);
+  }
+  return null;
 }
 
 /** One screencast per watched tab, shared by every viewer of that tab. */
@@ -105,6 +138,17 @@ export class ScreencastHub {
 
   viewerCount(browserId: string): number {
     return this.watched.get(browserId)?.viewers.size ?? 0;
+  }
+
+  /**
+   * Captures the tab once and sends the picture down the frame path: the cache, every viewer and
+   * onFrame, as a screencast frame goes. Resolves false when no viewer watches the tab or the
+   * capture gave no picture; rejects when the capture fails.
+   */
+  async refresh(browserId: string): Promise<boolean> {
+    const watched = this.watched.get(browserId);
+    if (!watched || watched.viewers.size === 0) return false;
+    return this.capture(watched, "refresh");
   }
 
   /** Rejects with Error("browser_tab_not_found") when the tab has no source. */
@@ -145,6 +189,15 @@ export class ScreencastHub {
     watched.off();
     if (watched.ackTimer) clearTimeout(watched.ackTimer);
     watched.viewers.clear();
+    this.idle(browserId);
+  }
+
+  private idle(browserId: string): void {
+    try {
+      this.options.onIdle?.(browserId);
+    } catch (error) {
+      this.onError(error);
+    }
   }
 
   private begin(browserId: string): Promise<Watched | null> {
@@ -263,14 +316,14 @@ export class ScreencastHub {
   private prime(watched: Watched): void {
     if (watched.priming) return;
     watched.priming = true;
-    this.capture(watched)
+    this.capture(watched, "prime")
       .catch((error: unknown) => this.onError(error))
       .finally(() => {
         watched.priming = false;
       });
   }
 
-  private async capture(watched: Watched): Promise<void> {
+  private async capture(watched: Watched, purpose: "prime" | "refresh"): Promise<boolean> {
     const [shot, metrics] = await Promise.all([
       watched.source.send<{ data?: string }>("Page.captureScreenshot", {
         format: "jpeg",
@@ -278,19 +331,44 @@ export class ScreencastHub {
       }),
       watched.source.send<{ cssVisualViewport?: Record<string, unknown> }>("Page.getLayoutMetrics"),
     ]);
-    if (watched.lastFrame || this.watched.get(watched.browserId) !== watched || !shot.data) return;
+    if (this.watched.get(watched.browserId) !== watched || !shot.data) return false;
+    // A screencast frame that came while the priming screenshot was taken is newer than it.
+    if (purpose === "prime" && watched.lastFrame) return false;
     const viewport = metrics.cssVisualViewport ?? {};
+    const jpeg = Buffer.from(shot.data, "base64");
+    const size = this.screenshotSize(watched.browserId, jpeg) ?? {
+      width: num(viewport.clientWidth),
+      height: num(viewport.clientHeight),
+    };
     const frame: ScreencastFrame = {
       sequence: ++watched.sequence,
-      jpeg: Buffer.from(shot.data, "base64"),
-      deviceWidth: num(viewport.clientWidth),
-      deviceHeight: num(viewport.clientHeight),
+      jpeg,
+      deviceWidth: size.width,
+      deviceHeight: size.height,
       pageScaleFactor: num(viewport.scale, 1),
       scrollX: num(viewport.pageX),
       scrollY: num(viewport.pageY),
     };
     watched.lastFrame = frame;
     for (const slot of watched.viewers.values()) this.push(watched, slot, frame);
+    if (purpose === "refresh") this.options.onFrame?.(watched.browserId, frame);
+    return true;
+  }
+
+  /**
+   * A screenshot's page size in CSS pixels: the JPEG's pixel size over the tab's scale factor. The
+   * layout viewport's client size leaves out a scrollbar; screencast frames do not.
+   */
+  private screenshotSize(browserId: string, jpeg: Uint8Array): FrameSize | null {
+    const pixels = jpegSize(jpeg);
+    if (!pixels) return null;
+    let scale = 1;
+    try {
+      scale = this.options.deviceScaleFactor?.(browserId) ?? 1;
+    } catch (error) {
+      this.onError(error);
+    }
+    return { width: Math.round(pixels.width / scale), height: Math.round(pixels.height / scale) };
   }
 
   /** Removes this slot only: a newer watch by the same viewer id keeps its own slot. */
@@ -303,5 +381,6 @@ export class ScreencastHub {
     watched.off();
     if (watched.ackTimer) clearTimeout(watched.ackTimer);
     watched.source.send("Page.stopScreencast").catch((error: unknown) => this.onError(error));
+    this.idle(watched.browserId);
   }
 }
