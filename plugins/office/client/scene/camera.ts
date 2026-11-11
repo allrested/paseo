@@ -1,7 +1,12 @@
-import type { Bounds, Point } from "../layout.js";
+import { VIEW_TURN, type Bounds, type Point } from "../layout.js";
 
-export const CAMERA_HEIGHT = 26;
-export const CAMERA_BACK = 22;
+/** How far above the horizon the camera stands, in radians. */
+export const CAMERA_TILT = (40 * Math.PI) / 180;
+/** From the camera to the point it looks at. The view is orthographic, so this sets no scale. */
+const CAMERA_REACH = 34;
+export const CAMERA_HEIGHT = CAMERA_REACH * Math.sin(CAMERA_TILT);
+/** Level distance from the camera to the point it looks at. */
+export const CAMERA_BACK = CAMERA_REACH * Math.cos(CAMERA_TILT);
 /** World units shown from top to bottom at zoom 1. */
 export const VIEW_HEIGHT = 30;
 export const ZOOM_MIN = 0.35;
@@ -10,8 +15,19 @@ export const FOCUS_ZOOM = 1.6;
 export const CAMERA_EASE_MS = 450;
 /** A pointer that moved less than this between down and up is a tap. */
 export const TAP_SLOP_PX = 8;
-/** Ground distance along z per unit of screen height (1 / sin of the camera's elevation). */
-export const GROUND_SCALE = Math.hypot(CAMERA_HEIGHT, CAMERA_BACK) / CAMERA_HEIGHT;
+/** Ground distance towards the camera per unit of screen height (1 / sin of the tilt). */
+export const GROUND_SCALE = CAMERA_REACH / CAMERA_HEIGHT;
+/** World height per unit of screen height (1 / cos of the tilt). */
+export const RISE_SCALE = CAMERA_REACH / CAMERA_BACK;
+/**
+ * The first view, in CSS pixels per world unit; a robot is about a unit and a half tall on
+ * screen. An office that fits at `legible` or more is shown whole, and no larger than `most`. A
+ * deeper one fills the width, but no larger than `partial`, and shows its far end first.
+ */
+export const FIRST_VIEW = { legible: 20, partial: 28, most: 44 };
+
+const TURN_SIN = Math.sin(VIEW_TURN);
+const TURN_COS = Math.cos(VIEW_TURN);
 
 export interface CameraView {
   /** The ground point the camera looks at. */
@@ -32,13 +48,43 @@ export interface Frustum {
   bottom: number;
 }
 
-const ORIGIN_BOUNDS: Bounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+/**
+ * A stretch of ground as the turned camera sees it, in world units from the world's origin:
+ * `left` to `right` across the screen, `far` to `near` down it. Not a box in x and z.
+ */
+export interface GroundSpan {
+  left: number;
+  right: number;
+  far: number;
+  near: number;
+}
 
-/** Inverted or non-finite bounds (an office with no rooms) count as zero-size bounds at the origin. */
-function usableBounds(bounds: Bounds): Bounds {
+/** What the first view keeps clear around the office. */
+export interface FrameMargins {
+  /** World height of the tallest thing on the far edge: it is drawn above the ground there. */
+  rise: number;
+  /** CSS pixels at the top, at each side and at the bottom. */
+  top: number;
+  side: number;
+  bottom: number;
+}
+
+const NO_SPAN: GroundSpan = { left: 0, right: 0, far: 0, near: 0 };
+
+/** How far a ground offset reaches across the screen and towards the camera. */
+function seen(x: number, z: number): { across: number; toward: number } {
+  return { across: x * TURN_COS - z * TURN_SIN, toward: x * TURN_SIN + z * TURN_COS };
+}
+
+/** The ground offset that reaches `across` the screen and `toward` the camera. */
+function unseen(across: number, toward: number): Point {
+  return { x: across * TURN_COS + toward * TURN_SIN, z: toward * TURN_COS - across * TURN_SIN };
+}
+
+/** Inverted or non-finite bounds (an office with no rooms) are no box. */
+function isBox(bounds: Bounds): boolean {
   const { minX, maxX, minZ, maxZ } = bounds;
-  const finite = [minX, maxX, minZ, maxZ].every(Number.isFinite);
-  return finite && minX <= maxX && minZ <= maxZ ? bounds : ORIGIN_BOUNDS;
+  return [minX, maxX, minZ, maxZ].every(Number.isFinite) && minX <= maxX && minZ <= maxZ;
 }
 
 /** A zero-size side counts as 1 px, so a hidden tab gives a finite, non-degenerate aspect. */
@@ -66,38 +112,106 @@ export function frustumFor(viewport: Viewport): Frustum {
   };
 }
 
+/** Above the point it looks at, back from it, and round to the right by the view's turn. */
 export function cameraPosition(view: CameraView): { x: number; y: number; z: number } {
-  return { x: view.x, y: CAMERA_HEIGHT, z: view.z + CAMERA_BACK };
+  return {
+    x: view.x + CAMERA_BACK * TURN_SIN,
+    y: CAMERA_HEIGHT,
+    z: view.z + CAMERA_BACK * TURN_COS,
+  };
 }
 
-export function frameBounds(rawBounds: Bounds, viewport: Viewport): CameraView {
-  const bounds = usableBounds(rawBounds);
-  const aspect = aspectOf(viewport);
-  const width = Math.max(1, bounds.maxX - bounds.minX);
-  const depth = Math.max(1, bounds.maxZ - bounds.minZ);
-  const zoom = Math.min((VIEW_HEIGHT * aspect) / width, (VIEW_HEIGHT * GROUND_SCALE) / depth);
+/**
+ * What the camera sees of the ground under `boxes`: the reach of their corners across the screen
+ * and down it. Boxes that are no boxes are left out; with none left it is a point at the origin.
+ */
+export function groundSpan(boxes: readonly Bounds[]): GroundSpan {
+  const corners = boxes
+    .filter(isBox)
+    .flatMap((box) => [
+      seen(box.minX, box.minZ),
+      seen(box.maxX, box.minZ),
+      seen(box.minX, box.maxZ),
+      seen(box.maxX, box.maxZ),
+    ]);
+  if (corners.length === 0) return NO_SPAN;
+  const across = corners.map((corner) => corner.across);
+  const toward = corners.map((corner) => corner.toward);
   return {
-    x: (bounds.minX + bounds.maxX) / 2,
-    z: (bounds.minZ + bounds.maxZ) / 2,
+    left: Math.min(...across),
+    right: Math.max(...across),
+    far: Math.min(...toward),
+    near: Math.max(...toward),
+  };
+}
+
+/** The view that shows all of `bounds`, centred. */
+export function frameBounds(bounds: Bounds, viewport: Viewport): CameraView {
+  const span = groundSpan([bounds]);
+  const width = Math.max(1, span.right - span.left);
+  const depth = Math.max(1, span.near - span.far);
+  const zoom = Math.min(
+    (VIEW_HEIGHT * aspectOf(viewport)) / width,
+    (VIEW_HEIGHT * GROUND_SCALE) / depth,
+  );
+  return {
+    ...unseen((span.left + span.right) / 2, (span.far + span.near) / 2),
     zoom: clamp(zoom, ZOOM_MIN, ZOOM_MAX),
   };
 }
 
-/** `dx`/`dy` are the pointer's movement in CSS pixels since the last call. */
+/** CSS pixels per world unit of the first view: see `FIRST_VIEW`. */
+function firstScale(byWidth: number, whole: number): number {
+  if (whole >= FIRST_VIEW.legible) return Math.min(whole, FIRST_VIEW.most);
+  return Math.min(byWidth, FIRST_VIEW.partial);
+}
+
+/**
+ * The first view of an office that covers `span`. One that fits with legible robots is shown
+ * whole, in the middle. A deeper one fills the width and starts at its far end, the top of the
+ * screen, and the user pans down it: shrunk to fit, its robots would be dots.
+ */
+export function firstView(span: GroundSpan, viewport: Viewport, margins: FrameMargins): CameraView {
+  const height = Math.max(1, viewport.height);
+  const roomAcross = Math.max(1, viewport.width - 2 * margins.side);
+  const roomDown = Math.max(1, height - margins.top - margins.bottom);
+  // What the office covers on screen, in world units: its ground, and what stands at the back.
+  const rise = margins.rise / RISE_SCALE;
+  const across = span.right - span.left;
+  const down = (span.near - span.far) / GROUND_SCALE + rise;
+  const byWidth = roomAcross / Math.max(1, across);
+  const wanted = firstScale(byWidth, Math.min(byWidth, roomDown / Math.max(1, down)));
+  const zoom = clamp((wanted * VIEW_HEIGHT) / height, ZOOM_MIN, ZOOM_MAX);
+  const perUnit = (zoom * height) / VIEW_HEIGHT;
+  const spare = Math.max(0, roomDown - down * perUnit);
+  // The far edge's ground line is drawn below the margin, the spare room and the rise.
+  const farLine = margins.top + spare / 2 + rise * perUnit;
+  const toward = span.far + ((height / 2 - farLine) / perUnit) * GROUND_SCALE;
+  return { ...unseen((span.left + span.right) / 2, toward), zoom };
+}
+
+/** `point` kept over `span`, as the camera sees it; a point already over it is returned as is. */
+function heldOver(point: Point, span: GroundSpan): Point {
+  const at = seen(point.x, point.z);
+  const across = clamp(at.across, span.left, span.right);
+  const toward = clamp(at.toward, span.far, span.near);
+  return across === at.across && toward === at.toward ? point : unseen(across, toward);
+}
+
+/**
+ * `dx`/`dy` are the pointer's movement in CSS pixels since the last call. The ground follows
+ * the finger, and the point the camera looks at stays over `span`.
+ */
 export function panBy(
   view: CameraView,
   dx: number,
   dy: number,
   viewport: Viewport,
-  rawBounds: Bounds,
+  span: GroundSpan,
 ): CameraView {
-  const bounds = usableBounds(rawBounds);
   const perPixel = VIEW_HEIGHT / view.zoom / Math.max(1, viewport.height);
-  return {
-    x: clamp(view.x - dx * perPixel, bounds.minX, bounds.maxX),
-    z: clamp(view.z - dy * perPixel * GROUND_SCALE, bounds.minZ, bounds.maxZ),
-    zoom: view.zoom,
-  };
+  const shift = unseen(dx * perPixel, dy * perPixel * GROUND_SCALE);
+  return { ...heldOver({ x: view.x - shift.x, z: view.z - shift.z }, span), zoom: view.zoom };
 }
 
 export function zoomBy(view: CameraView, factor: number): CameraView {
@@ -130,12 +244,32 @@ export function screenPoint(
   point: { x: number; y: number; z: number },
 ): ScreenPoint {
   const perUnit = pixelsPerUnit(view, viewport);
-  // The camera's up axis: height lifts a point on screen, distance from the camera lowers it.
-  const reach = Math.hypot(CAMERA_HEIGHT, CAMERA_BACK);
-  const up = (point.y * CAMERA_BACK - (point.z - view.z) * CAMERA_HEIGHT) / reach;
+  const ground = seen(point.x - view.x, point.z - view.z);
+  // The camera's up axis: height lifts a point on screen, coming towards the camera lowers it.
+  const up = (point.y * CAMERA_BACK - ground.toward * CAMERA_HEIGHT) / CAMERA_REACH;
   return {
-    x: viewport.width / 2 + (point.x - view.x) * perUnit,
+    x: viewport.width / 2 + ground.across * perUnit,
     y: viewport.height / 2 - up * perUnit,
+  };
+}
+
+/**
+ * `point` moved so that it is drawn `dx`, `dy` CSS pixels away: sideways along the screen, and
+ * up or down by its height, so it stays as far from the camera as it was.
+ */
+export function shiftOnScreen(
+  view: CameraView,
+  viewport: Viewport,
+  point: { x: number; y: number; z: number },
+  dx: number,
+  dy: number,
+): { x: number; y: number; z: number } {
+  const perUnit = pixelsPerUnit(view, viewport);
+  const sideways = unseen(dx / perUnit, 0);
+  return {
+    x: point.x + sideways.x,
+    y: point.y - (dy / perUnit) * RISE_SCALE,
+    z: point.z + sideways.z,
   };
 }
 
