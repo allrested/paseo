@@ -126,8 +126,10 @@ function loadMeter(load1: number | null, coreCount: number): JudgedMeter {
       key: "load",
       label: "Load",
       // Load is a count of tasks that run or wait for a core, so it passes the core count on a
-      // busy host. The percentage says so; "2.43 / 2 cores" read as a part of a whole.
-      value: `${percent(perCore)} · ${load1.toFixed(2)} on ${cores(coreCount)}`,
+      // busy host. The percentage says so; "2.43 / 2 cores" read as a part of a whole. Three
+      // meters share a phone's width, so the value stays as short as that was; the load itself
+      // is in the details.
+      value: `${percent(perCore)} · ${cores(coreCount)}`,
       fraction: Math.min(1, perCore),
       level: levelOf(perCore, LOAD_WARNING, LOAD_CRITICAL),
     },
