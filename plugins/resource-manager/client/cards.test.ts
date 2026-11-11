@@ -100,7 +100,7 @@ describe("snapshot summary", () => {
         {
           key: "load",
           label: "Load",
-          value: "13% · 0.50 on 4 cores",
+          value: "13% · 4 cores",
           fraction: 0.125,
           level: "ok",
         },
@@ -189,7 +189,7 @@ describe("instance summary", () => {
       note: null,
       meters: [
         { key: "memory", label: "Memory", value: "38% · 3.0 GB", fraction: 0.375, level: "ok" },
-        { key: "load", label: "Load", value: "25% · 1.00 on 4 cores", fraction: 0.25, level: "ok" },
+        { key: "load", label: "Load", value: "25% · 4 cores", fraction: 0.25, level: "ok" },
         {
           key: "hostMemory",
           label: "Host memory",
