@@ -17,6 +17,7 @@ import { CdpFrameImage } from "./frame-image";
 import { CdpInputLayer } from "./input-layer";
 import { useCdpTabsStore } from "./tabs-store";
 import { reopenCdpTab } from "./tabs-sync";
+import { withHttpForHostPort } from "./workspace-browser";
 import { useCdpView } from "./use-cdp-view";
 import {
   fitFrame,
@@ -78,7 +79,7 @@ const CdpToolbar = memo(function CdpToolbar({
   }, [url, urlInputRef]);
   const submitUrl = useCallback(() => {
     const draft = urlInputRef.current?.getText() ?? "";
-    onNavigate({ kind: "url", url: normalizeWorkspaceBrowserUrl(draft) });
+    onNavigate({ kind: "url", url: normalizeWorkspaceBrowserUrl(withHttpForHostPort(draft)) });
     urlInputRef.current?.blur();
   }, [onNavigate, urlInputRef]);
   const goBack = useCallback(() => onNavigate({ kind: "back" }), [onNavigate]);

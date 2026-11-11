@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { decodeBrowserViewFrame } from "@getpaseo/protocol/binary-frames/index";
 import type {
@@ -6,7 +7,9 @@ import type {
   CdpBrowserViewInput,
   CdpBrowserViewport,
 } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
+import { useToast } from "@/contexts/toast-context";
 import { viewStatusForError, type CdpViewStatus } from "./view-model";
+import { cdpNavigateErrorStatus } from "./workspace-browser";
 
 export interface CdpViewFrame {
   jpeg: Uint8Array;
@@ -51,6 +54,8 @@ export function useCdpView(input: {
   const measured = input.viewport !== null;
   const statusRef = useRef(status);
   statusRef.current = status;
+  const { t } = useTranslation();
+  const toast = useToast();
 
   useEffect(() => {
     if (!client || !active || !measured || !viewport.current) return;
@@ -120,10 +125,14 @@ export function useCdpView(input: {
       if (!client) return;
       client.navigateCdpBrowserView(browserId, action).then(
         () => setStatus(liveIfUnresponsive),
-        (error) => setStatus(viewStatusForError(errorText(error))),
+        (error) => {
+          const failed = cdpNavigateErrorStatus(error);
+          if (failed) setStatus(failed);
+          else toast.error(t("cdpBrowser.navigateFailed"));
+        },
       );
     },
-    [client, browserId],
+    [client, browserId, t, toast],
   );
 
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
