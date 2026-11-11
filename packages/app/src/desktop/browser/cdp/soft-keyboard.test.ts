@@ -247,4 +247,84 @@ describe("soft keyboard field", () => {
       expect(pageAfter(inputs)).toBe("hello world");
     });
   });
+
+  describe("reset (a tap moved the page caret)", () => {
+    const update = (data: string) => softKeyboardStep({ type: "compositionupdate", data });
+    const start = () => softKeyboardStep({ type: "compositionstart" });
+    const end = (data: string) => softKeyboardStep({ type: "compositionend", data });
+
+    it("sends nothing for the abandoned composition's late update and end", () => {
+      start();
+      update("he");
+      expect(update("hel")).toEqual({ inputs: [text("l")], cancel: false });
+      keyboard.reset();
+      expect(update("hell")).toEqual({ inputs: [], cancel: false });
+      expect(update("he")).toEqual({ inputs: [], cancel: false });
+      expect(end("Hello")).toEqual({ inputs: [], cancel: false });
+    });
+
+    it("sends nothing when the abandoned composition is cancelled", () => {
+      start();
+      update("teh");
+      keyboard.reset();
+      expect(end("")).toEqual({ inputs: [], cancel: false });
+    });
+
+    it("sends a fresh composition after the reset once", () => {
+      const inputs: CdpBrowserViewInput[] = [];
+      const run = (event: SoftKeyboardEvent) => inputs.push(...softKeyboardStep(event).inputs);
+      run({ type: "compositionstart" });
+      run({ type: "compositionupdate", data: "hel" });
+      keyboard.reset();
+      run({ type: "compositionupdate", data: "hell" });
+      run({ type: "compositionend", data: "hello" });
+      const before = inputs.length;
+      run({ type: "compositionstart" });
+      run({ type: "compositionupdate", data: "w" });
+      run({ type: "compositionupdate", data: "wo" });
+      run({ type: "compositionend", data: "world" });
+      expect(inputs.slice(before)).toEqual([text("w"), text("o"), text("rld")]);
+      expect(pageAfter(inputs)).toBe("helworld");
+    });
+
+    it("sends a fresh composition that comes without a compositionstart once", () => {
+      start();
+      update("hel");
+      keyboard.reset();
+      end("hel");
+      expect(update("a")).toEqual({ inputs: [text("a")], cancel: false });
+      expect(end("ab")).toEqual({ inputs: [text("b")], cancel: false });
+    });
+
+    it("is a no-op with no composition open", () => {
+      keyboard.reset();
+      expect(update("a")).toEqual({ inputs: [text("a")], cancel: false });
+      expect(end("a")).toEqual({ inputs: [], cancel: false });
+      keyboard.reset();
+      expect(
+        softKeyboardStep({
+          type: "beforeinput",
+          inputType: "insertText",
+          data: "b",
+          isComposing: false,
+        }),
+      ).toEqual({ inputs: [text("b")], cancel: true });
+      expect(softKeyboardStep({ type: "keydown", key: "Backspace", isComposing: false })).toEqual({
+        inputs: press("Backspace"),
+        cancel: true,
+      });
+    });
+  });
+
+  it("ignores a keydown with key code 229, such as Safari's Enter that confirms a conversion", () => {
+    for (const key of ["Enter", "Backspace"]) {
+      expect(softKeyboardStep({ type: "keydown", key, keyCode: 229, isComposing: false })).toEqual({
+        inputs: [],
+        cancel: false,
+      });
+    }
+    expect(
+      softKeyboardStep({ type: "keydown", key: "Enter", keyCode: 13, isComposing: false }),
+    ).toEqual({ inputs: press("Enter"), cancel: true });
+  });
 });
