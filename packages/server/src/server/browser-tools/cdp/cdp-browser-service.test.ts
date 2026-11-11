@@ -6,6 +6,7 @@ import { BrowserToolsBroker } from "../broker.js";
 import {
   AGENT_ACTIVITY_MS,
   CdpBrowserService,
+  MAX_DAEMON_TABS,
   cdpErrorCode,
   clampViewport,
   isOpenableUrl,
@@ -118,6 +119,39 @@ describe("CdpBrowserService", () => {
       false,
     );
     expect(service.listTabs()).toEqual([]);
+  });
+
+  test("openTab refuses a tab past the cap and asks for one to be closed first", async () => {
+    await started();
+    for (let index = 0; index < MAX_DAEMON_TABS; index += 1) await newTab();
+    const payload = await broker.execute({
+      command: { command: "new_tab", args: { url: "https://example.com/" } },
+      workspaceId: "ws-a",
+    });
+    expect(payload).toMatchObject({
+      ok: false,
+      error: { code: "browser_unknown_error", message: expect.stringContaining("Close a tab") },
+    });
+    expect(
+      chromium.commands.filter((command) => command.method === "Target.createTarget"),
+    ).toHaveLength(MAX_DAEMON_TABS);
+    expect(service.listTabs()).toHaveLength(MAX_DAEMON_TABS);
+  });
+
+  test("the Docker host refuses upload: Chromium's container does not have the daemon's files", async () => {
+    await started();
+    const tab = await newTab();
+    const payload = await broker.execute({
+      command: {
+        command: "upload",
+        args: { browserId: tab.browserId, ref: "@e1", filePaths: ["uploads/a.txt"] },
+      },
+      workspaceId: "ws-a",
+    });
+    expect(payload).toMatchObject({ ok: false, error: { code: "browser_unsupported" } });
+    expect(chromium.commands.some((command) => command.method === "DOM.setFileInputFiles")).toBe(
+      false,
+    );
   });
 
   test("list_tabs shows only the daemon's own tabs", async () => {
