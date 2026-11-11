@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { UsageSourceRegistry } from "./index.js";
 import type { ProviderUsageWindow, UsageReportEntry } from "@getpaseo/protocol/messages";
+import type { UsageScope } from "@getpaseo/plugin/server/usage";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -418,6 +419,128 @@ test("session discovery reuses accounts, separates launches, and retains live ag
   expect((await registry.listReports()).map((r) => r.id)).toEqual(["claude:default", "claude:new"]);
   await expect(registry.listReports({ agentId: "missing" })).rejects.toThrow("Unknown agent");
   await expect(registry.listReports({ agentId: "one", reportIds: [] })).rejects.toThrow("agentId");
+});
+
+test("the session scope a source receives carries the agent's provider session id", async () => {
+  const scopes: UsageScope[] = [];
+  const registry = new UsageSourceRegistry(Date.now, 300_000, undefined, {
+    hasAgent: () => true,
+    usageSession: () => ({
+      provider: "claude",
+      model: "opus",
+      env: { HOME: "/one" },
+      sessionKey: "launch",
+      sessionId: "claude-session-1",
+    }),
+  });
+  registry.register({
+    id: "claude",
+    label: "Claude",
+    discover: async (scope) => {
+      scopes.push(scope);
+      return [];
+    },
+    fetch: async () => ({ status: "available", windows: [] }),
+  });
+  await registry.listReports({ agentId: "agent" });
+  expect(scopes).toEqual([
+    {
+      kind: "session",
+      provider: "claude",
+      model: "opus",
+      env: { HOME: "/one" },
+      sessionId: "claude-session-1",
+    },
+  ]);
+});
+
+test("an agent's accounts are reused for a minute, then discovered again", async () => {
+  let now = 0;
+  let account = "first";
+  let discoveries = 0;
+  const registry = new UsageSourceRegistry(() => now, 300_000, undefined, {
+    hasAgent: () => true,
+    usageSession: () => ({ provider: "claude", env: {}, sessionKey: "launch", sessionId: "s1" }),
+  });
+  registry.register(
+    source({
+      id: "gateway",
+      discover: async () => {
+        discoveries++;
+        return [{ key: account, input: { account } }];
+      },
+    }),
+  );
+  const ids = async () =>
+    (await registry.listReports({ agentId: "agent" })).map((entry) => entry.id);
+  expect(await ids()).toEqual(["gateway:first"]);
+  account = "second";
+  now = 59_999;
+  expect(await ids()).toEqual(["gateway:first"]);
+  expect(discoveries).toBe(1);
+  now = 60_000;
+  expect(await ids()).toEqual(["gateway:second"]);
+  expect(discoveries).toBe(2);
+});
+
+test("a changed provider session id re-discovers the agent's accounts at once", async () => {
+  let sessionId: string | undefined;
+  const scopes: UsageScope[] = [];
+  const registry = new UsageSourceRegistry(() => 0, 300_000, undefined, {
+    hasAgent: () => true,
+    usageSession: () => ({ provider: "claude", env: {}, sessionKey: "launch", sessionId }),
+  });
+  registry.register(
+    source({
+      id: "gateway",
+      discover: async (scope) => {
+        scopes.push(scope as UsageScope);
+        const account = (scope as { sessionId?: string }).sessionId ?? "unknown";
+        return [{ key: account, input: { account } }];
+      },
+    }),
+  );
+  const ids = async () =>
+    (await registry.listReports({ agentId: "agent" })).map((entry) => entry.id);
+  expect(await ids()).toEqual(["gateway:unknown"]);
+  sessionId = "s1";
+  expect(await ids()).toEqual(["gateway:s1"]);
+  expect(scopes.map((scope) => (scope as { sessionId?: string }).sessionId)).toEqual([
+    undefined,
+    "s1",
+  ]);
+});
+
+test("a failed repeat discovery keeps the agent's previous accounts, a new launch does not", async () => {
+  let now = 0;
+  let fails = false;
+  let sessionKey = "launch-1";
+  const registry = new UsageSourceRegistry(
+    () => now,
+    300_000,
+    { warn: () => {} },
+    {
+      hasAgent: () => true,
+      usageSession: () => ({ provider: "claude", env: {}, sessionKey, sessionId: "s1" }),
+    },
+  );
+  registry.register(
+    source({
+      id: "gateway",
+      discover: async () => {
+        if (fails) throw new Error("Gateway unreachable");
+        return [{ key: "work", input: { account: "work" } }];
+      },
+    }),
+  );
+  const ids = async () =>
+    (await registry.listReports({ agentId: "agent" })).map((entry) => entry.id);
+  expect(await ids()).toEqual(["gateway:work"]);
+  fails = true;
+  now = 60_000;
+  expect(await ids()).toEqual(["gateway:work"]);
+  sessionKey = "launch-2";
+  expect(await ids()).toEqual([]);
 });
 
 test("reports arrive independently and a hung fetch settles as an error before completion", async () => {
