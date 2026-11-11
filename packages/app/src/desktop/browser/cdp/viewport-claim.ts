@@ -29,7 +29,8 @@ function sameViewport(a: CdpBrowserViewport | null, b: CdpBrowserViewport | null
 /**
  * Claims the tab's viewport without input when the pane becomes visible or its size changes, so a
  * tap is not aimed at a frame of the old size. Only the pane's own layout drives it: a frame of the
- * claimed size changes nothing here, so a claim cannot cause another.
+ * claimed size changes nothing here, so a claim cannot cause another. The daemon ignores the claim while
+ * an agent's `browser_resize` holds the size.
  */
 export function createViewportClaim(send: (viewport: CdpBrowserViewport) => void): ViewportClaim {
   let previous: ViewportClaimState = { subscriptionId: null, viewport: null, agentActive: false };
