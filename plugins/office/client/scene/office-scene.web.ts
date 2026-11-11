@@ -15,12 +15,23 @@ import {
   pixelsPerUnit,
   screenPoint,
   wheelFactor,
-  zoomBy,
   type CameraView,
   type ScreenPoint,
   type Viewport,
 } from "./camera.js";
 import type { ScenePalette } from "./palette.js";
+import {
+  PLATE_HEIGHT_PX,
+  canvasPoint,
+  distance,
+  pinchView,
+  targetAt,
+  zoomAbout,
+  type PickTarget,
+  type PinchState,
+  type RobotSpot,
+  type WorldPoint,
+} from "./picking.js";
 import {
   TYPING_FRAME_MS,
   animationNeed,
@@ -87,10 +98,8 @@ const LIGHT_MIN_PX = 5;
 const RISE_PER_SCREEN_UNIT = Math.hypot(CAMERA_HEIGHT, CAMERA_BACK) / CAMERA_BACK;
 /** Chest height of a robot: where a tap is measured from. */
 const CHEST_Y = 1;
-/** Half of the app's 44 px touch target (packages/app/src/components/ui/control-geometry.ts). */
-const TAP_RADIUS_PX = 22;
 /** A room's name plate, in CSS pixels: it keeps its size on screen at every zoom. */
-const LABEL = { height: 20, paddingX: 7, radius: 6, fontSize: 12, maxWidth: 120 };
+const LABEL = { height: PLATE_HEIGHT_PX, paddingX: 7, radius: 6, fontSize: 12, maxWidth: 120 };
 // The app's UI font stack on web (DEFAULT_UI_FONT_STACK, packages/app/src/styles/theme.ts).
 const LABEL_FONT_STACK =
   "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -160,12 +169,6 @@ interface Label {
   /** The world point its left edge hangs from. */
   anchor: WorldPoint;
   drawn: string;
-}
-
-interface WorldPoint {
-  x: number;
-  y: number;
-  z: number;
 }
 
 interface PlateSize {
@@ -540,10 +543,6 @@ function roomsMoved(before: ScenePlan, after: ScenePlan): boolean {
   });
 }
 
-function distance(left: ScreenPoint, right: ScreenPoint): number {
-  return Math.hypot(left.x - right.x, left.y - right.y);
-}
-
 export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   const { three, container } = options;
   const canvas = document.createElement("canvas");
@@ -852,71 +851,35 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     else cancelFrames();
   }
 
-  function labelUnder(at: ScreenPoint, reach: number): string | null {
-    for (const [roomId, label] of labels) {
-      const left = screenPoint(view, viewport, label.anchor);
-      const inX = at.x >= left.x - reach && at.x <= left.x + label.width + reach;
-      const inY = Math.abs(at.y - left.y) <= label.height / 2 + reach;
-      if (inX && inY) return roomId;
-    }
-    return null;
-  }
-
-  function robotNear(at: ScreenPoint, now: number): RobotPlan | null {
-    let nearest: RobotPlan | null = null;
-    let best = TAP_RADIUS_PX;
-    for (const robot of plan.robots) {
+  /** Every robot's chest where it is drawn now: the points a tap is measured from. */
+  function robotSpots(now: number): RobotSpot[] {
+    return plan.robots.map((robot) => {
       const entered = enteredAt.get(robot.agentId) ?? now;
       const motion = robotFrame(robot, entered, now, options.reducedMotion);
-      const chest: WorldPoint = { x: motion.x, y: motion.lift + CHEST_Y, z: motion.z };
-      const gap = distance(at, screenPoint(view, viewport, chest));
-      if (gap <= best) {
-        best = gap;
-        nearest = robot;
-      }
-    }
-    return nearest;
+      const chest = { x: motion.x, y: motion.lift + CHEST_Y, z: motion.z };
+      return { agentId: robot.agentId, chest };
+    });
   }
 
-  /**
-   * What a tap or a click at `at` means. Zoomed out, a robot is a few pixels wide, so a tap takes
-   * the nearest robot within a touch target's reach. A plate under the finger wins, since it is
-   * drawn over everything; a plate merely nearby loses to a robot.
-   */
-  function targetAt(at: ScreenPoint): { roomId: string } | { agentId: string } | null {
-    const plate = labelUnder(at, 0);
-    if (plate !== null) return { roomId: plate };
-    const robot = robotNear(at, performance.now());
-    if (robot) return { agentId: robot.agentId };
-    const nearby = labelUnder(at, TAP_RADIUS_PX - LABEL.height / 2);
-    return nearby === null ? null : { roomId: nearby };
+  function pickAt(at: ScreenPoint): PickTarget | null {
+    return targetAt({ view, viewport }, labels, robotSpots(performance.now()), at);
   }
 
-  function canvasPoint(event: { clientX: number; clientY: number }): ScreenPoint {
-    const rect = canvas.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  function pointerAt(event: { clientX: number; clientY: number }): ScreenPoint {
+    return canvasPoint(event, canvas.getBoundingClientRect());
   }
 
   const pointers = new Map<number, ScreenPoint>();
   let gesture: { start: ScreenPoint; moved: boolean; multi: boolean } | null = null;
-  let pinch: { spread: number; middle: ScreenPoint } | null = null;
+  let pinch: PinchState | null = null;
 
-  function pinchState(): { spread: number; middle: ScreenPoint } | null {
+  function pinchState(): PinchState | null {
     const [first, second] = [...pointers.values()];
     if (!first || !second || pointers.size !== 2) return null;
     return {
       spread: distance(first, second),
       middle: { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
     };
-  }
-
-  /** Zooms by `factor` and keeps the ground under `at` where it is on screen. */
-  function zoomAbout(from: CameraView, factor: number, at: ScreenPoint): CameraView {
-    const zoomed = zoomBy(from, factor);
-    const applied = zoomed.zoom / from.zoom - 1;
-    const dx = (at.x - viewport.width / 2) * applied;
-    const dy = (at.y - viewport.height / 2) * applied;
-    return panBy(zoomed, -dx, -dy, viewport, plan.bounds);
   }
 
   function takeCamera(next: CameraView): void {
@@ -929,7 +892,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     // Only the main mouse button pans and picks; touch and pen always report button 0.
     if (event.button !== 0) return;
     canvas.setPointerCapture(event.pointerId);
-    const at = canvasPoint(event);
+    const at = pointerAt(event);
     pointers.set(event.pointerId, at);
     if (pointers.size === 1) {
       gesture = { start: at, moved: false, multi: false };
@@ -940,10 +903,10 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   }
 
   function onPointerMove(event: PointerEvent): void {
-    const at = canvasPoint(event);
+    const at = pointerAt(event);
     const last = pointers.get(event.pointerId);
     if (!last) {
-      canvas.style.cursor = targetAt(at) === null ? "grab" : "pointer";
+      canvas.style.cursor = pickAt(at) === null ? "grab" : "pointer";
       return;
     }
     pointers.set(event.pointerId, at);
@@ -955,16 +918,13 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     }
     const next = pinchState();
     if (next !== null && pinch !== null && pinch.spread > 0) {
-      const zoomed = zoomAbout(view, next.spread / pinch.spread, next.middle);
-      const dx = next.middle.x - pinch.middle.x;
-      const dy = next.middle.y - pinch.middle.y;
-      takeCamera(panBy(zoomed, dx, dy, viewport, plan.bounds));
+      takeCamera(pinchView(view, pinch, next, viewport, plan.bounds));
     }
     pinch = next;
   }
 
   function pick(at: ScreenPoint): void {
-    const target = targetAt(at);
+    const target = pickAt(at);
     if (target === null) return;
     if ("agentId" in target) options.onSelectAgent(target.agentId);
     else focusRoom(target.roomId);
@@ -976,14 +936,14 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       const tap = !gesture.moved && !gesture.multi && event.type === "pointerup";
       gesture = null;
       canvas.style.cursor = "grab";
-      if (tap) pick(canvasPoint(event));
+      if (tap) pick(pointerAt(event));
     }
     pinch = pinchState();
   }
 
   function onWheel(event: WheelEvent): void {
     event.preventDefault();
-    takeCamera(zoomAbout(view, wheelFactor(event.deltaY), canvasPoint(event)));
+    takeCamera(zoomAbout(view, wheelFactor(event.deltaY), pointerAt(event), viewport, plan.bounds));
   }
 
   function onContextLost(event: Event): void {
