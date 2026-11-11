@@ -198,8 +198,16 @@ overrides it once saved.
 
 The daemon touches only tabs it opened. It keeps their ids in
 `$PASEO_HOME/browser-tools/cdp-tabs.json` and never lists, drives or closes any other tab, so
-your own tabs and another instance's tabs on a shared Chromium are left alone. Each tab the
-daemon opens is its own Chromium window, because Chromium paints no frames for a background tab.
+your own tabs and another instance's tabs on a shared Chromium are left alone.
+
+Each tab the daemon opens is its own Chromium window, because Chromium paints no frames for a
+background tab. The window opens on top of the desktop you see in noVNC, over your own window.
+Chromium also stops rendering a window that another window covers, which freezes a pane tab as
+soon as the next one opens over it, so `docker-compose.yml` and `docker-compose.vpn.yml` launch
+Chromium with `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding` in
+`CHROME_CLI`. A stack that borrows another stack's browser, such as `docker-compose.agent.yml`,
+and a deployment that keeps its own copy of a compose file need the same flags on the Chromium
+they use.
 
 The profile is shared: a tab the daemon opens has your logins.
 
