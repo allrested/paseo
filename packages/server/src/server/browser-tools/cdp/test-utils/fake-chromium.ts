@@ -29,6 +29,8 @@ export interface FakeChromium {
   handle(method: string, handler: Handler): void;
   /** The method never answers, so the caller times out. */
   stall(method: string): void;
+  /** Later calls answer again; a call already stalled stays unanswered. */
+  unstall(method: string): void;
   emit(targetId: string, method: string, params: Record<string, unknown>): void;
   addTarget(input?: Partial<FakeTarget>): FakeTarget;
   destroyTarget(targetId: string): void;
@@ -179,6 +181,7 @@ export async function startFakeChromium(): Promise<FakeChromium> {
     commands,
     handle: (method, handler) => void handlers.set(method, handler),
     stall: (method) => void stalled.add(method),
+    unstall: (method) => void stalled.delete(method),
     emit,
     addTarget,
     destroyTarget,
