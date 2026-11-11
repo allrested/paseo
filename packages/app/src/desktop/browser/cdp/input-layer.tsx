@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import {
   View,
   type GestureResponderEvent,
@@ -21,7 +21,8 @@ export function CdpInputLayer({
   page,
   onInput,
   onFocusPane,
-  keyboardRequest,
+  keyboardRef,
+  onKeyboardChange,
 }: CdpInputLayerProps) {
   const input = useRef<EditingTextInputHandle>(null);
   const gesture = useRef(createTouchGesture());
@@ -30,9 +31,33 @@ export function CdpInputLayer({
   const coalescer = useMemo(() => createInputCoalescer((next) => latestOnInput.current(next)), []);
   useEffect(() => () => coalescer.dispose(), [coalescer]);
 
-  useEffect(() => {
-    if (keyboardRequest > 0) input.current?.focus();
-  }, [keyboardRequest]);
+  // Taps on the frame do not blur a native input, so the keyboard stays up until the button
+  // turns it off or another input (the URL field) takes focus.
+  const keyboardOn = useRef(false);
+  const latestOnKeyboardChange = useRef(onKeyboardChange);
+  latestOnKeyboardChange.current = onKeyboardChange;
+  useImperativeHandle(
+    keyboardRef,
+    () => ({
+      show() {
+        input.current?.focus();
+        keyboardOn.current = true;
+        latestOnKeyboardChange.current(true);
+      },
+      hide() {
+        keyboardOn.current = false;
+        input.current?.blur();
+        latestOnKeyboardChange.current(false);
+      },
+      isOn: () => keyboardOn.current,
+    }),
+    [],
+  );
+  const handleBlur = useCallback(() => {
+    if (!keyboardOn.current) return;
+    keyboardOn.current = false;
+    latestOnKeyboardChange.current(false);
+  }, []);
 
   const point = useCallback(
     (event: GestureResponderEvent) =>
@@ -114,6 +139,7 @@ export function CdpInputLayer({
         blurOnSubmit={false}
         caretHidden
         multiline
+        onBlur={handleBlur}
         onChangeText={handleChangeText}
         onKeyPress={handleKeyPress}
         style={styles.hiddenInput}
