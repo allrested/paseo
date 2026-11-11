@@ -83,6 +83,11 @@ export const CdpBrowserViewInputSchema = z.discriminatedUnion("kind", [
     modifiers: z.number().int(),
   }),
   z.object({ kind: z.literal("text"), text: z.string() }),
+  /**
+   * Claims the tab's viewport with the request's `viewport` and sends nothing to the page. The pane
+   * sends it when its size changes, so the first tap after a resize is not aimed at a stale frame.
+   */
+  z.object({ kind: z.literal("resize") }),
 ]);
 
 export const CdpBrowserNavigateActionSchema = z.discriminatedUnion("kind", [
@@ -169,7 +174,7 @@ export const BrowserCdpViewInputRequestSchema = z.object({
   type: z.literal("browser.cdp.view.input.request"),
   subscriptionId: z.string(),
   input: CdpBrowserViewInputSchema,
-  /** The sender's pane size. Any input claims the tab's viewport for this client. */
+  /** The sender's pane size. Any input, `resize` too, claims the tab's viewport for this client. */
   viewport: CdpBrowserViewportSchema.optional(),
 });
 
