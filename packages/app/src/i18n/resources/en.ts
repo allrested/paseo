@@ -2072,6 +2072,7 @@ export const en = {
       retry: "Retry",
     },
     openFailed: "Could not open a browser tab",
+    navigateFailed: "Could not open that address. Only http and https addresses work here.",
   },
   rewind: {
     tooltip: "Rewind to this message",
