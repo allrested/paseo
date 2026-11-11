@@ -128,4 +128,8 @@ describe("dispatchViewInput", () => {
       ["Input.insertText", { text: "héllo" }],
     ]);
   });
+
+  test("a resize claim sends nothing to the page", async () => {
+    expect(await sent({ kind: "resize" })).toEqual([]);
+  });
 });
