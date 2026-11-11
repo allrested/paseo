@@ -460,6 +460,9 @@ export interface PaseoAgentHandle {
    */
   reload(options?: { requestId?: string }): Promise<PaseoAgentRefetchResult | null>;
   send(text: string, options?: PaseoAgentSendOptions): Promise<void>;
+  // Fork delta (agent office): the cancel_agent_request message, as the cancel_agent tool sends it.
+  /** Stops the agent's running turn. Rejects with the daemon's error. */
+  cancel(): Promise<void>;
   respondToPermission(options: PaseoAgentRespondToPermissionOptions): Promise<void>;
   /**
    * Changes the agent's own options: top-level keys replace, `null` removes the key so the
@@ -1195,6 +1198,10 @@ function createAgentHandleFactory(
       },
       send: async (text, options) => {
         await daemonClient.sendAgentMessage(id, text, options);
+      },
+      // Fork delta (agent office): the cancel_agent_request message.
+      cancel: async () => {
+        await daemonClient.cancelAgent(id);
       },
       setOptions: async (patch) => {
         await daemonClient.setAgentOptions(id, patch);
