@@ -19,6 +19,8 @@ export interface EulerLike {
   x: number;
   y: number;
   z: number;
+  /** The order the three turns are applied in: "XYZ" unless set. */
+  order: string;
   set(x: number, y: number, z: number): this;
 }
 
@@ -132,6 +134,8 @@ export interface MaterialOptions {
   transparent?: boolean;
   opacity?: number;
   depthWrite?: boolean;
+  /** Each face keeps one tone, like folded card. */
+  flatShading?: boolean;
 }
 
 export interface ThreeModule {

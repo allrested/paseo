@@ -9,6 +9,7 @@ import {
   WALK_MS,
   animationNeed,
   buildScenePlan,
+  overflowTail,
   robotFrame,
   robotPose,
   roomLabel,
@@ -71,7 +72,8 @@ function robot(overrides: Partial<RobotPlan>): RobotPlan {
     side: false,
     pose: "idle",
     visor: "#6cae96",
-    light: null,
+    lamp: "off",
+    lampColor: "#8a8a8a",
     screenLit: false,
     ...overrides,
   };
@@ -87,42 +89,62 @@ test("each state maps to its pose", () => {
   expect(robotPose(agent("a", { status: "initializing" }))).toBe("walking");
 });
 
-test("the plan has a robot per seated agent with its light, screen and visor", () => {
+test("the plan has a robot per seated agent with its lamp, screen and visor", () => {
   const scene = plan([
     agent("run", { status: "running" }),
     agent("ask", { status: "running", permissions: [PERMISSION] }),
     agent("err", { status: "error" }),
+    agent("new", { status: "initializing" }),
+    agent("off"),
+  ]);
+  // One lamp each, four states. Only a typing robot's desk is lit: one that waits for an answer
+  // is not working, and its amber lamp is the light at that desk.
+  expect(
+    scene.robots.map((item) => [
+      item.agentId,
+      item.pose,
+      item.lamp,
+      item.lampColor,
+      item.screenLit,
+    ]),
+  ).toEqual([
+    ["ask", "raised", "warning", PALETTE.lightWarning, false],
+    ["err", "slumped", "danger", PALETTE.lightDanger, false],
+    ["new", "walking", "off", PALETTE.lampOff, false],
+    ["off", "idle", "off", PALETTE.lampOff, false],
+    ["run", "typing", "steady", PALETTE.lampOn, true],
   ]);
   // The visor is the identity colour for a dark surface in a light theme too: heads are graphite.
-  expect(
-    scene.robots.map((item) => [item.agentId, item.pose, item.light, item.screenLit, item.visor]),
-  ).toEqual([
-    ["ask", "raised", PALETTE.lightWarning, true, "#6cae96"],
-    ["err", "slumped", PALETTE.lightDanger, false, "#6cae96"],
-    ["run", "typing", null, true, "#6cae96"],
-  ]);
-  expect(scene.rooms.map((room) => [room.roomId, room.label])).toEqual([
-    ["lobby", "Lobby"],
-    ["w1", "main"],
+  expect(new Set(scene.robots.map((item) => item.visor))).toEqual(new Set(["#6cae96"]));
+  expect(scene.rooms.map((room) => [room.roomId, room.label, room.overflow])).toEqual([
+    ["lobby", "Lobby", 0],
+    ["w1", "main", 0],
   ]);
 });
 
-test("a room label counts the agents without a desk", () => {
+test("a room label says in words how many agents have no desk", () => {
   expect(roomLabel("main", 0)).toBe("main");
-  expect(roomLabel("main", 6)).toBe("main +6");
+  expect(roomLabel("main", 6)).toBe("main, 6 more");
+  // The count is the label's tail, so a plate can shorten the name and keep the count.
+  expect(overflowTail(0)).toBe("");
+  expect(roomLabel("main", 6).endsWith(overflowTail(6))).toBe(true);
 });
 
-test("typing bobs the arms unless motion is reduced", () => {
+test("typing bobs the arms and sways the head unless motion is reduced", () => {
   const typing = robot({ pose: "typing" });
   const moving = robotFrame(typing, 0, 1000, false);
   const still = robotFrame(typing, 0, 1000, true);
   expect(moving.armLeft).not.toBe(moving.armRight);
+  expect(moving.nod).not.toBe(still.nod);
+  // It looks down at its desk.
   expect(still).toEqual({
     x: 10,
     z: 4,
     lift: 0,
     heading: 0,
     lean: 0.08,
+    nod: 0.2,
+    tilt: 0,
     armLeft: -1.2,
     armRight: -1.2,
   });
@@ -137,7 +159,17 @@ test("a starting agent walks from the door to its desk, or is already there with
   expect([half.x, half.z]).toEqual([10, 7]);
   expect(half.heading).toBeCloseTo(Math.PI);
   const arrived = robotFrame(walker, 0, WALK_MS, false);
-  expect(arrived).toEqual({ x: 10, z: 4, lift: 0, heading: 0, lean: 0, armLeft: 0, armRight: 0 });
+  expect(arrived).toEqual({
+    x: 10,
+    z: 4,
+    lift: 0,
+    heading: 0,
+    lean: 0,
+    nod: 0,
+    tilt: 0,
+    armLeft: 0,
+    armRight: 0,
+  });
   expect(robotFrame(walker, 0, 0, true)).toEqual(arrived);
 });
 
@@ -148,15 +180,22 @@ test("the other poses are fixed", () => {
     lift: 0,
     heading: 0,
     lean: -0.3,
+    nod: -0.1,
+    tilt: 0.16,
     armLeft: 0,
     armRight: 0,
   });
+  // Desk by desk the resting heads lie to the other side, so a quiet room is not one stamp.
+  expect(robotFrame(robot({ pose: "idle", seatIndex: 1 }), 0, 0, false).tilt).toBe(0.16);
+  expect(robotFrame(robot({ pose: "idle", seatIndex: 2 }), 0, 0, false).tilt).toBe(-0.16);
   expect(robotFrame(robot({ pose: "raised" }), 0, 0, false)).toEqual({
     x: 10,
     z: 4,
     lift: 0.32,
     heading: 0,
     lean: 0,
+    nod: 0,
+    tilt: 0,
     armLeft: 0,
     armRight: Math.PI,
   });
@@ -166,6 +205,8 @@ test("the other poses are fixed", () => {
     lift: -0.08,
     heading: 0,
     lean: 0.55,
+    nod: 0.3,
+    tilt: 0.3,
     armLeft: 0.25,
     armRight: 0.25,
   });
