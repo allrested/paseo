@@ -119,9 +119,10 @@ export interface SwitchSave {
   against: string;
   /**
    * saving: not back yet. saved: stored, the store's new revision not yet read. failed: refused,
-   * the store is read again. checked: refused, and the store was read again.
+   * the store is read again. checked: refused, and the store was read again. given-up: refused for
+   * good; `against` is then the revision the store held, and a change from elsewhere wins.
    */
-  phase: "saving" | "saved" | "failed" | "checked";
+  phase: "saving" | "saved" | "failed" | "checked" | "given-up";
 }
 
 /** The switch's taps against the device store: at most one save in flight. */
@@ -138,12 +139,14 @@ export type SwitchEvent =
   | { type: "start"; value: boolean; against: string; retry: boolean }
   | { type: "returned"; stored: boolean }
   | { type: "checked" }
+  | { type: "give-up"; revision: string }
   | { type: "settle" };
 
 /**
  * idle: no tap waits. wait: a save or a read is on its way. save: store the last tap. settle: the
- * store holds the last tap, so stop holding it here. give-up: the store refused it; the switch
- * keeps showing the tap until the next tap or the surface closes.
+ * store holds the last tap, or another writer changed it after a give-up, so stop holding it here.
+ * give-up: the store refused it; the switch keeps showing the tap until the next tap, a change
+ * from elsewhere or the surface closes.
  */
 export type SwitchStep =
   | { kind: "idle" | "wait" | "settle" | "give-up" }
@@ -173,6 +176,12 @@ export function switchSync(sync: SwitchSync, event: SwitchEvent): SwitchSync {
     case "checked":
       if (sync.save?.phase !== "failed") return sync;
       return { ...sync, save: { ...sync.save, phase: "checked" } };
+    case "give-up": {
+      const { save } = sync;
+      if (save === null) return sync;
+      if (save.phase === "given-up" && save.against === event.revision) return sync;
+      return { ...sync, save: { ...save, phase: "given-up", against: event.revision } };
+    }
     case "settle":
       return IDLE_SWITCH;
   }
@@ -191,8 +200,14 @@ export function nextSwitchStep(sync: SwitchSync, stored: StoredSwitch | null): S
   let conflict = false;
   if (save !== null) {
     if (save.phase === "saving") return { kind: "wait" };
+    // Given up: nothing is saved again, and a revision that moved was written elsewhere.
+    if (save.phase === "given-up") {
+      return stored.revision === save.against ? { kind: "give-up" } : { kind: "settle" };
+    }
     if (stored.revision === save.against) {
-      return save.phase === "checked" ? { kind: "give-up" } : { kind: "wait" };
+      if (save.phase !== "checked") return { kind: "wait" };
+      // Refused, but the store already holds the last tap: nothing is left to keep here.
+      return stored.value === sync.wanted ? { kind: "settle" } : { kind: "give-up" };
     }
     conflict = save.phase !== "saved";
   }
@@ -261,6 +276,9 @@ function useThreeD(platform: Platform): ThreeDState {
     const stored = revision === null ? null : { value: storedValue, revision };
     const step = nextSwitchStep(sync, stored);
     if (step.kind === "settle") dispatch({ type: "settle" });
+    if (step.kind === "give-up" && stored !== null) {
+      dispatch({ type: "give-up", revision: stored.revision });
+    }
     if (step.kind !== "save") return;
     dispatch({ type: "start", value: step.value, against: step.against, retry: step.retry });
     async function store(value: boolean, against: string): Promise<void> {
