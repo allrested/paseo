@@ -89,7 +89,11 @@ export interface OfficeLayout {
   columns: number;
 }
 
-/** What the next layout keeps: each room's place and rows, and each agent's seat. */
+/**
+ * What the next layout keeps: each room's place and rows, and each agent's seat. Rooms missing
+ * from a snapshot are kept too, so a room that comes back returns to its place. In memory a room's
+ * `gz` counts the missing rooms in front of it; in the layout the rooms behind a gap move up.
+ */
 export interface LayoutMemory {
   roomCells: ReadonlyMap<string, GridCell>;
   seats: ReadonlyMap<string, ReadonlyMap<string, number>>;
@@ -310,6 +314,53 @@ function roomLayout(seated: Seated, cell: GridCell, center: Point): RoomLayout {
   };
 }
 
+/**
+ * The places to remember: each column's remembered order, missing rooms included, with the rooms
+ * dealt there anew behind it. `previous` holds places for this column count only.
+ */
+function rememberCells(
+  cells: ReadonlyMap<string, GridCell>,
+  previous: ReadonlyMap<string, GridCell>,
+  columns: number,
+): Map<string, GridCell> {
+  const stacks: string[][] = Array.from({ length: columns }, () => []);
+  const remembered = [...previous].filter(([roomId, cell]) => {
+    const now = cells.get(roomId);
+    return cell.gx < columns && (now === undefined || now.gx === cell.gx);
+  });
+  remembered.sort(([, left], [, right]) => left.gz - right.gz);
+  for (const [roomId, cell] of remembered) stacks[cell.gx]?.push(roomId);
+  const known = new Set(remembered.map(([roomId]) => roomId));
+  const dealt = [...cells].filter(([roomId]) => !known.has(roomId));
+  dealt.sort(([, left], [, right]) => left.gz - right.gz);
+  for (const [roomId, cell] of dealt) stacks[cell.gx]?.push(roomId);
+  const memory = new Map<string, GridCell>();
+  stacks.forEach((stack, gx) => {
+    stack.forEach((roomId, gz) => memory.set(roomId, { gx, gz }));
+  });
+  return memory;
+}
+
+/** `kept` with what `previous` knows of rooms `kept` lacks. */
+function withMissing<T>(
+  kept: ReadonlyMap<string, T>,
+  previous: ReadonlyMap<string, T>,
+): Map<string, T> {
+  const merged = new Map(kept);
+  for (const [roomId, value] of previous) if (!merged.has(roomId)) merged.set(roomId, value);
+  return merged;
+}
+
+/**
+ * True for an office of the lobby alone after one with other rooms. A reconnect can show that
+ * for a moment: the agents arrive before their workspaces and all stand in the lobby. It is drawn,
+ * but not remembered, or the lobby would keep the rows it grew to and push every room back.
+ */
+function lobbyAloneForNow(model: OfficeModel, memory: LayoutMemory): boolean {
+  if (model.rooms.some((room) => room.id !== LOBBY)) return false;
+  return [...memory.rows.keys()].some((roomId) => roomId !== LOBBY);
+}
+
 function boundsOf(rooms: readonly RoomLayout[]): Bounds {
   if (rooms.length === 0) return { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
   return {
@@ -336,7 +387,8 @@ export function layoutOffice(
     return { room, seats, overflow, rows: rowsFor(seats, memory.rows.get(room.id)) };
   });
   const sized = seated.map((entry) => ({ roomId: entry.room.id, depth: roomDepth(entry.rows) }));
-  const cells = dealRooms(sized, memory.columns === count ? memory.roomCells : new Map(), count);
+  const places = memory.columns === count ? memory.roomCells : new Map<string, GridCell>();
+  const cells = dealRooms(sized, places, count);
   const centers = roomCenters(sized, cells);
   const rooms: RoomLayout[] = [];
   for (const entry of seated) {
@@ -346,18 +398,22 @@ export function layoutOffice(
   }
   const seatOf = new Map<string, SeatSlot>();
   for (const room of rooms) for (const seat of room.seats) seatOf.set(seat.agentId, seat);
+  const layout: OfficeLayout = {
+    rooms,
+    roomById: new Map(rooms.map((room) => [room.roomId, room])),
+    seatOf,
+    bounds: boundsOf(rooms),
+    columns: count,
+  };
+  if (lobbyAloneForNow(model, memory)) return { layout, memory };
+  const seats = new Map(seated.map((entry) => [entry.room.id, entry.seats]));
+  const rows = new Map(seated.map((entry) => [entry.room.id, entry.rows]));
   return {
-    layout: {
-      rooms,
-      roomById: new Map(rooms.map((room) => [room.roomId, room])),
-      seatOf,
-      bounds: boundsOf(rooms),
-      columns: count,
-    },
+    layout,
     memory: {
-      roomCells: cells,
-      seats: new Map(seated.map((entry) => [entry.room.id, entry.seats])),
-      rows: new Map(seated.map((entry) => [entry.room.id, entry.rows])),
+      roomCells: rememberCells(cells, places, count),
+      seats: withMissing(seats, memory.seats),
+      rows: withMissing(rows, memory.rows),
       columns: count,
     },
   };
