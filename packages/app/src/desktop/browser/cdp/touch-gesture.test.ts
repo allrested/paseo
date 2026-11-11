@@ -4,9 +4,9 @@ import { createInputCoalescer, createTouchGesture } from "./touch-gesture";
 describe("touch gesture", () => {
   it("a tap is a move, a press and a release at the touch point", () => {
     const gesture = createTouchGesture();
-    gesture.start({ x: 100, y: 200 });
+    gesture.start({ x: 100, y: 200 }, false);
     expect(gesture.move({ x: 102, y: 203 })).toEqual([]);
-    expect(gesture.end()).toEqual([
+    expect(gesture.end(false)).toEqual([
       {
         kind: "mouse",
         type: "move",
@@ -42,27 +42,78 @@ describe("touch gesture", () => {
 
   it("a drag scrolls the page the way the finger moves it, and ends without a click", () => {
     const gesture = createTouchGesture();
-    gesture.start({ x: 100, y: 200 });
+    gesture.start({ x: 100, y: 200 }, false);
     expect(gesture.move({ x: 100, y: 180 })).toEqual([
       { kind: "wheel", x: 100, y: 200, deltaX: 0, deltaY: 20, modifiers: 0 },
     ]);
     expect(gesture.move({ x: 90, y: 150 })).toEqual([
       { kind: "wheel", x: 100, y: 200, deltaX: 10, deltaY: 30, modifiers: 0 },
     ]);
-    expect(gesture.end()).toEqual([]);
+    expect(gesture.end(false)).toEqual([]);
   });
 
   it("ignores a move or an end with no touch in progress", () => {
     const gesture = createTouchGesture();
     expect(gesture.move({ x: 1, y: 1 })).toEqual([]);
-    expect(gesture.end()).toEqual([]);
+    expect(gesture.end(false)).toEqual([]);
   });
 
   it("cancel drops the touch without a click", () => {
     const gesture = createTouchGesture();
-    gesture.start({ x: 1, y: 1 });
+    gesture.start({ x: 1, y: 1 }, false);
     gesture.cancel();
-    expect(gesture.end()).toEqual([]);
+    expect(gesture.end(false)).toEqual([]);
+  });
+});
+
+describe("touch gesture on a stale frame", () => {
+  const tapMove = {
+    kind: "mouse" as const,
+    type: "move" as const,
+    x: 100,
+    y: 200,
+    button: "none" as const,
+    buttons: 0,
+    clickCount: 0,
+    modifiers: 0,
+  };
+
+  it("a tap on a frame of another size than the claim sends the move but no press", () => {
+    const gesture = createTouchGesture();
+    gesture.start({ x: 100, y: 200 }, true);
+    expect(gesture.end(true)).toEqual([tapMove]);
+  });
+
+  it("the frame turning fresh before the touch ends does not release the press", () => {
+    const gesture = createTouchGesture();
+    gesture.start({ x: 100, y: 200 }, true);
+    expect(gesture.end(false)).toEqual([tapMove]);
+  });
+
+  it("a frame turning stale before the touch ends drops the press", () => {
+    const gesture = createTouchGesture();
+    gesture.start({ x: 100, y: 200 }, false);
+    expect(gesture.end(true)).toEqual([tapMove]);
+  });
+
+  it("the next tap after a fresh frame is a full click", () => {
+    const gesture = createTouchGesture();
+    gesture.start({ x: 100, y: 200 }, true);
+    gesture.end(false);
+    gesture.start({ x: 100, y: 200 }, false);
+    expect(gesture.end(false)).toEqual([
+      tapMove,
+      { ...tapMove, type: "down", button: "left", buttons: 1, clickCount: 1 },
+      { ...tapMove, type: "up", button: "left", buttons: 0, clickCount: 1 },
+    ]);
+  });
+
+  it("a drag that starts on a stale frame scrolls nothing and ends with the move only", () => {
+    const gesture = createTouchGesture();
+    gesture.start({ x: 100, y: 200 }, true);
+    expect(gesture.move({ x: 100, y: 180 })).toEqual([]);
+    expect(gesture.move({ x: 90, y: 150 })).toEqual([]);
+    expect(gesture.end(false)).toEqual([tapMove]);
   });
 });
 
