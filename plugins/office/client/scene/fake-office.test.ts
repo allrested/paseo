@@ -35,7 +35,7 @@ test("the fake office shows every pose, a side desk, an overflow and the lobby",
     "main",
     "docs-site",
     "terraform",
-    "load-test +2",
+    "load-test, 2 more",
   ]);
   expect(model.attention.map((entry) => entry.reason)).toEqual(["permission", "error"]);
 });

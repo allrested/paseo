@@ -89,12 +89,13 @@ test("lit screens take the app accent, but never a hue that sits with the state 
   expect(scenePalette(theme({ accent: "#e4e4e7" })).monitorLit).toBe("#73737c");
 });
 
-test("robots, lit screens, lights, notes and planes stand at least 3:1 off the room floor", () => {
+test("robots, lit screens, lamps, notes and planes stand at least 3:1 off the room floor", () => {
   for (const palette of [scenePalette(theme({})), scenePalette(theme(DARK))]) {
     const parts = [
       palette.robotHead,
       palette.robotBody,
       palette.monitorLit,
+      palette.lampOn,
       palette.lightWarning,
       palette.lightDanger,
       palette.noteTask,
@@ -128,4 +129,33 @@ test("glass is thin: the room behind a wall shows through it", () => {
   for (const palette of [scenePalette(theme({})), scenePalette(theme(DARK))]) {
     expect(palette.wallOpacity).toBe(0.2);
   }
+});
+
+test("a lit lamp takes the theme's success hue; an unlit one is a grey that stands back", () => {
+  for (const palette of [scenePalette(theme({})), scenePalette(theme(DARK))]) {
+    const on = parseColor(palette.lampOn) ?? { r: 0, g: 0, b: 0 };
+    expect(on.g).toBeGreaterThan(Math.max(on.r, on.b));
+    const off = parseColor(palette.lampOff) ?? { r: 0, g: 0, b: 255 };
+    expect(Math.max(off.r, off.g, off.b) - Math.min(off.r, off.g, off.b)).toBeLessThan(24);
+    expect(contrast(palette.lampOff, palette.roomFloor)).toBeLessThan(
+      contrast(palette.lampOn, palette.roomFloor),
+    );
+  }
+});
+
+test("eyes are dark in both schemes and show on every visor", () => {
+  const providers = ["claude", "codex", "pi", "opencode", "copilot", "gemini", "cursor", "amp"];
+  for (const palette of [scenePalette(theme({})), scenePalette(theme(DARK))]) {
+    for (const provider of providers) {
+      expect(contrast(palette.robotEye, visorColor(provider, true))).toBeGreaterThanOrEqual(3);
+    }
+  }
+});
+
+test("a lit desk throws a pool of light by night; by day the pool is faint", () => {
+  const day = scenePalette(theme({}));
+  const night = scenePalette(theme(DARK));
+  expect(relativeLuminance(night.glow)).toBeGreaterThan(relativeLuminance(night.desk));
+  expect(night.glowOpacity).toBeGreaterThan(day.glowOpacity);
+  expect(day.glowOpacity).toBeGreaterThan(0);
 });
