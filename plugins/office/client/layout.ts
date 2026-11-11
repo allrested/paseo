@@ -65,6 +65,8 @@ export interface OfficeLayout {
 export interface LayoutMemory {
   roomCells: ReadonlyMap<string, GridCell>;
   seats: ReadonlyMap<string, ReadonlyMap<string, number>>;
+  /** The column count the cells were laid out for; none for the spiral. */
+  columns?: number;
 }
 
 export const EMPTY_LAYOUT_MEMORY: LayoutMemory = { roomCells: new Map(), seats: new Map() };
@@ -90,6 +92,27 @@ export function spiralCells(count: number): GridCell[] {
   return cells.slice(0, count);
 }
 
+/**
+ * Grid cells row by row from (0, 0), `columns` to a row, each row running back the way the last
+ * one came. The first four cells of a two-column grid are the spiral's, so a small office keeps
+ * its shape when the view turns.
+ */
+export function rowCells(count: number, columns: number): GridCell[] {
+  return Array.from({ length: count }, (_, index) => {
+    const gz = Math.floor(index / columns);
+    const column = index % columns;
+    return { gx: gz % 2 === 0 ? column : columns - 1 - column, gz };
+  });
+}
+
+/**
+ * The column count for a view of this size. Rooms are wider than deep on screen, so a view that
+ * is taller than wide stacks them two to a row; a wide view lets them spiral around the lobby.
+ */
+export function columnsFor(viewport: { width: number; height: number }): number | undefined {
+  return viewport.height > viewport.width ? 2 : undefined;
+}
+
 function cellKey(cell: GridCell): string {
   return `${cell.gx},${cell.gz}`;
 }
@@ -97,6 +120,7 @@ function cellKey(cell: GridCell): string {
 function assignCells(
   roomIds: readonly string[],
   previous: ReadonlyMap<string, GridCell>,
+  columns: number | undefined,
 ): Map<string, GridCell> {
   const cells = new Map<string, GridCell>([[LOBBY, { gx: 0, gz: 0 }]]);
   const taken = new Set<string>([cellKey({ gx: 0, gz: 0 })]);
@@ -111,8 +135,10 @@ function assignCells(
       pending.push(roomId);
     }
   }
-  // Of the first taken + pending spiral cells, at most `taken` are in use.
-  const free = spiralCells(taken.size + pending.length).filter((cell) => !taken.has(cellKey(cell)));
+  // Of the first taken + pending cells of the grid, at most `taken` are in use.
+  const wanted = taken.size + pending.length;
+  const grid = columns === undefined ? spiralCells(wanted) : rowCells(wanted, columns);
+  const free = grid.filter((cell) => !taken.has(cellKey(cell)));
   pending.forEach((roomId, index) => {
     const cell = free[index];
     if (cell) cells.set(roomId, cell);
@@ -218,13 +244,21 @@ function boundsOf(rooms: readonly RoomLayout[]): Bounds {
   };
 }
 
+/**
+ * `columns` lays the rooms out that many to a row instead of in a spiral (see `columnsFor`).
+ * Cells remembered from the other grid are not kept; seats are.
+ */
 export function layoutOffice(
   model: OfficeModel,
   memory: LayoutMemory,
+  columns?: number,
 ): { layout: OfficeLayout; memory: LayoutMemory } {
+  const perRow = columns !== undefined && Number.isInteger(columns) && columns >= 1;
+  const grid = perRow ? columns : undefined;
   const cells = assignCells(
     model.rooms.map((room) => room.id),
-    memory.roomCells,
+    memory.columns === grid ? memory.roomCells : new Map(),
+    grid,
   );
   const rooms: RoomLayout[] = [];
   const seatMemory = new Map<string, ReadonlyMap<string, number>>();
@@ -244,6 +278,6 @@ export function layoutOffice(
       seatOf,
       bounds: boundsOf(rooms),
     },
-    memory: { roomCells: cells, seats: seatMemory },
+    memory: { roomCells: cells, seats: seatMemory, columns: grid },
   };
 }
