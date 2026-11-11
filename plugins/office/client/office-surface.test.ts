@@ -2,6 +2,8 @@ import { expect, test } from "vitest";
 import {
   hasTouchScreen,
   keptSelection,
+  nextFocusRequest,
+  sceneModelFor,
   officeView,
   problemText,
   IDLE_SWITCH,
@@ -16,6 +18,8 @@ import {
   type SwitchSync,
   type ThreeDSetting,
 } from "./office-surface.js";
+import { buildOfficeModel, type OfficeModel } from "./model.js";
+import { EMPTY_OFFICE } from "./office-state.js";
 
 function agents(...ids: string[]): ReadonlyMap<string, unknown> {
   return new Map(ids.map((id): [string, unknown] => [id, { id }]));
@@ -301,4 +305,34 @@ test("a tap after giving up tries again", () => {
 test("a stored value that cannot be read is overwritten by the tap", () => {
   const sync = apply(IDLE_SWITCH, tap(true));
   expect(nextSwitchStep(sync, stored(null, "missing"))).toEqual(save(true, "missing"));
+});
+
+function liveModel(): OfficeModel {
+  return buildOfficeModel({
+    ...EMPTY_OFFICE,
+    workspaces: [{ id: "w1", name: "main", projectName: "paseo" }],
+  });
+}
+
+test("the scene draws the live model, the one the list view shows", () => {
+  const model = liveModel();
+  expect(sceneModelFor("scene", model) === model).toEqual(true);
+});
+
+test("no scene model while the list, the fallback or the wait is shown", () => {
+  const model = liveModel();
+  const views: OfficeView[] = ["structure", "fallback", "pending"];
+  expect(views.map((shown) => sceneModelFor(shown, model))).toEqual([null, null, null]);
+});
+
+test("a strip tap asks the camera for its robot with a nonce the scene has not seen", () => {
+  const first = nextFocusRequest(null, "a1");
+  const again = nextFocusRequest(first, "a1");
+  const other = nextFocusRequest(again, "a2");
+  // The scene treats nonce 0 as already handled, so the first request starts at 1.
+  expect([first, again, other]).toEqual([
+    { agentId: "a1", nonce: 1 },
+    { agentId: "a1", nonce: 2 },
+    { agentId: "a2", nonce: 3 },
+  ]);
 });
