@@ -54,6 +54,12 @@ interface FrameSizeCheck {
   waitTimer: ReturnType<typeof setTimeout> | null;
   /** Captures since awaiting began that brought no frame of the size set. */
   captures: number;
+  /** A capture is out; the wait does not start another until it answers. */
+  capturing: boolean;
+  /** The captures ran out for this size; only a new size or a person's claim tries again. */
+  gaveUp: boolean;
+  /** When a person's claim of the size set last started the checks again. */
+  lastRestartAt: number;
 }
 /** Each daemon tab is a Chromium window with its own renderer, in the user's logged-in browser. */
 export const MAX_DAEMON_TABS = 10;
@@ -358,16 +364,37 @@ export class CdpBrowserService {
     const next = clampViewport(viewport);
     const same = !this.viewportDiffers(browserId, viewport);
     this.viewports.set(browserId, { ...next, owner });
-    if (same) return next;
-    // A new size starts a new run: the old one's failed re-applies say nothing about it.
-    this.frameSizeCheck(browserId).misses = 0;
+    if (same && !this.claimRestartsChecks(browserId, next, owner)) return next;
+    // A new size starts a new run: the old one's failed re-applies say nothing about it. So does a
+    // person's claim of the size set once the checks gave up on it.
+    const check = this.frameSizeCheck(browserId);
+    check.misses = 0;
+    if (same) check.lastRestartAt = this.now();
     this.holdFrameSizeCheck(browserId);
     const tab = await this.attachedTab(browserId);
     if (tab) {
       await this.applyViewport(tab, next);
-      this.awaitFrameOfSetSize(browserId);
+      this.awaitFrameOfSetSize(browserId, "apply");
     }
     return next;
+  }
+
+  /**
+   * A person claims the size already set while the last frame shows another and nothing tries any
+   * more: the re-apply or the capture limit ran out. The app sends no press on such a frame, so
+   * without a new try the pane could never press again. Not while a wait runs, whose timer each
+   * claim would push back, and at most once a second, so hover moves cannot drive it.
+   */
+  private claimRestartsChecks(browserId: string, set: CdpViewport, owner: string): boolean {
+    if (owner === AGENT_VIEWPORT_OWNER || this.agentIsActive(browserId)) return false;
+    const check = this.frameSizeChecks.get(browserId);
+    if (!check || check.awaiting || check.capturing) return false;
+    if (this.now() - check.lastRestartAt < VIEWPORT_REAPPLY_INTERVAL_MS) return false;
+    const frame = this.screencast.lastFrame(browserId);
+    if (!frame) return false;
+    return (
+      Math.round(frame.deviceWidth) !== set.width || Math.round(frame.deviceHeight) !== set.height
+    );
   }
 
   viewportOwner(browserId: string): string | null {
@@ -485,7 +512,7 @@ export class CdpBrowserService {
       if (viewport) {
         this.holdFrameSizeCheck(entry.browserId);
         await this.applyViewport(tab, viewport).then(
-          () => this.awaitFrameOfSetSize(entry.browserId),
+          () => this.awaitFrameOfSetSize(entry.browserId, "re-attach"),
           (error: unknown) => {
             this.logger.debug({ err: error, browserId: entry.browserId }, "CDP viewport failed");
           },
@@ -522,6 +549,9 @@ export class CdpBrowserService {
         awaiting: false,
         waitTimer: null,
         captures: 0,
+        capturing: false,
+        gaveUp: false,
+        lastRestartAt: Number.NEGATIVE_INFINITY,
       };
       this.frameSizeChecks.set(browserId, check);
     }
@@ -553,7 +583,7 @@ export class CdpBrowserService {
     // an override sent then would cut the capture short. The agent's own frames are left alone,
     // and the wait looks at the tab again once the agent is done.
     if (this.agentIsActive(browserId)) {
-      if (!check.awaiting) this.awaitFrameOfSetSize(browserId);
+      if (!check.awaiting) this.awaitFrameOfSetSize(browserId, "apply");
       return;
     }
     const now = this.now();
@@ -578,7 +608,7 @@ export class CdpBrowserService {
       .then(async (tab) => {
         if (!tab) return undefined;
         await this.applyViewport(tab, viewport);
-        this.awaitFrameOfSetSize(browserId);
+        this.awaitFrameOfSetSize(browserId, "apply");
         return undefined;
       })
       .catch((error: unknown) =>
@@ -594,12 +624,18 @@ export class CdpBrowserService {
    * Chromium may paint the size set late, or not at all while its window is covered. Without that
    * frame the pane keeps the old picture and its presses wait, so after FRAME_WAIT_MS the daemon
    * captures one. A frame of the size set from Chromium ends the wait first.
+   *
+   * An apply starts the count at zero. A re-attach re-applies the same size on a new socket, so a
+   * running wait keeps its count and one that gave up stays given up: a capture that times out
+   * closes the socket, and its re-attach must not start the count again.
    */
-  private awaitFrameOfSetSize(browserId: string): void {
+  private awaitFrameOfSetSize(browserId: string, cause: "apply" | "re-attach"): void {
     if (!this.registry.get(browserId)) return;
     const check = this.frameSizeCheck(browserId);
+    if (cause === "re-attach" && check.gaveUp) return;
+    if (cause === "apply" || !check.awaiting) check.captures = 0;
     check.awaiting = true;
-    check.captures = 0;
+    check.gaveUp = false;
     this.scheduleFrameWait(browserId, check);
   }
 
@@ -618,6 +654,7 @@ export class CdpBrowserService {
     if (check.waitTimer) clearTimeout(check.waitTimer);
     check.waitTimer = null;
     check.awaiting = false;
+    check.gaveUp = false;
   }
 
   private onFrameWaitOver(browserId: string, check: FrameSizeCheck): void {
@@ -628,19 +665,37 @@ export class CdpBrowserService {
       this.endFrameWait(browserId);
       return;
     }
-    // A capture must not run inside an agent's own screenshot; look again after the next wait.
-    if (this.agentIsActive(browserId)) {
+    // A capture must not run inside an agent's own screenshot, nor beside another capture; look
+    // again after the next wait.
+    if (this.agentIsActive(browserId) || check.capturing) {
       this.scheduleFrameWait(browserId, check);
       return;
     }
     check.captures += 1;
+    check.capturing = true;
+    // An answer that comes after a newer size was set or an agent began is dropped.
+    const set = this.viewports.get(browserId);
+    const wanted = () => {
+      const current = this.viewports.get(browserId);
+      return (
+        set !== undefined &&
+        current !== undefined &&
+        current.width === set.width &&
+        current.height === set.height &&
+        current.deviceScaleFactor === set.deviceScaleFactor &&
+        !this.agentIsActive(browserId)
+      );
+    };
     // The captured frame goes through onFrame, so checkFrameSize ends the wait or re-applies.
     this.screencast
-      .refresh(browserId)
+      .refresh(browserId, wanted)
       .catch((error: unknown) =>
         this.logger.debug({ err: error, browserId }, "CDP frame capture failed"),
       )
-      .finally(() => this.guard(() => this.afterFrameCapture(browserId, check)));
+      .finally(() => {
+        check.capturing = false;
+        this.guard(() => this.afterFrameCapture(browserId, check));
+      });
   }
 
   private afterFrameCapture(browserId: string, check: FrameSizeCheck): void {
@@ -651,6 +706,7 @@ export class CdpBrowserService {
       return;
     }
     check.awaiting = false;
+    check.gaveUp = true;
     const set = this.viewports.get(browserId);
     this.logger.warn(
       { browserId, set: set ? { width: set.width, height: set.height } : null },
