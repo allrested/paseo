@@ -36,6 +36,10 @@ const AGENT_VIEWPORT_OWNER = "agent";
 export const VIEWPORT_REAPPLY_INTERVAL_MS = 1000;
 /** Re-applies in a row whose frames keep another size before the daemon gives up on the tab. */
 export const VIEWPORT_REAPPLY_LIMIT = 3;
+/** How long after an apply the daemon waits for Chromium's frame of the size set before it captures one. */
+export const FRAME_WAIT_MS = 1000;
+/** Captures in a row that bring no frame of the size set before the daemon stops capturing. */
+export const FRAME_CAPTURE_LIMIT = 3;
 
 /** Frames whose size differs from the one set: a resize of the tab's Chromium window drops it. */
 interface FrameSizeCheck {
@@ -44,6 +48,12 @@ interface FrameSizeCheck {
   lastReapplyAt: number;
   /** Re-applies since the last frame of the size set; one past the limit means it gave up. */
   misses: number;
+  /** Set from an apply, or a mismatch skipped for an agent, until a frame of the size set arrives. */
+  awaiting: boolean;
+  /** Fires when no frame of the size set came in time: the daemon then captures one. */
+  waitTimer: ReturnType<typeof setTimeout> | null;
+  /** Captures since awaiting began that brought no frame of the size set. */
+  captures: number;
 }
 /** Each daemon tab is a Chromium window with its own renderer, in the user's logged-in browser. */
 export const MAX_DAEMON_TABS = 10;
@@ -113,6 +123,8 @@ export interface CdpBrowserServiceOptions {
   now?: () => number;
   createBrowserId?: () => string;
   reconnect?: { minMs: number; maxMs: number };
+  /** Overrides FRAME_WAIT_MS, for tests. */
+  frameWaitMs?: number;
 }
 
 /** The one URL check for tabs the daemon opens or navigates: http, https or about:blank. */
@@ -148,6 +160,7 @@ export class CdpBrowserService {
   private readonly createBrowserId: () => string;
   private readonly minBackoffMs: number;
   private readonly maxBackoffMs: number;
+  private readonly frameWaitMs: number;
 
   private browser: CdpConnection | null = null;
   private unregister: (() => void) | null = null;
@@ -199,10 +212,13 @@ export class CdpBrowserService {
     this.minBackoffMs = options.reconnect?.minMs ?? 1_000;
     this.maxBackoffMs = options.reconnect?.maxMs ?? 30_000;
     this.backoffMs = this.minBackoffMs;
+    this.frameWaitMs = options.frameWaitMs ?? FRAME_WAIT_MS;
     this.screencast = new ScreencastHub({
       source: async (browserId) => (await this.attachedTab(browserId))?.connection ?? null,
       onError: (error) => this.logger.debug({ err: error }, "Screencast error"),
       frameSize: (browserId, reported) => correctFrameSize(this.viewports.get(browserId), reported),
+      deviceScaleFactor: (browserId) => this.viewports.get(browserId)?.deviceScaleFactor ?? 1,
+      onIdle: (browserId) => this.guard(() => this.endFrameWait(browserId)),
       onFrame: (browserId, frame) =>
         this.guard(() => this.checkFrameSize(browserId, frame.deviceWidth, frame.deviceHeight)),
     });
@@ -229,6 +245,7 @@ export class CdpBrowserService {
     this.reconnectTimer = null;
     for (const timer of this.agentTimers.values()) clearTimeout(timer);
     this.agentTimers.clear();
+    for (const browserId of this.frameSizeChecks.keys()) this.endFrameWait(browserId);
     const browser = this.browser;
     this.disconnect();
     browser?.close();
@@ -346,7 +363,10 @@ export class CdpBrowserService {
     this.frameSizeCheck(browserId).misses = 0;
     this.holdFrameSizeCheck(browserId);
     const tab = await this.attachedTab(browserId);
-    if (tab) await this.applyViewport(tab, next);
+    if (tab) {
+      await this.applyViewport(tab, next);
+      this.awaitFrameOfSetSize(browserId);
+    }
     return next;
   }
 
@@ -464,9 +484,12 @@ export class CdpBrowserService {
       const viewport = this.viewports.get(entry.browserId);
       if (viewport) {
         this.holdFrameSizeCheck(entry.browserId);
-        await this.applyViewport(tab, viewport).catch((error: unknown) => {
-          this.logger.debug({ err: error, browserId: entry.browserId }, "CDP viewport failed");
-        });
+        await this.applyViewport(tab, viewport).then(
+          () => this.awaitFrameOfSetSize(entry.browserId),
+          (error: unknown) => {
+            this.logger.debug({ err: error, browserId: entry.browserId }, "CDP viewport failed");
+          },
+        );
       }
       for (const listener of this.attachListeners) this.guard(() => listener(entry.browserId));
       return tab;
@@ -492,7 +515,14 @@ export class CdpBrowserService {
   private frameSizeCheck(browserId: string): FrameSizeCheck {
     let check = this.frameSizeChecks.get(browserId);
     if (!check) {
-      check = { settleUntil: 0, lastReapplyAt: Number.NEGATIVE_INFINITY, misses: 0 };
+      check = {
+        settleUntil: 0,
+        lastReapplyAt: Number.NEGATIVE_INFINITY,
+        misses: 0,
+        awaiting: false,
+        waitTimer: null,
+        captures: 0,
+      };
       this.frameSizeChecks.set(browserId, check);
     }
     return check;
@@ -512,13 +542,18 @@ export class CdpBrowserService {
     const set = this.viewports.get(browserId);
     // A frame without size metadata says nothing about the size.
     if (!set || width <= 0 || height <= 0) return;
-    // A full-page screenshot (captureBeyondViewport) changes the emulated size while it captures;
-    // an override sent then would cut the capture short. The agent's own frames are left alone.
-    if (this.agentCommands.has(browserId) || this.agentBadgeShows(browserId)) return;
     const check = this.frameSizeCheck(browserId);
     if (Math.round(width) === set.width && Math.round(height) === set.height) {
       check.misses = 0;
       check.settleUntil = 0;
+      this.endFrameWait(browserId);
+      return;
+    }
+    // A full-page screenshot (captureBeyondViewport) changes the emulated size while it captures;
+    // an override sent then would cut the capture short. The agent's own frames are left alone,
+    // and the wait looks at the tab again once the agent is done.
+    if (this.agentIsActive(browserId)) {
+      if (!check.awaiting) this.awaitFrameOfSetSize(browserId);
       return;
     }
     const now = this.now();
@@ -540,10 +575,87 @@ export class CdpBrowserService {
       deviceScaleFactor: set.deviceScaleFactor,
     };
     this.attachedTab(browserId)
-      .then((tab) => (tab ? this.applyViewport(tab, viewport) : undefined))
+      .then(async (tab) => {
+        if (!tab) return undefined;
+        await this.applyViewport(tab, viewport);
+        this.awaitFrameOfSetSize(browserId);
+        return undefined;
+      })
       .catch((error: unknown) =>
         this.logger.debug({ err: error, browserId }, "CDP viewport re-apply failed"),
       );
+  }
+
+  private agentIsActive(browserId: string): boolean {
+    return this.agentCommands.has(browserId) || this.agentBadgeShows(browserId);
+  }
+
+  /**
+   * Chromium may paint the size set late, or not at all while its window is covered. Without that
+   * frame the pane keeps the old picture and its presses wait, so after FRAME_WAIT_MS the daemon
+   * captures one. A frame of the size set from Chromium ends the wait first.
+   */
+  private awaitFrameOfSetSize(browserId: string): void {
+    if (!this.registry.get(browserId)) return;
+    const check = this.frameSizeCheck(browserId);
+    check.awaiting = true;
+    check.captures = 0;
+    this.scheduleFrameWait(browserId, check);
+  }
+
+  private scheduleFrameWait(browserId: string, check: FrameSizeCheck): void {
+    if (check.waitTimer) clearTimeout(check.waitTimer);
+    check.waitTimer = setTimeout(
+      () => this.guard(() => this.onFrameWaitOver(browserId, check)),
+      this.frameWaitMs,
+    );
+    check.waitTimer.unref?.();
+  }
+
+  private endFrameWait(browserId: string): void {
+    const check = this.frameSizeChecks.get(browserId);
+    if (!check) return;
+    if (check.waitTimer) clearTimeout(check.waitTimer);
+    check.waitTimer = null;
+    check.awaiting = false;
+  }
+
+  private onFrameWaitOver(browserId: string, check: FrameSizeCheck): void {
+    check.waitTimer = null;
+    if (this.frameSizeChecks.get(browserId) !== check || !check.awaiting) return;
+    // Nobody watches: nothing to show. The next viewer's claim or frame starts a new wait.
+    if (!this.browser || this.screencast.viewerCount(browserId) === 0) {
+      this.endFrameWait(browserId);
+      return;
+    }
+    // A capture must not run inside an agent's own screenshot; look again after the next wait.
+    if (this.agentIsActive(browserId)) {
+      this.scheduleFrameWait(browserId, check);
+      return;
+    }
+    check.captures += 1;
+    // The captured frame goes through onFrame, so checkFrameSize ends the wait or re-applies.
+    this.screencast
+      .refresh(browserId)
+      .catch((error: unknown) =>
+        this.logger.debug({ err: error, browserId }, "CDP frame capture failed"),
+      )
+      .finally(() => this.guard(() => this.afterFrameCapture(browserId, check)));
+  }
+
+  private afterFrameCapture(browserId: string, check: FrameSizeCheck): void {
+    // Ended by a frame of the size set, the tab closed, or a new apply restarted the wait.
+    if (this.frameSizeChecks.get(browserId) !== check || !check.awaiting || check.waitTimer) return;
+    if (check.captures < FRAME_CAPTURE_LIMIT) {
+      this.scheduleFrameWait(browserId, check);
+      return;
+    }
+    check.awaiting = false;
+    const set = this.viewports.get(browserId);
+    this.logger.warn(
+      { browserId, set: set ? { width: set.width, height: set.height } : null },
+      "CDP tab sent no frame of the viewport set; stopped capturing one",
+    );
   }
 
   private async applyViewport(tab: CdpTab, viewport: CdpViewport): Promise<void> {
@@ -591,6 +703,7 @@ export class CdpBrowserService {
     this.tabs.get(entry.browserId)?.dispose();
     this.tabs.delete(entry.browserId);
     this.viewports.delete(entry.browserId);
+    this.endFrameWait(entry.browserId);
     this.frameSizeChecks.delete(entry.browserId);
     this.agentActiveUntil.delete(entry.browserId);
     const timer = this.agentTimers.get(entry.browserId);
