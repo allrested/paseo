@@ -39,3 +39,30 @@ test("the fake office shows every pose, a side desk, an overflow and the lobby",
   ]);
   expect(model.attention.map((entry) => entry.reason)).toEqual(["permission", "error"]);
 });
+
+test("the child agent sits at the side desk of its parent's cell", () => {
+  const model = buildOfficeModel(fakeOffice());
+  const { layout } = layoutOffice(model, EMPTY_LAYOUT_MEMORY);
+  const plan = buildScenePlan(model, layout, scenePalette(THEME));
+  const parent = layout.seatOf.get("Refactor hub");
+  const child = layout.seatOf.get("Hub tests");
+  if (parent === undefined || child === undefined) throw new Error("both agents have a seat");
+  expect([parent.roomId, parent.side, parent.index % 2]).toEqual(["w-main", false, 0]);
+  expect([child.roomId, child.side, child.index]).toEqual(["w-main", true, parent.index + 1]);
+  // Same cell: the side seat is 1.2 to the right of the main seat (0.65 - -0.55), same row.
+  expect(child.x - parent.x).toBeCloseTo(1.2, 9);
+  expect(child.z).toBe(parent.z);
+  const robot = plan.robots.find((candidate) => candidate.agentId === "Hub tests");
+  expect([robot?.side, robot?.seat]).toEqual([true, { x: child.x, z: child.z }]);
+});
+
+test("the lobby and main boards hold the fake posts, oldest first", () => {
+  const model = buildOfficeModel(fakeOffice());
+  expect(model.rooms.map((room) => [room.id, room.posts.map((post) => post.id)])).toEqual([
+    ["lobby", ["p1"]],
+    ["w-main", ["p2", "p3", "p4"]],
+    ["w-docs", []],
+    ["w-infra", []],
+    ["w-load", []],
+  ]);
+});
