@@ -3,7 +3,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { OfficeAgent, OfficeSnapshot } from "../../shared/contracts.js";
 import { EMPTY_LAYOUT_MEMORY, layoutOffice } from "../layout.js";
 import { buildOfficeModel } from "../model.js";
-import { scenePalette } from "./palette.js";
+import { scenePalette, sceneVisor, visorColor } from "./palette.js";
 import {
   DESK_OFFSET_Z,
   WALK_MS,
@@ -242,4 +242,14 @@ test("a room that needs a second row gets its desks, and the plan says how deep 
   ]);
   expect(deskPlans(scene)).toHaveLength(4 + 8);
   expect(scene.columns).toBe(2);
+});
+
+test("a robot's visor is the palette's scene visor, so a warm provider colour is muted", () => {
+  const scene = plan([agent("c"), agent("p", { provider: "pi" })]);
+  expect(scene.robots.map((item) => [item.agentId, item.visor])).toEqual([
+    ["c", sceneVisor("claude", PALETTE)],
+    ["p", sceneVisor("pi", PALETTE)],
+  ]);
+  // Pi's identity colour is the app's red, too close to the danger lamp to be used as it is.
+  expect(sceneVisor("pi", PALETTE)).not.toBe(visorColor("pi", true));
 });

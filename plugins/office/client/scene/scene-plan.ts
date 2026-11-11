@@ -7,7 +7,7 @@ import {
   type Point,
 } from "../layout.js";
 import type { OfficeModel } from "../model.js";
-import { visorColor, type ScenePalette } from "./palette.js";
+import { sceneVisor, type ScenePalette } from "./palette.js";
 
 export type RobotPose = "typing" | "idle" | "raised" | "slumped" | "walking";
 
@@ -167,9 +167,8 @@ export function buildScenePlan(
         door: room.door,
         side: seat.side,
         pose,
-        // The visor sits on the head, which is graphite in a light theme too
-        // (palette.robotHead), so it takes the identity colour for a dark surface in both.
-        visor: visorColor(agent.provider, true),
+        // The provider's identity colour for a dark surface, muted near the state hues.
+        visor: sceneVisor(agent.provider, palette),
         lamp,
         lampColor: lampColor(lamp, palette),
         // An agent that waits for an answer is not working: its amber lamp is the light there.
