@@ -1,6 +1,6 @@
 import type { OfficeAgent } from "../../shared/contracts.js";
 import {
-  DESKS_PER_ROOM,
+  CELL_COLUMNS,
   seatPosition,
   type Bounds,
   type OfficeLayout,
@@ -32,6 +32,10 @@ export interface RoomPlan {
   roomId: string;
   label: string;
   center: Point;
+  /** Rows of desks the room has. */
+  rows: number;
+  /** From the back wall to the front wall. */
+  depth: number;
   board: Point;
   door: Point;
   labelAt: Point;
@@ -41,6 +45,8 @@ export interface ScenePlan {
   rooms: RoomPlan[];
   robots: RobotPlan[];
   bounds: Bounds;
+  /** The column count the rooms were dealt for; another count is a new arrangement. */
+  columns: number;
 }
 
 export interface RobotFrame {
@@ -97,6 +103,8 @@ export function buildScenePlan(
       roomId: room.roomId,
       label: roomLabel(names.get(room.roomId) ?? room.roomId, room.overflow),
       center: room.center,
+      rows: room.rows,
+      depth: room.depth,
       board: room.board,
       door: room.door,
       labelAt: room.label,
@@ -125,7 +133,7 @@ export function buildScenePlan(
     }
   }
   robots.sort((left, right) => left.agentId.localeCompare(right.agentId));
-  return { rooms, robots, bounds: layout.bounds };
+  return { rooms, robots, bounds: layout.bounds, columns: layout.columns };
 }
 
 export interface DeskPlan {
@@ -134,15 +142,15 @@ export interface DeskPlan {
   screenLit: boolean;
 }
 
-/** Every main seat of every room gets a desk, so empty rooms still read as offices. */
+/** Every main seat of a room's rows gets a desk, so an empty room still reads as an office. */
 export function deskPlans(plan: ScenePlan): DeskPlan[] {
   const lit = new Map(
     plan.robots.map((robot) => [`${robot.roomId}:${robot.seatIndex}`, robot.screenLit]),
   );
   const desks: DeskPlan[] = [];
   for (const room of plan.rooms) {
-    for (let index = 0; index < DESKS_PER_ROOM; index += 2) {
-      const seat = seatPosition(room.center, index);
+    for (let index = 0; index < room.rows * CELL_COLUMNS * 2; index += 2) {
+      const seat = seatPosition(room, index);
       desks.push({
         x: seat.x,
         z: seat.z + DESK_OFFSET_Z,

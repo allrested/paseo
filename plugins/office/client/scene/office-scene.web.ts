@@ -1,5 +1,5 @@
 // Web only: created by scene-view.tsx after three.js loaded. Nothing here runs at import time.
-import { DOOR_WIDTH, ROOM_DEPTH, ROOM_WIDTH, WALL_HEIGHT, type Bounds } from "../layout.js";
+import { DOOR_WIDTH, ROOM_WIDTH, WALL_HEIGHT, type Bounds } from "../layout.js";
 import {
   CAMERA_BACK,
   CAMERA_EASE_MS,
@@ -368,11 +368,11 @@ function createRig(three: ThreeModule): Rig {
 function wallSegments(room: RoomPlan, y: number, height: number): Placement[] {
   const { x, z } = room.center;
   const halfWidth = ROOM_WIDTH / 2;
-  const halfDepth = ROOM_DEPTH / 2;
+  const halfDepth = room.depth / 2;
   const frontWidth = (ROOM_WIDTH - DOOR_WIDTH) / 2 + WALL_THICKNESS / 2;
   const frontOffset = halfWidth + WALL_THICKNESS / 2 - frontWidth / 2;
   const across = { y, sy: height, sz: WALL_THICKNESS };
-  const along = { y, z, sx: WALL_THICKNESS, sy: height, sz: ROOM_DEPTH - WALL_THICKNESS };
+  const along = { y, z, sx: WALL_THICKNESS, sy: height, sz: room.depth - WALL_THICKNESS };
   return [
     { ...across, x, z: z - halfDepth, sx: ROOM_WIDTH + WALL_THICKNESS },
     { ...along, x: x - halfWidth },
@@ -418,7 +418,7 @@ function writeRooms(stage: Stage, rooms: readonly RoomPlan[]): void {
       z: room.center.z,
       sx: ROOM_WIDTH + rim,
       sy: SLAB_HEIGHT,
-      sz: ROOM_DEPTH + rim,
+      sz: room.depth + rim,
     })),
   );
   writeAll(
@@ -520,7 +520,7 @@ function labelAnchor(room: RoomPlan): WorldPoint {
   return {
     x: room.center.x - ROOM_WIDTH / 2,
     y: WALL_HEIGHT / 2,
-    z: room.center.z + ROOM_DEPTH / 2,
+    z: room.center.z + room.depth / 2,
   };
 }
 
@@ -528,8 +528,8 @@ function roomBounds(room: RoomPlan): Bounds {
   return {
     minX: room.center.x - ROOM_WIDTH / 2 - ROOM_FRAME.side,
     maxX: room.center.x + ROOM_WIDTH / 2 + ROOM_FRAME.side,
-    minZ: room.center.z - ROOM_DEPTH / 2 - ROOM_FRAME.back,
-    maxZ: room.center.z + ROOM_DEPTH / 2 + ROOM_FRAME.front,
+    minZ: room.center.z - room.depth / 2 - ROOM_FRAME.back,
+    maxZ: room.center.z + room.depth / 2 + ROOM_FRAME.front,
   };
 }
 
@@ -544,13 +544,13 @@ function frameOf(bounds: Bounds): Bounds {
   return { ...bounds, minX: bounds.minX + inset, maxX: bounds.maxX - inset };
 }
 
-/** True when a room that both plans hold stands somewhere else: the grid was laid out again. */
-function roomsMoved(before: ScenePlan, after: ScenePlan): boolean {
-  const centers = new Map(before.rooms.map((room) => [room.roomId, room.center]));
-  return after.rooms.some((room) => {
-    const was = centers.get(room.roomId);
-    return was !== undefined && (was.x !== room.center.x || was.z !== room.center.z);
-  });
+/**
+ * True when the rooms were dealt again for another column count: the old view then shows the
+ * wrong place. A room that grew by a row, or one that left, only moves the rooms behind it, and
+ * the user's pan and zoom are kept.
+ */
+function dealtAgain(before: ScenePlan, after: ScenePlan): boolean {
+  return before.rooms.length > 0 && after.rooms.length > 0 && before.columns !== after.columns;
 }
 
 export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
@@ -601,7 +601,12 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   const rig = createRig(three);
   const labels = new Map<string, Label>();
 
-  let plan: ScenePlan = { rooms: [], robots: [], bounds: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 } };
+  let plan: ScenePlan = {
+    rooms: [],
+    robots: [],
+    bounds: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
+    columns: 0,
+  };
   let colors: ScenePalette | null = null;
   const enteredAt = new Map<string, number>();
   let viewport: Viewport = { width: 0, height: 0 };
@@ -1015,9 +1020,9 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       }
       const present = new Set(nextPlan.robots.map((robot) => robot.agentId));
       for (const agentId of enteredAt.keys()) if (!present.has(agentId)) enteredAt.delete(agentId);
-      // After a new grid (a phone turned on its side) the old view shows the wrong place, and an
+      // After a new deal (a phone turned on its side) the old view shows the wrong place, and an
       // office that emptied is framed again when its rooms come back. Both jump, without easing.
-      focus = replan(focus, roomsMoved(plan, nextPlan) || nextPlan.rooms.length === 0);
+      focus = replan(focus, dealtAgain(plan, nextPlan) || nextPlan.rooms.length === 0);
       plan = nextPlan;
       colors = nextPalette;
       applyPalette(materials, nextPalette);
