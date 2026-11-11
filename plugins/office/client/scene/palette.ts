@@ -48,6 +48,10 @@ const BLACK = "#000000";
 const GREY_SPREAD = 24;
 /** An accent this close (degrees of hue) to the theme's warning or danger is not used. */
 const STATE_HUE_GUARD = 45;
+/** A visor near the warning or danger hue keeps its hue at this HSV saturation: a tinted neutral. */
+const VISOR_SATURATION = 0.14;
+/** The steady lamp is a light, not a colour: its HSV saturation stays under this. */
+const LAMP_SATURATION = 0.1;
 
 export function parseColor(value: string): Rgb | null {
   const text = value.trim().toLowerCase();
@@ -148,6 +152,28 @@ function saturated(color: string): string {
   return toHex({ r: stretch(r), g: stretch(g), b: stretch(b) });
 }
 
+/** `color` with its HSV saturation at most `limit`; hue and brightness stay. */
+function withSaturation(color: string, limit: number): string {
+  const { r, g, b } = parseColor(color) ?? FALLBACK;
+  const max = Math.max(r, g, b);
+  const spread = max - Math.min(r, g, b);
+  if (spread === 0 || spread <= limit * max) return color;
+  const keep = (limit * max) / spread;
+  // Rounded up, so the spread never ends over the limit.
+  const toward = (channel: number) => Math.ceil(max - (max - channel) * keep);
+  return toHex({ r: toward(r), g: toward(g), b: toward(b) });
+}
+
+/** True when `color` has a hue within `STATE_HUE_GUARD` of any of `states`. */
+function nearStateHue(color: string, states: readonly string[]): boolean {
+  const hue = hueOf(color);
+  if (hue === null) return false;
+  return states.some((state) => {
+    const stateHue = hueOf(state);
+    return stateHue !== null && hueGap(hue, stateHue) < STATE_HUE_GUARD;
+  });
+}
+
 /**
  * What tints the glass, the lit screens and the notes: the app accent, so the office changes with
  * the theme. Amber and red are kept for "needs you", so an accent with no hue (Zinc's near-white)
@@ -155,12 +181,8 @@ function saturated(color: string): string {
  * foreground and the office goes monochrome.
  */
 function sceneTint(colors: PluginTheme["colors"]): string {
-  const hue = hueOf(colors.accent);
-  if (hue === null) return colors.foregroundMuted;
-  const nearState = [colors.statusWarning, colors.statusDanger].some((state) => {
-    const stateHue = hueOf(state);
-    return stateHue !== null && hueGap(hue, stateHue) < STATE_HUE_GUARD;
-  });
+  if (hueOf(colors.accent) === null) return colors.foregroundMuted;
+  const nearState = nearStateHue(colors.accent, [colors.statusWarning, colors.statusDanger]);
   return nearState ? colors.foregroundMuted : colors.accent;
 }
 
@@ -168,14 +190,14 @@ function sceneTint(colors: PluginTheme["colors"]): string {
  * WCAG contrast each part holds against the room floor; nothing that carries state goes under
  * 3:1. Amber is a light colour, so on a light floor the warning lamp can only darken to just
  * past 3:1. The head is the darker part of a robot in both schemes: the visor sits on it. An
- * unlit lamp says nothing, so it alone stays under 3:1.
+ * unlit lamp says nothing, so it alone stays under 3:1. The steady lamp is the foreground, a light
+ * by night; by day it is a mid neutral, past 3:1 off the floor and 2.5:1 off the dark head.
  */
 interface ContrastPlan {
   robotHead: number;
   robotBody: number;
   lampOff: number;
   lampOn: number;
-  monitorLit: number;
   wall: number;
   lightWarning: number;
   lightDanger: number;
@@ -188,8 +210,7 @@ const LIGHT_PLAN: ContrastPlan = {
   robotHead: 8,
   robotBody: 5.2,
   lampOff: 2,
-  lampOn: 4.2,
-  monitorLit: 4,
+  lampOn: 3.1,
   wall: 3,
   lightWarning: 3.2,
   lightDanger: 4.5,
@@ -198,12 +219,16 @@ const LIGHT_PLAN: ContrastPlan = {
   noteNote: 3.2,
 };
 
+/** By night a lit screen holds this contrast against the room floor. */
+const NIGHT_SCREEN = 5;
+/** By day an unused screen is this far from its desk towards the foreground. */
+const DAY_SCREEN_DIM = 0.3;
+
 const DARK_PLAN: ContrastPlan = {
   robotHead: 3.2,
   robotBody: 4,
   lampOff: 2.2,
-  lampOn: 6.5,
-  monitorLit: 5,
+  lampOn: 12,
   wall: 5.4,
   lightWarning: 7.5,
   lightDanger: 4.5,
@@ -215,9 +240,10 @@ const DARK_PLAN: ContrastPlan = {
 /**
  * The office in the app's own tones. Surfaces are steps between the app surface and the
  * foreground (ground, room floor, desk); robots are the muted foreground as graphite; the accent tints the
- * glass and lights the screens; a robot's lamp takes the list view's dot colours, with the
- * theme's warning and danger hues at full strength, which are used nowhere else. Screens, visors,
- * eyes, lamps, notes and planes are drawn unlit, so their colours reach the screen as given.
+ * glass and lights the screens; a robot's lamp is a neutral while it rests or works, and takes the
+ * theme's warning and danger hues at full strength while it needs the owner, which are used
+ * nowhere else. Screens, visors, eyes, lamps, notes and planes are drawn unlit, so their colours
+ * reach the screen as given.
  */
 export function scenePalette(theme: PluginTheme): ScenePalette {
   const c = theme.colors;
@@ -227,8 +253,13 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
   const roomFloor = mix(c.surface0, c.foreground, dark ? 0.05 : 0.08);
   const tint = sceneTint(c);
   const onFloor = (color: string, ratio: number) => standOff(color, roomFloor, ratio);
-  const monitorLit = onFloor(tint, plan.monitorLit);
   const desk = dark ? mix(c.surface2, c.foreground, 0.12) : mix(c.surface0, c.foreground, 0.03);
+  // By night a lit screen is the light in the room. By day a near-white floor leaves no room to
+  // stand a light off it, so the screen is the tint lifted a quarter of the way from its desk to
+  // white: the lightest thing on the desk, like a light table in daylight.
+  const monitorLit = dark
+    ? onFloor(tint, NIGHT_SCREEN)
+    : atLuminance(tint, relativeLuminance(desk) + (1 - relativeLuminance(desk)) / 4);
   return {
     dark,
     background: mix(c.surface0, c.surface0, 0),
@@ -244,19 +275,21 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
     // light room that leaves the robots as the only dark things, so empty desks recede.
     desk,
     // An unused screen is a shade darker than the desk it lies in, so empty desks recede.
-    monitorDim: mix(desk, dark ? BLACK : c.foreground, dark ? 0.32 : 0.1),
+    monitorDim: mix(desk, dark ? BLACK : c.foreground, dark ? 0.32 : DAY_SCREEN_DIM),
     monitorLit,
     robotBody: onFloor(c.foregroundMuted, plan.robotBody),
     // Dark enough in both schemes for the visor, an identity colour for a dark surface.
     robotHead: onFloor(c.foregroundMuted, plan.robotHead),
     // Visors are identity colours for a dark surface in both schemes, so eyes are dark in both.
     robotEye: dark ? mix(c.surface0, BLACK, 0.45) : mix(c.foreground, BLACK, 0.1),
-    // The list view's dots: muted for an agent at rest, the success colour for one at work.
+    // Muted for an agent at rest. One at work has a quiet light, not a colour: saturated colour on
+    // a robot is kept for the two lamps that need the owner.
     lampOff: onFloor(c.foregroundMuted, plan.lampOff),
-    lampOn: onFloor(c.statusSuccess, plan.lampOn),
-    // By night a lit screen is the light in the room. By day its pool is a faint wash.
+    lampOn: onFloor(withSaturation(c.foreground, LAMP_SATURATION), plan.lampOn),
+    // The pool is never darker than the desk it lies on: by night it is the light in the room,
+    // by day a wash lighter than the desk.
     glow: dark ? mix(monitorLit, c.foreground, 0.35) : monitorLit,
-    glowOpacity: dark ? 0.55 : 0.14,
+    glowOpacity: dark ? 0.55 : 0.3,
     shadowOpacity: dark ? 0.35 : 0.18,
     lightWarning: onFloor(saturated(c.statusWarning), plan.lightWarning),
     lightDanger: onFloor(saturated(c.statusDanger), plan.lightDanger),
@@ -326,4 +359,15 @@ function hashIdentityKey(key: string): number {
 export function visorColor(provider: string, dark: boolean): string {
   const name = IDENTITY_NAMES[hashIdentityKey(provider) % IDENTITY_NAMES.length] ?? "violet";
   return dark ? IDENTITY_DARK[name] : IDENTITY_LIGHT[name];
+}
+
+/**
+ * The visor of a robot: the provider's identity colour for a dark surface (heads are graphite in
+ * both schemes). The waiting robot is the one warm spot, so an identity colour near the warning or
+ * danger hue keeps its hue, and providers still differ, at the saturation of a tinted neutral.
+ */
+export function sceneVisor(provider: string, palette: ScenePalette): string {
+  const identity = visorColor(provider, true);
+  const warm = nearStateHue(identity, [palette.lightWarning, palette.lightDanger]);
+  return warm ? withSaturation(identity, VISOR_SATURATION) : identity;
 }
