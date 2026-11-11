@@ -23,9 +23,14 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A label is imperative ("Send"), so its failure reads "Unable to send: ...". */
-function failureText(label: string, error: unknown): string {
-  return `Unable to ${label.charAt(0).toLowerCase()}${label.slice(1)}: ${messageOf(error)}`;
+/**
+ * A label is imperative ("Send"), so its failure reads "Unable to send: ...". A message that
+ * already starts "Unable to" (the board service's errors) is shown as it is, not prefixed twice.
+ */
+export function failureText(label: string, error: unknown): string {
+  const message = messageOf(error);
+  if (message.startsWith("Unable to")) return message;
+  return `Unable to ${label.charAt(0).toLowerCase()}${label.slice(1)}: ${message}`;
 }
 
 function buttonStyle(
@@ -54,6 +59,8 @@ export function ActionButton({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+  // Set before the first await, so a second tap before the re-render cannot fire twice.
+  const inFlight = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -61,23 +68,26 @@ export function ActionButton({
     };
   }, []);
   const press = useCallback(() => {
-    if (pending) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setPending(true);
     setError(null);
     Promise.resolve()
       .then(() => onPress())
       .then(
         () => {
+          inFlight.current = false;
           if (mounted.current) setPending(false);
           return undefined;
         },
         (failure: unknown) => {
+          inFlight.current = false;
           if (!mounted.current) return;
           setPending(false);
           setError(failureText(label, failure));
         },
       );
-  }, [label, onPress, pending]);
+  }, [label, onPress]);
   const dim = disabled || pending;
   const style = useCallback(
     ({ pressed }: PressableStateCallbackType) => buttonStyle(styles, primary, dim, pressed),
