@@ -12,7 +12,7 @@ import { CdpTabRegistry } from "./tab-registry.js";
 import { startFakeChromium, type FakeChromium } from "./test-utils/fake-chromium.js";
 import { CdpViewSession } from "./view-session.js";
 
-const logger = { debug: () => {}, warn: () => {}, error: () => {} };
+const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
 async function until(condition: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 3000;
