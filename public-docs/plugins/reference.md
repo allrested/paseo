@@ -505,7 +505,8 @@ Claude Code session id. It is absent before the session has one and for provider
 report it. A source behind an API gateway can use it to look up the account the gateway routes the
 session to. Paseo reuses an agent's session discovery for up to a minute, then calls `discover()`
 again on the next request, and at once when `sessionId` changes. When that repeat call fails, the
-agent keeps your source's accounts from the previous call.
+agent keeps your source's accounts from the previous call. Keep `discover()` cheap and free of side
+effects, because it can run once a minute for each agent.
 
 Inputs name credential stores; never put credentials in inputs or reports. Paseo validates each
 input against your schema before calling `fetch()`. The same key in any scope is the same report;
