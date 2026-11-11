@@ -323,6 +323,7 @@ export function CdpBrowserPane({
               onInput={view.sendInput}
               page={page}
               rect={rect}
+              viewport={viewport}
             />
           </>
         ) : null}
