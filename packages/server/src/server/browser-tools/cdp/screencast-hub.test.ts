@@ -127,6 +127,39 @@ describe("ScreencastHub", () => {
     expect(Buffer.from(a.frames[1].jpeg).toString("base64")).toBe(JPEG);
   });
 
+  test("viewers, the cache and onFrame get the frame size as frameSize corrects it", async () => {
+    const seen: Array<[string, number, number]> = [];
+    const errors: unknown[] = [];
+    let fails = false;
+    const correcting = new ScreencastHub({
+      source: async () => fake.source,
+      onError: (error) => errors.push(error),
+      frameSize: (browserId, size) => {
+        if (fails) throw new Error("correction failed");
+        return browserId === "tab" ? { width: size.width / 2, height: size.height / 2 } : size;
+      },
+      onFrame: (browserId, frame) =>
+        void seen.push([browserId, frame.deviceWidth, frame.deviceHeight]),
+    });
+    const a = viewer("a");
+    await correcting.watch("tab", a);
+    await flush();
+    fake.frame(1);
+    await flush();
+    expect(a.frames[1]).toMatchObject({ deviceWidth: 195, deviceHeight: 350, scrollX: 0 });
+    expect(seen).toEqual([["tab", 195, 350]]);
+    const late = viewer("late");
+    await correcting.watch("tab", late);
+    await flush();
+    expect(late.frames[0]).toMatchObject({ deviceWidth: 195, deviceHeight: 350 });
+    // A correction that throws is reported and leaves the size as Chromium reported it.
+    fails = true;
+    fake.frame(2);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(a.frames.at(-1)).toMatchObject({ deviceWidth: 390, deviceHeight: 700 });
+    expect(errors).toEqual([new Error("correction failed")]);
+  });
+
   test("a later viewer gets the cached frame at once, with no second screenshot", async () => {
     await hub.watch("tab", viewer("a"));
     await flush();
