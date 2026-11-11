@@ -9,6 +9,6 @@ export interface CdpInputLayerProps {
   onInput(input: CdpBrowserViewInput): void;
   onFocusUrl(): void;
   onFocusPane?: () => void;
-  /** Native: each increment focuses the hidden text input, which raises the keyboard. */
+  /** Each increment focuses the hidden text field, which raises the on-screen keyboard. */
   keyboardRequest: number;
 }
