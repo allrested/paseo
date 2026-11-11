@@ -297,6 +297,8 @@ function buildAgentStorageSpies() {
     listByWorkspaces: vi.fn().mockResolvedValue([]),
     lastUserMessageAtByWorkspace: async () => new Map<string, string>(),
     remove: vi.fn(),
+    // Sending a prompt asks for the history a move left for the agent; these agents have none.
+    takePendingMoveContext: vi.fn().mockResolvedValue(null),
   };
 }
 
