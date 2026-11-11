@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { Text, View } from "react-native";
 import type { OfficePermission } from "../shared/contracts.js";
 import { ActionButton } from "./action-button.js";
@@ -20,14 +20,22 @@ export function PermissionActions({
   actions,
   styles,
 }: PermissionActionsProps) {
-  const approve = useCallback(
-    () => actions.respond(agentId, permission.id, true),
+  // One answer per request: while Approve or Deny is in flight, a tap on the other does nothing.
+  const answering = useRef(false);
+  const answer = useCallback(
+    async (allow: boolean) => {
+      if (answering.current) return;
+      answering.current = true;
+      try {
+        await actions.respond(agentId, permission.id, allow);
+      } finally {
+        answering.current = false;
+      }
+    },
     [actions, agentId, permission.id],
   );
-  const deny = useCallback(
-    () => actions.respond(agentId, permission.id, false),
-    [actions, agentId, permission.id],
-  );
+  const approve = useCallback(() => answer(true), [answer]);
+  const deny = useCallback(() => answer(false), [answer]);
   return (
     <View style={styles.permission}>
       <Text style={styles.permissionTitle} numberOfLines={2}>
