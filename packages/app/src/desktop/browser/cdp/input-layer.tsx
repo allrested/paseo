@@ -8,6 +8,7 @@ import {
 import { StyleSheet } from "react-native-unistyles";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import type { CdpInputLayerProps } from "./input-layer-types";
+import { isStaleFrame } from "./press-tracker";
 import { createInputCoalescer, createTouchGesture } from "./touch-gesture";
 import { toPagePoint } from "./view-model";
 
@@ -19,6 +20,7 @@ import { toPagePoint } from "./view-model";
 export function CdpInputLayer({
   rect,
   page,
+  viewport,
   onInput,
   onFocusPane,
   keyboardRef,
@@ -68,13 +70,14 @@ export function CdpInputLayer({
       ),
     [page, rect.height, rect.width],
   );
+  const stale = useCallback(() => isStaleFrame(page, viewport), [page, viewport]);
   const claim = useCallback(() => true, []);
   const handleGrant = useCallback(
     (event: GestureResponderEvent) => {
       onFocusPane?.();
-      gesture.current.start(point(event));
+      gesture.current.start(point(event), stale());
     },
-    [onFocusPane, point],
+    [onFocusPane, point, stale],
   );
   const handleMove = useCallback(
     (event: GestureResponderEvent) => {
@@ -83,8 +86,8 @@ export function CdpInputLayer({
     [coalescer, point],
   );
   const handleRelease = useCallback(() => {
-    for (const next of gesture.current.end()) coalescer.push(next);
-  }, [coalescer]);
+    for (const next of gesture.current.end(stale())) coalescer.push(next);
+  }, [coalescer, stale]);
   const handleTerminate = useCallback(() => gesture.current.cancel(), []);
 
   const sendKey = useCallback(
