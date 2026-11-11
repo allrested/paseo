@@ -25,7 +25,7 @@ export interface FakeChromium {
   readonly targets: Map<string, FakeTarget>;
   readonly hostHeaders: string[];
   readonly commands: FakeCommand[];
-  /** Replaces the answer for one method. Throwing answers with a CDP error. */
+  /** Replaces the answer for one method. Throwing answers with a CDP error; a promise answers when it settles. */
   handle(method: string, handler: Handler): void;
   /** The method never answers, so the caller times out. */
   stall(method: string): void;
@@ -155,16 +155,21 @@ export async function startFakeChromium(): Promise<FakeChromium> {
         const params = message.params ?? {};
         commands.push({ targetId, method: message.method, params });
         if (stalled.has(message.method)) return;
-        try {
-          const result = handlers.get(message.method)?.(params, targetId) ?? {};
-          ws.send(JSON.stringify({ id: message.id, result }));
-        } catch (error) {
+        const answer = (result: unknown) => ws.send(JSON.stringify({ id: message.id, result }));
+        const fail = (error: unknown) =>
           ws.send(
             JSON.stringify({
               id: message.id,
               error: { code: -32000, message: String((error as Error).message) },
             }),
           );
+        try {
+          const result = handlers.get(message.method)?.(params, targetId) ?? {};
+          // A handler that returns a promise answers when it settles: a command that takes a while.
+          if (result instanceof Promise) result.then(answer, fail);
+          else answer(result);
+        } catch (error) {
+          fail(error);
         }
       });
     });

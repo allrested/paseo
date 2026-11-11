@@ -34,6 +34,31 @@ const FRAME = {
   },
 };
 
+/** The JPEG start and frame header of a 1200x800 picture; enough for the daemon to read its size. */
+const JPEG_1200X800 = Buffer.from([
+  0xff,
+  0xd8,
+  0xff,
+  0xc0,
+  0x00,
+  0x11,
+  0x08,
+  800 >> 8,
+  800 & 0xff,
+  1200 >> 8,
+  1200 & 0xff,
+  0x03,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+]).toString("base64");
+
 describe("CdpViewSession", () => {
   let chromium: FakeChromium;
   let dir: string;
@@ -64,19 +89,24 @@ describe("CdpViewSession", () => {
       .filter((command) => command.targetId === targetId && command.method === method)
       .map((command) => command.params);
 
-  beforeEach(async () => {
-    chromium = await startFakeChromium();
-    dir = await mkdtemp(path.join(os.tmpdir(), "paseo-cdp-view-"));
-    broker = new BrowserToolsBroker({});
+  const startService = async (frameWaitMs?: number) => {
     service = new CdpBrowserService({
       endpoint: new CdpEndpoint({ url: chromium.url, commandTimeoutMs: 300 }),
       registry: new CdpTabRegistry(path.join(dir, "cdp-tabs.json")),
       broker,
       logger,
       reconnect: { minMs: 20, maxMs: 40 },
+      frameWaitMs,
     });
     service.start();
     await until(() => service.connected, "the CDP host");
+  };
+
+  beforeEach(async () => {
+    chromium = await startFakeChromium();
+    dir = await mkdtemp(path.join(os.tmpdir(), "paseo-cdp-view-"));
+    broker = new BrowserToolsBroker({});
+    await startService();
     json = [];
     binary = [];
     socket = {};
@@ -326,6 +356,26 @@ describe("CdpViewSession", () => {
       deviceWidth: 844,
       deviceHeight: 390,
     });
+    await tap(7);
+    expect(mouseEvents()).toEqual([["mouseMoved", 5], ...FULL_TAP(7)]);
+  });
+
+  test("with no frame of the new size, the daemon captures one, and the next tap clicks", async () => {
+    await service.stop();
+    // Longer than a tap (four inputs 50 ms apart), so the capture comes after the stale press.
+    await startService(300);
+    const { targetId, tap, mouseEvents } = await watchedTab();
+    await tap(5);
+    expect(mouseEvents()).toEqual([["mouseMoved", 5]]);
+    // Installed after the priming screenshot, which shows the page from before the claim.
+    chromium.handle("Page.captureScreenshot", () => ({ data: JPEG_1200X800 }));
+    // Chromium sends nothing of the new size; the daemon captures a frame after its wait.
+    await until(() => binary.length > 0, "a captured frame");
+    expect(decodeBrowserViewFrame(binary.at(-1)!)).toMatchObject({
+      deviceWidth: 1200,
+      deviceHeight: 800,
+    });
+    expect(sentTo(targetId, "Page.captureScreenshot").length).toBeGreaterThan(0);
     await tap(7);
     expect(mouseEvents()).toEqual([["mouseMoved", 5], ...FULL_TAP(7)]);
   });
