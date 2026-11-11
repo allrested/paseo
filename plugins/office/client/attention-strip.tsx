@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import type { AttentionEntry, AttentionReason } from "./model.js";
 import type { OfficeStyles } from "./styles.js";
@@ -20,21 +20,23 @@ function AttentionItem({ entry, styles, onSelect }: AttentionItemProps) {
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
-  const itemStyle = useCallback(
-    ({ pressed }: PressableStateCallbackType) =>
-      pressed || hovered ? styles.stripItemPressed : styles.stripItem,
-    [styles, hovered],
-  );
+  const [pressed, setPressed] = useState(false);
+  const pressIn = useCallback(() => setPressed(true), []);
+  const pressOut = useCallback(() => setPressed(false), []);
+  const lit = pressed || hovered;
   const reason = reasonLabel(entry.reason);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${entry.title}: ${reason}`}
       onPress={press}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
       onHoverIn={hoverIn}
       onHoverOut={hoverOut}
-      style={itemStyle}
+      style={lit ? styles.stripItemPressed : styles.stripItem}
     >
+      {lit ? <View style={styles.pressedFill} /> : null}
       <View style={styles.lead}>
         <View style={entry.reason === "permission" ? styles.dot.warning : styles.dot.danger} />
       </View>
@@ -60,15 +62,17 @@ export interface AttentionStripProps {
 export function AttentionStrip({ entries, styles, onSelect }: AttentionStripProps) {
   if (entries.length === 0) return null;
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.stripScroll}
-      contentContainerStyle={styles.strip}
-    >
-      {entries.map((entry) => (
-        <AttentionItem key={entry.agentId} entry={entry} styles={styles} onSelect={onSelect} />
-      ))}
-    </ScrollView>
+    <View style={styles.stripRail}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.stripScroll}
+        contentContainerStyle={styles.strip}
+      >
+        {entries.map((entry) => (
+          <AttentionItem key={entry.agentId} entry={entry} styles={styles} onSelect={onSelect} />
+        ))}
+      </ScrollView>
+    </View>
   );
 }
