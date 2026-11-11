@@ -307,10 +307,12 @@ again. It writes no other agent's skills folder. Each folder it creates is recor
 its content in `$PASEO_HOME/default-skills/installed.json`, and a folder counts as the plugin's only
 while it still matches that hash. A folder you made, or one of its folders you edited, is never
 replaced or removed; the skill shows "skipped: a folder with this name exists" on the Skills screen,
-which the "Default skills" Command Center item opens. Turning a skill off removes the plugin's
-folders. Agents see a change when their session starts. UI/UX Pro Max runs `python3`, which the
-fork's agents image installs. unslop ships without its Playwright scripts, so its live-site
-snapshot and story video steps are unavailable. To update a pin, follow
+which the "Default skills" Command Center item opens. That screen groups the four design skills as
+"Good Paseo design": its first switch saves all four switches at once and stores nothing of its
+own. Turning a skill off removes the plugin's folders. Agents see a change when their session
+starts. UI/UX Pro Max runs `python3`, which the fork's agents image installs. unslop ships without
+its Playwright scripts, so its live-site snapshot and story video steps are unavailable. To update
+a pin, follow
 [`vendor/SOURCES.md`](../plugins/default-skills/vendor/SOURCES.md), which also lists every file left
 out or edited and why; the next daemon start replaces the plugin's copies whose content changed.
 `oxlint` and `oxfmt` skip the vendored files, so they stay as reviewed.
