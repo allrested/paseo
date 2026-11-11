@@ -145,6 +145,9 @@ export function CdpInputLayer({
       }
       node.setPointerCapture(event.pointerId);
       const button = mouseButton(event.button);
+      const onStaleFrame = stale();
+      // A dropped press must not make the next one a double click.
+      if (onStaleFrame) clicks.drop();
       sendPress(
         {
           kind: "mouse",
@@ -152,10 +155,10 @@ export function CdpInputLayer({
           ...point(event),
           button,
           buttons: event.buttons,
-          clickCount: clicks.press(button, event.clientX, event.clientY),
+          clickCount: onStaleFrame ? 1 : clicks.press(button, event.clientX, event.clientY),
           modifiers: modifierMask(event),
         },
-        stale(),
+        onStaleFrame,
       );
     };
     const onPointerMove = (event: PointerEvent) => {
@@ -163,6 +166,7 @@ export function CdpInputLayer({
         if (event.pointerId === touchId) sendAll(touch.move(point(event)));
         return;
       }
+      tracker.held(event.buttons);
       // A drag sends every move (coalesced per frame); a hover is capped at about 30 per second.
       if (event.buttons === 0 && !allowHover()) return;
       // The drag of a press dropped on a stale frame is dropped too.
@@ -184,6 +188,7 @@ export function CdpInputLayer({
         if (event.pointerId === touchId) endTouch();
         return;
       }
+      tracker.held(event.buttons);
       // The click count of the matching down replaces the placeholder here.
       sendRelease({
         kind: "mouse",
