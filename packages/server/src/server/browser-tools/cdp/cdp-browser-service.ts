@@ -13,7 +13,12 @@ import {
 } from "../../browser-automation/service.js";
 import type { BrowserToolsBroker } from "../broker.js";
 import { browserToolsFailure } from "../errors.js";
-import { CdpClosedError, CdpTimeoutError, type CdpConnection } from "./cdp-connection.js";
+import {
+  CdpClosedError,
+  CdpCommandError,
+  CdpTimeoutError,
+  type CdpConnection,
+} from "./cdp-connection.js";
 import { CdpUnreachableError, type CdpEndpoint } from "./cdp-endpoint.js";
 import { CdpTab } from "./cdp-tab.js";
 import { ScreencastHub } from "./screencast-hub.js";
@@ -257,10 +262,14 @@ export class CdpBrowserService {
   async closeTab(browserId: string): Promise<boolean> {
     const entry = this.registry.get(browserId);
     if (!entry) return false;
+    // A tab the daemon forgets but did not close is a window it can never close again.
+    if (!this.browser) throw new CdpUnreachableError("The Docker browser is unreachable.");
     try {
-      await this.browser?.send("Target.closeTarget", { targetId: entry.targetId });
+      await this.browser.send("Target.closeTarget", { targetId: entry.targetId });
     } catch (error) {
-      this.logger.debug({ err: error, browserId }, "CDP closeTarget failed");
+      const gone =
+        error instanceof CdpCommandError && error.message.includes("No target with given id");
+      if (!gone) throw error;
     }
     // The targetDestroyed event usually gets here first; forget() is a no-op the second time.
     this.forget(browserId);
