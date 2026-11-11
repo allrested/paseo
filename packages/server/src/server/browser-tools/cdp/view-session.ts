@@ -14,6 +14,13 @@ type Emit = (message: SessionOutboundMessage) => void;
 
 /** Inputs one view may have queued, running or waiting. A stalled page must not collect a backlog. */
 export const VIEW_INPUT_QUEUE_CAP = 32;
+/** How long presses wait for a frame of the new size after a resize. A still page may not repaint. */
+export const RESIZE_FRAME_WAIT_MS = 1000;
+
+interface FrameSize {
+  width: number;
+  height: number;
+}
 
 interface View {
   browserId: string;
@@ -22,8 +29,11 @@ interface View {
   depth: number;
   /** Held buttons and keys: true when the press was queued, false when it was dropped. */
   presses: Map<string, boolean>;
-  /** Set when an input resized the page, cleared by the next frame this viewer is sent. */
-  awaitingFrame: boolean;
+  /** The page size, in CSS pixels, of the last frame this viewer was sent. */
+  frameSize: FrameSize | null;
+  /** The size an input resized the page to, until a frame of that size is sent or the wait ends. */
+  awaitedSize: FrameSize | null;
+  awaitTimer: ReturnType<typeof setTimeout> | null;
   /** Buttons whose press was aimed at a frame from before a resize; the rest of the gesture goes too. */
   stale: Set<string>;
   notify(error: CdpBrowserErrorCode): void;
@@ -35,12 +45,22 @@ interface View {
  */
 function isStale(view: View, input: CdpBrowserViewInput): boolean {
   if (input.kind !== "mouse") return false;
-  if (input.type === "down" && view.awaitingFrame) {
+  if (input.type === "down" && view.awaitedSize) {
     view.stale.add(input.button);
     return true;
   }
   if (input.type === "up") return view.stale.delete(input.button);
   return input.buttons !== 0 && view.stale.size > 0;
+}
+
+function sameSize(a: FrameSize | null, b: FrameSize): boolean {
+  return a !== null && a.width === b.width && a.height === b.height;
+}
+
+function stopAwaiting(view: View): void {
+  if (view.awaitTimer) clearTimeout(view.awaitTimer);
+  view.awaitTimer = null;
+  view.awaitedSize = null;
 }
 
 function pressId(input: CdpBrowserViewInput): string | null {
@@ -76,6 +96,7 @@ export class CdpViewSession {
   constructor(
     private readonly service: () => CdpBrowserService | null,
     private readonly logger: Pick<Logger, "debug">,
+    private readonly options: { resizeFrameWaitMs?: number } = {},
   ) {}
 
   async openTab(msg: Inbound<"browser.cdp.tab.open.request">, emit: Emit): Promise<void> {
@@ -185,6 +206,7 @@ export class CdpViewSession {
     let offEvents: (() => void) | undefined;
     const owner = ownership.begin("cdp-view", undefined, () => {
       this.views.delete(owner.responseId);
+      stopAwaiting(view);
       offEvents?.();
       unwatch?.();
     });
@@ -201,7 +223,9 @@ export class CdpViewSession {
       chain: Promise.resolve(),
       depth: 0,
       presses: new Map(),
-      awaitingFrame: false,
+      frameSize: null,
+      awaitedSize: null,
+      awaitTimer: null,
       stale: new Set(),
       notify,
     };
@@ -235,7 +259,12 @@ export class CdpViewSession {
       const stop = await service.screencast.watch(msg.browserId, {
         id: owner.id,
         deliver: (frame) => {
-          view.awaitingFrame = false;
+          // Device size is the page size in CSS pixels; page scale and the JPEG size leave it alone.
+          view.frameSize = {
+            width: Math.round(frame.deviceWidth),
+            height: Math.round(frame.deviceHeight),
+          };
+          if (view.awaitedSize && sameSize(view.frameSize, view.awaitedSize)) stopAwaiting(view);
           return owner.emitBinaryAndWait(
             encodeBrowserViewFrame({ subscriptionId: owner.responseId, ...frame }),
           );
@@ -260,6 +289,16 @@ export class CdpViewSession {
     });
   }
 
+  private awaitFrame(view: View, size: FrameSize): void {
+    stopAwaiting(view);
+    view.awaitedSize = { width: size.width, height: size.height };
+    view.awaitTimer = setTimeout(
+      () => stopAwaiting(view),
+      this.options.resizeFrameWaitMs ?? RESIZE_FRAME_WAIT_MS,
+    );
+    view.awaitTimer.unref?.();
+  }
+
   input(msg: Inbound<"browser.cdp.view.input.request">): void {
     const view = this.views.get(msg.subscriptionId);
     const service = this.service();
@@ -272,8 +311,9 @@ export class CdpViewSession {
           if (msg.viewport) {
             // The last interacting client sets the size; a press it aimed at the old size is stale.
             const resized = service.viewportDiffers(view.browserId, msg.viewport);
-            await service.setViewport(view.browserId, msg.viewport, view.viewerId);
-            if (resized) view.awaitingFrame = true;
+            const size = await service.setViewport(view.browserId, msg.viewport, view.viewerId);
+            // A frame of the new size may already have been sent while the resize settled.
+            if (resized && !sameSize(view.frameSize, size)) this.awaitFrame(view, size);
           }
           if (isStale(view, msg.input)) return undefined;
           const tab = await service.attachedTab(view.browserId);
