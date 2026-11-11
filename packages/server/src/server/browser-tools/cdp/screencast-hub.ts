@@ -24,6 +24,8 @@ export interface ScreencastViewer {
 export interface ScreencastHubOptions {
   source: (browserId: string) => Promise<ScreencastSource | null>;
   onError?: (error: unknown) => void;
+  /** Each screencast frame of a tab, before it is fanned out. Not called for the priming screenshot. */
+  onFrame?: (browserId: string, frame: ScreencastFrame) => void;
   minFrameIntervalMs?: number;
 }
 
@@ -178,6 +180,7 @@ export class ScreencastHub {
     watched.lastFrame = frame;
     for (const slot of watched.viewers.values()) this.push(watched, slot, frame);
     this.ack(watched, params.sessionId);
+    this.options.onFrame?.(watched.browserId, frame);
   }
 
   /** Chromium sends the next frame only after the ack, so delaying the ack caps the frame rate. */
