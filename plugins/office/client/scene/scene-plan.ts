@@ -11,6 +11,12 @@ import { visorColor, type ScenePalette } from "./palette.js";
 
 export type RobotPose = "typing" | "idle" | "raised" | "slumped" | "walking";
 
+/**
+ * The lamp on a robot's antenna, the dot of the list view: off while it rests or arrives, steady
+ * while it works, the warning colour while it waits for an answer, the danger colour after an error.
+ */
+export type LampState = "off" | "steady" | "warning" | "danger";
+
 /** A desk stands this far in front (+z) of its seat; robots at their desks face +z. */
 export const DESK_OFFSET_Z = 0.55;
 
@@ -23,14 +29,18 @@ export interface RobotPlan {
   side: boolean;
   pose: RobotPose;
   visor: string;
-  /** Amber for a pending permission, red for an error, else none. */
-  light: string | null;
+  lamp: LampState;
+  lampColor: string;
+  /** The desk is lit while the robot types, and only then. */
   screenLit: boolean;
 }
 
 export interface RoomPlan {
   roomId: string;
+  /** The name, then `overflowTail(overflow)`. */
   label: string;
+  /** Agents of the room that have no desk. */
+  overflow: number;
   center: Point;
   /** Rows of desks the room has. */
   rows: number;
@@ -58,6 +68,10 @@ export interface RobotFrame {
   heading: number;
   /** Forward tilt of the body; negative leans back. */
   lean: number;
+  /** The head's own forward tilt, on top of the body's: positive looks down. */
+  nod: number;
+  /** The head laid over to one side. */
+  tilt: number;
   armLeft: number;
   armRight: number;
 }
@@ -69,10 +83,20 @@ export const WALK_MS = 1500;
 export const TYPING_FRAME_MS = 50;
 const ARM_TYPING = -1.2;
 const ARM_UP = Math.PI;
-/** How far a standing robot rises. Its base stays just under the desk top, so no gap shows. */
+/** How far a robot that stands up rises on its stand. */
 const STAND_LIFT = 0.32;
 /** Each seat starts its typing stroke this much later in the cycle (radians). */
 const SEAT_PHASE = 2.4;
+/** A typing robot looks down at its desk by this much, and its head sways by `HEAD_SWAY`. */
+const NOD_TYPING = 0.2;
+const HEAD_SWAY = 0.07;
+/** How far a resting head lies over. */
+const REST_TILT = 0.16;
+
+/** Which side a resting head lies to: the same for a desk and its side desk, the other next door. */
+function restSide(seatIndex: number): number {
+  return Math.floor(seatIndex / 2) % 2 === 0 ? 1 : -1;
+}
 
 export function robotPose(agent: OfficeAgent): RobotPose {
   if (agent.permissions.length > 0) return "raised";
@@ -82,14 +106,31 @@ export function robotPose(agent: OfficeAgent): RobotPose {
   return "idle";
 }
 
-export function roomLabel(name: string, overflow: number): string {
-  return overflow > 0 ? `${name} +${overflow}` : name;
+/** What a room's label adds for `overflow` agents without a desk; nothing for none. */
+export function overflowTail(overflow: number): string {
+  return overflow > 0 ? `, ${overflow} more` : "";
 }
 
-function lightFor(pose: RobotPose, palette: ScenePalette): string | null {
-  if (pose === "raised") return palette.lightWarning;
-  if (pose === "slumped") return palette.lightDanger;
-  return null;
+export function roomLabel(name: string, overflow: number): string {
+  return `${name}${overflowTail(overflow)}`;
+}
+
+const LAMPS: Record<RobotPose, LampState> = {
+  typing: "steady",
+  idle: "off",
+  walking: "off",
+  raised: "warning",
+  slumped: "danger",
+};
+
+function lampColor(lamp: LampState, palette: ScenePalette): string {
+  const colors: Record<LampState, string> = {
+    off: palette.lampOff,
+    steady: palette.lampOn,
+    warning: palette.lightWarning,
+    danger: palette.lightDanger,
+  };
+  return colors[lamp];
 }
 
 export function buildScenePlan(
@@ -102,6 +143,7 @@ export function buildScenePlan(
     (room): RoomPlan => ({
       roomId: room.roomId,
       label: roomLabel(names.get(room.roomId) ?? room.roomId, room.overflow),
+      overflow: room.overflow,
       center: room.center,
       rows: room.rows,
       depth: room.depth,
@@ -116,6 +158,7 @@ export function buildScenePlan(
       const agent = model.agents.get(seat.agentId);
       if (!agent) continue;
       const pose = robotPose(agent);
+      const lamp = LAMPS[pose];
       robots.push({
         agentId: agent.id,
         roomId: room.roomId,
@@ -127,8 +170,10 @@ export function buildScenePlan(
         // The visor sits on the head, which is graphite in a light theme too
         // (palette.robotHead), so it takes the identity colour for a dark surface in both.
         visor: visorColor(agent.provider, true),
-        light: lightFor(pose, palette),
-        screenLit: agent.status === "running",
+        lamp,
+        lampColor: lampColor(lamp, palette),
+        // An agent that waits for an answer is not working: its amber lamp is the light there.
+        screenLit: pose === "typing",
       });
     }
   }
@@ -165,14 +210,23 @@ export function deskPlans(plan: ScenePlan): DeskPlan[] {
   return desks;
 }
 
+/** At its seat, upright with its arms down, but for what `posture` says. */
 function seated(
   robot: RobotPlan,
-  lean: number,
-  armLeft: number,
-  armRight: number,
-  lift = 0,
+  posture: Partial<Omit<RobotFrame, "x" | "z" | "heading">>,
 ): RobotFrame {
-  return { x: robot.seat.x, z: robot.seat.z, lift, heading: 0, lean, armLeft, armRight };
+  return {
+    x: robot.seat.x,
+    z: robot.seat.z,
+    lift: 0,
+    heading: 0,
+    lean: 0,
+    nod: 0,
+    tilt: 0,
+    armLeft: 0,
+    armRight: 0,
+    ...posture,
+  };
 }
 
 function walkingFrame(
@@ -182,7 +236,7 @@ function walkingFrame(
   reducedMotion: boolean,
 ): RobotFrame {
   const progress = reducedMotion ? 1 : Math.min(1, Math.max(0, (now - enteredAt) / WALK_MS));
-  if (progress >= 1) return seated(robot, 0, 0, 0);
+  if (progress >= 1) return seated(robot, {});
   const dx = robot.seat.x - robot.door.x;
   const dz = robot.seat.z - robot.door.z;
   const swing = Math.sin(now / 150) * 0.5;
@@ -192,6 +246,8 @@ function walkingFrame(
     lift: Math.abs(Math.sin(now / 150)) * 0.05,
     heading: Math.atan2(dx, dz),
     lean: 0.05,
+    nod: 0,
+    tilt: 0,
     armLeft: swing,
     armRight: -swing,
   };
@@ -201,10 +257,10 @@ function walkingFrame(
  * The robot's transform at `now`; `enteredAt` is when the scene first saw the agent.
  *
  * Seen from above, each pose is its own silhouette, so state reads without colour or motion:
- * typing sits upright with both arms on the desk; idle leans back from it; raised stands taller
- * than its neighbours with one arm straight up; slumped folds forward onto the desk; a starting
- * robot crosses from the door, then sits upright with its arms down. The light rides on the
- * body, so the amber one is the highest thing in the room and the red one hangs low over the desk.
+ * typing sits upright with both arms on the desk and looks down at it; idle leans back with its
+ * head laid to one side; raised stands taller than its neighbours with one arm straight up and
+ * looks ahead; slumped folds forward with its head hanging to one side; a starting robot crosses from the
+ * door, then sits upright with its arms down.
  */
 export function robotFrame(
   robot: RobotPlan,
@@ -217,14 +273,28 @@ export function robotFrame(
       // Neighbours type out of step; in unison a room of typists reads as one looping clip.
       const stroke = now / 110 + robot.seatIndex * SEAT_PHASE;
       const bob = reducedMotion ? 0 : Math.sin(stroke) * 0.18;
-      return seated(robot, 0.08, ARM_TYPING + bob, ARM_TYPING - bob);
+      // The head follows the hands at a third of their pace.
+      const sway = reducedMotion ? 0 : Math.sin(stroke / 3) * HEAD_SWAY;
+      return seated(robot, {
+        lean: 0.08,
+        nod: NOD_TYPING + sway,
+        armLeft: ARM_TYPING + bob,
+        armRight: ARM_TYPING - bob,
+      });
     }
     case "idle":
-      return seated(robot, -0.3, 0, 0);
+      return seated(robot, { lean: -0.3, nod: -0.1, tilt: restSide(robot.seatIndex) * REST_TILT });
     case "raised":
-      return seated(robot, 0, 0, ARM_UP, STAND_LIFT);
+      return seated(robot, { lift: STAND_LIFT, armRight: ARM_UP });
     case "slumped":
-      return seated(robot, 0.55, 0.25, 0.25, -0.08);
+      return seated(robot, {
+        lift: -0.08,
+        lean: 0.55,
+        nod: 0.3,
+        tilt: 0.3,
+        armLeft: 0.25,
+        armRight: 0.25,
+      });
     case "walking":
       return walkingFrame(robot, enteredAt, now, reducedMotion);
   }
