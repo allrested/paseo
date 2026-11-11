@@ -242,8 +242,12 @@ describe("CdpViewSession", () => {
     ...FRAME,
     metadata: { ...FRAME.metadata, deviceWidth, deviceHeight },
   });
-  /** Inputs that carry a 1200x800 pane, spaced so none is dropped as backlog. */
-  const resizingInput = (subscriptionId: string, targetId: string) => {
+  /** Inputs that carry a pane of this size (1200x800 unless given), spaced so none is dropped as backlog. */
+  const resizingInput = (
+    subscriptionId: string,
+    targetId: string,
+    viewport = { width: 1200, height: 800, deviceScaleFactor: 1 },
+  ) => {
     const send = async (
       input: Extract<SessionInboundMessage, { type: "browser.cdp.view.input.request" }>["input"],
     ) => {
@@ -251,7 +255,7 @@ describe("CdpViewSession", () => {
         type: "browser.cdp.view.input.request",
         subscriptionId,
         input,
-        viewport: { width: 1200, height: 800, deviceScaleFactor: 1 },
+        viewport,
       });
       await new Promise((resolve) => setTimeout(resolve, 50));
     };
@@ -269,12 +273,16 @@ describe("CdpViewSession", () => {
         sentTo(targetId, "Input.dispatchMouseEvent").map((params) => [params.type, params.x]),
     };
   };
-  const watchedTab = async () => {
+  const watchedTab = async (viewport?: Parameters<typeof resizingInput>[2]) => {
     const tab = await openTab();
     const targetId = [...chromium.targets.keys()][0];
     const { subscriptionId } = await subscribeView(tab.browserId);
     await until(() => sentTo(targetId, "Page.startScreencast").length === 1, "the screencast");
-    return { browserId: tab.browserId, targetId, ...resizingInput(subscriptionId, targetId) };
+    return {
+      browserId: tab.browserId,
+      targetId,
+      ...resizingInput(subscriptionId, targetId, viewport),
+    };
   };
   const FULL_TAP = (x: number) => [
     ["mouseMoved", x],
@@ -299,6 +307,25 @@ describe("CdpViewSession", () => {
 
     chromium.emit(targetId, "Page.screencastFrame", frameOfSize(1200, 800));
     await until(() => binary.length > 0, "a frame of the new size");
+    await tap(7);
+    expect(mouseEvents()).toEqual([["mouseMoved", 5], ...FULL_TAP(7)]);
+  });
+
+  test("at scale factor 2 a frame of the new size in device pixels ends the wait and shows the size set", async () => {
+    const { targetId, tap, mouseEvents } = await watchedTab({
+      width: 844,
+      height: 390,
+      deviceScaleFactor: 2,
+    });
+    await tap(5);
+    expect(mouseEvents()).toEqual([["mouseMoved", 5]]);
+    // Chromium reports this frame in device pixels: twice the size set.
+    chromium.emit(targetId, "Page.screencastFrame", frameOfSize(1688, 780));
+    await until(() => binary.length > 0, "a frame of the new size");
+    expect(decodeBrowserViewFrame(binary.at(-1)!)).toMatchObject({
+      deviceWidth: 844,
+      deviceHeight: 390,
+    });
     await tap(7);
     expect(mouseEvents()).toEqual([["mouseMoved", 5], ...FULL_TAP(7)]);
   });
