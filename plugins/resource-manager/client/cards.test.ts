@@ -97,7 +97,13 @@ describe("snapshot summary", () => {
       note: null,
       meters: [
         { key: "memory", label: "Memory", value: "50% · 8.0 GB", fraction: 0.5, level: "ok" },
-        { key: "load", label: "Load", value: "0.50 / 4 cores", fraction: 0.125, level: "ok" },
+        {
+          key: "load",
+          label: "Load",
+          value: "13% · 0.50 on 4 cores",
+          fraction: 0.125,
+          level: "ok",
+        },
         { key: "disk", label: "Disk", value: "71% · /data", fraction: 0.71, level: "ok" },
       ],
     });
@@ -115,7 +121,7 @@ describe("snapshot summary", () => {
 
     expect(summary.status).toBe("critical");
     expect(summary.label).toBe("Critical");
-    expect(summary.note).toBe("Memory 88%, load 9.00 on 4 cores, disk / 96%");
+    expect(summary.note).toBe("Memory 88%, load 225% of 4 cores, disk / 96%");
     expect(summary.meters.map((meter) => [meter.level, meter.fraction])).toEqual([
       ["warning", 0.875],
       ["critical", 1],
@@ -129,7 +135,7 @@ describe("snapshot summary", () => {
     expect([summary.status, summary.label, summary.note]).toEqual([
       "warning",
       "Warning",
-      "Load 4.00 on 4 cores",
+      "Load 100% of 4 cores",
     ]);
   });
 
@@ -183,7 +189,7 @@ describe("instance summary", () => {
       note: null,
       meters: [
         { key: "memory", label: "Memory", value: "38% · 3.0 GB", fraction: 0.375, level: "ok" },
-        { key: "load", label: "Load", value: "1.00 / 4 cores", fraction: 0.25, level: "ok" },
+        { key: "load", label: "Load", value: "25% · 1.00 on 4 cores", fraction: 0.25, level: "ok" },
         {
           key: "hostMemory",
           label: "Host memory",
