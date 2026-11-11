@@ -508,8 +508,12 @@ describe("CdpViewSession", () => {
     });
     expect(sentTo(targetId, "Page.navigate")).toEqual([{ url: "https://example.org/" }]);
     await navigate("n2", { kind: "url", url: "javascript:alert(1)" });
-    expect(last("browser.cdp.view.navigate.response")?.payload.error).toBe("browser_unknown_error");
+    expect(last("browser.cdp.view.navigate.response")?.payload.error).toBe("browser_url_refused");
     expect(sentTo(targetId, "Page.navigate")).toHaveLength(1);
+    // An address Chromium cannot load is a different failure from a refused scheme.
+    chromium.handle("Page.navigate", () => ({ errorText: "net::ERR_NAME_NOT_RESOLVED" }));
+    await navigate("n2b", { kind: "url", url: "http://web:3000/" });
+    expect(last("browser.cdp.view.navigate.response")?.payload.error).toBe("browser_unknown_error");
     await navigate("n3", { kind: "reload" });
     await until(() => sentTo(targetId, "Page.reload").length === 1, "the reload");
   });

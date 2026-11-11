@@ -12,6 +12,8 @@ export const CDP_BROWSER_ERROR_CODES = [
   "browser_tab_not_found",
   "browser_timeout",
   "browser_unknown_error",
+  /** A navigate to a URL that is not http, https or about:blank. An older daemon sends browser_unknown_error. */
+  "browser_url_refused",
 ] as const;
 export type CdpBrowserErrorCode = (typeof CDP_BROWSER_ERROR_CODES)[number];
 

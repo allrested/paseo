@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { cdpNavigateErrorStatus, cdpOpenErrorKey, withHttpForHostPort } from "./workspace-browser";
+import {
+  cdpNavigateErrorKey,
+  cdpNavigateErrorStatus,
+  cdpOpenErrorKey,
+  withHttpForHostPort,
+} from "./workspace-browser";
 
 describe("cdpOpenErrorKey", () => {
   it("maps a missing or unsupported host to the unreachable title", () => {
@@ -22,6 +27,20 @@ describe("cdpNavigateErrorStatus", () => {
   it("leaves a refused or timed-out address to a message", () => {
     expect(cdpNavigateErrorStatus(new Error("browser_unknown_error"))).toBeNull();
     expect(cdpNavigateErrorStatus(new Error("browser_timeout"))).toBeNull();
+  });
+});
+
+describe("cdpNavigateErrorKey", () => {
+  it("names the scheme only when the daemon refused the address", () => {
+    expect(cdpNavigateErrorKey(new Error("browser_url_refused"))).toBe("cdpBrowser.navigateFailed");
+  });
+
+  it("gives any other failure the plain message", () => {
+    expect(cdpNavigateErrorKey(new Error("browser_unknown_error"))).toBe(
+      "cdpBrowser.navigateError",
+    );
+    expect(cdpNavigateErrorKey(new Error("browser_timeout"))).toBe("cdpBrowser.navigateError");
+    expect(cdpNavigateErrorKey("boom")).toBe("cdpBrowser.navigateError");
   });
 });
 
