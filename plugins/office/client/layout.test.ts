@@ -127,3 +127,12 @@ test("every seat lies inside its room, and the bounds hold every room", () => {
     maxZ: ROOM_PITCH_Z + ROOM_DEPTH / 2 + 2,
   });
 });
+
+test("an office with no rooms has zero-size bounds at the origin", () => {
+  const { layout } = layoutOffice(
+    { rooms: [], attention: [], agents: new Map(), roomOfAgent: new Map() },
+    EMPTY_LAYOUT_MEMORY,
+  );
+  expect(layout.rooms).toEqual([]);
+  expect(layout.bounds).toEqual({ minX: 0, maxX: 0, minZ: 0, maxZ: 0 });
+});
