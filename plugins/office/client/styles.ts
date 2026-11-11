@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Platform, type TextStyle, type ViewStyle } from "react-native";
+import type { TextStyle, ViewStyle } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { AttentionReason, DotTone } from "./model.js";
 
@@ -21,9 +21,12 @@ export interface OfficeStyles {
   placeholderColor: string;
   content: ViewStyle;
   muted: TextStyle;
-  error: TextStyle;
   banner: ViewStyle;
+  /** Holds the banner in the column and gives it the side padding. */
+  bannerSlot: ViewStyle;
   bannerText: TextStyle;
+  /** The strip's scroller: in the column on a wide screen, to the screen edges on a phone. */
+  stripScroll: ViewStyle;
   strip: ViewStyle;
   stripItem: ViewStyle;
   stripItemPressed: ViewStyle;
@@ -37,6 +40,8 @@ export interface OfficeStyles {
   empty: TextStyle;
   /** The hairline above a top-level agent. A child has none, so it reads as part of its parent. */
   rowDivider: ViewStyle;
+  /** Under the last child of a parent, so the block ends as far above the next hairline as a row. */
+  rowGroupEnd: ViewStyle;
   row: ViewStyle;
   rowPressed: ViewStyle;
   rowChild: ViewStyle;
@@ -59,6 +64,10 @@ export interface OfficeStyles {
   /** Holds a button and the error under it. */
   actionButton: ViewStyle;
   button: ViewStyle;
+  /** The plain button's fill: a layer of its own, so its opacity does not fade the label. */
+  buttonFill: ViewStyle;
+  /** The label that is not showing, at no height: it keeps the button as wide as the longer one. */
+  buttonSpacer: TextStyle;
   buttonPressed: ViewStyle;
   buttonPrimary: ViewStyle;
   buttonPrimaryPressed: ViewStyle;
@@ -69,6 +78,8 @@ export interface OfficeStyles {
   actionError: TextStyle;
   sheet: ViewStyle;
   sheetStatus: ViewStyle;
+  /** A row of buttons in the card and the error under it. */
+  sheetActions: ViewStyle;
   sheetField: ViewStyle;
   sheetLabel: TextStyle;
   sheetText: TextStyle;
@@ -94,35 +105,40 @@ const POINTER_CONTROL = 32;
 // The app's two switch sizes (SWITCH_TOUCH and SWITCH_POINTER in the same file).
 const TOUCH_SWITCH = { width: 44, height: 26, thumb: 22 };
 const POINTER_SWITCH = { width: 34, height: 20, thumb: 16 };
+/** A list of cards sits in a centred column no wider than this (docs/design.md section 7). */
+const COLUMN = 720;
+/** The scene's floor where its parent gives it no height. A phone on its side leaves about 210. */
+const SCENE_MIN_HEIGHT = 160;
 const DOT = 8;
 const DOT_GAP = 12;
 /** Where a row's text starts, from the row's own left edge. A child's dot sits on this rail. */
 const TEXT_RAIL = DOT + DOT_GAP;
 
-// Same test as the app's hasTouchScreen (packages/app/src/hooks/pointer-capabilities.ts), which a
-// plugin cannot import: native is always a touch screen, a browser answers the media query.
-function hasTouchScreen(): boolean {
-  if (Platform.OS !== "web") return true;
-  if (typeof window === "undefined") return false;
-  const coarse =
-    typeof window.matchMedia === "function" && window.matchMedia("(any-pointer: coarse)").matches;
-  return coarse || window.navigator.maxTouchPoints > 0;
-}
-
 /**
  * Surface styles from the host theme, on the app's scales (docs/design.md): spacing 2, 4, 8, 12,
- * 16, 24; text 14 and 12; weight 500 only where text names a group or a control.
+ * 16, 24; text 14 and 12; weight 500 only where text names a group or a control. `touchScreen` is
+ * the device's fact (office-surface.tsx hasTouchScreen); this file asks no platform anything.
  */
-export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeStyles {
+export function useOfficeStyles(
+  theme: PluginTheme,
+  compact: boolean,
+  touchScreen: boolean,
+): OfficeStyles {
   return useMemo((): OfficeStyles => {
     const { colors } = theme;
     const pad = compact ? 12 : 16;
     // The app's sizing gate (control-sizing.ts resolveControlSizing): touch-sized in the compact
     // layout or on a touch screen, so a tablet with the sidebar docked keeps 44 px controls.
-    const touch = compact || hasTouchScreen();
+    const touch = compact || touchScreen;
     const controlHeight = touch ? TOUCH_CONTROL : POINTER_CONTROL;
     const base: TextStyle = { fontSize: 14, lineHeight: 20 };
     const small: TextStyle = { fontSize: 12, lineHeight: 16 };
+    // The prompt is content text, not chrome: the app's content sizes (docs/design.md section 3).
+    // 16 px is also the size below which a phone browser zooms the page when a field takes focus.
+    const prompt = touch ? { fontSize: 16, lineHeight: 22 } : { fontSize: 15, lineHeight: 21 };
+    // On a phone the column is the screen. On a wide one the header, the banner and the list
+    // share it, so they keep one pair of rails.
+    const column: ViewStyle = { width: "100%", maxWidth: COLUMN + pad * 2, alignSelf: "center" };
     const dot = (backgroundColor: string): ViewStyle => ({
       width: DOT,
       height: DOT,
@@ -131,25 +147,20 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
     });
     const state = (color: string): TextStyle => ({ ...small, flexShrink: 0, color });
     // PluginTheme has no surface3 or interactionHighlight. The border colour is surface3 in the
-    // light theme and sits beside surface2 in the dark ones, so it stands in for both: the fill of
-    // the app's secondary button, and a row under a finger. surface2 itself is 1.05:1 against a
-    // surface1 card in the light theme, which no one would see.
+    // light theme and sits beside surface2 in the dark ones, so it is the fill of a row under a
+    // finger or a pointer. surface2 itself is 1.05:1 against a surface1 card in the light theme,
+    // which no one would see.
     const raised = colors.border;
+    // The plain button is filled by buttonFill, a layer inside it; the accent button fills itself.
     const button: ViewStyle = {
       minHeight: controlHeight,
       paddingHorizontal: touch ? 24 : 16,
       borderRadius: 9999,
-      borderWidth: 1,
-      borderColor: raised,
-      backgroundColor: raised,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     };
-    const buttonPrimary: ViewStyle = {
-      ...button,
-      backgroundColor: colors.accent,
-      borderColor: colors.accent,
-    };
+    const buttonPrimary: ViewStyle = { ...button, backgroundColor: colors.accent };
     const buttonLabel: TextStyle = { ...base, fontWeight: "500" };
     const chip: ViewStyle = {
       minHeight: controlHeight,
@@ -207,17 +218,21 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
       // No side padding here: the strip scrolls to the screen edge, and each row pads itself.
       header: { paddingTop: 8, gap: 8 },
       headerRow: {
+        ...column,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "flex-end",
         gap: 16,
         paddingHorizontal: pad,
       },
+      // Each control is as tall as a touch target, so the row gap only keeps two targets apart.
       headerControls: {
+        ...column,
         flexDirection: "row",
         alignItems: "center",
         flexWrap: "wrap",
         columnGap: 16,
+        rowGap: 4,
         paddingHorizontal: pad,
       },
       control,
@@ -238,19 +253,20 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
       switchOnThumb: { ...thumb, backgroundColor: colors.accentForeground },
       switchOffThumb: { ...thumb, backgroundColor: colors.surface0 },
       placeholderColor: colors.foregroundMuted,
-      content: { paddingHorizontal: pad, paddingTop: pad, paddingBottom: 24, gap: 12 },
+      content: { ...column, paddingHorizontal: pad, paddingTop: pad, paddingBottom: 24, gap: 12 },
       muted: { ...base, color: colors.foregroundMuted },
-      error: { ...base, color: colors.statusDanger, padding: pad },
+      // A failure above a list that still shows: the app's bordered banner with the sentence in
+      // the danger colour (docs/design.md section 11).
+      bannerSlot: { ...column, paddingHorizontal: pad, paddingTop: 8 },
       banner: {
-        marginHorizontal: pad,
-        marginTop: 8,
         padding: 12,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: colors.border,
         gap: 8,
       },
-      bannerText: { ...base, color: colors.foreground },
+      bannerText: { ...base, color: colors.statusDanger },
+      stripScroll: column,
       // The vertical padding leaves room for an entry's focus ring inside the scroll view.
       strip: { gap: 8, paddingVertical: 4, paddingHorizontal: pad },
       stripItem,
@@ -273,6 +289,8 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
       cardSubtitle: { ...small, color: colors.foregroundMuted },
       empty: { ...base, color: colors.foregroundMuted, paddingHorizontal: pad, paddingBottom: 12 },
       rowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
+      // A child row has 8 px under it and a top-level row 12.
+      rowGroupEnd: { paddingBottom: 4 },
       row,
       rowPressed: { ...row, backgroundColor: raised },
       rowChild,
@@ -304,7 +322,9 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
         gap: 12,
       },
       permission: { gap: 8 },
-      permissionTitle: { ...base, color: colors.statusWarning },
+      // What the agent asks for is the thing to read before answering, so it is not in the
+      // warning colour: the row's dot and its state word already carry that.
+      permissionTitle: { ...base, color: colors.foreground },
       actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
       dot: {
         // Not the accent: on the default dark theme that is 2.8:1 against a card, dimmer than idle.
@@ -322,8 +342,21 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
         danger: dot(colors.statusDanger),
       },
       // Shrinks with its row, so a long error wraps instead of widening the screen.
-      actionButton: { flexShrink: 1, maxWidth: "100%" },
+      actionButton: { flexShrink: 1, maxWidth: "100%", gap: 4 },
       button,
+      // The app's secondary button is surface3, which PluginTheme lacks, and the border colour is
+      // 1.07 to 1.16:1 against a dark card. A fifth of the muted grey is the light theme's
+      // surface3 again (1.28:1) and 1.35 to 1.61:1 in the dark ones.
+      buttonFill: {
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        backgroundColor: colors.foregroundMuted,
+        opacity: 0.2,
+      },
+      buttonSpacer: { ...buttonLabel, height: 0, opacity: 0 },
       buttonPressed: { ...button, opacity: 0.85 },
       buttonPrimary,
       buttonPrimaryPressed: { ...buttonPrimary, opacity: 0.85 },
@@ -331,23 +364,27 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
       buttonPrimaryDisabled: { ...buttonPrimary, opacity: 0.5 },
       buttonText: { ...buttonLabel, color: colors.foreground },
       buttonPrimaryText: { ...buttonLabel, color: colors.accentForeground },
-      actionError: { ...small, color: colors.statusDanger, marginTop: 4 },
+      // No margin of its own: under a button the wrapper's gap places it, under a row of buttons
+      // the block's gap does.
+      actionError: { ...small, color: colors.statusDanger },
       sheet: { gap: 16 },
       sheetStatus: { gap: 4 },
+      sheetActions: { gap: 8 },
       sheetField: { gap: 8 },
       sheetLabel: { ...base, color: colors.foregroundMuted, fontWeight: "500" },
       sheetText: { ...base, color: colors.foreground },
-      // The app's form field (hosts/add-host/internal/add-host-modal.tsx): a surface2 fill with
-      // the border hairline, three lines tall.
+      // The app's form field (hosts/add-host/internal/add-host-modal.tsx) with its paddings and
+      // hairline, three lines tall. The fill is surface1, not that field's surface2: the muted
+      // placeholder is 4.39:1 on surface2 in the light theme and 4.63:1 on surface1.
       input: {
-        ...base,
-        minHeight: 88,
+        ...prompt,
+        minHeight: prompt.lineHeight * 3 + 26,
         paddingVertical: 12,
-        paddingHorizontal: 12,
+        paddingHorizontal: 16,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.surface2,
+        backgroundColor: colors.surface1,
         color: colors.foreground,
         textAlignVertical: "top",
       },
@@ -377,8 +414,8 @@ export function useOfficeStyles(theme: PluginTheme, compact: boolean): OfficeSty
       },
       chipText: { ...base, color: colors.foregroundMuted },
       chipTextSelected: { ...base, color: colors.foreground },
-      scene: { flex: 1, minHeight: 240 },
-      sceneStatus: { ...base, color: colors.foregroundMuted, padding: pad },
+      scene: { flex: 1, minHeight: SCENE_MIN_HEIGHT },
+      sceneStatus: { ...column, ...base, color: colors.foregroundMuted, padding: pad },
     };
-  }, [theme, compact]);
+  }, [theme, compact, touchScreen]);
 }

@@ -11,7 +11,10 @@ test("message that already starts with Unable to is kept", () => {
   expect(text).toEqual("Unable to post: the text is empty");
 });
 
-test("empty message", () => {
-  const text: string = failureText("Mark done", new Error(""));
-  expect(text).toEqual("Unable to mark done: ");
+test("an empty message leaves no colon behind", () => {
+  const texts: string[] = [
+    failureText("Mark done", new Error("")),
+    failureText("Mark done", new Error("  ")),
+  ];
+  expect(texts).toEqual(["Unable to mark done", "Unable to mark done"]);
 });

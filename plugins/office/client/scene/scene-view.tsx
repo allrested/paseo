@@ -113,8 +113,10 @@ const subscribe = (listener: () => void) => sharedThreeLoader.subscribe(listener
 const read = () => sharedThreeLoader.state();
 
 /**
- * Web only (office-surface.tsx renders it only on web with WebGL2 and the 3D switch on). Every
- * DOM call sits in an effect, because the plugin bundle is evaluated on every platform.
+ * Web only (office-surface.tsx renders it only on web with WebGL2 and the 3D switch on). The
+ * plugin bundle is evaluated on every platform, so nothing here touches the DOM when the module
+ * loads. The container and three.js are reached in effects. The two media queries are read once,
+ * during the first render, behind the `typeof window` guard in web-env.web.ts.
  *
  * Reporting a problem makes the surface take this view away, and that is what disposes the
  * scene: on unmount, on 3D off and after a lost context alike.
