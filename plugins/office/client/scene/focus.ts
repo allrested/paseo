@@ -12,7 +12,7 @@ export interface FocusState {
   following: boolean;
   /** The office has been framed since it was last laid out anew. */
   framed: boolean;
-  /** A focus asked for before it could be shown: applied once, then dropped. */
+  /** A room asked for before it could be shown: applied once, then dropped. */
   pending: FocusTarget | null;
 }
 
@@ -25,11 +25,16 @@ export const INITIAL_FOCUS: FocusState = { following: true, framed: false, pendi
 
 /**
  * A focus request from the host or a plate tap. `shown` is true when its room or robot is in the
- * plan. Shown on a framed office, it fires once and replaces any older request; otherwise it
- * waits, replacing any older request, until `settle` can show it.
+ * plan. Shown on a framed office, it fires once and replaces any older request. A room otherwise
+ * waits, replacing any older request, until `settle` can show it (a workspace tab opened before
+ * its room arrived). A robot that cannot be shown now is dropped and changes nothing: an agent
+ * without a desk ("+N") or one that left must not pull the camera when it gets a desk later, and
+ * the first view shows the whole office before any robot.
  */
 export function requestFocus(state: FocusState, target: FocusTarget, shown: boolean): FocusStep {
-  if (!shown || !state.framed) return { state: { ...state, pending: target }, goal: null };
+  const ready = shown && state.framed;
+  if (!ready && "agentId" in target) return { state, goal: null };
+  if (!ready) return { state: { ...state, pending: target }, goal: null };
   return { state: { ...state, following: false, pending: null }, goal: target };
 }
 

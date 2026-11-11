@@ -24,7 +24,6 @@ import {
   type OfficeModel,
   type OfficeRoom,
 } from "./model.js";
-import { fakeOffice } from "./scene/fake-office.js";
 import {
   NO_LAYOUT,
   SceneView,
@@ -202,6 +201,11 @@ export function nextSwitchStep(sync: SwitchSync, stored: StoredSwitch | null): S
   return { kind: "save", value: sync.wanted, against: stored.revision, retry: conflict };
 }
 
+/** The camera's next request for a robot. Nonces start at 1: the scene counts 0 as handled. */
+export function nextFocusRequest(previous: FocusRequest | null, agentId: string): FocusRequest {
+  return { agentId, nonce: (previous?.nonce ?? 0) + 1 };
+}
+
 /** "fallback" is the structure view under the "Try 3D again" banner. */
 export type OfficeView = "pending" | "scene" | "fallback" | "structure";
 
@@ -219,6 +223,11 @@ export function officeView({ available, threeD, problem }: OfficeViewInput): Off
   if (!available || threeD === false) return "structure";
   if (threeD === null) return "pending";
   return problem === null ? "scene" : "fallback";
+}
+
+/** The model the scene draws: the live one, the same the list view shows; none without a scene. */
+export function sceneModelFor(view: OfficeView, model: OfficeModel): OfficeModel | null {
+  return view === "scene" ? model : null;
 }
 
 interface ThreeDState {
@@ -442,14 +451,17 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     () => orderRoomsForFocus(model.rooms, focusRoomId),
     [model.rooms, focusRoomId],
   );
-  // Until the owner approves the look, the scene draws a fixed fake office.
-  const fakeModel = useMemo(() => buildOfficeModel(fakeOffice()), []);
   // In error or closed the data is frozen: no strip and no card to act on it.
   const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
-  const [focusRequest] = useState<FocusRequest | null>(null);
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const closeCard = useCallback(() => setSelectedId(null), []);
+  // The strip is the phone's fast path: it opens the card and moves the camera to the robot.
+  const selectFromStrip = useCallback((agentId: string) => {
+    setSelectedId(agentId);
+    setFocusRequest((previous) => nextFocusRequest(previous, agentId));
+  }, []);
   // The rooms' places outlive the scene: 3D off and on, "Try 3D again" and an error keep them.
   const sceneLayout = useRef<SceneLayout>(NO_LAYOUT);
   const openSession = useCallback(
@@ -471,7 +483,6 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     threeD: threeD.on,
     problem: sceneProblem,
   });
-  const showScene = view === "scene";
   const kept = keptSelection(selectedId, model.agents, live);
   // A selection whose agent left is dropped, so the card does not reopen if that agent returns.
   useEffect(() => {
@@ -488,7 +499,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           </View>
         ) : null}
         {live ? (
-          <AttentionStrip entries={model.attention} styles={styles} onSelect={setSelectedId} />
+          <AttentionStrip entries={model.attention} styles={styles} onSelect={selectFromStrip} />
         ) : null}
       </View>
       {view === "fallback" && sceneProblem !== null ? (
@@ -497,7 +508,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
       <SurfaceBody
         office={office}
         rooms={rooms}
-        sceneModel={showScene ? fakeModel : null}
+        sceneModel={sceneModelFor(view, model)}
         waiting={view === "pending"}
         theme={theme}
         focusRoomId={focusRoomId}
