@@ -458,7 +458,13 @@ interface UsageAccount {
 
 type UsageScope =
   | { kind: "global" }
-  | { kind: "session"; provider: string; model?: string; env: Record<string, string> };
+  | {
+      kind: "session";
+      provider: string;
+      model?: string;
+      env: Record<string, string>;
+      sessionId?: string;
+    };
 
 interface UsageSourceRegistration {
   id: string;
@@ -493,6 +499,13 @@ return `[]`. Global discovery lists every account, including expired logins.
 Resolve the session account from that session's launch environment. Return `[]` when no login exists.
 Never scan default stores from session discovery or scan agents from global discovery. Discovery is a query, with no agent
 lifecycle hooks. Closed agents have no session scope until resumed.
+
+`sessionId` is the provider's own id for the session, when it has one; for Claude it is the
+Claude Code session id. It is absent before the session has one and for providers that do not
+report it. A source behind an API gateway can use it to look up the account the gateway routes the
+session to. Paseo reuses an agent's session discovery for up to a minute, then calls `discover()`
+again on the next request, and at once when `sessionId` changes. When that repeat call fails, the
+agent keeps your source's accounts from the previous call.
 
 Inputs name credential stores; never put credentials in inputs or reports. Paseo validates each
 input against your schema before calling `fetch()`. The same key in any scope is the same report;
