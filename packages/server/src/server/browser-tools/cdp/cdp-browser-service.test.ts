@@ -513,6 +513,13 @@ describe("CdpBrowserService", () => {
       expect(overrides().slice(setCount)).toEqual([SET]);
     });
 
+    test("ignores a frame that reports no size", async () => {
+      const { overrides, frame, setCount } = await watchedAt800();
+      now += 1_000;
+      await frame(0, 0);
+      expect(overrides().slice(setCount)).toEqual([]);
+    });
+
     test("stops after three re-applies that did not take, with one warn", async () => {
       let viewportWarnings = 0;
       await service.stop();
