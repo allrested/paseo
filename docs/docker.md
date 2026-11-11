@@ -113,6 +113,29 @@ Provider environment variables such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `OPENAI_BASE_URL`, or `ANTHROPIC_BASE_URL` can be passed through `docker run -e`
 or `compose.environment`; Paseo passes them to launched agents.
 
+## Token use
+
+The Compose files in `docker/` set three Claude Code variables on the daemon, which hands its
+environment to every agent it starts. Override any of them in the stack's `.env`.
+
+| Variable                       | Default  | Why                                                                                                                                                                                                                                                                           |
+| ------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ENABLE_TOOL_SEARCH`           | `true`   | Tool definitions load on demand. Behind an `ANTHROPIC_BASE_URL` gateway, a Claude Code older than 2.1.304 loads every MCP tool definition into each session and subagent unless this is set. With a dozen MCP servers that is over 100k tokens at the start of every session. |
+| `CLAUDE_CODE_PROMPT_CACHE_TTL` | `1h`     | The main conversation's prompt cache lives an hour. With API-key or gateway billing the default is 5 minutes, so every pause longer than that rebuilds the whole context. Subagents stay on 5 minutes: they rarely pause that long.                                           |
+| `CLAUDE_CODE_SUBAGENT_MODEL`   | `sonnet` | The model for a subagent whose dispatch and agent file name none. A named model wins, and the built-in Explore and Plan agents keep their own. Set it to the model you want all unnamed subagents on, for example `opus`.                                                     |
+
+A 1-hour cache write costs 2x base input, against 1.25x for a 5-minute one. It pays off when
+sessions sit idle between 5 and 60 minutes, which is what waiting on background work looks like.
+If your gateway rejects 1-hour writes, set `CLAUDE_CODE_PROMPT_CACHE_TTL=5m`.
+
+To check a running instance, read the usage of one request:
+
+```bash
+docker exec --user paseo paseo claude -p ok --output-format json | jq .usage.cache_creation
+```
+
+`ephemeral_1h_input_tokens` above zero means the 1-hour cache is in use.
+
 ## Volumes
 
 | Mount         | Purpose                                                                  |
