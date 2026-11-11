@@ -46,10 +46,66 @@ function controlsByType(
 
 describe("terminal virtual keyboard policy", () => {
   it("keeps terminal controls on wide native touch screens with either IME state", () => {
-    expect(shouldShowTerminalVirtualKeyBar({ isNative: true, isCompact: false })).toBe(true);
-    expect(shouldShowTerminalVirtualKeyBar({ isNative: true, isCompact: true })).toBe(true);
-    expect(shouldShowTerminalVirtualKeyBar({ isNative: false, isCompact: true })).toBe(true);
-    expect(shouldShowTerminalVirtualKeyBar({ isNative: false, isCompact: false })).toBe(false);
+    const touch = { finePointer: false, touchScreen: true };
+    const mouse = { finePointer: true, touchScreen: false };
+    expect(shouldShowTerminalVirtualKeyBar({ isNative: true, isCompact: false, ...touch })).toBe(
+      true,
+    );
+    expect(shouldShowTerminalVirtualKeyBar({ isNative: true, isCompact: true, ...touch })).toBe(
+      true,
+    );
+    expect(shouldShowTerminalVirtualKeyBar({ isNative: false, isCompact: true, ...mouse })).toBe(
+      true,
+    );
+    expect(shouldShowTerminalVirtualKeyBar({ isNative: false, isCompact: false, ...mouse })).toBe(
+      false,
+    );
+  });
+
+  it("shows terminal controls in a touch-only browser at any width", () => {
+    expect(
+      shouldShowTerminalVirtualKeyBar({
+        isNative: false,
+        isCompact: false,
+        finePointer: false,
+        touchScreen: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps terminal controls hidden in wide browsers with a mouse or trackpad", () => {
+    // Hybrid laptop: touch screen next to a trackpad.
+    expect(
+      shouldShowTerminalVirtualKeyBar({
+        isNative: false,
+        isCompact: false,
+        finePointer: true,
+        touchScreen: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowTerminalVirtualKeyBar({
+        isNative: false,
+        isCompact: false,
+        finePointer: false,
+        touchScreen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("lays out the key bar of a narrow split pane on a wide touch screen", () => {
+    expect(resolveTerminalVirtualKeyboardRows({ isCompact: false, availableWidth: 500 })).toBe(
+      TERMINAL_VIRTUAL_KEYBOARD_ROWS,
+    );
+    expect(resolveTerminalVirtualKeyboardRows({ isCompact: false, availableWidth: 659 })).toBe(
+      TERMINAL_VIRTUAL_KEYBOARD_ROWS,
+    );
+    expect(resolveTerminalVirtualKeyboardRows({ isCompact: false, availableWidth: 660 })).toBe(
+      TERMINAL_VIRTUAL_KEYBOARD_WIDE_ROWS,
+    );
+    expect(resolveTerminalVirtualKeyboardRows({ isCompact: false, availableWidth: 299 })).toBe(
+      TERMINAL_VIRTUAL_KEYBOARD_THREE_COLUMN_ROWS,
+    );
   });
 
   it("selects the same controls in narrow and wide row arrangements", () => {
