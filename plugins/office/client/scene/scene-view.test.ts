@@ -124,3 +124,30 @@ test("an office with no rooms is not laid out and the rooms return to their cell
     gz: 1,
   });
 });
+
+/** The fake office for a moment after a reconnect: its agents came, its workspaces not yet. */
+function officeLobbyOnly(): OfficeModel {
+  return buildOfficeModel({ ...fakeOffice(), workspaces: [] });
+}
+
+function allCells(state: SceneLayout): [string, GridCell][] {
+  return (state.layout?.rooms ?? []).map((room) => [room.roomId, room.cell]);
+}
+
+test("a snapshot of the lobby alone between two full ones keeps every room's cell and rows", () => {
+  const before = nextLayout(NO_LAYOUT, office(), 2);
+  const lobby = nextLayout(before, officeLobbyOnly(), 2);
+  const after = nextLayout(lobby, office(), 2);
+  expect(allCells(after)).toEqual(allCells(before));
+  expect(after.layout?.rooms.map((room) => room.rows)).toEqual(
+    before.layout?.rooms.map((room) => room.rows),
+  );
+});
+
+test("a layout kept while the view was away is the layout the view draws when it comes back", () => {
+  const model = office();
+  const kept = nextLayout(NO_LAYOUT, model, 2);
+  // A new view measures its container again, then lays out from what the surface kept.
+  const shape = shapeAfter([HIDDEN, TABLET]);
+  expect(nextLayout(kept, model, shape.columns) === kept).toEqual(true);
+});
