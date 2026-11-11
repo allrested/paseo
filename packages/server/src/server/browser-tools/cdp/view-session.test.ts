@@ -214,19 +214,19 @@ describe("CdpViewSession", () => {
       subscriptionId,
       input: {
         kind: "mouse",
-        type: "down",
+        type: "move",
         x: 5,
         y: 6,
-        button: "left",
-        buttons: 1,
-        clickCount: 1,
+        button: "none",
+        buttons: 0,
+        clickCount: 0,
         modifiers: 0,
       },
       viewport: { width: 1200, height: 800, deviceScaleFactor: 1 },
     });
     await until(() => sentTo(targetId, "Input.dispatchMouseEvent").length === 1, "the mouse event");
     expect(sentTo(targetId, "Input.dispatchMouseEvent")[0]).toMatchObject({
-      type: "mousePressed",
+      type: "mouseMoved",
       x: 5,
       y: 6,
     });
@@ -234,6 +234,58 @@ describe("CdpViewSession", () => {
       width: 1200,
       height: 800,
     });
+  });
+
+  test("a press aimed at the frame from before a resize only resizes; the next one clicks", async () => {
+    const tab = await openTab();
+    const targetId = [...chromium.targets.keys()][0];
+    const { subscriptionId } = await subscribeView(tab.browserId);
+    await until(() => sentTo(targetId, "Page.startScreencast").length === 1, "the screencast");
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const send = async (
+      input: Extract<SessionInboundMessage, { type: "browser.cdp.view.input.request" }>["input"],
+    ) => {
+      session.input({
+        type: "browser.cdp.view.input.request",
+        subscriptionId,
+        input,
+        viewport: { width: 1200, height: 800, deviceScaleFactor: 1 },
+      });
+      await settle();
+    };
+    const mouse = { kind: "mouse", y: 6, clickCount: 1, modifiers: 0 } as const;
+    // The pane taps as a move, a press, a drag and a release, each spaced so none is dropped as backlog.
+    const tap = async (x: number) => {
+      await send({ ...mouse, x, type: "move", button: "none", buttons: 0 });
+      await send({ ...mouse, x, type: "down", button: "left", buttons: 1 });
+      await send({ ...mouse, x, type: "move", button: "none", buttons: 1 });
+      await send({ ...mouse, x, type: "up", button: "left", buttons: 0 });
+    };
+    const mouseEvents = () =>
+      sentTo(targetId, "Input.dispatchMouseEvent").map((params) => [params.type, params.x]);
+
+    await tap(5);
+    await send({ kind: "key", type: "down", key: "Enter", code: "Enter", modifiers: 0 });
+    expect(sentTo(targetId, "Emulation.setDeviceMetricsOverride").at(-1)).toMatchObject({
+      width: 1200,
+      height: 800,
+    });
+    // The move that resized went through; the press, its drag and its release did not.
+    expect(mouseEvents()).toEqual([["mouseMoved", 5]]);
+    expect(sentTo(targetId, "Input.dispatchKeyEvent").map((params) => params.type)).toEqual([
+      "keyDown",
+    ]);
+
+    chromium.emit(targetId, "Page.screencastFrame", FRAME);
+    await until(() => binary.length > 0, "a frame of the new size");
+    await tap(7);
+    expect(mouseEvents()).toEqual([
+      ["mouseMoved", 5],
+      ["mouseMoved", 7],
+      ["mousePressed", 7],
+      ["mouseMoved", 7],
+      ["mouseReleased", 7],
+    ]);
   });
 
   test("input for a subscription this session does not own is ignored", async () => {
@@ -262,6 +314,56 @@ describe("CdpViewSession", () => {
       subscriptionId,
       error: "browser_timeout",
     });
+  });
+
+  test("a stalled page queues a bounded backlog and keeps every press paired with its release", async () => {
+    const tab = await openTab();
+    const targetId = [...chromium.targets.keys()][0];
+    const { subscriptionId } = await subscribeView(tab.browserId);
+    const send = (
+      input: Extract<SessionInboundMessage, { type: "browser.cdp.view.input.request" }>["input"],
+    ) => session.input({ type: "browser.cdp.view.input.request", subscriptionId, input });
+    const mouse = (type: "move" | "down" | "up", buttons: number) =>
+      send({
+        kind: "mouse",
+        type,
+        x: 1,
+        y: 1,
+        button: type === "move" ? "none" : "left",
+        buttons,
+        clickCount: 1,
+        modifiers: 0,
+      });
+    const key = (type: "down" | "up", code: string) =>
+      send({ kind: "key", type, key: code.slice(-1).toLowerCase(), code, modifiers: 0 });
+    chromium.stall("Input.insertText");
+    send({ kind: "text", text: "0" });
+    key("down", "KeyA");
+    // Something is waiting now, so a move or a wheel is dropped.
+    mouse("move", 0);
+    send({ kind: "wheel", x: 1, y: 1, deltaX: 0, deltaY: 5, modifiers: 0 });
+    for (let index = 1; index <= 30; index += 1) send({ kind: "text", text: String(index) });
+    // The queue is full: a press is dropped with its release, a release whose press is queued is not.
+    key("down", "KeyB");
+    key("up", "KeyB");
+    mouse("down", 1);
+    mouse("up", 0);
+    send({ kind: "text", text: "late" });
+    key("up", "KeyA");
+    await until(() => sentTo(targetId, "Input.insertText").length === 1, "the stalled input");
+    chromium.unstall("Input.insertText");
+    const keyTypes = () => sentTo(targetId, "Input.dispatchKeyEvent").map((params) => params.type);
+    await until(() => keyTypes().includes("keyUp"), "the queue to drain");
+    expect(sentTo(targetId, "Input.insertText").map((params) => params.text)).toEqual(
+      Array.from({ length: 31 }, (_, index) => String(index)),
+    );
+    expect(
+      sentTo(targetId, "Input.dispatchKeyEvent").map((params) => [params.type, params.code]),
+    ).toEqual([
+      ["rawKeyDown", "KeyA"],
+      ["keyUp", "KeyA"],
+    ]);
+    expect(sentTo(targetId, "Input.dispatchMouseEvent")).toEqual([]);
   });
 
   test("a closed tab tells its view", async () => {
