@@ -140,15 +140,21 @@ export class ScreencastHub {
     return this.watched.get(browserId)?.viewers.size ?? 0;
   }
 
+  /** The newest frame of a watched tab: a screencast frame, a refresh or the priming screenshot. */
+  lastFrame(browserId: string): ScreencastFrame | null {
+    return this.watched.get(browserId)?.lastFrame ?? null;
+  }
+
   /**
    * Captures the tab once and sends the picture down the frame path: the cache, every viewer and
-   * onFrame, as a screencast frame goes. Resolves false when no viewer watches the tab or the
-   * capture gave no picture; rejects when the capture fails.
+   * onFrame, as a screencast frame goes. Resolves false when no viewer watches the tab, the capture
+   * gave no picture, or by its answer a newer frame came, the viewers left or `wanted` says no;
+   * rejects when the capture fails.
    */
-  async refresh(browserId: string): Promise<boolean> {
+  async refresh(browserId: string, wanted: () => boolean = () => true): Promise<boolean> {
     const watched = this.watched.get(browserId);
     if (!watched || watched.viewers.size === 0) return false;
-    return this.capture(watched, "refresh");
+    return this.capture(watched, { purpose: "refresh", wanted });
   }
 
   /** Rejects with Error("browser_tab_not_found") when the tab has no source. */
@@ -316,14 +322,19 @@ export class ScreencastHub {
   private prime(watched: Watched): void {
     if (watched.priming) return;
     watched.priming = true;
-    this.capture(watched, "prime")
+    this.capture(watched, { purpose: "prime" })
       .catch((error: unknown) => this.onError(error))
       .finally(() => {
         watched.priming = false;
       });
   }
 
-  private async capture(watched: Watched, purpose: "prime" | "refresh"): Promise<boolean> {
+  private async capture(
+    watched: Watched,
+    capture: { purpose: "prime" } | { purpose: "refresh"; wanted: () => boolean },
+  ): Promise<boolean> {
+    const { purpose } = capture;
+    const sequenceAtStart = watched.sequence;
     const [shot, metrics] = await Promise.all([
       watched.source.send<{ data?: string }>("Page.captureScreenshot", {
         format: "jpeg",
@@ -334,6 +345,10 @@ export class ScreencastHub {
     if (this.watched.get(watched.browserId) !== watched || !shot.data) return false;
     // A screencast frame that came while the priming screenshot was taken is newer than it.
     if (purpose === "prime" && watched.lastFrame) return false;
+    // So is any frame that came while a refresh was out; and its caller may have moved on.
+    if (capture.purpose === "refresh") {
+      if (watched.sequence !== sequenceAtStart || !this.stillWanted(capture.wanted)) return false;
+    }
     const viewport = metrics.cssVisualViewport ?? {};
     const jpeg = Buffer.from(shot.data, "base64");
     const size = this.screenshotSize(watched.browserId, jpeg) ?? {
@@ -353,6 +368,15 @@ export class ScreencastHub {
     for (const slot of watched.viewers.values()) this.push(watched, slot, frame);
     if (purpose === "refresh") this.options.onFrame?.(watched.browserId, frame);
     return true;
+  }
+
+  private stillWanted(wanted: () => boolean): boolean {
+    try {
+      return wanted();
+    } catch (error) {
+      this.onError(error);
+      return false;
+    }
   }
 
   /**
