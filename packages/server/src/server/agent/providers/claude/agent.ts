@@ -3722,6 +3722,7 @@ class ClaudeAgentSession implements AgentSession {
       model: this.config.model,
       env: this.harnessEnvironment,
       sessionKey: this.usageSessionKey,
+      ...(this.claudeSessionId ? { sessionId: this.claudeSessionId } : {}),
     };
   }
 

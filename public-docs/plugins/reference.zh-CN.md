@@ -383,7 +383,13 @@ interface UsageAccount {
 
 type UsageScope =
   | { kind: "global" }
-  | { kind: "session"; provider: string; model?: string; env: Record<string, string> };
+  | {
+      kind: "session";
+      provider: string;
+      model?: string;
+      env: Record<string, string>;
+      sessionId?: string;
+    };
 
 interface UsageSourceRegistration {
   id: string;
@@ -414,6 +420,8 @@ type UsageProblem =
 会话发现只返回该 Agent 运行时使用的那个登录。Agent 弹出框只使用这些输入；它从不尝试来自全局发现或其他 Agent 的登录。对于其他任何 Provider，返回 `[]`。全局发现会列出每个账号，包括已过期的登录。
 
 从会话的启动环境中解析会话账号。没有登录时返回 `[]`。不要在会话发现中扫描默认存储，也不要在全局发现中扫描 Agent。发现是一种查询，没有 Agent 生命周期钩子。已关闭的 Agent 在恢复之前没有会话范围。
+
+`sessionId` 是 Provider 自己为该会话分配的 ID（如果有）；对 Claude 来说就是 Claude Code 的会话 ID。会话还没有 ID 时，以及 Provider 不提供它时，该字段不存在。位于 API 网关之后的来源可以用它查出网关把该会话路由到了哪个账号。Paseo 会把一个 Agent 的会话发现结果复用最多一分钟，之后在下一次请求时再次调用 `discover()`；`sessionId` 变化时会立即重新调用。重新调用失败时，该 Agent 保留你的来源在上一次调用中返回的账号。
 
 输入指定凭据存储的位置；不要把凭据放进输入或报告中。Paseo 在调用 `fetch()` 之前会按你的 schema 校验每个输入。在任何范围内，相同的键就是同一份报告；只有当有序的登录输入一致时，获取才会共享五分钟的缓存。每次登录获取有 20 秒的截止时间。
 

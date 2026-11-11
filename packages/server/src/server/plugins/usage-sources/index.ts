@@ -48,8 +48,16 @@ interface AgentReports {
   provider: string;
   model?: string;
   sessionKey: string;
+  sessionId?: string;
+  discoveredAt: number;
   reports: Map<string, KnownReport>;
 }
+
+/**
+ * How long an agent's discovered accounts are reused. A source may learn a session's account only
+ * minutes after the session starts, and a gateway may later move the session to another account.
+ */
+const AGENT_DISCOVERY_TTL_MS = 60_000;
 
 /** Owns account identity, ordered logins for each account, and the five-minute fetch cache. */
 export class UsageSourceRegistry {
@@ -152,23 +160,32 @@ export class UsageSourceRegistry {
       return [];
     }
     const previous = this.byAgent.get(agentId);
+    const sameLaunch =
+      previous?.sessionKey === session.sessionKey && previous.provider === session.provider;
     const sameScope =
-      previous?.sessionKey === session.sessionKey &&
-      previous.provider === session.provider &&
-      previous.model === session.model;
-    if (sameScope) return [...previous.reports.keys()];
-    const reports = await this.discover({
-      kind: "session",
-      provider: session.provider,
-      model: session.model,
-      env: session.env,
-    });
+      sameLaunch && previous.model === session.model && previous.sessionId === session.sessionId;
+    const discoveredAt = this.now();
+    if (sameScope && discoveredAt - previous.discoveredAt < AGENT_DISCOVERY_TTL_MS)
+      return [...previous.reports.keys()];
+    const reports = await this.discover(
+      {
+        kind: "session",
+        provider: session.provider,
+        model: session.model,
+        env: session.env,
+        ...(session.sessionId !== undefined ? { sessionId: session.sessionId } : {}),
+      },
+      // A failed source keeps its entries only within the launch they were discovered for.
+      sameLaunch ? previous.reports : undefined,
+    );
     // A query that finishes after a resume must not publish the previous launch's mapping.
     if (this.agents.usageSession(agentId)?.sessionKey !== session.sessionKey) return [];
     this.byAgent.set(agentId, {
       sessionKey: session.sessionKey,
       provider: session.provider,
       model: session.model,
+      sessionId: session.sessionId,
+      discoveredAt,
       reports,
     });
     this.mergeKnown();
@@ -177,9 +194,9 @@ export class UsageSourceRegistry {
 
   private mergeKnown(): void {
     this.known.clear();
-    // One login is one account. An agent keeps the mapping from its first discovery, which can
-    // predate its account being known (e.g. an expired token gets a per-login fallback key), so
-    // a login already shown under another ID stays there. Host discovery is newest, so it wins.
+    // One login is one account. An agent's mapping can be up to a minute old and can predate its
+    // account being known (e.g. an expired token gets a per-login fallback key), so a login
+    // already shown under another ID stays there. Host discovery is newest, so it wins.
     const owners = new Map<string, string>();
     for (const reports of [
       this.defaults,
@@ -254,8 +271,8 @@ export class UsageSourceRegistry {
           }
         } catch (error) {
           this.logger.warn({ sourceId: source.id, err: error }, "Usage source discovery failed");
-          // A failed store read does not confirm removal. Session discovery has no previous
-          // mapping because a resumed agent may use a different launch environment.
+          // A failed store read does not confirm removal. Session discovery for a new launch has
+          // no previous mapping because a resumed agent may use a different launch environment.
           for (const [id, report] of previous) {
             if (report.source === source) reports.set(id, report);
           }
