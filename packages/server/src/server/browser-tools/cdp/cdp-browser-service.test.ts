@@ -192,6 +192,26 @@ describe("CdpBrowserService", () => {
     ]);
   });
 
+  test("close_tab keeps the tab when Chromium fails to close it, and forgets one already gone", async () => {
+    await started();
+    const tab = await newTab();
+    chromium.handle("Target.closeTarget", () => {
+      throw new Error("Internal error");
+    });
+    const payload = await broker.execute({
+      command: { command: "close_tab", args: { browserId: tab.browserId } },
+      workspaceId: "ws-a",
+    });
+    expect(payload).toMatchObject({ ok: false });
+    expect(service.listTabs().map((entry) => entry.browserId)).toEqual([tab.browserId]);
+    expect(events.some((event) => event.kind === "closed")).toBe(false);
+    chromium.handle("Target.closeTarget", () => {
+      throw new Error("No target with given id found");
+    });
+    await expect(service.closeTab(tab.browserId)).resolves.toBe(true);
+    expect(service.listTabs()).toEqual([]);
+  });
+
   test("a target destroyed elsewhere drops from the registry; a stranger's is ignored", async () => {
     const foreign = chromium.addTarget({ id: "USER-TAB" });
     await started();
