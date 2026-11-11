@@ -151,6 +151,8 @@ export class CdpBrowserService {
   private readonly frameSizeChecks = new Map<string, FrameSizeCheck>();
   private readonly agentActiveUntil = new Map<string, number>();
   private readonly agentTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Agent commands running per tab. */
+  private readonly agentCommands = new Map<string, number>();
   private readonly activeByWorkspace = new Map<string, string>();
   private readonly listeners = new Set<(event: CdpBrowserEvent) => void>();
   private readonly attachListeners = new Set<(browserId: string) => void>();
@@ -494,6 +496,9 @@ export class CdpBrowserService {
   private checkFrameSize(browserId: string, width: number, height: number): void {
     const set = this.viewports.get(browserId);
     if (!set) return;
+    // A full-page screenshot (captureBeyondViewport) changes the emulated size while it captures;
+    // an override sent then would cut the capture short. The agent's own frames are left alone.
+    if (this.agentCommands.has(browserId) || this.agentBadgeShows(browserId)) return;
     const check = this.frameSizeCheck(browserId);
     if (Math.round(width) === set.width && Math.round(height) === set.height) {
       check.misses = 0;
@@ -613,6 +618,10 @@ export class CdpBrowserService {
     this.agentTimers.set(browserId, timer);
   }
 
+  private agentBadgeShows(browserId: string): boolean {
+    return (this.agentActiveUntil.get(browserId) ?? 0) > this.now();
+  }
+
   private stateOf(entry: CdpTabEntry): CdpTabState {
     const tab = this.tabs.get(entry.browserId);
     return {
@@ -686,6 +695,21 @@ export class CdpBrowserService {
       return { requestId, ok: true, result: { command: "close_tab", browserId } };
     }
     this.noteAgentActivity(browserId);
+    this.agentCommands.set(browserId, (this.agentCommands.get(browserId) ?? 0) + 1);
+    try {
+      return await this.executeOnTab(request, browserId);
+    } finally {
+      const left = (this.agentCommands.get(browserId) ?? 1) - 1;
+      if (left > 0) this.agentCommands.set(browserId, left);
+      else this.agentCommands.delete(browserId);
+    }
+  }
+
+  private async executeOnTab(
+    request: BrowserAutomationExecuteRequest,
+    browserId: string,
+  ): Promise<Payload> {
+    const { requestId, command } = request;
     if (command.command === "resize") {
       // An agent's size holds until a person sends input on the tab (pointer, touch, key or text).
       // A pane's size-only claim (shown again, reconnect, layout change) does not take it.
