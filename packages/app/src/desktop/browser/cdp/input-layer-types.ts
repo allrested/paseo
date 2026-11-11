@@ -1,5 +1,8 @@
 import type { RefObject } from "react";
-import type { CdpBrowserViewInput } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
+import type {
+  CdpBrowserViewInput,
+  CdpBrowserViewport,
+} from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import type { FrameRect, Size } from "./view-model";
 
 /** The on-screen keyboard of the input layer, driven by the toolbar's keyboard button. */
@@ -15,6 +18,8 @@ export interface CdpInputLayerProps {
   rect: FrameRect;
   /** The page viewport in CSS pixels, from the frame's metadata. */
   page: Size;
+  /** The size the pane claims, which every input carries. A press is not sent while `page` differs. */
+  viewport: CdpBrowserViewport | null;
   onInput(input: CdpBrowserViewInput): void;
   onFocusUrl(): void;
   onFocusPane?: () => void;
