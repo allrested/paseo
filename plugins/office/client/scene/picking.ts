@@ -1,11 +1,11 @@
 // Screen-space picking and zoom maths for the office scene: pure functions of the camera view,
 // the viewport and what is drawn where. No DOM and no three.js, so they are unit tested.
-import type { Bounds } from "../layout.js";
 import {
   panBy,
   screenPoint,
   zoomBy,
   type CameraView,
+  type GroundSpan,
   type ScreenPoint,
   type Viewport,
 } from "./camera.js";
@@ -146,13 +146,13 @@ export function zoomAbout(
   factor: number,
   at: ScreenPoint,
   viewport: Viewport,
-  bounds: Bounds,
+  span: GroundSpan,
 ): CameraView {
   const zoomed = zoomBy(from, factor);
   const applied = zoomed.zoom / from.zoom - 1;
   const dx = (at.x - viewport.width / 2) * applied;
   const dy = (at.y - viewport.height / 2) * applied;
-  return panBy(zoomed, -dx, -dy, viewport, bounds);
+  return panBy(zoomed, -dx, -dy, viewport, span);
 }
 
 /**
@@ -165,10 +165,10 @@ export function pinchView(
   before: PinchState,
   after: PinchState,
   viewport: Viewport,
-  bounds: Bounds,
+  span: GroundSpan,
 ): CameraView {
   const dx = after.middle.x - before.middle.x;
   const dy = after.middle.y - before.middle.y;
-  const panned = panBy(view, dx, dy, viewport, bounds);
-  return zoomAbout(panned, after.spread / before.spread, after.middle, viewport, bounds);
+  const panned = panBy(view, dx, dy, viewport, span);
+  return zoomAbout(panned, after.spread / before.spread, after.middle, viewport, span);
 }

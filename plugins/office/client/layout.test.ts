@@ -10,6 +10,7 @@ import {
   ROOM_GAP,
   ROOM_PITCH_X,
   ROOM_WIDTH,
+  VIEW_TURN,
   layoutOffice,
   roomDepth,
   seatPosition,
@@ -62,6 +63,12 @@ function centers(result: ReturnType<typeof run>) {
 }
 
 const ONE_ROW = roomDepth(1);
+const TAN = Math.tan(VIEW_TURN);
+
+/** The middle of a room `depth` deep whose back wall stands `back` down column `column`. */
+function centerAt(column: number, back: number, depth: number): [number, number] {
+  return [column * ROOM_PITCH_X + back * TAN, back - column * ROOM_PITCH_X * TAN + depth / 2];
+}
 
 test("a room is as deep as the rows of desks its agents need, and never less than one", () => {
   expect([roomDepth(1), roomDepth(2), roomDepth(CELL_ROWS)]).toEqual([6, 8.5, ROOM_DEPTH]);
@@ -88,9 +95,9 @@ test("in one column the rooms stand in the model's order, the lobby at the back"
   const second = ONE_ROW + ROOM_GAP;
   const third = second + roomDepth(2) + ROOM_GAP;
   expect(centers(result)).toEqual([
-    ["lobby", 0, ONE_ROW / 2],
-    ["w1", 0, second + roomDepth(2) / 2],
-    ["w2", 0, third + ONE_ROW / 2],
+    ["lobby", ...centerAt(0, 0, ONE_ROW)],
+    ["w1", ...centerAt(0, second, roomDepth(2))],
+    ["w2", ...centerAt(0, third, ONE_ROW)],
   ]);
   expect(cells(result)).toEqual([
     ["lobby", 0, 0],
@@ -113,11 +120,11 @@ test("in columns the lobby takes the middle, then the deepest room goes to the s
     ["w4", 0, 0],
   ]);
   expect(centers(result)).toEqual([
-    ["lobby", ROOM_PITCH_X, ONE_ROW / 2],
-    ["w1", 2 * ROOM_PITCH_X, ONE_ROW / 2],
-    ["w2", ROOM_PITCH_X, ONE_ROW + ROOM_GAP + ONE_ROW / 2],
-    ["w3", 2 * ROOM_PITCH_X, ONE_ROW + ROOM_GAP + ONE_ROW / 2],
-    ["w4", 0, ROOM_DEPTH / 2],
+    ["lobby", ...centerAt(1, 0, ONE_ROW)],
+    ["w1", ...centerAt(2, 0, ONE_ROW)],
+    ["w2", ...centerAt(1, ONE_ROW + ROOM_GAP, ONE_ROW)],
+    ["w3", ...centerAt(2, ONE_ROW + ROOM_GAP, ONE_ROW)],
+    ["w4", ...centerAt(0, 0, ROOM_DEPTH)],
   ]);
   expect(result.layout.columns).toBe(3);
 });
@@ -141,7 +148,8 @@ test("rooms keep their column and their order when another room is added or remo
     ["w2", 0, 1],
     ["w3", 1, 0],
   ]);
-  expect(removed.layout.roomById.get("w3")?.center).toEqual({ x: ROOM_PITCH_X, z: ONE_ROW / 2 });
+  const [x, z] = centerAt(1, 0, ONE_ROW);
+  expect(removed.layout.roomById.get("w3")?.center).toEqual({ x, z });
   // A new room goes behind the last room of the shortest column; nobody else moves.
   const added = run(snapshot(["w0", "w2", "w3"], []), removed.memory, 2);
   expect(cells(added)).toEqual([
@@ -159,19 +167,24 @@ test("a room that grows by a row keeps its back wall and its seats, and pushes t
   expect(cells(after)).toEqual(cells(before));
   const [was, now] = [before, after].map((result) => result.layout.roomById.get("w1"));
   expect([was?.rows, now?.rows]).toEqual([1, 2]);
-  expect((now?.center.z ?? 0) - (now?.depth ?? 0) / 2).toBe(
+  expect((now?.center.z ?? 0) - (now?.depth ?? 0) / 2).toBeCloseTo(
     (was?.center.z ?? 0) - (was?.depth ?? 0) / 2,
+    9,
   );
+  expect(now?.center.x).toBe(was?.center.x);
   for (const seat of was?.seats ?? []) {
     const kept = after.layout.seatOf.get(seat.agentId);
-    expect([kept?.x, kept?.z]).toEqual([seat.x, seat.z]);
+    expect(kept?.x).toBeCloseTo(seat.x, 9);
+    expect(kept?.z).toBeCloseTo(seat.z, 9);
   }
   // w3 stands behind w1 and moves by one row; w2 is in the other column and stays.
   const moved = ids.map((id) => {
     const from = before.layout.roomById.get(id)?.center.z ?? 0;
     return (after.layout.roomById.get(id)?.center.z ?? 0) - from;
   });
-  expect(moved).toEqual([CELL_SIZE / 2, 0, CELL_SIZE]);
+  expect(moved[0]).toBeCloseTo(CELL_SIZE / 2, 9);
+  expect(moved[1]).toBe(0);
+  expect(moved[2]).toBeCloseTo(CELL_SIZE, 9);
 });
 
 test("a room keeps the rows it grew to when its agents leave, so its neighbours move once", () => {
@@ -227,12 +240,30 @@ test("every seat lies inside a room of its rows, and the bounds hold every room"
     }
   }
   const { layout } = run(snapshot(["w1", "w2"], []), EMPTY_LAYOUT_MEMORY, 2);
-  expect(layout.bounds).toEqual({
-    minX: -ROOM_WIDTH / 2 - 2,
-    maxX: ROOM_PITCH_X + ROOM_WIDTH / 2 + 2,
-    minZ: -2,
-    maxZ: 2 * ONE_ROW + ROOM_GAP + 2,
-  });
+  // The second column starts further back, so that on screen it starts level with the first.
+  expect(layout.bounds.minX).toBeCloseTo(-ROOM_WIDTH / 2 - 2, 9);
+  expect(layout.bounds.maxX).toBeCloseTo(ROOM_PITCH_X + ROOM_WIDTH / 2 + 2, 9);
+  expect(layout.bounds.minZ).toBeCloseTo(-ROOM_PITCH_X * TAN - 2, 9);
+  expect(layout.bounds.maxZ).toBeCloseTo(2 * ONE_ROW + ROOM_GAP + 2, 9);
+});
+
+test("seen from above the places are a grid turned by the view's angle", () => {
+  const { layout } = run(snapshot(["w1", "w2", "w3"], []), EMPTY_LAYOUT_MEMORY, 2);
+  const back = (roomId: string) => {
+    const room = layout.roomById.get(roomId);
+    return { x: room?.center.x ?? 0, z: (room?.center.z ?? 0) - (room?.depth ?? 0) / 2 };
+  };
+  // Along the camera's own directions: across the screen, and down it.
+  const across = (roomId: string) =>
+    back(roomId).x * Math.cos(VIEW_TURN) - back(roomId).z * Math.sin(VIEW_TURN);
+  const down = (roomId: string) =>
+    back(roomId).x * Math.sin(VIEW_TURN) + back(roomId).z * Math.cos(VIEW_TURN);
+  expect(VIEW_TURN).toBeGreaterThan(0);
+  // w2 stands behind the lobby, w1 beside it.
+  expect(across("w2")).toBeCloseTo(across("lobby"), 9);
+  expect(down("w2") - down("lobby")).toBeCloseTo((ONE_ROW + ROOM_GAP) / Math.cos(VIEW_TURN), 9);
+  expect(down("w1")).toBeCloseTo(down("lobby"), 9);
+  expect(across("w1") - across("lobby")).toBeCloseTo(ROOM_PITCH_X / Math.cos(VIEW_TURN), 9);
 });
 
 test("the first row of desks stands the same distance from the back wall in every room", () => {
