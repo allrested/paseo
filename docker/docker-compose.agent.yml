@@ -67,6 +67,11 @@ services:
       # the host off.
       PASEO_BROWSER_CDP_URL: ${PASEO_BROWSER_CDP_URL-http://127.0.0.1:9222}
       PASEO_BROWSER_TOOLS_ENABLED: ${PASEO_BROWSER_TOOLS_ENABLED:-true}
+      # Claude Code defaults that cut token use; see docs/docker.md#token-use.
+      # The daemon passes its environment to every agent it starts.
+      ENABLE_TOOL_SEARCH: ${ENABLE_TOOL_SEARCH:-true}
+      CLAUDE_CODE_PROMPT_CACHE_TTL: ${CLAUDE_CODE_PROMPT_CACHE_TTL:-1h}
+      CLAUDE_CODE_SUBAGENT_MODEL: ${CLAUDE_CODE_SUBAGENT_MODEL:-sonnet}
       TZ: ${TZ:-Asia/Jakarta}
       GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-}
       GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-}
