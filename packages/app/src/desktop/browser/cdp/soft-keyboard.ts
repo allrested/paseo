@@ -2,7 +2,7 @@ import type { CdpBrowserViewInput } from "@getpaseo/protocol/browser-automation/
 
 /** The events of the hidden field that raises a touch browser's on-screen keyboard. */
 export type SoftKeyboardEvent =
-  | { type: "keydown"; key: string; isComposing: boolean }
+  | { type: "keydown"; key: string; keyCode?: number; isComposing: boolean }
   | { type: "beforeinput"; inputType: string; data: string | null; isComposing: boolean }
   | { type: "compositionstart" }
   | { type: "compositionupdate"; data: string }
@@ -18,6 +18,11 @@ export interface SoftKeyboardStep {
 
 export interface SoftKeyboard {
   step(event: SoftKeyboardEvent): SoftKeyboardStep;
+  /**
+   * Forgets an open composition, for when the page caret moved (a tap on the frame) or the keyboard
+   * went off. Its late updates and end send nothing; what was already sent stays where it went.
+   */
+  reset(): void;
 }
 
 const PASS: SoftKeyboardStep = { inputs: [], cancel: false };
@@ -77,7 +82,6 @@ function beforeInputStep(inputType: string, data: string | null): SoftKeyboardSt
   // Paste arrives through the paste event; replacements, drops and word deletes have no exact page input.
   return DROP;
 }
-
 /**
  * Maps the hidden field's events to page inputs. Typed text comes from insertText, pasted text
  * from the paste event. A composition (Android keyboards compose every word) is sent live: each
@@ -89,32 +93,48 @@ function beforeInputStep(inputType: string, data: string | null): SoftKeyboardSt
  */
 export function createSoftKeyboard(): SoftKeyboard {
   let composed = "";
+  let composing = false;
+  // A reset composition: its late updates and end belong to a page input the user left.
+  let abandoned = false;
   const compose = (next: string): SoftKeyboardStep => {
+    composing = true;
+    if (abandoned) return PASS;
     const inputs = compositionDiff(composed, next);
     composed = next;
     return { inputs, cancel: false };
+  };
+  const endComposition = (data: string): SoftKeyboardStep => {
+    const step = compose(data);
+    composed = "";
+    composing = false;
+    abandoned = false;
+    return step;
   };
   return {
     step(event) {
       switch (event.type) {
         case "keydown":
-          if (event.isComposing) return PASS;
+          // 229: an IME owns the key, such as Safari's Enter that confirms a conversion.
+          if (event.isComposing || event.keyCode === 229) return PASS;
           return event.key === "Enter" || event.key === "Backspace" ? pressKey(event.key) : PASS;
         case "beforeinput":
           return event.isComposing ? PASS : beforeInputStep(event.inputType, event.data);
         case "compositionstart":
           composed = "";
+          composing = true;
+          abandoned = false;
           return PASS;
         case "compositionupdate":
           return compose(event.data);
-        case "compositionend": {
-          const step = compose(event.data);
-          composed = "";
-          return step;
-        }
+        case "compositionend":
+          return endComposition(event.data);
         case "paste":
           return insertText(event.text);
       }
+    },
+    reset() {
+      if (composing) abandoned = true;
+      composed = "";
     },
   };
 }
