@@ -1,0 +1,149 @@
+import { useCallback, useState } from "react";
+import { Text, View } from "react-native";
+import type { PluginScreenProps } from "@getpaseo/plugin/client";
+import { Modal, TextInput } from "@getpaseo/plugin/client/ui";
+import type { AgentStatus, OfficeAgent } from "../shared/contracts.js";
+import { ActionButton } from "./action-button.js";
+import { agentMeta, agentTitle, answerableInOffice } from "./model.js";
+import { PermissionActions } from "./permission-actions.js";
+import type { OfficeStyles } from "./styles.js";
+import type { AgentActions } from "./use-agent-actions.js";
+
+type Navigation = PluginScreenProps["navigation"];
+
+export const STATUS_LABELS: Record<AgentStatus, string> = {
+  initializing: "Starting",
+  idle: "Idle",
+  running: "Running",
+  error: "Error",
+  closed: "Closed",
+};
+
+interface AgentCardBodyProps {
+  agent: OfficeAgent;
+  activity: string | null;
+  actions: AgentActions;
+  navigation: Navigation;
+  styles: OfficeStyles;
+  onClose(): void;
+}
+
+function AgentCardBody({
+  agent,
+  activity,
+  actions,
+  navigation,
+  styles,
+  onClose,
+}: AgentCardBodyProps) {
+  const [text, setText] = useState("");
+  const openSession = useCallback(() => {
+    navigation?.openAgent({ agentId: agent.id });
+    onClose();
+  }, [navigation, agent.id, onClose]);
+  const stop = useCallback(() => actions.cancel(agent.id), [actions, agent.id]);
+  const send = useCallback(async () => {
+    await actions.send(agent.id, text.trim());
+    setText("");
+  }, [actions, agent.id, text]);
+  const running = agent.status === "running";
+  // One accent button per sheet (docs/design.md section 3): while Approve is on it, Send is plain.
+  const approving = agent.permissions.some((permission) => answerableInOffice(permission.kind));
+  return (
+    <View style={styles.sheet}>
+      <View style={styles.sheetStatus}>
+        <Text style={styles.muted}>
+          {agentMeta(agent)} · {STATUS_LABELS[agent.status]}
+        </Text>
+        {activity ? <Text style={styles.sheetText}>{activity}</Text> : null}
+      </View>
+      {agent.permissions.map((permission) => (
+        <PermissionActions
+          key={permission.id}
+          agentId={agent.id}
+          permission={permission}
+          actions={actions}
+          styles={styles}
+        />
+      ))}
+      {navigation || running ? (
+        <View style={styles.actions}>
+          {navigation ? (
+            <ActionButton
+              label="Open session"
+              pendingLabel="Opening..."
+              onPress={openSession}
+              styles={styles}
+            />
+          ) : null}
+          {running ? (
+            <ActionButton label="Stop" pendingLabel="Stopping..." onPress={stop} styles={styles} />
+          ) : null}
+        </View>
+      ) : null}
+      <View style={styles.sheetField}>
+        <Text style={styles.sheetLabel}>Send a prompt</Text>
+        <TextInput
+          accessibilityLabel="Send a prompt"
+          value={text}
+          onChangeText={setText}
+          placeholder="Message"
+          placeholderTextColor={styles.placeholderColor}
+          multiline
+          style={styles.input}
+        />
+      </View>
+      <ActionButton
+        label="Send"
+        pendingLabel="Sending..."
+        onPress={send}
+        disabled={text.trim().length === 0}
+        styles={styles}
+        primary={!approving}
+      />
+    </View>
+  );
+}
+
+export interface AgentCardProps {
+  agent: OfficeAgent | null;
+  activity: string | null;
+  actions: AgentActions;
+  navigation: Navigation;
+  styles: OfficeStyles;
+  onClose(): void;
+}
+
+/** Open session, send a prompt, answer a permission, stop the running turn. */
+export function AgentCard({
+  agent,
+  activity,
+  actions,
+  navigation,
+  styles,
+  onClose,
+}: AgentCardProps) {
+  const change = useCallback(
+    (open: boolean) => {
+      if (!open) onClose();
+    },
+    [onClose],
+  );
+  return (
+    <Modal title={agent ? agentTitle(agent) : "Agent"} open={agent !== null} onOpenChange={change}>
+      <Modal.Content>
+        {agent ? (
+          <AgentCardBody
+            key={agent.id}
+            agent={agent}
+            activity={activity}
+            actions={actions}
+            navigation={navigation}
+            styles={styles}
+            onClose={onClose}
+          />
+        ) : null}
+      </Modal.Content>
+    </Modal>
+  );
+}
