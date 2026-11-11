@@ -17,6 +17,14 @@ export function cdpNavigateErrorStatus(error: unknown): CdpViewStatus | null {
   return status === "closed" || status === "unreachable" ? status : null;
 }
 
+/** The toast for a failed navigate: the scheme is named only when the daemon refused the address. */
+export function cdpNavigateErrorKey(error: unknown): string {
+  const code = error instanceof Error ? error.message : String(error);
+  return code.includes("browser_url_refused")
+    ? "cdpBrowser.navigateFailed"
+    : "cdpBrowser.navigateError";
+}
+
 /**
  * `web:3000` is a Docker service name and port, but parses as a URL with the scheme `web:`, which
  * the daemon refuses. The pane's URL field reads it as a host.

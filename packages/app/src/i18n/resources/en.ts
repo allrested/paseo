@@ -2062,6 +2062,7 @@ export const en = {
     },
     openFailed: "Could not open a browser tab",
     navigateFailed: "Could not open that address. Only http and https addresses work here.",
+    navigateError: "Could not open that address",
   },
   rewind: {
     tooltip: "Rewind to this message",
