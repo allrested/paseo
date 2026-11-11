@@ -513,6 +513,84 @@ describe("CdpBrowserService", () => {
       expect(overrides().slice(setCount)).toEqual([SET]);
     });
 
+    /** The watched tab set to another size at a scale factor, with its settling over. */
+    const watchedAtScale = async (viewport: { width: number; height: number; scale: number }) => {
+      const watched = await watchedAt800();
+      await service.setViewport(
+        watched.tab.browserId,
+        { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.scale },
+        "viewer-2",
+      );
+      now += 1_000;
+      return { ...watched, setCount: watched.overrides().length };
+    };
+
+    test("takes a frame of the size set times its scale factor 2 as the size set", async () => {
+      const { overrides, frame, setCount } = await watchedAtScale({
+        width: 844,
+        height: 245,
+        scale: 2,
+      });
+      // Chromium sometimes reports a frame in device pixels.
+      await frame(1688, 490);
+      await frame(1689, 489);
+      expect(overrides().slice(setCount)).toEqual([]);
+      // A window close to the size set is still the window's size.
+      await frame(845, 246);
+      expect(overrides().slice(setCount)).toEqual([
+        { width: 844, height: 245, deviceScaleFactor: 2, mobile: false },
+      ]);
+    });
+
+    test("takes a frame of the size set times scale factor 1.5, rounded, as the size set", async () => {
+      const { overrides, frame, setCount } = await watchedAtScale({
+        width: 391,
+        height: 241,
+        scale: 1.5,
+      });
+      // 391x241 at 1.5 is 586.5x361.5 device pixels; Chromium rounds either way.
+      await frame(586, 361);
+      await frame(587, 362);
+      expect(overrides().slice(setCount)).toEqual([]);
+      await frame(588, 362);
+      expect(overrides().slice(setCount)).toEqual([
+        { width: 391, height: 241, deviceScaleFactor: 1.5, mobile: false },
+      ]);
+    });
+
+    test("measures a frame against the clamped scale factor when 3 was asked", async () => {
+      const { overrides, frame, setCount } = await watchedAtScale({
+        width: 390,
+        height: 723,
+        scale: 3,
+      });
+      // The tab got scale factor 2, so its device-pixel frames are twice the size set.
+      await frame(780, 1446);
+      await frame(781, 1447);
+      expect(overrides().slice(setCount)).toEqual([]);
+      await frame(1170, 2169);
+      expect(overrides().slice(setCount)).toEqual([
+        { width: 390, height: 723, deviceScaleFactor: 2, mobile: false },
+      ]);
+    });
+
+    test("at scale factor 1 takes only the size set itself", async () => {
+      const { overrides, frame, setCount } = await watchedAtScale({
+        width: 844,
+        height: 245,
+        scale: 1,
+      });
+      await frame(844, 245);
+      expect(overrides().slice(setCount)).toEqual([]);
+      await frame(845, 246);
+      now += 1_000;
+      await frame(1688, 490);
+      expect(overrides().slice(setCount)).toEqual([
+        { width: 844, height: 245, deviceScaleFactor: 1, mobile: false },
+        { width: 844, height: 245, deviceScaleFactor: 1, mobile: false },
+      ]);
+    });
+
     test("ignores a frame that reports no size", async () => {
       const { overrides, frame, setCount } = await watchedAt800();
       now += 1_000;
