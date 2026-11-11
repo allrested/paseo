@@ -432,11 +432,13 @@ describe("CdpBrowserService", () => {
       const targetId = [...chromium.targets.keys()][0];
       let delivered = 0;
       let lastSize: [number, number] | null = null;
+      const sizes: string[] = [];
       const unwatch = await service.screencast.watch(tab.browserId, {
         id: "v",
         deliver: async (sent) => {
           delivered += 1;
           lastSize = [sent.deviceWidth, sent.deviceHeight];
+          sizes.push(`${sent.deviceWidth}x${sent.deviceHeight}`);
         },
       });
       await service.setViewport(
@@ -461,6 +463,7 @@ describe("CdpBrowserService", () => {
         frame,
         setCount: overrides().length,
         viewerSize: () => lastSize,
+        viewerSizes: () => sizes,
         unwatch,
       };
     };
@@ -626,8 +629,8 @@ describe("CdpBrowserService", () => {
     const captures = () =>
       chromium.commands.filter((command) => command.method === "Page.captureScreenshot").length;
     /** The page follows each override, and a capture shows it at the size it has. */
-    const trackedPage = () => {
-      const page = { width: 0, height: 0 };
+    const trackedPage = (initial = { width: 0, height: 0 }) => {
+      const page = { ...initial };
       chromium.handle("Emulation.setDeviceMetricsOverride", (params) => {
         page.width = Number(params.width);
         page.height = Number(params.height);
@@ -771,6 +774,148 @@ describe("CdpBrowserService", () => {
       expect(overrides().slice(setCount)).toEqual([]);
       await untilViewerShows(viewerSize, "800x600");
       expect(overrides().slice(setCount)).toEqual([SET]);
+    });
+
+    const answerLater = <T>(result: T) => sleep(200).then(() => result);
+    /** A tracked page whose captures answer 200 ms after they are asked, showing the page as it was then. */
+    const slowTrackedPage = (initial: { width: number; height: number }) => {
+      const page = trackedPage(initial);
+      chromium.handle("Page.captureScreenshot", () =>
+        answerLater({ data: jpegOfSize(page.width, page.height) }),
+      );
+    };
+    /** The watched tab after the captures gave up: the last frame was the window's size. */
+    const exhaustedAt800 = async () => {
+      const warnings = { frames: 0 };
+      await service.stop();
+      build(
+        {
+          ...logger,
+          warn: (_details: unknown, message?: string) => {
+            if (String(message).includes("no frame")) warnings.frames += 1;
+          },
+        },
+        30,
+      );
+      chromium.handle("Page.captureScreenshot", crashes);
+      const watched = await watchedAt800();
+      // The window's size, while the size set still settles: no re-apply, and the last frame is wrong.
+      await watched.frame(1368, 934);
+      await until(() => warnings.frames > 0, "the capture limit");
+      return { ...watched, warnings };
+    };
+    const claimAt800 = (browserId: string) =>
+      service.setViewport(browserId, { width: 800, height: 600, deviceScaleFactor: 1 }, "viewer-1");
+
+    test("after the checks gave up, a person's claim of the same size starts them again", async () => {
+      const { tab, overrides, viewerSize, viewerSizes } = await exhaustedAt800();
+      expect(viewerSizes()).toEqual(["1368x934"]);
+      const before = overrides().length;
+      trackedPage();
+      await claimAt800(tab.browserId);
+      await untilViewerShows(viewerSize, "800x600");
+      expect(overrides().slice(before)).toEqual([SET]);
+    });
+
+    test("a claim of the same size while the last frame has that size does nothing", async () => {
+      await service.stop();
+      build(logger, 30);
+      trackedPage({ width: 800, height: 600 });
+      const { tab, overrides, frame } = await watchedAt800();
+      await frame(800, 600);
+      const before = overrides().length;
+      const taken = captures();
+      await claimAt800(tab.browserId);
+      await sleep(100);
+      expect(overrides().length).toBe(before);
+      expect(captures()).toBe(taken);
+    });
+
+    test("claims of the same size restart the checks at most once a second", async () => {
+      const { tab, overrides, warnings } = await exhaustedAt800();
+      const before = overrides().length;
+      for (let claim = 0; claim < 10; claim += 1) await claimAt800(tab.browserId);
+      expect(overrides().slice(before)).toEqual([SET]);
+      // The restarted checks give up again: the captures still fail.
+      const gaveUpAgain = () => warnings.frames > 1;
+      await until(gaveUpAgain, "the capture limit again");
+      for (let claim = 0; claim < 10; claim += 1) await claimAt800(tab.browserId);
+      expect(overrides().slice(before)).toEqual([SET]);
+      now += 1_000;
+      await claimAt800(tab.browserId);
+      expect(overrides().slice(before)).toEqual([SET, SET]);
+    });
+
+    test("captures that time out stop after three with one warn, across the re-attaches", async () => {
+      let frameWarnings = 0;
+      await service.stop();
+      build(
+        {
+          ...logger,
+          warn: (_details: unknown, message?: string) => {
+            if (String(message).includes("no frame")) frameWarnings += 1;
+          },
+        },
+        30,
+      );
+      await watchedAt800();
+      // Each capture times out, which closes the tab socket; the watched tab re-attaches.
+      chromium.stall("Page.captureScreenshot");
+      const before = captures();
+      const warned = () => frameWarnings > 0;
+      await until(warned, "the warning");
+      await sleep(800);
+      expect(captures() - before).toBe(3);
+      expect(frameWarnings).toBe(1);
+    });
+
+    test("a capture still running is not joined by a second one", async () => {
+      await service.stop();
+      build(logger, 40);
+      const { tab } = await watchedAt800();
+      slowTrackedPage({ width: 800, height: 600 });
+      const before = captures();
+      const captureStarted = () => captures() > before;
+      await until(captureStarted, "a capture");
+      // A new size starts a new wait, which ends while the first capture still runs.
+      await service.setViewport(
+        tab.browserId,
+        { width: 390, height: 700, deviceScaleFactor: 1 },
+        "viewer-2",
+      );
+      await sleep(100);
+      expect(captures()).toBe(before + 1);
+    });
+
+    test("a capture answered after a newer size was set is not shown", async () => {
+      await service.stop();
+      build(logger, 40);
+      const { tab, viewerSize, viewerSizes } = await watchedAt800();
+      slowTrackedPage({ width: 800, height: 600 });
+      const before = captures();
+      const captureStarted = () => captures() > before;
+      await until(captureStarted, "a capture");
+      await service.setViewport(
+        tab.browserId,
+        { width: 390, height: 700, deviceScaleFactor: 1 },
+        "viewer-2",
+      );
+      await untilViewerShows(viewerSize, "390x700");
+      expect(viewerSizes()).toEqual(["390x700"]);
+    });
+
+    test("a capture answered after an agent command started is not shown", async () => {
+      await service.stop();
+      build(logger, 40);
+      const { tab, viewerSizes } = await watchedAt800();
+      slowTrackedPage({ width: 800, height: 600 });
+      const before = captures();
+      const captureStarted = () => captures() > before;
+      await until(captureStarted, "a capture");
+      chromium.handle("Runtime.evaluate", answersAtOnce);
+      await agentEvaluates(tab.browserId);
+      await sleep(300);
+      expect(viewerSizes()).toEqual([]);
     });
 
     test("ignores a frame that reports no size", async () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   SCREENCAST_PARAMS,
   ScreencastHub,
+  jpegSize,
   type ScreencastFrame,
   type ScreencastSource,
 } from "./screencast-hub.js";
@@ -242,6 +243,56 @@ describe("ScreencastHub", () => {
     const captures = fake.count("Page.captureScreenshot");
     await expect(watching.refresh("tab")).resolves.toBe(false);
     expect(fake.count("Page.captureScreenshot")).toBe(captures);
+  });
+
+  test("a refresh answered after a newer screencast frame leaves that frame in place", async () => {
+    const a = viewer("a");
+    await hub.watch("tab", a);
+    await flush();
+    const refreshed = hub.refresh("tab");
+    // Chromium's own frame arrives while the capture is still out.
+    fake.frame(1, 30);
+    await expect(refreshed).resolves.toBe(false);
+    await flush();
+    expect(a.frames.map((frame) => [frame.sequence, frame.scrollY])).toEqual([
+      [1, 40],
+      [2, 30],
+    ]);
+    const late = viewer("late");
+    await hub.watch("tab", late);
+    await flush();
+    expect(late.frames.map((frame) => frame.sequence)).toEqual([2]);
+  });
+
+  test("a refresh whose caller no longer wants its answer sends nothing", async () => {
+    const seen: number[] = [];
+    const watching = new ScreencastHub({
+      source: async () => fake.source,
+      onFrame: (_browserId, frame) => void seen.push(frame.sequence),
+    });
+    const a = viewer("a");
+    await watching.watch("tab", a);
+    await flush();
+    await expect(watching.refresh("tab", () => false)).resolves.toBe(false);
+    await flush();
+    expect(a.frames.map((frame) => frame.sequence)).toEqual([1]);
+    expect(seen).toEqual([]);
+  });
+
+  test("jpegSize reads baseline and progressive headers and refuses anything else", () => {
+    const baseline = Buffer.from(jpegOfSize(860, 1350), "base64");
+    // An APP0 segment and a fill byte before a progressive (SOF2) frame header.
+    const progressive = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46, 0xff, 0xff, 0xc2, 0x00, 0x11, 0x08, 0x01,
+      0xe0, 0x02, 0x80, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+    const zeroWidth = Buffer.from(jpegOfSize(0, 600), "base64");
+    expect(
+      [baseline, progressive, baseline.subarray(0, 8), png, zeroWidth, Buffer.from([])].map(
+        (bytes) => jpegSize(bytes),
+      ),
+    ).toEqual([{ width: 860, height: 1350 }, { width: 640, height: 480 }, null, null, null, null]);
   });
 
   test("a later viewer gets the cached frame at once, with no second screenshot", async () => {
