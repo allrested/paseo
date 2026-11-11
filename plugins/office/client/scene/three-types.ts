@@ -128,6 +128,7 @@ export interface RaycasterLike {
 
 export interface MaterialOptions {
   color: string;
+  map?: TextureLike;
   transparent?: boolean;
   opacity?: number;
   depthWrite?: boolean;
@@ -182,6 +183,7 @@ export interface ThreeModule {
     map: TextureLike;
     transparent: boolean;
     depthWrite: boolean;
+    depthTest?: boolean;
   }) => SpriteMaterialLike;
   readonly Mesh: new (geometry: GeometryLike, material: MaterialLike) => MeshLike;
   readonly InstancedMesh: new (
