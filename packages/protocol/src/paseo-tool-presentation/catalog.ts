@@ -188,6 +188,15 @@ export const PASEO_TOOL_CATALOG = {
     context: field("modeId"),
     detail: { inputOrder: ["agentId", "modeId"] },
   },
+  move_agent: {
+    label: "Move agent",
+    completedLabel: "Moved agent",
+    context: targetAgent(),
+    detail: {
+      inputOrder: ["agentId", "provider", "model", "back", "toAgentId", "continueWork"],
+      outputFields: ["agentId", "strategy", "fellBackFromNative"],
+    },
+  },
   cancel_agent: {
     label: "Cancel agent",
     completedLabel: "Canceled agent",
