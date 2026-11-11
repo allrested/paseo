@@ -59,6 +59,8 @@ interface FakeDirectory {
   openGate: Promise<void> | null;
   /** When set, a stop waits for it after it counted. */
   stopGate: Promise<void> | null;
+  /** When set, a stop rejects with it after its gate. */
+  stopFailure: Error | null;
   emit(view: DirectoryView): void;
   /** The open directory ends on its own, as when the client drops its subscription. */
   end(): void;
@@ -90,6 +92,7 @@ function startHarness(initial: DirectoryView): Harness {
     failure: null,
     openGate: null,
     stopGate: null,
+    stopFailure: null,
     emit: (view) => directoryListener?.(view),
     end: () => endListener?.(),
   };
@@ -102,8 +105,8 @@ function startHarness(initial: DirectoryView): Harness {
   const ports: HubPorts = {
     async openDirectory(listener, onEnd) {
       directory.opens += 1;
-      if (directory.failure) throw directory.failure;
       if (directory.openGate) await directory.openGate;
+      if (directory.failure) throw directory.failure;
       directoryListener = listener;
       endListener = onEnd ?? null;
       listener(initial);
@@ -112,6 +115,7 @@ function startHarness(initial: DirectoryView): Harness {
         directoryListener = null;
         endListener = null;
         if (directory.stopGate) await directory.stopGate;
+        if (directory.stopFailure) throw directory.stopFailure;
       };
     },
     startActivity(running, listener) {
@@ -389,4 +393,127 @@ test("the directory keeps the 200 newest agents, oldest first", () => {
   const agents: OfficeAgent[] = [];
   for (let index = 0; index < 202; index += 1) agents.push(createdAgent(index));
   expect(newestAgents(agents.toReversed())).toEqual(agents.slice(2));
+});
+
+test("a restart whose open fails after the window closed is retried one window later", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  const office = officeOf([agent("a", "idle")]);
+  const open = deferred();
+  harness.directory.openGate = open.promise;
+  harness.directory.end();
+  await settle();
+  expect(harness.directory.stops).toBe(1);
+  expect(harness.directory.opens).toBe(2);
+
+  // An open that times out fails long after the restart window closed.
+  harness.clock.advance(60_000);
+  await settle();
+  harness.directory.openGate = null;
+  harness.directory.failure = new Error("request timed out");
+  open.release();
+  await settle();
+  harness.directory.failure = null;
+  harness.clock.advance(DIRECTORY_RESTART_MS - 1);
+  await settle();
+  expect(harness.directory.opens).toBe(2);
+  harness.clock.advance(1);
+  await settle();
+  expect(harness.directory.opens).toBe(3);
+  expect(subscriber.events).toEqual([office, office]);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("a new subscriber whose start fails while a restart waits does not cancel the retry", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  const office = officeOf([agent("a", "idle")]);
+  harness.directory.failure = new Error("directory down");
+  harness.directory.end();
+  await settle();
+  expect(harness.directory.opens).toBe(2);
+
+  const refused = subscribe(harness.hub);
+  await expect(refused.done).rejects.toThrow("directory down");
+  expect(harness.directory.opens).toBe(3);
+  harness.directory.failure = null;
+  harness.clock.advance(DIRECTORY_RESTART_MS);
+  await settle();
+  expect(harness.directory.opens).toBe(4);
+  expect(subscriber.events).toEqual([office, office]);
+  expect(refused.events).toEqual([]);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("subscribers attached before a start that recovers the directory get a fresh snapshot", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  const office = officeOf([agent("a", "idle")]);
+  harness.directory.failure = new Error("directory down");
+  harness.directory.end();
+  await settle();
+  harness.directory.failure = null;
+
+  const arrived = subscribe(harness.hub);
+  await settle();
+  expect(harness.directory.opens).toBe(3);
+  expect(subscriber.events).toEqual([office, office]);
+  expect(arrived.events).toEqual([office]);
+  // The queued retry belonged to the failed start; the recovered directory is not restarted.
+  harness.clock.advance(DIRECTORY_RESTART_MS);
+  await settle();
+  expect(harness.directory.opens).toBe(3);
+  subscriber.controller.abort();
+  arrived.controller.abort();
+  await Promise.all([subscriber.done, arrived.done]);
+});
+
+test("a cancelled start whose close fails does not refuse the subscriber that joined it", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  const open = deferred();
+  const close = deferred();
+  harness.directory.openGate = open.promise;
+  const left = subscribe(harness.hub);
+  await settle();
+  left.controller.abort();
+  harness.directory.openGate = null;
+  harness.directory.stopGate = close.promise;
+  harness.directory.stopFailure = new Error("release failed");
+  open.release();
+  await settle();
+
+  const arrived = subscribe(harness.hub);
+  await settle();
+  close.release();
+  await settle();
+  harness.directory.stopFailure = null;
+  await left.done;
+  expect(harness.directory.opens).toBe(2);
+  expect(arrived.events).toEqual([officeOf([agent("a", "idle")])]);
+  arrived.controller.abort();
+  await arrived.done;
+});
+
+test("stopping the hub cancels a pending restart", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.directory.failure = new Error("directory down");
+  harness.directory.end();
+  await settle();
+  expect(harness.clock.pending()).toBe(1);
+
+  await harness.hub.stop();
+  expect(harness.clock.pending()).toBe(0);
+  harness.directory.failure = null;
+  harness.clock.advance(DIRECTORY_RESTART_MS);
+  await settle();
+  expect(harness.directory.opens).toBe(2);
+  subscriber.controller.abort();
+  await subscriber.done;
 });

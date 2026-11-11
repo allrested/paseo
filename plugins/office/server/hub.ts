@@ -142,13 +142,20 @@ export function createHub(ports: HubPorts): Hub {
     const stop = await ports.openDirectory(onDirectory, () => onDirectoryEnd(mine));
     if (subscribers.size === 0 || mine !== generation) {
       view = EMPTY_VIEW;
-      await stop();
+      try {
+        await stop();
+      } catch (error) {
+        // Whoever joined this start opens a fresh directory; a failed close is not theirs to see.
+        ports.log(`[office] directory stop failed: ${errorMessage(error)}`);
+      }
       return;
     }
     stopDirectory = stop;
     sentAgents = JSON.stringify(view.agents);
     sentWorkspaces = JSON.stringify(view.workspaces);
     stopActivity = ports.startActivity(running, onActivity);
+    // Subscribers that already had a snapshot saw an older directory; attaches still waiting push their own.
+    broadcast({ type: "snapshot", state: snapshot() });
   }
 
   async function ensureStarted(): Promise<void> {
@@ -167,11 +174,19 @@ export function createHub(ports: HubPorts): Hub {
     try {
       await ensureStarted();
     } catch (error) {
-      // Try again once the window passed, while anyone is still attached.
-      restartQueued = generation;
+      queueRestart();
       throw error;
     }
-    broadcast({ type: "snapshot", state: snapshot() });
+  }
+
+  /**
+   * Keeps one rule: while anyone is attached and no directory runs, a start is in flight or a
+   * restart timer is pending. Restarts stay at least one window apart.
+   */
+  function queueRestart(): void {
+    if (subscribers.size === 0 || stopDirectory !== null || starting !== null) return;
+    restartQueued = generation;
+    cancelCooldown ??= ports.timers.setTimeout(onCooldownEnd, DIRECTORY_RESTART_MS);
   }
 
   function runRestart(): void {
@@ -238,6 +253,7 @@ export function createHub(ports: HubPorts): Hub {
       } catch (error) {
         subscribers.delete(subscriber);
         ports.log(`[office] unable to start: ${errorMessage(error)}`);
+        queueRestart();
         throw error;
       }
       if (subscriber.signal.aborted) return;
