@@ -336,3 +336,53 @@ test("a strip tap asks the camera for its robot with a nonce the scene has not s
     { agentId: "a2", nonce: 3 },
   ]);
 });
+
+function giveUp(revision: string): SwitchEvent {
+  return { type: "give-up", revision };
+}
+
+test("a tap while a save is stored but not yet read keeps that save in flight", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(true), tap(true));
+  expect({ phase: sync.save?.phase, wanted: sync.wanted }).toEqual({
+    phase: "saved",
+    wanted: true,
+  });
+  expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(WAIT);
+});
+
+test("a refused save whose tap already matches the store settles instead of giving up", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), tap(true));
+  sync = apply(sync, returned(false), CHECKED);
+  expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(SETTLE);
+});
+
+test("after giving up, a change stored from elsewhere wins and nothing is saved again", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
+  expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(GIVE_UP);
+  sync = apply(sync, giveUp("r0"));
+  const steps = [
+    nextSwitchStep(sync, stored(true, "r0")),
+    nextSwitchStep(sync, stored(true, "r1")),
+  ];
+  expect(steps).toEqual([GIVE_UP, SETTLE]);
+});
+
+test("after a second conflict gives up, a later writer is not overwritten", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r1"))), returned(false), CHECKED);
+  expect(nextSwitchStep(sync, stored(true, "r2"))).toEqual(GIVE_UP);
+  sync = apply(sync, giveUp("r2"));
+  expect(nextSwitchStep(sync, stored(true, "r3"))).toEqual(SETTLE);
+});
+
+test("giving up twice for the same revision changes nothing", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
+  const once = apply(sync, giveUp("r0"));
+  const same: boolean = apply(once, giveUp("r0")) === once;
+  expect(same).toEqual(true);
+});
