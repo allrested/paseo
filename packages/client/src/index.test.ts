@@ -1138,6 +1138,57 @@ test("agent handle closeRuntime fails fast on a host without agentRuntimeClose",
   await client.close();
 });
 
+test("agent handle cancel sends cancel_agent_request", async () => {
+  const { client, ws } = await connectClient();
+  const agent = client.agents.ref("agent_sdk");
+
+  const cancelPromise = agent.cancel();
+  await vi.waitFor(() =>
+    expect(parseSentSessionMessage(ws.sent.at(-1))).toMatchObject({
+      type: "cancel_agent_request",
+      agentId: "agent_sdk",
+    }),
+  );
+  const request = parseSentSessionMessage(ws.sent.at(-1));
+  ws.message(
+    sessionMessage({
+      type: "cancel_agent_response",
+      payload: { requestId: request.requestId, agentId: "agent_sdk", agent: null, error: null },
+    }),
+  );
+
+  await expect(cancelPromise).resolves.toBeUndefined();
+  await client.close();
+});
+
+test("agent handle cancel rejects with the daemon's error", async () => {
+  const { client, ws } = await connectClient();
+  const agent = client.agents.ref("agent_gone");
+
+  const cancelPromise = agent.cancel();
+  await vi.waitFor(() =>
+    expect(parseSentSessionMessage(ws.sent.at(-1))).toMatchObject({
+      type: "cancel_agent_request",
+      agentId: "agent_gone",
+    }),
+  );
+  const request = parseSentSessionMessage(ws.sent.at(-1));
+  ws.message(
+    sessionMessage({
+      type: "cancel_agent_response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "agent_gone",
+        agent: null,
+        error: "Agent not found",
+      },
+    }),
+  );
+
+  await expect(cancelPromise).rejects.toThrow("Agent not found");
+  await client.close();
+});
+
 test("agent handles list the session's own commands through the existing daemon RPC", async () => {
   const { client, ws } = await connectClient();
   const agent = client.agents.ref("agent_sdk");
