@@ -10,6 +10,11 @@ export interface ScreencastFrame {
   scrollY: number;
 }
 
+export interface FrameSize {
+  width: number;
+  height: number;
+}
+
 export interface ScreencastSource {
   send<T = Record<string, unknown>>(method: string, params?: Record<string, unknown>): Promise<T>;
   on(event: string, listener: (params: Record<string, unknown>) => void): () => void;
@@ -26,6 +31,11 @@ export interface ScreencastHubOptions {
   onError?: (error: unknown) => void;
   /** Each screencast frame of a tab, before it is fanned out. Not called for the priming screenshot. */
   onFrame?: (browserId: string, frame: ScreencastFrame) => void;
+  /**
+   * Corrects the page size a screencast frame reports, before the cache, viewers or onFrame see
+   * it. Not called for the priming screenshot, whose size comes from the layout metrics.
+   */
+  frameSize?: (browserId: string, reported: FrameSize) => FrameSize;
   minFrameIntervalMs?: number;
 }
 
@@ -67,6 +77,7 @@ export class ScreencastHub {
   private readonly starting = new Map<string, Promise<Watched | null>>();
   private readonly minFrameIntervalMs: number;
   private readonly onError: (error: unknown) => void;
+  private readonly frameSize: (browserId: string, reported: FrameSize) => FrameSize;
 
   constructor(private readonly options: ScreencastHubOptions) {
     this.minFrameIntervalMs = options.minFrameIntervalMs ?? 100;
@@ -77,6 +88,17 @@ export class ScreencastHub {
         report(error);
       } catch {
         // nothing left to report to
+      }
+    };
+    const correct = options.frameSize;
+    // A correction that throws leaves the size as Chromium reported it; the frame still goes out.
+    this.frameSize = (browserId, reported) => {
+      if (!correct) return reported;
+      try {
+        return correct(browserId, reported);
+      } catch (error) {
+        this.onError(error);
+        return reported;
       }
     };
   }
@@ -168,11 +190,15 @@ export class ScreencastHub {
 
   private onFrame(watched: Watched, params: Record<string, unknown>): void {
     const metadata = (params.metadata ?? {}) as Record<string, unknown>;
+    const size = this.frameSize(watched.browserId, {
+      width: num(metadata.deviceWidth),
+      height: num(metadata.deviceHeight),
+    });
     const frame: ScreencastFrame = {
       sequence: ++watched.sequence,
       jpeg: Buffer.from(String(params.data ?? ""), "base64"),
-      deviceWidth: num(metadata.deviceWidth),
-      deviceHeight: num(metadata.deviceHeight),
+      deviceWidth: size.width,
+      deviceHeight: size.height,
       pageScaleFactor: num(metadata.pageScaleFactor, 1),
       scrollX: num(metadata.scrollOffsetX),
       scrollY: num(metadata.scrollOffsetY),

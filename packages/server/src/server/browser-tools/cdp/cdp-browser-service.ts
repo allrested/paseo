@@ -21,7 +21,7 @@ import {
 } from "./cdp-connection.js";
 import { CdpUnreachableError, type CdpEndpoint } from "./cdp-endpoint.js";
 import { CdpTab } from "./cdp-tab.js";
-import { ScreencastHub } from "./screencast-hub.js";
+import { ScreencastHub, type FrameSize } from "./screencast-hub.js";
 import type { CdpTabEntry, CdpTabRegistry } from "./tab-registry.js";
 
 export const CDP_HOST_ID = "cdp-browser-host";
@@ -92,17 +92,17 @@ export function clampViewport(viewport: CdpViewport): CdpViewport {
 }
 
 /**
- * Whether a frame's reported size is the viewport set. Frame metadata is in CSS pixels, but around
- * a screencast start or a resize Chromium sometimes reports a frame in device pixels: the size set
- * times its scale factor, give or take a pixel of rounding. That is the size set, not a window.
+ * The page size a screencast frame shows. Frame metadata is in CSS pixels, but around a screencast
+ * start or a resize Chromium sometimes reports a frame in device pixels: the size set times its
+ * scale factor, give or take a pixel of rounding. That frame shows the size set. Any other size,
+ * such as a resized window's, is returned as reported.
  */
-function isSetSize(set: CdpViewport, width: number, height: number): boolean {
-  if (Math.round(width) === set.width && Math.round(height) === set.height) return true;
-  if (set.deviceScaleFactor === 1) return false;
-  return (
-    Math.abs(width - set.width * set.deviceScaleFactor) <= 1 &&
-    Math.abs(height - set.height * set.deviceScaleFactor) <= 1
-  );
+export function correctFrameSize(set: CdpViewport | undefined, reported: FrameSize): FrameSize {
+  if (!set || set.deviceScaleFactor === 1) return reported;
+  const inDevicePixels =
+    Math.abs(reported.width - set.width * set.deviceScaleFactor) <= 1 &&
+    Math.abs(reported.height - set.height * set.deviceScaleFactor) <= 1;
+  return inDevicePixels ? { width: set.width, height: set.height } : reported;
 }
 
 export interface CdpBrowserServiceOptions {
@@ -202,6 +202,7 @@ export class CdpBrowserService {
     this.screencast = new ScreencastHub({
       source: async (browserId) => (await this.attachedTab(browserId))?.connection ?? null,
       onError: (error) => this.logger.debug({ err: error }, "Screencast error"),
+      frameSize: (browserId, reported) => correctFrameSize(this.viewports.get(browserId), reported),
       onFrame: (browserId, frame) =>
         this.guard(() => this.checkFrameSize(browserId, frame.deviceWidth, frame.deviceHeight)),
     });
@@ -515,7 +516,7 @@ export class CdpBrowserService {
     // an override sent then would cut the capture short. The agent's own frames are left alone.
     if (this.agentCommands.has(browserId) || this.agentBadgeShows(browserId)) return;
     const check = this.frameSizeCheck(browserId);
-    if (isSetSize(set, width, height)) {
+    if (Math.round(width) === set.width && Math.round(height) === set.height) {
       check.misses = 0;
       check.settleUntil = 0;
       return;
