@@ -9,6 +9,7 @@ import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { usePointerCapabilities } from "@/hooks/pointer-capabilities";
 import { useHostFeature } from "@/runtime/host-features";
@@ -70,6 +71,8 @@ const CdpToolbar = memo(function CdpToolbar({
   const { t } = useTranslation();
   // Native always reports a touch screen; on web a mouse-only desktop gets no keyboard button.
   const { touchScreen } = usePointerCapabilities();
+  // As in the other pane toolbars: touch-sized hit areas in the compact layout or on a touch screen.
+  const compact = useIsCompactFormFactor();
   const record = useBrowserStore((state) => state.browsersById[browserId] ?? null);
   const url = record?.url ?? "";
   const editing = useRef(false);
@@ -96,6 +99,7 @@ const CdpToolbar = memo(function CdpToolbar({
   return (
     <View style={styles.toolbar}>
       <ToolbarButton
+        compact={compact}
         disabled={blocked || !record?.canGoBack}
         label={t("workspace.browser.controls.back")}
         onPress={goBack}
@@ -103,6 +107,7 @@ const CdpToolbar = memo(function CdpToolbar({
         <ThemedArrowLeft size={ICON_SIZE} uniProps={iconMapping} />
       </ToolbarButton>
       <ToolbarButton
+        compact={compact}
         disabled={blocked || !record?.canGoForward}
         label={t("workspace.browser.controls.forward")}
         onPress={goForward}
@@ -110,6 +115,7 @@ const CdpToolbar = memo(function CdpToolbar({
         <ThemedArrowRight size={ICON_SIZE} uniProps={iconMapping} />
       </ToolbarButton>
       <ToolbarButton
+        compact={compact}
         disabled={blocked}
         label={t("workspace.browser.controls.refresh")}
         onPress={reload}
@@ -134,6 +140,7 @@ const CdpToolbar = memo(function CdpToolbar({
       />
       {touchScreen ? (
         <ToolbarButton
+          compact={compact}
           disabled={blocked}
           label={t("cdpBrowser.keyboard")}
           onPress={onToggleKeyboard}
