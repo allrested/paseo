@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import type { AttentionEntry, AttentionReason } from "./model.js";
@@ -17,10 +17,13 @@ interface AttentionItemProps {
 /** A small agent row: the dot, the title, and the reason in words under it. */
 function AttentionItem({ entry, styles, onSelect }: AttentionItemProps) {
   const press = useCallback(() => onSelect(entry.agentId), [entry.agentId, onSelect]);
+  const [hovered, setHovered] = useState(false);
+  const hoverIn = useCallback(() => setHovered(true), []);
+  const hoverOut = useCallback(() => setHovered(false), []);
   const itemStyle = useCallback(
     ({ pressed }: PressableStateCallbackType) =>
-      pressed ? styles.stripItemPressed : styles.stripItem,
-    [styles],
+      pressed || hovered ? styles.stripItemPressed : styles.stripItem,
+    [styles, hovered],
   );
   const reason = reasonLabel(entry.reason);
   return (
@@ -28,6 +31,8 @@ function AttentionItem({ entry, styles, onSelect }: AttentionItemProps) {
       accessibilityRole="button"
       accessibilityLabel={`${entry.title}: ${reason}`}
       onPress={press}
+      onHoverIn={hoverIn}
+      onHoverOut={hoverOut}
       style={itemStyle}
     >
       <View style={styles.lead}>
@@ -58,6 +63,7 @@ export function AttentionStrip({ entries, styles, onSelect }: AttentionStripProp
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.stripScroll}
       contentContainerStyle={styles.strip}
     >
       {entries.map((entry) => (
