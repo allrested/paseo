@@ -32,6 +32,19 @@ export const AGENT_ACTIVITY_MS = 3000;
  */
 export const CDP_COMMAND_TIMEOUT_MS = 10_000;
 const AGENT_VIEWPORT_OWNER = "agent";
+/** How long frames of another size are expected after the daemon set a size, and between re-applies. */
+export const VIEWPORT_REAPPLY_INTERVAL_MS = 1000;
+/** Re-applies in a row whose frames keep another size before the daemon gives up on the tab. */
+export const VIEWPORT_REAPPLY_LIMIT = 3;
+
+/** Frames whose size differs from the one set: a resize of the tab's Chromium window drops it. */
+interface FrameSizeCheck {
+  /** Frames before this time may still show the size from before the last apply. */
+  settleUntil: number;
+  lastReapplyAt: number;
+  /** Re-applies since the last frame of the size set; one past the limit means it gave up. */
+  misses: number;
+}
 /** Each daemon tab is a Chromium window with its own renderer, in the user's logged-in browser. */
 export const MAX_DAEMON_TABS = 10;
 /**
@@ -135,6 +148,7 @@ export class CdpBrowserService {
   private readonly tabs = new Map<string, CdpTab>();
   private readonly attaching = new Map<string, Promise<CdpTab | null>>();
   private readonly viewports = new Map<string, CdpViewport & { owner: string }>();
+  private readonly frameSizeChecks = new Map<string, FrameSizeCheck>();
   private readonly agentActiveUntil = new Map<string, number>();
   private readonly agentTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly activeByWorkspace = new Map<string, string>();
@@ -172,6 +186,8 @@ export class CdpBrowserService {
     this.screencast = new ScreencastHub({
       source: async (browserId) => (await this.attachedTab(browserId))?.connection ?? null,
       onError: (error) => this.logger.debug({ err: error }, "Screencast error"),
+      onFrame: (browserId, frame) =>
+        this.guard(() => this.checkFrameSize(browserId, frame.deviceWidth, frame.deviceHeight)),
     });
     // A tab that reconnects after a timed-out command has a new socket; its viewers follow it.
     this.onAttached((browserId) => {
@@ -309,6 +325,9 @@ export class CdpBrowserService {
     const same = !this.viewportDiffers(browserId, viewport);
     this.viewports.set(browserId, { ...next, owner });
     if (same) return next;
+    // A new size starts a new run: the old one's failed re-applies say nothing about it.
+    this.frameSizeCheck(browserId).misses = 0;
+    this.holdFrameSizeCheck(browserId);
     const tab = await this.attachedTab(browserId);
     if (tab) await this.applyViewport(tab, next);
     return next;
@@ -422,6 +441,7 @@ export class CdpBrowserService {
       // The device metrics override belongs to the socket that set it, so a new socket needs it again.
       const viewport = this.viewports.get(entry.browserId);
       if (viewport) {
+        this.holdFrameSizeCheck(entry.browserId);
         await this.applyViewport(tab, viewport).catch((error: unknown) => {
           this.logger.debug({ err: error, browserId: entry.browserId }, "CDP viewport failed");
         });
@@ -445,6 +465,59 @@ export class CdpBrowserService {
     this.attachedTab(browserId).catch((error: unknown) =>
       this.logger.debug({ err: error, browserId }, "CDP tab re-attach failed"),
     );
+  }
+
+  private frameSizeCheck(browserId: string): FrameSizeCheck {
+    let check = this.frameSizeChecks.get(browserId);
+    if (!check) {
+      check = { settleUntil: 0, lastReapplyAt: Number.NEGATIVE_INFINITY, misses: 0 };
+      this.frameSizeChecks.set(browserId, check);
+    }
+    return check;
+  }
+
+  /** Frames of the size from before an apply keep coming for a moment; they are not a mismatch. */
+  private holdFrameSizeCheck(browserId: string): void {
+    this.frameSizeCheck(browserId).settleUntil = this.now() + VIEWPORT_REAPPLY_INTERVAL_MS;
+  }
+
+  /**
+   * After the tab's Chromium window is resized, frames report the window's view size instead of
+   * the override, and the pane shows the page small in a grey frame. Applying the override again
+   * restores it. Bounded, so a page that cannot take the size does not loop.
+   */
+  private checkFrameSize(browserId: string, width: number, height: number): void {
+    const set = this.viewports.get(browserId);
+    if (!set) return;
+    const check = this.frameSizeCheck(browserId);
+    if (Math.round(width) === set.width && Math.round(height) === set.height) {
+      check.misses = 0;
+      check.settleUntil = 0;
+      return;
+    }
+    const now = this.now();
+    if (now < check.settleUntil || now - check.lastReapplyAt < VIEWPORT_REAPPLY_INTERVAL_MS) return;
+    if (check.misses > VIEWPORT_REAPPLY_LIMIT) return;
+    check.misses += 1;
+    if (check.misses > VIEWPORT_REAPPLY_LIMIT) {
+      this.logger.warn(
+        { browserId, set: { width: set.width, height: set.height }, frame: { width, height } },
+        "CDP tab frames keep another size than the viewport set; stopped re-applying it",
+      );
+      return;
+    }
+    check.lastReapplyAt = now;
+    this.holdFrameSizeCheck(browserId);
+    const viewport = {
+      width: set.width,
+      height: set.height,
+      deviceScaleFactor: set.deviceScaleFactor,
+    };
+    this.attachedTab(browserId)
+      .then((tab) => (tab ? this.applyViewport(tab, viewport) : undefined))
+      .catch((error: unknown) =>
+        this.logger.debug({ err: error, browserId }, "CDP viewport re-apply failed"),
+      );
   }
 
   private async applyViewport(tab: CdpTab, viewport: CdpViewport): Promise<void> {
@@ -492,6 +565,7 @@ export class CdpBrowserService {
     this.tabs.get(entry.browserId)?.dispose();
     this.tabs.delete(entry.browserId);
     this.viewports.delete(entry.browserId);
+    this.frameSizeChecks.delete(entry.browserId);
     this.agentActiveUntil.delete(entry.browserId);
     const timer = this.agentTimers.get(entry.browserId);
     if (timer) clearTimeout(timer);
