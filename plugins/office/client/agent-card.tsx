@@ -31,6 +31,34 @@ export function textAfterSend(current: string, sent: string): string {
   return current.trim() === sent ? "" : current;
 }
 
+/** The agent's runs seen by the card: each start of a run is a new turn. */
+export interface TurnCount {
+  turns: number;
+  running: boolean;
+}
+
+/** A Stop that failed, with the turn it was meant to stop. */
+export interface StopFailure {
+  turn: number;
+  text: string;
+}
+
+/** The count after a render; the same object while the agent neither starts nor ends a run. */
+export function countTurns(previous: TurnCount | null, running: boolean): TurnCount {
+  if (previous === null) return { turns: running ? 1 : 0, running };
+  if (previous.running === running) return previous;
+  return { turns: previous.turns + (running ? 1 : 0), running };
+}
+
+/**
+ * The Stop failure to show: only under the turn it was for, while that turn runs. A rejection
+ * that comes back after its turn ended is never shown under the next one.
+ */
+export function shownStopError(failure: StopFailure | null, turn: TurnCount): string | null {
+  if (failure === null || !turn.running || failure.turn !== turn.turns) return null;
+  return failure.text;
+}
+
 interface AgentCardBodyProps {
   agent: OfficeAgent;
   activity: string | null;
@@ -61,20 +89,23 @@ function AgentCardBody({
     };
   }, []);
   // Stop shares its row with Open session, so its error goes under the row, at the row's width.
-  const [stopError, setStopError] = useState<string | null>(null);
+  const [stopFailure, setStopFailure] = useState<StopFailure | null>(null);
   const running = agent.status === "running";
-  // Once the turn ended, Stop is gone, and so is its failure.
-  useEffect(() => {
-    if (!running) setStopError(null);
-  }, [running]);
+  // Counted during render (React's "state from the previous render"), so a failure of the last
+  // turn never shows for a frame under the next one. Once the turn ended, so has its failure.
+  const [counted, setCounted] = useState<TurnCount>(() => countTurns(null, running));
+  const turn = countTurns(counted, running);
+  if (turn !== counted) setCounted(turn);
+  const stopError = shownStopError(stopFailure, turn);
+  const stoppedTurn = turn.turns;
   const stop = useCallback(async () => {
-    setStopError(null);
+    setStopFailure(null);
     try {
       await actions.cancel(agent.id);
     } catch (caught) {
-      if (mounted.current) setStopError(failureText("Stop", caught));
+      if (mounted.current) setStopFailure({ turn: stoppedTurn, text: failureText("Stop", caught) });
     }
-  }, [actions, agent.id]);
+  }, [actions, agent.id, stoppedTurn]);
   const send = useCallback(async () => {
     const sent = text.trim();
     await actions.send(agent.id, sent);
@@ -119,7 +150,7 @@ function AgentCardBody({
               />
             ) : null}
           </View>
-          {running && stopError ? (
+          {stopError ? (
             <Text accessibilityRole="alert" style={styles.actionError}>
               {stopError}
             </Text>
