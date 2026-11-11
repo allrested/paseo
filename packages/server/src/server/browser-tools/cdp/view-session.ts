@@ -1,5 +1,8 @@
 import type { Logger } from "pino";
-import type { CdpBrowserErrorCode } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
+import type {
+  CdpBrowserErrorCode,
+  CdpBrowserViewInput,
+} from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import { encodeBrowserViewFrame } from "@getpaseo/protocol/binary-frames/index";
 import type { SessionInboundMessage, SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import type { SessionDelivery } from "../../session/owned-subscriptions/index.js";
@@ -9,11 +12,61 @@ import { dispatchViewInput } from "./view-input.js";
 type Inbound<T extends SessionInboundMessage["type"]> = Extract<SessionInboundMessage, { type: T }>;
 type Emit = (message: SessionOutboundMessage) => void;
 
+/** Inputs one view may have queued, running or waiting. A stalled page must not collect a backlog. */
+export const VIEW_INPUT_QUEUE_CAP = 32;
+
 interface View {
   browserId: string;
   viewerId: string;
   chain: Promise<void>;
+  depth: number;
+  /** Held buttons and keys: true when the press was queued, false when it was dropped. */
+  presses: Map<string, boolean>;
+  /** Set when an input resized the page, cleared by the next frame this viewer is sent. */
+  awaitingFrame: boolean;
+  /** Buttons whose press was aimed at a frame from before a resize; the rest of the gesture goes too. */
+  stale: Set<string>;
   notify(error: CdpBrowserErrorCode): void;
+}
+
+/**
+ * The client mapped a press to page coordinates on the frame it showed. Until a frame of the new
+ * size reaches it, a press would click whatever reflowed under it, so the gesture is dropped.
+ */
+function isStale(view: View, input: CdpBrowserViewInput): boolean {
+  if (input.kind !== "mouse") return false;
+  if (input.type === "down" && view.awaitingFrame) {
+    view.stale.add(input.button);
+    return true;
+  }
+  if (input.type === "up") return view.stale.delete(input.button);
+  return input.buttons !== 0 && view.stale.size > 0;
+}
+
+function pressId(input: CdpBrowserViewInput): string | null {
+  if (input.kind === "mouse" && input.type !== "move") return `mouse:${input.button}`;
+  if (input.kind === "key") return `key:${input.code}`;
+  return null;
+}
+
+/**
+ * Whether an input joins the view's queue. Moves and wheels are dropped once something waits, all
+ * else at the cap, so late input cannot replay. A release goes exactly when its press went.
+ */
+function admit(view: View, input: CdpBrowserViewInput): boolean {
+  const press = pressId(input);
+  const release = (input.kind === "mouse" || input.kind === "key") && input.type === "up";
+  if (press && release) {
+    const queued = view.presses.get(press) !== false;
+    view.presses.delete(press);
+    return queued;
+  }
+  // A repeat of a dropped press is dropped too; the page gets neither it nor the release.
+  if (press && view.presses.get(press) === false) return false;
+  const continuous = input.kind === "wheel" || (input.kind === "mouse" && input.type === "move");
+  const admitted = view.depth < (continuous ? 2 : VIEW_INPUT_QUEUE_CAP);
+  if (press && !view.presses.has(press)) view.presses.set(press, admitted);
+  return admitted;
 }
 
 /** One session's browser.cdp.* handlers. The service and its hub are shared by every session. */
@@ -142,12 +195,17 @@ export class CdpViewSession {
         payload: { subscriptionId: owner.responseId, error },
       });
     };
-    this.views.set(owner.responseId, {
+    const view: View = {
       browserId: msg.browserId,
       viewerId: owner.id,
       chain: Promise.resolve(),
+      depth: 0,
+      presses: new Map(),
+      awaitingFrame: false,
+      stale: new Set(),
       notify,
-    });
+    };
+    this.views.set(owner.responseId, view);
     offEvents = service.subscribe((event) => {
       if (event.kind === "closed" && event.browserId === msg.browserId) {
         notify("browser_tab_not_found");
@@ -176,10 +234,12 @@ export class CdpViewSession {
       }
       const stop = await service.screencast.watch(msg.browserId, {
         id: owner.id,
-        deliver: (frame) =>
-          owner.emitBinaryAndWait(
+        deliver: (frame) => {
+          view.awaitingFrame = false;
+          return owner.emitBinaryAndWait(
             encodeBrowserViewFrame({ subscriptionId: owner.responseId, ...frame }),
-          ),
+          );
+        },
       });
       if (owner.signal.aborted) stop();
       else unwatch = stop;
@@ -203,15 +263,29 @@ export class CdpViewSession {
   input(msg: Inbound<"browser.cdp.view.input.request">): void {
     const view = this.views.get(msg.subscriptionId);
     const service = this.service();
-    if (!view || !service) return;
+    if (!view || !service || !admit(view, msg.input)) return;
+    view.depth += 1;
     // One chain per view keeps a press before its release. Every failure ends in notify, never a rejection.
     view.chain = view.chain
       .then(async () => {
-        if (msg.viewport) await service.setViewport(view.browserId, msg.viewport, view.viewerId);
-        const tab = await service.attachedTab(view.browserId);
-        if (!tab) return undefined;
-        await dispatchViewInput((method, params) => tab.connection.send(method, params), msg.input);
-        return undefined;
+        try {
+          if (msg.viewport) {
+            // The last interacting client sets the size; a press it aimed at the old size is stale.
+            const resized = service.viewportDiffers(view.browserId, msg.viewport);
+            await service.setViewport(view.browserId, msg.viewport, view.viewerId);
+            if (resized) view.awaitingFrame = true;
+          }
+          if (isStale(view, msg.input)) return undefined;
+          const tab = await service.attachedTab(view.browserId);
+          if (!tab) return undefined;
+          await dispatchViewInput(
+            (method, params) => tab.connection.send(method, params),
+            msg.input,
+          );
+          return undefined;
+        } finally {
+          view.depth -= 1;
+        }
       })
       .catch((error: unknown) => {
         this.logger.debug({ err: error }, "browser.cdp.view.input failed");
