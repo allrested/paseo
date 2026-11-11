@@ -649,7 +649,7 @@ export function registerBrowserTools(options: RegisterBrowserToolsOptions): void
     {
       title: "Resize browser viewport",
       description:
-        "Resize a Paseo browser tab's resident webview viewport. Use browserId from browser_new_tab or browser_list_tabs.",
+        "Resize a Paseo browser tab's resident webview viewport. Use browserId from browser_new_tab or browser_list_tabs. On a daemon-hosted tab the size holds until a person types or taps in the browser pane.",
       inputSchema: {
         browserId: BrowserAutomationBrowserIdSchema,
         width: z.number().int().positive(),
