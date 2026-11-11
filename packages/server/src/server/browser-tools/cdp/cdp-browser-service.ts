@@ -91,6 +91,20 @@ export function clampViewport(viewport: CdpViewport): CdpViewport {
   };
 }
 
+/**
+ * Whether a frame's reported size is the viewport set. Frame metadata is in CSS pixels, but around
+ * a screencast start or a resize Chromium sometimes reports a frame in device pixels: the size set
+ * times its scale factor, give or take a pixel of rounding. That is the size set, not a window.
+ */
+function isSetSize(set: CdpViewport, width: number, height: number): boolean {
+  if (Math.round(width) === set.width && Math.round(height) === set.height) return true;
+  if (set.deviceScaleFactor === 1) return false;
+  return (
+    Math.abs(width - set.width * set.deviceScaleFactor) <= 1 &&
+    Math.abs(height - set.height * set.deviceScaleFactor) <= 1
+  );
+}
+
 export interface CdpBrowserServiceOptions {
   endpoint: CdpEndpoint;
   registry: CdpTabRegistry;
@@ -501,7 +515,7 @@ export class CdpBrowserService {
     // an override sent then would cut the capture short. The agent's own frames are left alone.
     if (this.agentCommands.has(browserId) || this.agentBadgeShows(browserId)) return;
     const check = this.frameSizeCheck(browserId);
-    if (Math.round(width) === set.width && Math.round(height) === set.height) {
+    if (isSetSize(set, width, height)) {
       check.misses = 0;
       check.settleUntil = 0;
       return;
