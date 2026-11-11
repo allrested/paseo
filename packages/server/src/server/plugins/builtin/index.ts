@@ -20,6 +20,7 @@ export const builtinPlugins = [
   "kiro-usage-source",
   "minimax-usage-source",
   "muse-provider",
+  "office",
   "opencode-go-usage-source",
   "resource-manager",
   "shared-mcp",
