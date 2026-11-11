@@ -1,13 +1,13 @@
 import { expect, test } from "vitest";
-import type { Bounds } from "../layout.js";
+import { VIEW_TURN } from "../layout.js";
 import {
-  CAMERA_BACK,
-  CAMERA_HEIGHT,
+  GROUND_SCALE,
   panBy,
   pixelsPerUnit,
   screenPoint,
   zoomBy,
   type CameraView,
+  type GroundSpan,
   type ScreenPoint,
   type Viewport,
 } from "./camera.js";
@@ -28,7 +28,7 @@ const PHONE: Viewport = { width: 390, height: 844 };
 const VIEW: CameraView = { x: 0, z: 0, zoom: 1 };
 const SCREEN: Screen = { view: VIEW, viewport: PHONE };
 /** Wide enough that no pan in these tests is clamped. */
-const OPEN: Bounds = { minX: -1000, maxX: 1000, minZ: -1000, maxZ: 1000 };
+const OPEN: GroundSpan = { left: -1000, right: 1000, far: -1000, near: 1000 };
 const NO_PLATES: ReadonlyMap<string, Plate> = new Map();
 
 function offset(at: ScreenPoint, dx: number, dy: number): ScreenPoint {
@@ -38,11 +38,12 @@ function offset(at: ScreenPoint, dx: number, dy: number): ScreenPoint {
 /** The ground point (height 0) drawn at `at` by `screen`: the inverse of `screenPoint`. */
 function groundAt(screen: Screen, at: ScreenPoint): WorldPoint {
   const perUnit = pixelsPerUnit(screen.view, screen.viewport);
-  const reach = Math.hypot(CAMERA_HEIGHT, CAMERA_BACK);
+  const across = (at.x - screen.viewport.width / 2) / perUnit;
+  const toward = ((at.y - screen.viewport.height / 2) / perUnit) * GROUND_SCALE;
   return {
-    x: screen.view.x + (at.x - screen.viewport.width / 2) / perUnit,
+    x: screen.view.x + across * Math.cos(VIEW_TURN) + toward * Math.sin(VIEW_TURN),
     y: 0,
-    z: screen.view.z + ((at.y - screen.viewport.height / 2) / perUnit) * (reach / CAMERA_HEIGHT),
+    z: screen.view.z + toward * Math.cos(VIEW_TURN) - across * Math.sin(VIEW_TURN),
   };
 }
 
