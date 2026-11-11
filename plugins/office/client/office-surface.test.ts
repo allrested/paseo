@@ -4,10 +4,16 @@ import {
   keptSelection,
   officeView,
   problemText,
+  IDLE_SWITCH,
+  nextSwitchStep,
   savedThreeD,
-  settlesSwitch,
+  switchSync,
   type OfficeView,
   type PointerFacts,
+  type StoredSwitch,
+  type SwitchEvent,
+  type SwitchStep,
+  type SwitchSync,
   type ThreeDSetting,
 } from "./office-surface.js";
 
@@ -147,19 +153,152 @@ test("an empty reason leaves no colon behind", () => {
   expect(texts).toEqual(["Unable to load the office", "Unable to load the office"]);
 });
 
-test("the last tap's save settles the switch once it is stored", () => {
-  expect(settlesSwitch(true, 2, 2)).toEqual(true);
+test("a reason that already starts with Unable to is shown as it is", () => {
+  const texts: string[] = [
+    problemText("Unable to show the 3D view", "Unable to create a WebGL2 context"),
+    problemText("Unable to load the office", "  Unable to reach the host. "),
+  ];
+  expect(texts).toEqual(["Unable to create a WebGL2 context", "Unable to reach the host."]);
 });
 
-test("an older tap's save does not settle the switch after a newer tap", () => {
-  expect(settlesSwitch(true, 1, 2)).toEqual(false);
+const WAIT: SwitchStep = { kind: "wait" };
+const SETTLE: SwitchStep = { kind: "settle" };
+const GIVE_UP: SwitchStep = { kind: "give-up" };
+
+function stored(value: boolean | null, revision: string): StoredSwitch {
+  return { value, revision };
+}
+
+function save(value: boolean, against: string, retry = false): SwitchStep {
+  return { kind: "save", value, against, retry };
+}
+
+function tap(value: boolean): SwitchEvent {
+  return { type: "tap", value };
+}
+
+function returned(ok: boolean): SwitchEvent {
+  return { type: "returned", stored: ok };
+}
+
+const CHECKED: SwitchEvent = { type: "checked" };
+
+/** The surface starting the save a step asks for. */
+function start(step: SwitchStep): SwitchEvent {
+  if (step.kind !== "save") throw new Error(`expected a save, got ${step.kind}`);
+  return { type: "start", value: step.value, against: step.against, retry: step.retry };
+}
+
+function apply(sync: SwitchSync, ...events: SwitchEvent[]): SwitchSync {
+  return events.reduce((state, event) => switchSync(state, event), sync);
+}
+
+test("nothing tapped leaves the switch to the stored value", () => {
+  expect(nextSwitchStep(IDLE_SWITCH, stored(true, "r0"))).toEqual({ kind: "idle" });
 });
 
-test("a save that was not stored leaves the tapped side showing", () => {
-  expect(settlesSwitch(false, 2, 2)).toEqual(false);
+test("a tap while the setting is still read waits for its revision", () => {
+  const sync = apply(IDLE_SWITCH, tap(false));
+  expect(nextSwitchStep(sync, null)).toEqual(WAIT);
 });
 
-test("a save that returns after the surface closed settles nothing", () => {
-  // Closing the surface counts as one more turn.
-  expect(settlesSwitch(true, 2, 3)).toEqual(false);
+test("a tap while the first save is in flight does not start a second save at once", () => {
+  const first = apply(IDLE_SWITCH, tap(false));
+  const step = nextSwitchStep(first, stored(true, "r0"));
+  const second = apply(first, start(step), tap(true));
+  expect([step, nextSwitchStep(second, stored(true, "r0")), second.wanted]).toEqual([
+    save(false, "r0"),
+    WAIT,
+    true,
+  ]);
+});
+
+test("off then on quickly ends stored on, saved in tap order", () => {
+  const steps: SwitchStep[] = [];
+  let sync = apply(IDLE_SWITCH, tap(false));
+  steps.push(nextSwitchStep(sync, stored(true, "r0")));
+  sync = apply(sync, start(steps[0]), tap(true), returned(true));
+  // Stored, but the store's new revision has not been read yet.
+  steps.push(nextSwitchStep(sync, stored(true, "r0")));
+  steps.push(nextSwitchStep(sync, stored(false, "r1")));
+  sync = apply(sync, start(steps[2]), returned(true));
+  steps.push(nextSwitchStep(sync, stored(true, "r2")));
+  sync = apply(sync, { type: "settle" });
+  expect({ steps, sync }).toEqual({
+    steps: [save(false, "r0"), WAIT, save(true, "r1"), SETTLE],
+    sync: IDLE_SWITCH,
+  });
+});
+
+test("three taps end stored on the third", () => {
+  const steps: SwitchStep[] = [];
+  let sync = apply(IDLE_SWITCH, tap(false));
+  steps.push(nextSwitchStep(sync, stored(true, "r0")));
+  sync = apply(sync, start(steps[0]), tap(true), returned(true));
+  steps.push(nextSwitchStep(sync, stored(false, "r1")));
+  sync = apply(sync, start(steps[1]), tap(false));
+  steps.push(nextSwitchStep(sync, stored(false, "r1")));
+  sync = apply(sync, returned(true));
+  steps.push(nextSwitchStep(sync, stored(true, "r2")));
+  sync = apply(sync, start(steps[3]), returned(true));
+  steps.push(nextSwitchStep(sync, stored(false, "r3")));
+  expect(steps).toEqual([save(false, "r0"), save(true, "r1"), WAIT, save(false, "r2"), SETTLE]);
+});
+
+test("taps that come back to the stored side settle without another save", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  const step = nextSwitchStep(sync, stored(true, "r0"));
+  sync = apply(sync, start(step), tap(true), tap(false), returned(true));
+  expect(nextSwitchStep(sync, stored(false, "r1"))).toEqual(SETTLE);
+});
+
+test("a refused save is judged only after the store was read again", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false));
+  expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(WAIT);
+});
+
+test("a save refused for another reason gives up and keeps the tapped side", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
+  // The store did not move, so the save was not refused for a conflict: no retry, ever.
+  const steps = [
+    nextSwitchStep(sync, stored(true, "r0")),
+    nextSwitchStep(sync, stored(true, "r0")),
+  ];
+  expect({ steps, wanted: sync.wanted }).toEqual({ steps: [GIVE_UP, GIVE_UP], wanted: false });
+});
+
+test("a conflict retries once against the store's revision, and a second conflict gives up", () => {
+  const steps: SwitchStep[] = [];
+  let sync = apply(IDLE_SWITCH, tap(false));
+  steps.push(nextSwitchStep(sync, stored(true, "r0")));
+  sync = apply(sync, start(steps[0]), returned(false), CHECKED);
+  // Another writer stored a revision of its own meanwhile.
+  steps.push(nextSwitchStep(sync, stored(true, "r1")));
+  sync = apply(sync, start(steps[1]), returned(false), CHECKED);
+  steps.push(nextSwitchStep(sync, stored(true, "r2")));
+  steps.push(nextSwitchStep(sync, stored(true, "r2")));
+  expect({ steps, wanted: sync.wanted }).toEqual({
+    steps: [save(false, "r0"), save(false, "r1", true), GIVE_UP, GIVE_UP],
+    wanted: false,
+  });
+});
+
+test("a conflict whose writer stored the tapped side settles without a retry", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
+  expect(nextSwitchStep(sync, stored(false, "r1"))).toEqual(SETTLE);
+});
+
+test("a tap after giving up tries again", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
+  sync = apply(sync, tap(true), tap(false));
+  expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(save(false, "r0"));
+});
+
+test("a stored value that cannot be read is overwritten by the tap", () => {
+  const sync = apply(IDLE_SWITCH, tap(true));
+  expect(nextSwitchStep(sync, stored(null, "missing"))).toEqual(save(true, "missing"));
 });
