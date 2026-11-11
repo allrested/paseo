@@ -8,10 +8,19 @@ import {
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 1, 2, 3]).toString("base64");
 
+/** A JPEG start and frame header of this pixel size; enough for the hub to read the size. */
+function jpegOfSize(width: number, height: number): string {
+  const header = [0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 0xff];
+  return Buffer.from([...header, width >> 8, width & 0xff, 0x03, ...Array(9).fill(0)]).toString(
+    "base64",
+  );
+}
+
 function fakeSource(options: { failStarts?: number } = {}) {
   let failStarts = options.failStarts ?? 0;
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const listeners = new Set<(params: Record<string, unknown>) => void>();
+  const state = { screenshot: JPEG };
   const source: ScreencastSource = {
     send: async <T>(method: string, params: Record<string, unknown> = {}) => {
       calls.push({ method, params });
@@ -19,7 +28,7 @@ function fakeSource(options: { failStarts?: number } = {}) {
         failStarts -= 1;
         throw new Error("startScreencast failed");
       }
-      if (method === "Page.captureScreenshot") return { data: JPEG } as T;
+      if (method === "Page.captureScreenshot") return { data: state.screenshot } as T;
       if (method === "Page.getLayoutMetrics") {
         return {
           cssVisualViewport: { clientWidth: 390, clientHeight: 700, scale: 1, pageX: 0, pageY: 40 },
@@ -53,7 +62,17 @@ function fakeSource(options: { failStarts?: number } = {}) {
     calls
       .filter((call) => call.method === "Page.screencastFrameAck")
       .map((call) => call.params.sessionId);
-  return { source, calls, frame, count, acks, listenerCount: () => listeners.size };
+  return {
+    source,
+    calls,
+    frame,
+    count,
+    acks,
+    listenerCount: () => listeners.size,
+    set screenshot(data: string) {
+      state.screenshot = data;
+    },
+  };
 }
 
 function viewer(id: string) {
@@ -158,6 +177,71 @@ describe("ScreencastHub", () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(a.frames.at(-1)).toMatchObject({ deviceWidth: 390, deviceHeight: 700 });
     expect(errors).toEqual([new Error("correction failed")]);
+  });
+
+  test("refresh captures the tab and sends it down the frame path, sized from the JPEG", async () => {
+    const seen: Array<[number, number]> = [];
+    const refreshing = new ScreencastHub({
+      source: async () => fake.source,
+      deviceScaleFactor: () => 2,
+      onFrame: (_browserId, frame) => void seen.push([frame.deviceWidth, frame.deviceHeight]),
+    });
+    const a = viewer("a");
+    await refreshing.watch("tab", a);
+    await flush();
+    fake.frame(1);
+    await flush();
+    // The page has a scrollbar: the layout viewport is 15 px narrower than the JPEG shows.
+    fake.screenshot = jpegOfSize(860, 1350);
+    await expect(refreshing.refresh("tab")).resolves.toBe(true);
+    await flush();
+    expect(fake.count("Page.captureScreenshot")).toBe(2);
+    expect(
+      a.frames.map((frame) => [frame.sequence, frame.deviceWidth, frame.deviceHeight]),
+    ).toEqual([
+      [1, 390, 700],
+      [2, 390, 700],
+      [3, 430, 675],
+    ]);
+    expect(seen).toEqual([
+      [390, 700],
+      [430, 675],
+    ]);
+    const late = viewer("late");
+    await refreshing.watch("tab", late);
+    await flush();
+    expect(late.frames.map((frame) => frame.sequence)).toEqual([3]);
+  });
+
+  test("the priming screenshot takes its size from the JPEG when it can read one", async () => {
+    fake.screenshot = jpegOfSize(860, 1350);
+    const priming = new ScreencastHub({
+      source: async () => fake.source,
+      deviceScaleFactor: () => 2,
+    });
+    const a = viewer("a");
+    await priming.watch("tab", a);
+    await flush();
+    expect(a.frames[0]).toMatchObject({ deviceWidth: 430, deviceHeight: 675, scrollY: 40 });
+  });
+
+  test("refresh does nothing for a tab no viewer watches; the last viewer leaving reports idle", async () => {
+    const idle: string[] = [];
+    const watching = new ScreencastHub({
+      source: async () => fake.source,
+      onIdle: (browserId) => void idle.push(browserId),
+    });
+    await expect(watching.refresh("tab")).resolves.toBe(false);
+    const stopA = await watching.watch("tab", viewer("a"));
+    const stopB = await watching.watch("tab", viewer("b"));
+    await flush();
+    stopA();
+    expect(idle).toEqual([]);
+    stopB();
+    expect(idle).toEqual(["tab"]);
+    const captures = fake.count("Page.captureScreenshot");
+    await expect(watching.refresh("tab")).resolves.toBe(false);
+    expect(fake.count("Page.captureScreenshot")).toBe(captures);
   });
 
   test("a later viewer gets the cached frame at once, with no second screenshot", async () => {
