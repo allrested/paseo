@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { Modal, TextInput } from "@getpaseo/plugin/client/ui";
@@ -18,6 +18,11 @@ export const STATUS_LABELS: Record<AgentStatus, string> = {
   error: "Error",
   closed: "Closed",
 };
+
+/** The box after a send: cleared only if it still holds what was sent, so later typing stays. */
+export function textAfterSend(current: string, sent: string): string {
+  return current.trim() === sent ? "" : current;
+}
 
 interface AgentCardBodyProps {
   agent: OfficeAgent;
@@ -42,9 +47,17 @@ function AgentCardBody({
     onClose();
   }, [navigation, agent.id, onClose]);
   const stop = useCallback(() => actions.cancel(agent.id), [actions, agent.id]);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const send = useCallback(async () => {
-    await actions.send(agent.id, text.trim());
-    setText("");
+    const sent = text.trim();
+    await actions.send(agent.id, sent);
+    if (mounted.current) setText((current) => textAfterSend(current, sent));
   }, [actions, agent.id, text]);
   const running = agent.status === "running";
   // One accent button per sheet (docs/design.md section 3): while Approve is on it, Send is plain.

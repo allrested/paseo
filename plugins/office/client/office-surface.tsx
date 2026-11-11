@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import type { PluginScreenProps, PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { AgentCard } from "./agent-card.js";
@@ -10,6 +10,16 @@ import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useOffice, type OfficeState } from "./use-office.js";
 
 export type OfficeSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
+
+/** The selection to keep: none once its agent has left the model or the data stopped being live. */
+export function keptSelection(
+  selectedId: string | null,
+  agents: ReadonlyMap<string, unknown>,
+  live: boolean,
+): string | null {
+  if (selectedId === null || !live || !agents.has(selectedId)) return null;
+  return selectedId;
+}
 
 interface SurfaceBodyProps {
   office: OfficeState;
@@ -54,14 +64,23 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     () => orderRoomsForFocus(model.rooms, focusRoomId),
     [model.rooms, focusRoomId],
   );
+  // In error or closed the data is frozen: no strip and no card to act on it.
+  const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const closeCard = useCallback(() => setSelectedId(null), []);
-  const selected = selectedId === null ? null : (model.agents.get(selectedId) ?? null);
-  const selectedActivity = selectedId === null ? null : (office.state.activity[selectedId] ?? null);
+  const kept = keptSelection(selectedId, model.agents, live);
+  // A selection whose agent left is dropped, so the card does not reopen if that agent returns.
+  useEffect(() => {
+    if (kept !== selectedId) setSelectedId(kept);
+  }, [kept, selectedId]);
+  const selected = kept === null ? null : (model.agents.get(kept) ?? null);
+  const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <AttentionStrip entries={model.attention} styles={styles} onSelect={setSelectedId} />
+        {live ? (
+          <AttentionStrip entries={model.attention} styles={styles} onSelect={setSelectedId} />
+        ) : null}
       </View>
       <SurfaceBody
         office={office}
