@@ -84,6 +84,7 @@ import {
 } from "./terminal-resize-debouncer";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
+import { usePointerCapabilities } from "@/hooks/pointer-capabilities";
 import { useKeyboardFocusSurface } from "@/keyboard";
 import {
   applyTerminalRendererReadyChange,
@@ -277,7 +278,13 @@ export function TerminalPane({
     return trimmed.length > 0 ? trimmed : undefined;
   }, [settings.monoFontFamily]);
   const isMobile = useIsCompactFormFactor();
-  const showVirtualKeyBar = shouldShowTerminalVirtualKeyBar({ isNative, isCompact: isMobile });
+  const { finePointer, touchScreen } = usePointerCapabilities();
+  const showVirtualKeyBar = shouldShowTerminalVirtualKeyBar({
+    isNative,
+    isCompact: isMobile,
+    finePointer,
+    touchScreen,
+  });
   const [keyBarWidth, setKeyBarWidth] = useState(0);
   const virtualKeyboardRows = resolveTerminalVirtualKeyboardRows({
     isCompact: isMobile,
