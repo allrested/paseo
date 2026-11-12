@@ -2,14 +2,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { readThreeAsset } from "./server/asset.js";
-import { createBoardStore } from "./server/board-store.js";
+import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
 import { createHub } from "./server/hub.js";
 import { liveAgentPorts, liveHubPorts } from "./server/live-ports.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import { boardsFile } from "./server/paths.js";
-import { nodeClock, nodeTimers } from "./server/timers.js";
+import { nodeClock, type Clock } from "./server/timers.js";
 import {
   assetRpc,
   deleteRpc,
@@ -25,23 +25,26 @@ interface BuiltinPluginInfo {
   directory: string;
 }
 
+/** What the office needs from outside the daemon's plugin API. */
+export interface OfficePluginDeps {
+  store: BoardStore;
+  clock: Clock;
+  log(message: string): void;
+  /** The folder of the vendored three.js build, or null when the daemon named no plugin folder. */
+  vendorDirectory: string | null;
+}
+
 // Runs inside the daemon process: every handler, hook and timer catches its own errors.
-export default function contribute(
+export function createOfficePlugin(
   server: PluginServerContext,
-  builtin?: BuiltinPluginInfo,
+  deps: OfficePluginDeps,
 ): () => Promise<void> {
-  const log = (message: string) => console.error(message);
-  const vendorDirectory = builtin ? join(builtin.directory, "vendor") : null;
+  const { log, vendorDirectory } = deps;
   const holder = createPaseoHolder();
-  const hub = createHub(liveHubPorts(holder, nodeTimers, log));
+  const hub = createHub(liveHubPorts(holder, deps.clock, log));
   const office = createOffice({
-    // Built-ins run in the daemon process, so process.env is the daemon's env.
-    store: createBoardStore({
-      file: boardsFile(process.env, homedir()),
-      now: () => Date.now(),
-      log,
-    }),
-    clock: nodeClock,
+    store: deps.store,
+    clock: deps.clock,
     hub,
     agents: liveAgentPorts(holder),
     log,
@@ -139,4 +142,22 @@ export default function contribute(
     office.stop();
     await hub.stop();
   };
+}
+
+export default function contribute(
+  server: PluginServerContext,
+  builtin?: BuiltinPluginInfo,
+): () => Promise<void> {
+  const log = (message: string) => console.error(message);
+  return createOfficePlugin(server, {
+    // Built-ins run in the daemon process, so process.env is the daemon's env.
+    store: createBoardStore({
+      file: boardsFile(process.env, homedir()),
+      now: () => Date.now(),
+      log,
+    }),
+    clock: nodeClock,
+    log,
+    vendorDirectory: builtin ? join(builtin.directory, "vendor") : null,
+  });
 }
