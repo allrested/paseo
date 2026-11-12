@@ -805,6 +805,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   let span: GroundSpan = groundSpan([]);
   let colors: ScenePalette | null = null;
   const enteredAt = new Map<string, number>();
+  /** When each robot took its present pose: a robot that starts to wait waves from then. */
+  const posedAt = new Map<string, number>();
   let viewport: Viewport = { width: 0, height: 0 };
   let ratio = 1;
   let view: CameraView = { x: 0, z: 0, zoom: 1 };
@@ -938,7 +940,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     rig.eyeRight.scale.set(eyes.wide, eyes.tall, 1);
     rig.eyeRight.rotation.set(0, 0, -eyes.turn);
     rig.armLeft.rotation.set(motion.armLeft, 0, -armSplay(motion.armLeft));
-    rig.armRight.rotation.set(motion.armRight, 0, armSplay(motion.armRight));
+    rig.armRight.rotation.set(motion.armRight, 0, armSplay(motion.armRight) + motion.armSway);
     rig.root.updateMatrixWorld(true);
   }
 
@@ -951,7 +953,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   ): void {
     const { stands, bodies, heads, visors, eyes, arms, antennas, lamps, dangers, shadows } = layers;
     const entered = enteredAt.get(robot.agentId) ?? now;
-    const motion = robotFrame(robot, entered, now, options.reducedMotion);
+    const posed = posedAt.get(robot.agentId) ?? now;
+    const motion = robotFrame(robot, entered, now, options.reducedMotion, posed);
     poseRig(robot, motion, sizes[robot.lamp]);
     bodies.mesh.setMatrixAt(index, rig.body.matrixWorld);
     heads.mesh.setMatrixAt(index, rig.head.matrixWorld);
@@ -1005,7 +1008,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     placeLabels();
     writeRobots(now);
     renderer.render(scene, camera);
-    const need = animationNeed(plan.robots, enteredAt, now, options.reducedMotion);
+    const need = animationNeed(plan.robots, enteredAt, now, options.reducedMotion, posedAt);
     return { easing: moving, need };
   }
 
@@ -1259,11 +1262,17 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     update(nextPlan, nextPalette) {
       if (stopped) return;
       const now = performance.now();
+      const poses = new Map(plan.robots.map((robot) => [robot.agentId, robot.pose]));
       for (const robot of nextPlan.robots) {
         if (!enteredAt.has(robot.agentId)) enteredAt.set(robot.agentId, now);
+        if (poses.get(robot.agentId) !== robot.pose) posedAt.set(robot.agentId, now);
       }
       const present = new Set(nextPlan.robots.map((robot) => robot.agentId));
-      for (const agentId of enteredAt.keys()) if (!present.has(agentId)) enteredAt.delete(agentId);
+      for (const agentId of enteredAt.keys()) {
+        if (present.has(agentId)) continue;
+        enteredAt.delete(agentId);
+        posedAt.delete(agentId);
+      }
       // After a new deal (a phone turned on its side) the old view shows the wrong place, and an
       // office that emptied is framed again when its rooms come back. Both jump, without easing.
       if (nextPlan.rooms.length > 0) takeKeptCamera(nextPlan.columns);
