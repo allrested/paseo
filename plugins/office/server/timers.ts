@@ -13,3 +13,12 @@ export const nodeTimers: Timers = {
     return () => clearNodeTimeout(timer);
   },
 };
+
+export interface Clock extends Timers {
+  now(): number;
+}
+
+export const nodeClock: Clock = {
+  setTimeout: (run, ms) => nodeTimers.setTimeout(run, ms),
+  now: () => Date.now(),
+};
