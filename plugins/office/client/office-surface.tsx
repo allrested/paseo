@@ -1,14 +1,13 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useReducer,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
   useSettings,
@@ -19,6 +18,10 @@ import { officeDeviceSettings } from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
 import { AgentCard } from "./agent-card.js";
 import { AttentionStrip } from "./attention-strip.js";
+import { BoardSheet } from "./board-sheet.js";
+import { authorName } from "./board-text.js";
+import { HostSwitches } from "./host-switches.js";
+import { LabeledSwitch } from "./labeled-switch.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
@@ -33,10 +36,11 @@ import {
   type SceneLayout,
   type SceneLayoutKeeper,
 } from "./scene/scene-view.js";
-import { hasWebGL2, listenForSpace } from "./scene/web-env.web.js";
+import { hasWebGL2 } from "./scene/web-env.web.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
+import { useBoardActions } from "./use-board-actions.js";
 import { useOffice, type OfficeState } from "./use-office.js";
 
 export type OfficeSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
@@ -218,6 +222,17 @@ export function nextSwitchStep(sync: SwitchSync, stored: StoredSwitch | null): S
   return { kind: "save", value: sync.wanted, against: stored.revision, retry: conflict };
 }
 
+/**
+ * The switch shows a tap the device refused to store: the view follows it until the surface
+ * closes, and after a reload the stored value is back.
+ */
+export function switchUnsaved(sync: SwitchSync): boolean {
+  return sync.save?.phase === "given-up";
+}
+
+const UNSAVED_3D =
+  "Unable to save the 3D view setting on this device. It holds until the office is closed.";
+
 /** The camera's next request for a robot. Nonces start at 1: the scene counts 0 as handled. */
 export function nextFocusRequest(previous: FocusRequest | null, agentId: string): FocusRequest {
   return { agentId, nonce: (previous?.nonce ?? 0) + 1 };
@@ -252,6 +267,8 @@ interface ThreeDState {
   available: boolean;
   /** The switch's position; null while the device's setting is being read. */
   on: boolean | null;
+  /** The device refused to store the last tap. */
+  unsaved: boolean;
   toggle(next: boolean): void;
 }
 
@@ -295,49 +312,12 @@ function useThreeD(platform: Platform): ThreeDState {
     void store(step.value, step.against);
   }, [sync, revision, storedValue, save, reload]);
   const toggle = useCallback((next: boolean) => dispatch({ type: "tap", value: next }), []);
-  return { available, on: available ? (sync.wanted ?? savedThreeD(settings)) : false, toggle };
-}
-
-interface ThreeDSwitchProps {
-  /** Null while the device's setting is being read: drawn on, the default, and not yet usable. */
-  value: boolean | null;
-  onChange(next: boolean): void;
-  styles: OfficeStyles;
-}
-
-/**
- * Drawn here, with the role, state and sizes of the app's switch
- * (packages/app/src/components/ui/switch.tsx). A plugin can render that switch through
- * SettingsSwitch (@getpaseo/plugin/client/ui), and it follows the theme with a 44 x 44 target,
- * but only as a settings row: 16 px of padding on every side, the label outside the target and,
- * on a phone, stacked over the switch. In this header at 390 px wide that row measured 104 px
- * tall. Here the label is inside the target, so the row is 44 px tall on a touch screen, says
- * what it turns, and has room for more controls beside it. react-native's Switch is 40 x 20 on
- * web whatever the pointer, and its thumb is a fixed teal while on.
- */
-function ThreeDSwitch({ value, onChange, styles }: ThreeDSwitchProps) {
-  const on = value ?? true;
-  const disabled = value === null;
-  const flip = useCallback(() => onChange(!on), [onChange, on]);
-  // Enter presses any Pressable; Space, the key that turns a switch, only a button.
-  const id = useId();
-  useEffect(() => (disabled ? undefined : listenForSpace(id, flip)), [id, flip, disabled]);
-  return (
-    <Pressable
-      id={id}
-      accessibilityRole="switch"
-      accessibilityLabel="3D view"
-      aria-checked={on}
-      disabled={disabled}
-      onPress={flip}
-      style={disabled ? styles.controlDisabled : styles.control}
-    >
-      <Text style={styles.controlLabel}>3D view</Text>
-      <View style={on ? styles.switchOn : styles.switchOff}>
-        <View style={on ? styles.switchOnThumb : styles.switchOffThumb} />
-      </View>
-    </Pressable>
-  );
+  return {
+    available,
+    on: available ? (sync.wanted ?? savedThreeD(settings)) : false,
+    unsaved: available && switchUnsaved(sync),
+    toggle,
+  };
 }
 
 interface SceneProblemProps {
@@ -395,8 +375,10 @@ interface SurfaceBodyProps {
   cameraKeeper: SceneCameraKeeper;
   styles: OfficeStyles;
   actions: AgentActions;
+  name(author: string): string;
   onSelectAgent(agentId: string): void;
   onOpenSession: ((agentId: string) => void) | undefined;
+  onOpenBoard(roomId: string): void;
   onSceneProblem(message: string): void;
 }
 
@@ -412,8 +394,10 @@ function SurfaceBody({
   cameraKeeper,
   styles,
   actions,
+  name,
   onSelectAgent,
   onOpenSession,
+  onOpenBoard,
   onSceneProblem,
 }: SurfaceBodyProps) {
   if (office.subscription.status === "error") {
@@ -453,10 +437,30 @@ function SurfaceBody({
       rooms={rooms}
       styles={styles}
       actions={actions}
+      name={name}
       onSelectAgent={onSelectAgent}
       onOpenSession={onOpenSession}
+      onOpenBoard={onOpenBoard}
     />
   );
+}
+
+interface BoardSheetState {
+  /** The room whose board sheet is open. */
+  room: OfficeRoom | null;
+  open(roomId: string): void;
+  close(): void;
+}
+
+/** Which room's board sheet is open: none once its room has left or the data stopped being live. */
+function useBoardSheet(model: OfficeModel, live: boolean): BoardSheetState {
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const close = useCallback(() => setRoomId(null), []);
+  const room =
+    roomId === null || !live
+      ? null
+      : (model.rooms.find((candidate) => candidate.id === roomId) ?? null);
+  return { room, open: setRoomId, close };
 }
 
 /** One surface for both places: the sidebar screen and a workspace tab. */
@@ -472,14 +476,18 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const styles = useOfficeStyles(theme, layout.compact, touchScreen);
   const office = useOffice();
   const actions = useAgentActions();
+  const boardActions = useBoardActions();
   const threeD = useThreeD(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
     [model.rooms, focusRoomId],
   );
-  // In error or closed the data is frozen: no strip and no card to act on it.
+  const name = useCallback((author: string) => authorName(author, model.agents), [model.agents]);
+  const agentList = useMemo(() => [...model.agents.values()], [model.agents]);
+  // In error or closed the data is frozen: no strip, no card and no board sheet to act on it.
   const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
+  const board = useBoardSheet(model, live);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
@@ -522,11 +530,21 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        {threeD.available ? (
-          <View style={styles.headerRow}>
-            <ThreeDSwitch value={threeD.on} onChange={changeThreeD} styles={styles} />
-          </View>
-        ) : null}
+        <HostSwitches
+          wake={office.loaded && live ? office.state.wake : null}
+          actions={boardActions}
+          styles={styles}
+          deviceProblem={threeD.unsaved ? UNSAVED_3D : null}
+        >
+          {threeD.available ? (
+            <LabeledSwitch
+              label="3D view"
+              value={threeD.on}
+              onChange={changeThreeD}
+              styles={styles}
+            />
+          ) : null}
+        </HostSwitches>
         {live ? (
           <AttentionStrip entries={model.attention} styles={styles} onSelect={selectFromStrip} />
         ) : null}
@@ -546,8 +564,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         cameraKeeper={sceneCamera}
         styles={styles}
         actions={actions}
+        name={name}
         onSelectAgent={setSelectedId}
         onOpenSession={navigation ? openSession : undefined}
+        onOpenBoard={board.open}
         onSceneProblem={setSceneProblem}
       />
       <AgentCard
@@ -557,6 +577,15 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         navigation={navigation}
         styles={styles}
         onClose={closeCard}
+      />
+      <BoardSheet
+        room={board.room}
+        agents={agentList}
+        name={name}
+        actions={boardActions}
+        wakesPaused={office.state.wake.paused}
+        styles={styles}
+        onClose={board.close}
       />
     </View>
   );
