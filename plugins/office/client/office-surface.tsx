@@ -29,6 +29,7 @@ import {
   NO_LAYOUT,
   SceneView,
   type FocusRequest,
+  type SceneCameraKeeper,
   type SceneLayout,
   type SceneLayoutKeeper,
 } from "./scene/scene-view.js";
@@ -391,6 +392,7 @@ interface SurfaceBodyProps {
   focusRoomId: string | null;
   focusRequest: FocusRequest | null;
   layoutKeeper: SceneLayoutKeeper;
+  cameraKeeper: SceneCameraKeeper;
   styles: OfficeStyles;
   actions: AgentActions;
   onSelectAgent(agentId: string): void;
@@ -407,6 +409,7 @@ function SurfaceBody({
   focusRoomId,
   focusRequest,
   layoutKeeper,
+  cameraKeeper,
   styles,
   actions,
   onSelectAgent,
@@ -439,6 +442,7 @@ function SurfaceBody({
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}
         layoutKeeper={layoutKeeper}
+        cameraKeeper={cameraKeeper}
         onSelectAgent={onSelectAgent}
         onProblem={onSceneProblem}
       />
@@ -485,8 +489,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     setSelectedId(agentId);
     setFocusRequest((previous) => nextFocusRequest(previous, agentId));
   }, []);
-  // The rooms' places outlive the scene: 3D off and on, "Try 3D again" and an error keep them.
+  // The rooms' places and the user's camera outlive the scene: 3D off and on, "Try 3D again"
+  // and an error keep them.
   const sceneLayout = useRef<SceneLayout>(NO_LAYOUT);
+  const sceneCamera = useRef<SceneCameraKeeper["current"]>(null);
   const openSession = useCallback(
     (agentId: string) => navigation?.openAgent({ agentId }),
     [navigation],
@@ -537,6 +543,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}
         layoutKeeper={sceneLayout}
+        cameraKeeper={sceneCamera}
         styles={styles}
         actions={actions}
         onSelectAgent={setSelectedId}

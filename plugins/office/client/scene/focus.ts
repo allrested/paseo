@@ -43,6 +43,15 @@ export function takeCamera(state: FocusState): FocusState {
   return { ...state, following: false, pending: null };
 }
 
+/**
+ * A scene that starts with the camera the user left in an earlier one (3D off and on, "Try 3D
+ * again"). The view is theirs already, so the office is not framed, and a room asked for at the
+ * start, the workspace tab's own, is dropped.
+ */
+export function resumeCamera(state: FocusState): FocusState {
+  return { ...state, following: false, framed: true, pending: null };
+}
+
 /** A new plan. `reset` is true for a new grid or an emptied office: both are framed again. */
 export function replan(state: FocusState, reset: boolean): FocusState {
   return reset ? { ...state, following: true, framed: false } : state;
