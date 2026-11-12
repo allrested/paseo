@@ -13,13 +13,13 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { assetRpc } from "../../shared/contracts.js";
 import {
   EMPTY_LAYOUT_MEMORY,
-  columnsFor,
   layoutOffice,
   type LayoutMemory,
   type OfficeLayout,
 } from "../layout.js";
 import type { OfficeModel } from "../model.js";
 import type { OfficeStyles } from "../styles.js";
+import { gridColumns } from "./grid.js";
 import { createOfficeScene, type KeptCamera, type OfficeScene } from "./office-scene.web.js";
 import { scenePalette } from "./palette.js";
 import { buildScenePlan, type ScenePlan } from "./scene-plan.js";
@@ -55,17 +55,18 @@ export interface SceneViewProps {
 export interface ContainerShape {
   /** False until the container first had a size. No scene is created before that. */
   sized: boolean;
-  /** Columns of rooms for the container's shape (`columnsFor`); undefined until it has a size. */
-  columns: number | undefined;
+  /** The last size that was a view, in CSS pixels; 0 x 0 until there was one. */
+  width: number;
+  height: number;
 }
 
-export const UNMEASURED: ContainerShape = { sized: false, columns: undefined };
+export const UNMEASURED: ContainerShape = { sized: false, width: 0, height: 0 };
 
 /**
  * The shape after the container measured `width` x `height`. A hidden workspace tab is
  * `display: none` and measures 0 x 0, which is no view to count columns for: it keeps the last
- * shape instead, so showing the tab again does not move the rooms or the camera. A size that
- * gives the columns already in use returns `previous` itself, so nothing is laid out again.
+ * shape instead, so showing the tab again does not move the rooms or the camera. The same size
+ * again returns `previous` itself.
  */
 export function shapeAfterResize(
   previous: ContainerShape,
@@ -73,8 +74,22 @@ export function shapeAfterResize(
   height: number,
 ): ContainerShape {
   if (width <= 0 || height <= 0) return previous;
-  const columns = columnsFor({ width, height });
-  return previous.sized && previous.columns === columns ? previous : { sized: true, columns };
+  const same = previous.sized && previous.width === width && previous.height === height;
+  return same ? previous : { sized: true, width, height };
+}
+
+/**
+ * The columns of rooms for a container of this shape and an office of `rooms` rooms
+ * (`gridColumns`); undefined until the container has a size. `held` is the count the last
+ * layout was dealt for: a size or an office that is little different keeps it, so nothing is
+ * laid out again.
+ */
+export function columnsNow(
+  shape: ContainerShape,
+  rooms: number,
+  held: number | undefined,
+): number | undefined {
+  return shape.sized ? gridColumns(shape, rooms, held) : undefined;
 }
 
 /** The layout the scene draws, with what it was made from. */
@@ -160,7 +175,13 @@ export function SceneView({
     () => ({ reducedMotion: prefersReducedMotion(), coarsePointer: isCoarsePointer() }),
     [],
   );
-  const { sized, columns } = shape;
+  const { sized } = shape;
+  const rooms = model.rooms.length;
+  // The count in use is read from what the surface keeps: it outlives this view.
+  const columns = useMemo(
+    () => columnsNow(shape, rooms, layoutKeeper.current.columns),
+    [shape, rooms, layoutKeeper],
+  );
 
   useEffect(() => {
     handlers.current = { onSelectAgent, onProblem };
