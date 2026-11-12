@@ -6,13 +6,13 @@ import type { AttentionReason, DotTone } from "./model.js";
 export interface OfficeStyles {
   screen: ViewStyle;
   header: ViewStyle;
-  headerRow: ViewStyle;
+  /** The row of switches: it wraps on a phone, and every line ends on the trailing rail. */
   headerControls: ViewStyle;
+  /** The switches' failures, one line each, under their row. */
+  headerProblems: ViewStyle;
   control: ViewStyle;
   controlDisabled: ViewStyle;
   controlLabel: TextStyle;
-  switchTrack: { false: string; true: string };
-  switchThumb: string;
   /** The switch the surface draws itself: its track on and off, and the thumb in each. */
   switchOn: ViewStyle;
   switchOff: ViewStyle;
@@ -93,11 +93,20 @@ export interface OfficeStyles {
   input: TextStyle;
   boardSection: ViewStyle;
   boardTitleRow: ViewStyle;
+  /** The board's name and, beside it, that it is empty. */
+  boardHeading: ViewStyle;
   boardTitle: TextStyle;
+  /** The posts in the board sheet. */
+  boardPosts: ViewStyle;
+  /** One post in the sheet with its buttons. */
+  boardPost: ViewStyle;
   post: ViewStyle;
   postMeta: TextStyle;
   postText: TextStyle;
   chips: ViewStyle;
+  /** A row of chips that scrolls sideways: its scroller, and the row inside it. */
+  chipScroll: ViewStyle;
+  chipRow: ViewStyle;
   chip: ViewStyle;
   chipSelected: ViewStyle;
   chipText: TextStyle;
@@ -182,6 +191,8 @@ export function useOfficeStyles(
     const buttonLabel: TextStyle = { ...base, fontWeight: "500" };
     const chip: ViewStyle = {
       minHeight: controlHeight,
+      // A long agent title ends in an ellipsis instead of filling the row.
+      maxWidth: 240,
       paddingHorizontal: 16,
       borderRadius: 9999,
       borderWidth: 1,
@@ -237,33 +248,25 @@ export function useOfficeStyles(
       screen: { flex: 1, backgroundColor: colors.surface0 },
       // No side padding here: the strip scrolls to the screen edge, and each row pads itself.
       header: { paddingTop: 8, gap: 8 },
-      headerRow: {
-        ...column,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        gap: 16,
-        paddingHorizontal: pad,
-      },
       // Each control is as tall as a touch target, so the row gap only keeps two targets apart.
       headerControls: {
         ...column,
         flexDirection: "row",
         alignItems: "center",
+        justifyContent: "flex-end",
         flexWrap: "wrap",
         columnGap: 16,
         rowGap: 4,
         paddingHorizontal: pad,
       },
+      headerProblems: { ...column, paddingHorizontal: pad, gap: 4 },
       control,
       controlDisabled: { ...control, opacity: 0.5 },
       controlLabel: { ...base, color: colors.foregroundMuted },
       // An off track in the border colour disappears on a dark surface0, so off is the muted grey:
-      // the surface0 thumb then stands 3:1 or more off both tracks in every built-in theme.
-      switchTrack: { false: colors.foregroundMuted, true: colors.accent },
-      switchThumb: colors.surface0,
-      // The same tracks. The thumb on the accent is the accent's own ink, as in the app's switch:
-      // 3.1:1 or more in every built-in theme, where surface0 falls to 3.0:1 in the dark one.
+      // the surface0 thumb then stands 3:1 or more off it in every built-in theme. The thumb on
+      // the accent is the accent's own ink, as in the app's switch: 3.1:1 or more in every
+      // built-in theme, where surface0 falls to 3.0:1 in the dark one.
       switchOn: { ...track, alignItems: "flex-end", backgroundColor: colors.accent },
       switchOff: {
         ...track,
@@ -420,11 +423,19 @@ export function useOfficeStyles(
         justifyContent: "space-between",
         gap: 12,
       },
+      boardHeading: { flexDirection: "row", alignItems: "baseline", gap: 8, flexShrink: 1 },
       boardTitle: { ...small, color: colors.foregroundMuted, fontWeight: "500" },
+      // A post and its buttons are one block: closer to each other than to the next post.
+      boardPosts: { gap: 16 },
+      boardPost: { gap: 8 },
       post: { gap: 4, paddingVertical: 4 },
       postMeta: { ...small, color: colors.foregroundMuted },
       postText: { ...base, color: colors.foreground },
       chips: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+      // The padding leaves room for a chip's focus ring inside the scroller, and the scroller
+      // reaches out by as much, so the chips at rest still stand on the sheet's rails.
+      chipScroll: { marginHorizontal: -FOCUS_RING },
+      chipRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: FOCUS_RING },
       chip,
       chipSelected: {
         ...chip,
