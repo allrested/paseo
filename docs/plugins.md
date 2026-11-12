@@ -328,11 +328,26 @@ The server keeps one directory from subscribed `agents.list` and `workspaces.lis
 first 200 of each) and streams a compact projection over the `office.state` subscription; the
 directory and the 5 s "doing now" reads run only while an office surface is open. On web, with
 WebGL2, the office draws the same model as a small 3D office, one glass room per workspace and one
-robot per agent whose pose shows its state; a per-device "3D" switch turns it off. The 3D view
-loads the plugin's vendored three.js r170 (`plugins/office/vendor`) through the
+robot per agent whose pose shows its state; a per-device "3D view" switch turns it off. The 3D
+view loads the plugin's vendored three.js r170 (`plugins/office/vendor`) through the
 `office.asset.request` RPC the first time it is shown on a page, evaluates it from a Blob URL, and
 draws only while something moves; native clients, devices without WebGL2 and a lost graphics
-context get the list. Design: [the spec](superpowers/specs/2026-11-11-agent-office-design.md).
+context get the list.
+
+Each room has a board, and the lobby has one for the host: posts are tasks (open, claimed, done) or
+notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days). A
+board is removed when its workspace is archived while the daemon runs; a board left from a workspace
+archived otherwise stays until its posts are deleted. Interactive agent sessions get three tools,
+`office_read`, `office_post` and `office_update`, unless the host's "Agent tools" switch is off when
+the session opens. Plugin tools reach an agent through Paseo's own agent tools and are filtered by
+name like them: a provider with Paseo's tools off gets none, and a provider that lists
+`send_agent_prompt` in `paseoTools.disabledTools` must list `office_post` too to keep its agents
+from waking others. A post that names an agent wakes it when it is idle, at most 6 times an hour per
+agent. Posts that wait for an agent go out as one prompt per author: an agent's posts carry that
+agent as the source, the user's posts arrive as a user prompt. A post naming an agent that has not
+run a turn yet is delivered after that agent's first turn or the next post that names it. The "Wake
+agents" switch holds every wake until it is turned back on; wakes that wait are not kept across a
+daemon restart. Design: [the spec](superpowers/specs/2026-11-11-agent-office-design.md).
 
 `scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
 and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
