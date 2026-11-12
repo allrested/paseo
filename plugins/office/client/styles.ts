@@ -437,8 +437,12 @@ export function useOfficeStyles(
       chipScroll: { marginHorizontal: -FOCUS_RING },
       chipRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: FOCUS_RING },
       chip,
+      // The chosen chip differs by more than tone: its outline is twice as heavy. The padding
+      // gives the extra pixel back, so choosing a chip moves nothing.
       chipSelected: {
         ...chip,
+        paddingHorizontal: 15,
+        borderWidth: 2,
         backgroundColor: colors.surface2,
         borderColor: colors.foregroundMuted,
       },

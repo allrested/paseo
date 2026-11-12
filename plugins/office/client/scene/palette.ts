@@ -187,11 +187,12 @@ function sceneTint(colors: PluginTheme["colors"]): string {
 }
 
 /**
- * WCAG contrast each part holds against the room floor; nothing that carries state goes under
- * 3:1. Amber is a light colour, so on a light floor the warning lamp can only darken to just
- * past 3:1. The head is the darker part of a robot in both schemes: the visor sits on it. An
- * unlit lamp says nothing, so it alone stays under 3:1. The steady lamp is the foreground, a light
- * by night; by day it is a mid neutral, past 3:1 off the floor and 2.5:1 off the dark head.
+ * WCAG contrast each part holds against the room floor; nothing that carries state goes under 3:1.
+ * A note's ratio is against what the note is pinned to (`pinned` in scenePalette). Amber is a
+ * light colour, so on a light floor the warning lamp can only darken to just past 3:1. The head is
+ * the darker part of a robot in both schemes: the visor sits on it. An unlit lamp says nothing, so
+ * it alone stays under 3:1. The steady lamp is the foreground, a light by night; by day it is a
+ * mid neutral, past 3:1 off the floor and 2.5:1 off the dark head.
  */
 interface ContrastPlan {
   robotHead: number;
@@ -244,8 +245,8 @@ const DARK_PLAN: ContrastPlan = {
  * foreground (ground, room floor, desk); robots are the muted foreground as graphite; the accent tints the
  * glass and lights the screens; a robot's lamp is a neutral while it rests or works, and takes the
  * theme's warning and danger hues at full strength while it needs the owner, which are used
- * nowhere else. Screens, visors, eyes, lamps, notes and planes are drawn unlit, so their colours
- * reach the screen as given.
+ * nowhere else. Screens, visors, eyes, lamps and notes are drawn unlit, so their colours reach
+ * the screen as given. A plane is lit paper: its two wings differ in tone.
  */
 export function scenePalette(theme: PluginTheme): ScenePalette {
   const c = theme.colors;
@@ -262,6 +263,12 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
   const monitorLit = dark
     ? onFloor(tint, NIGHT_SCREEN)
     : atLuminance(tint, relativeLuminance(desk) + (1 - relativeLuminance(desk)) / 4);
+  const board = dark ? mix(c.surface2, c.foreground, 0.18) : mix(c.surface1, c.surface1, 0);
+  // A note is seen against the whiteboard or a desk, not the bare floor. By day it is darker
+  // than all three, and the floor is the darkest of them. By night it is lighter than all
+  // three, and the whiteboard is the lightest: held against the floor, a note's tint came out
+  // 1.7:1 off its whiteboard.
+  const pinned = (color: string, ratio: number) => standOff(color, dark ? board : roomFloor, ratio);
   return {
     dark,
     background: mix(c.surface0, c.surface0, 0),
@@ -296,16 +303,18 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
     shadowOpacity: dark ? 0.35 : 0.18,
     lightWarning: onFloor(saturated(c.statusWarning), plan.lightWarning),
     lightDanger: onFloor(saturated(c.statusDanger), plan.lightDanger),
-    board: dark ? mix(c.surface2, c.foreground, 0.18) : mix(c.surface1, c.surface1, 0),
+    board,
     // Notes stay out of the warning and danger hues: an open task is the strongest slip, a
     // claimed one fades, a note takes the tint.
-    noteTask: onFloor(c.foregroundMuted, plan.noteTask),
-    noteClaimed: onFloor(c.foregroundMuted, plan.noteClaimed),
-    noteNote: onFloor(tint, plan.noteNote),
+    noteTask: pinned(c.foregroundMuted, plan.noteTask),
+    noteClaimed: pinned(c.foregroundMuted, plan.noteClaimed),
+    noteNote: pinned(tint, plan.noteNote),
     // A room's name plate is cut from its floor, so it shows on the page and on the glass.
     label: roomFloor,
     labelText: mix(c.foreground, c.foreground, 0),
-    plane: mix(c.foreground, c.surface0, dark ? 0.1 : 0.3),
+    // Paper in the foreground's own tone, so a plane that leaves a whiteboard is not taken for
+    // one of the notes on it: by day it is darker than a task's note, by night lighter.
+    plane: mix(c.foreground, c.surface0, dark ? 0 : 0.15),
   };
 }
 
