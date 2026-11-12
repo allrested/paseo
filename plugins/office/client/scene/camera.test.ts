@@ -1,32 +1,41 @@
 import { expect, test } from "vitest";
-import type { OfficeSnapshot } from "../../shared/contracts.js";
-import { EMPTY_LAYOUT_MEMORY, VIEW_TURN, layoutOffice, type Point } from "../layout.js";
+import type { OfficeAgent, OfficeSnapshot } from "../../shared/contracts.js";
+import {
+  EMPTY_LAYOUT_MEMORY,
+  ROOM_WIDTH,
+  VIEW_TURN,
+  layoutOffice,
+  type Bounds,
+  type Point,
+} from "../layout.js";
 import { buildOfficeModel } from "../model.js";
 import {
   CAMERA_BACK,
   CAMERA_HEIGHT,
   CAMERA_TILT,
   FIRST_VIEW,
-  FOCUS_ZOOM,
+  FOCUS_SCALE,
   GROUND_SCALE,
   RISE_SCALE,
+  SCALE_LIMITS,
   VIEW_HEIGHT,
-  ZOOM_MAX,
-  ZOOM_MIN,
   cameraPosition,
   easeView,
   focusOn,
-  frameBounds,
   firstView,
   frustumFor,
   groundSpan,
+  keptInside,
+  keptOver,
   panBy,
+  partView,
   pixelRatioFor,
   pixelsPerUnit,
   screenPoint,
   shiftOnScreen,
   wheelFactor,
   zoomBy,
+  zoomLimits,
   type CameraView,
   type FrameMargins,
   type GroundSpan,
@@ -42,6 +51,8 @@ const DEEP = 16 * SIN + 15 * COS;
 const SPAN = groundSpan([BOUNDS]);
 const PHONE: Viewport = { width: 390, height: 844 };
 const DESKTOP: Viewport = { width: 1440, height: 900 };
+/** A phone on its side, under the app's header and the office's own. */
+const SHORT: Viewport = { width: 844, height: 200 };
 const NO_MARGINS: FrameMargins = { rise: 0, top: 0, side: 0, bottom: 0 };
 
 /** The ground point `across` to the right of the screen and `toward` the camera from the origin. */
@@ -55,6 +66,58 @@ function drawn(view: CameraView, viewport: Viewport, point: Point, height = 0) {
 
 function span(width: number, depth: number): GroundSpan {
   return { left: -width / 2, right: width / 2, far: 0, near: depth };
+}
+
+/** A robot from the floor to the top of its head, in world units (office-scene.web.ts ROBOT). */
+const ROBOT_HEIGHT = 1.68;
+/** Margins like the scene's own: a whiteboard on the far edge, and a few pixels at each side. */
+const MARGINS: FrameMargins = { rise: 2.2, top: 10, side: 8, bottom: 12 };
+
+function resident(id: string, workspaceId: string | null): OfficeAgent {
+  return {
+    id,
+    title: id,
+    provider: "claude",
+    model: null,
+    status: "idle",
+    workspaceId,
+    parentAgentId: null,
+    permissions: [],
+    createdAt: "2026-11-11T08:00:00.000Z",
+  };
+}
+
+/**
+ * The floors of an office laid out as the office is: the lobby with `crews[0]` agents, then one
+ * room for each further entry, with that many agents.
+ */
+function floors(crews: readonly number[], columns: number): Bounds[] {
+  const state: OfficeSnapshot = {
+    agents: crews.flatMap((count, room) =>
+      Array.from({ length: count }, (_, index) =>
+        resident(`r${room}-${index}`, room === 0 ? null : `w${room}`),
+      ),
+    ),
+    workspaces: crews.slice(1).map((_, index) => ({
+      id: `w${index + 1}`,
+      name: `w${index + 1}`,
+      projectName: "p",
+    })),
+    activity: {},
+    boards: {},
+    wake: { paused: false, queued: {} },
+  };
+  const { layout } = layoutOffice(buildOfficeModel(state), EMPTY_LAYOUT_MEMORY, columns);
+  return layout.rooms.map((room) => ({
+    minX: room.center.x - ROOM_WIDTH / 2,
+    maxX: room.center.x + ROOM_WIDTH / 2,
+    minZ: room.center.z - room.depth / 2,
+    maxZ: room.center.z + room.depth / 2,
+  }));
+}
+
+function column(crews: readonly number[]): Bounds[] {
+  return floors(crews, 1);
 }
 
 test("pixel ratio is capped at 1.5 on touch and 2 elsewhere", () => {
@@ -153,15 +216,20 @@ test("boxes that are no boxes are left out, and no box at all is a point at the 
   expect(groundSpan([empty, BOUNDS])).toEqual(SPAN);
 });
 
-test("framing fits a box into a phone screen, centred", () => {
-  const view = frameBounds(BOUNDS, PHONE);
-  expect([view.x, view.z]).toEqual([0, 0]);
+test("a part framed alone fits a phone screen, in the middle", () => {
+  const view = partView(SPAN, SPAN, PHONE, NO_MARGINS);
+  expect(view.x).toBeCloseTo(0, 9);
+  expect(view.z).toBeCloseTo(0, 9);
   expect(view.zoom).toBeCloseTo((VIEW_HEIGHT * (390 / 844)) / ACROSS, 6);
-  const wide = frameBounds(BOUNDS, DESKTOP);
-  expect([wide.x, wide.z]).toEqual([0, 0]);
-  expect(wide.zoom).toBeCloseTo((VIEW_HEIGHT * GROUND_SCALE) / DEEP, 6);
-  expect(frameBounds({ minX: -500, maxX: 500, minZ: -500, maxZ: 500 }, PHONE).zoom).toBe(ZOOM_MIN);
-  const off = frameBounds({ minX: 10, maxX: 30, minZ: 5, maxZ: 9 }, PHONE);
+  // A wide screen has room to draw it larger than a look at a room needs.
+  const wide = partView(SPAN, SPAN, DESKTOP, NO_MARGINS);
+  expect(wide.x).toBeCloseTo(0, 9);
+  expect(wide.z).toBeCloseTo(0, 9);
+  expect(pixelsPerUnit(wide, DESKTOP)).toBeCloseTo(FIRST_VIEW.room, 9);
+  const huge = groundSpan([{ minX: -500, maxX: 500, minZ: -500, maxZ: 500 }]);
+  expect(partView(huge, huge, PHONE, NO_MARGINS).zoom).toBe(zoomLimits(PHONE).min);
+  const aside = groundSpan([{ minX: 10, maxX: 30, minZ: 5, maxZ: 9 }]);
+  const off = partView(aside, aside, PHONE, NO_MARGINS);
   expect(off.x).toBeCloseTo(20, 9);
   expect(off.z).toBeCloseTo(7, 9);
 });
@@ -198,19 +266,18 @@ test("zoomed in, the same drag moves the office less", () => {
 
 test("an office with no rooms frames and pans to finite numbers", () => {
   const empty = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
-  expect(frameBounds(empty, PHONE)).toEqual({ x: 0, z: 0, zoom: ZOOM_MAX });
+  const nothing = groundSpan([empty]);
+  const least = { x: 0, z: 0, zoom: (FIRST_VIEW.most * VIEW_HEIGHT) / 844 };
+  const leastPart = { x: 0, z: 0, zoom: (FIRST_VIEW.room * VIEW_HEIGHT) / 844 };
+  expect(partView(nothing, nothing, PHONE, NO_MARGINS)).toEqual(leastPart);
   expect(panBy({ x: 3, z: 4, zoom: 1 }, 10, 10, PHONE, groundSpan([empty]))).toEqual({
     x: 0,
     z: 0,
     zoom: 1,
   });
-  const notANumber = { minX: Number.NaN, maxX: 5, minZ: 0, maxZ: 5 };
-  expect(frameBounds(notANumber, PHONE)).toEqual({ x: 0, z: 0, zoom: ZOOM_MAX });
-  expect(firstView(groundSpan([]), PHONE, NO_MARGINS)).toEqual({
-    x: 0,
-    z: 0,
-    zoom: (FIRST_VIEW.most * VIEW_HEIGHT) / 844,
-  });
+  const notANumber = groundSpan([{ minX: Number.NaN, maxX: 5, minZ: 0, maxZ: 5 }]);
+  expect(partView(notANumber, notANumber, PHONE, NO_MARGINS)).toEqual(leastPart);
+  expect(firstView(groundSpan([]), PHONE, NO_MARGINS)).toEqual(least);
 });
 
 test("a zero-size viewport gives a finite view with no negative zero", () => {
@@ -221,27 +288,48 @@ test("a zero-size viewport gives a finite view with no negative zero", () => {
     top: VIEW_HEIGHT / 2,
     bottom: -VIEW_HEIGHT / 2,
   });
-  expect(frameBounds(BOUNDS, none)).toEqual({ x: 0, z: 0, zoom: VIEW_HEIGHT / ACROSS });
   expect(panBy({ x: 0, z: 0, zoom: 1 }, 0, 0, none, SPAN)).toEqual({ x: 0, z: 0, zoom: 1 });
-  const first = firstView(SPAN, none, NO_MARGINS);
-  expect([first.x, first.z, first.zoom].every(Number.isFinite)).toBe(true);
+  for (const view of [firstView(SPAN, none, NO_MARGINS), partView(SPAN, SPAN, none, NO_MARGINS)]) {
+    expect([view.x, view.z, view.zoom].every(Number.isFinite)).toBe(true);
+    expect([view.x, view.z].some((value) => Object.is(value, -0))).toBe(false);
+  }
 });
 
 test("zoom stays within its limits; a wheel step up zooms out", () => {
-  expect(zoomBy({ x: 0, z: 0, zoom: 2 }, 10).zoom).toBe(ZOOM_MAX);
-  expect(zoomBy({ x: 0, z: 0, zoom: 1 }, 0.01).zoom).toBe(ZOOM_MIN);
+  expect(zoomBy({ x: 0, z: 0, zoom: 2 }, 10, PHONE).zoom).toBe(zoomLimits(PHONE).max);
+  expect(zoomBy({ x: 0, z: 0, zoom: 1 }, 0.01, PHONE).zoom).toBe(zoomLimits(PHONE).min);
+  expect(zoomBy({ x: 0, z: 0, zoom: 1 }, 1.5, PHONE).zoom).toBe(1.5);
   expect(wheelFactor(100)).toBeLessThan(1);
   expect(wheelFactor(-100)).toBeGreaterThan(1);
   expect(wheelFactor(0)).toBe(1);
 });
 
 test("focusing centres the point and zooms in, never out", () => {
-  expect(focusOn({ x: 0, z: 0, zoom: 1 }, { x: 15, z: 14 })).toEqual({
-    x: 15,
-    z: 14,
-    zoom: FOCUS_ZOOM,
-  });
-  expect(focusOn({ x: 0, z: 0, zoom: 2.5 }, { x: 15, z: 14 }).zoom).toBe(2.5);
+  const near = focusOn({ x: 0, z: 0, zoom: 1 }, { x: 15, z: 14 }, PHONE);
+  expect([near.x, near.z]).toEqual([15, 14]);
+  expect(pixelsPerUnit(near, PHONE)).toBeCloseTo(FOCUS_SCALE, 9);
+  expect(focusOn({ x: 0, z: 0, zoom: 2.5 }, { x: 15, z: 14 }, PHONE).zoom).toBe(2.5);
+  // The same size on a short screen, where the same zoom would be a quarter of it.
+  expect(
+    pixelsPerUnit(focusOn({ x: 0, z: 0, zoom: 1 }, { x: 15, z: 14 }, SHORT), SHORT),
+  ).toBeCloseTo(FOCUS_SCALE, 9);
+});
+
+test("the closest and the farthest view are sizes on screen, the same on every screen", () => {
+  const start = { x: 0, z: 0, zoom: 1 };
+  for (const viewport of [PHONE, SHORT, DESKTOP]) {
+    expect(pixelsPerUnit(zoomBy(start, 1e6, viewport), viewport)).toBeCloseTo(SCALE_LIMITS.max, 9);
+    expect(pixelsPerUnit(zoomBy(start, 1e-6, viewport), viewport)).toBeCloseTo(SCALE_LIMITS.min, 9);
+  }
+  expect(zoomLimits({ width: 0, height: 0 }).max).toBe(SCALE_LIMITS.max * VIEW_HEIGHT);
+});
+
+test("a robot is at least 28 px tall at first view on a phone on its side", () => {
+  const tall = ROBOT_HEIGHT / RISE_SCALE;
+  for (const crews of [[0], [0, 0, 0], [1, 5, 1, 1, 9]]) {
+    const view = firstView(groundSpan(floors(crews, 2)), SHORT, MARGINS);
+    expect(pixelsPerUnit(view, SHORT) * tall).toBeGreaterThanOrEqual(28);
+  }
 });
 
 test("easing starts at the old view, ends at the new one, and is half-way in the middle", () => {
@@ -330,4 +418,123 @@ test("the first view keeps its margins clear, and room for what stands on the fa
   const below = 844 - 14 - drawn(whole, PHONE, ground(0, 20)).y;
   expect(above).toBeGreaterThan(0);
   expect(above).toBeCloseTo(below, 6);
+});
+
+test("a robot is at least 28 px tall at first view on a phone, whatever the office", () => {
+  const tall = ROBOT_HEIGHT / RISE_SCALE;
+  expect(FIRST_VIEW.legible * tall).toBeGreaterThanOrEqual(28);
+  // One, three, five and eight rooms of one row, then five rooms of one, two, one, one and three
+  // rows: whole, that last office is drawn at about 21 px a unit.
+  const offices = [[0], [0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [1, 5, 1, 1, 9]];
+  for (const crews of offices) {
+    const view = firstView(groundSpan(column(crews)), PHONE, MARGINS);
+    expect(pixelsPerUnit(view, PHONE) * tall).toBeGreaterThanOrEqual(28);
+  }
+});
+
+test("a view kept inside an office deeper than the screen stops at its two ends", () => {
+  const deep = span(16, 200);
+  const perUnit = 20;
+  const zoom = (perUnit * VIEW_HEIGHT) / 844;
+  const margins: FrameMargins = { rise: 2, top: 30, side: 10, bottom: 14 };
+  const above = keptInside({ ...ground(0, -80), zoom }, deep, PHONE, margins);
+  expect(above.zoom).toBe(zoom);
+  // What stands 2 high on the far edge is drawn where the top margin ends.
+  expect(drawn(above, PHONE, ground(0, 0), 2).y).toBeCloseTo(30, 6);
+  const below = keptInside({ ...ground(0, 500), zoom }, deep, PHONE, margins);
+  expect(drawn(below, PHONE, ground(0, 200)).y).toBeCloseTo(844 - 14, 6);
+  // 16 units at 20 px are narrower than the screen: the office stays in the middle of it.
+  const aside = keptInside({ ...ground(40, 100), zoom }, deep, PHONE, margins);
+  expect(drawn(aside, PHONE, ground(0, 100)).x).toBeCloseTo(195, 6);
+});
+
+test("a view kept inside an office wider than the screen stops at its two sides", () => {
+  const wide = span(60, 200);
+  const zoom = (20 * VIEW_HEIGHT) / 844;
+  const margins: FrameMargins = { rise: 0, top: 0, side: 10, bottom: 0 };
+  const left = keptInside({ ...ground(-100, 100), zoom }, wide, PHONE, margins);
+  expect(drawn(left, PHONE, ground(-30, 100)).x).toBeCloseTo(10, 6);
+  const right = keptInside({ ...ground(100, 100), zoom }, wide, PHONE, margins);
+  expect(drawn(right, PHONE, ground(30, 100)).x).toBeCloseTo(380, 6);
+});
+
+test("a view that is inside the office already is returned as it is", () => {
+  const view = { ...ground(3, 90), zoom: (20 * VIEW_HEIGHT) / 844 };
+  expect(keptInside(view, span(60, 200), PHONE, MARGINS)).toBe(view);
+});
+
+test("an office smaller than the screen is kept in the middle, as its first view shows it", () => {
+  const small = span(16, 20);
+  const first = firstView(small, PHONE, MARGINS);
+  const kept = keptInside({ ...ground(5, 14), zoom: first.zoom }, small, PHONE, MARGINS);
+  expect(kept.x).toBeCloseTo(first.x, 9);
+  expect(kept.z).toBeCloseTo(first.z, 9);
+  expect(kept.zoom).toBe(first.zoom);
+});
+
+test("a view with no size or no office to stay inside is kept finite", () => {
+  const none = { width: 0, height: 0 };
+  const kept = keptInside({ x: 3, z: 4, zoom: 1 }, groundSpan([]), none, MARGINS);
+  expect([kept.x, kept.z, kept.zoom].every(Number.isFinite)).toBe(true);
+});
+
+test("a focused room fills the width of a phone", () => {
+  const rooms = column([1, 1, 1, 1, 9]);
+  const office = groundSpan(rooms);
+  // The third of five: far enough from both ends to stand in the middle of the screen.
+  const room = groundSpan(rooms.slice(2, 3));
+  const view = partView(room, office, PHONE, MARGINS);
+  expect(pixelsPerUnit(view, PHONE)).toBeCloseTo((390 - 16) / (room.right - room.left), 9);
+  // Larger than the whole office is at first, where the deepest room sets the scale.
+  expect(view.zoom).toBeGreaterThan(firstView(office, PHONE, MARGINS).zoom * 1.2);
+  expect(drawn(view, PHONE, ground(room.left, room.far)).x).toBeCloseTo(8, 6);
+  expect(drawn(view, PHONE, ground(room.right, room.far)).x).toBeCloseTo(382, 6);
+  // As much room above its whiteboard as below its front wall.
+  const above = drawn(view, PHONE, ground(0, room.far), MARGINS.rise).y - MARGINS.top;
+  const below = 844 - MARGINS.bottom - drawn(view, PHONE, ground(0, room.near)).y;
+  expect(above).toBeCloseTo(below, 6);
+});
+
+test("a focused room fills the width of a tablet held upright", () => {
+  const upright: Viewport = { width: 820, height: 1000 };
+  const rooms = column([1, 1, 1, 1, 1]);
+  const office = groundSpan(rooms);
+  const room = groundSpan(rooms.slice(2, 3));
+  const view = partView(room, office, upright, MARGINS);
+  // 59 px a unit: closer than an office comes at first (FIRST_VIEW.most), which stops at 44.
+  expect(pixelsPerUnit(view, upright)).toBeCloseTo((820 - 16) / (room.right - room.left), 9);
+  expect(pixelsPerUnit(view, upright)).toBeGreaterThan(FIRST_VIEW.most);
+  expect(drawn(view, upright, ground(room.left, room.far)).x).toBeCloseTo(8, 6);
+  expect(drawn(view, upright, ground(room.right, room.far)).x).toBeCloseTo(812, 6);
+});
+
+test("a focused room on a wide screen comes no closer than a room is shown at most", () => {
+  const rooms = column([1, 1, 1]);
+  const room = groundSpan(rooms.slice(1, 2));
+  const view = partView(room, groundSpan(rooms), DESKTOP, MARGINS);
+  expect(pixelsPerUnit(view, DESKTOP)).toBeCloseTo(FIRST_VIEW.room, 9);
+  // An office of that one room alone is still shown no larger than `most`.
+  expect(pixelsPerUnit(firstView(room, DESKTOP, MARGINS), DESKTOP)).toBeCloseTo(FIRST_VIEW.most, 9);
+});
+
+test("a focused room at the end of an office is not shown under empty ground", () => {
+  const rooms = column([1, 1, 1, 1, 1, 1, 1, 1]);
+  const office = groundSpan(rooms);
+  const first = partView(groundSpan(rooms.slice(0, 1)), office, PHONE, MARGINS);
+  // The office's far edge, with what stands on it, starts where the top margin ends.
+  expect(drawn(first, PHONE, ground(0, office.far), MARGINS.rise).y).toBeCloseTo(MARGINS.top, 6);
+  const last = partView(groundSpan(rooms.slice(7)), office, PHONE, MARGINS);
+  expect(drawn(last, PHONE, ground(0, office.near)).y).toBeCloseTo(844 - MARGINS.bottom, 6);
+});
+
+test("a view left outside an office that shrank comes back over it, and one over it stays", () => {
+  const small = span(16, 20);
+  const outside = { ...ground(3, 60), zoom: 1.4 };
+  const back = keptOver(outside, small);
+  const edge = ground(3, 20);
+  expect(back.x).toBeCloseTo(edge.x, 9);
+  expect(back.z).toBeCloseTo(edge.z, 9);
+  expect(back.zoom).toBe(1.4);
+  const inside = { ...ground(3, 12), zoom: 1.4 };
+  expect(keptOver(inside, small)).toBe(inside);
 });
