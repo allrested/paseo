@@ -209,11 +209,11 @@ test("the other poses are fixed", () => {
     z: 4,
     lift: -0.08,
     heading: 0,
-    lean: 0.55,
-    nod: 0.3,
-    tilt: 0.3,
-    armLeft: 0.25,
-    armRight: 0.25,
+    lean: 0.5,
+    nod: -0.4,
+    tilt: 0.9,
+    armLeft: -0.5,
+    armRight: -0.5,
     armSway: 0,
   });
 });

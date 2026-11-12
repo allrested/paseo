@@ -1,5 +1,5 @@
 // Web only: created by scene-view.tsx after three.js loaded. Nothing here runs at import time.
-import { DOOR_WIDTH, ROOM_WIDTH, WALL_HEIGHT, type Bounds } from "../layout.js";
+import { DOOR_WIDTH, ROOM_WIDTH, VIEW_TURN, WALL_HEIGHT, type Bounds } from "../layout.js";
 import {
   CAMERA_EASE_MS,
   FIRST_MARGINS,
@@ -146,9 +146,9 @@ const ROBOT = {
   arm: { width: 0.12, length: 0.6 },
   neck: 0.74,
   head: { width: 0.68, height: 0.52, depth: 0.54 },
-  visor: { width: 0.54, height: 0.2, depth: 0.04, y: 0.28 },
-  eye: { width: 0.07, height: 0.1, depth: 0.03, apart: 0.13 },
-  antenna: { width: 0.04, height: 0.2 },
+  visor: { width: 0.54, height: 0.24, depth: 0.04, y: 0.27 },
+  eye: { width: 0.1, height: 0.13, depth: 0.03, apart: 0.14 },
+  antenna: { width: 0.09, height: 0.2 },
 };
 /**
  * The lamp on the antenna, by state: a dot while the robot rests or works, a larger light when
@@ -156,14 +156,14 @@ const ROBOT = {
  * however far the camera is: zoomed out, a lamp at its true size is a pixel or two.
  */
 const LAMP_RADIUS: Record<LampState, number> = {
-  off: 0.08,
-  steady: 0.1,
+  off: 0.07,
+  steady: 0.12,
   warning: 0.17,
   danger: 0.17,
 };
-const LAMP_MIN_PX: Record<LampState, number> = { off: 1.5, steady: 2, warning: 5, danger: 5 };
+const LAMP_MIN_PX: Record<LampState, number> = { off: 1.5, steady: 2.5, warning: 5, danger: 5 };
 /** The danger lamp is a diamond: this much wider and taller than a round lamp of its radius. */
-const DIAMOND = { wide: 1.25, tall: 1.9 };
+const DIAMOND = { wide: 1.15, tall: 1.6 };
 /**
  * Eyes by pose, as the open eye's width and height scaled, and a turn: shut at rest, wide when
  * the robot asks for the owner, crossed after an error.
@@ -171,14 +171,14 @@ const DIAMOND = { wide: 1.25, tall: 1.9 };
 const EYES: Record<RobotPose, { wide: number; tall: number; turn: number }> = {
   typing: { wide: 1, tall: 1, turn: 0 },
   walking: { wide: 1, tall: 1, turn: 0 },
-  idle: { wide: 1.5, tall: 0.3, turn: 0 },
-  raised: { wide: 1.3, tall: 1.3, turn: 0 },
-  slumped: { wide: 1.6, tall: 0.3, turn: 0.6 },
+  idle: { wide: 1.4, tall: 0.35, turn: 0 },
+  raised: { wide: 1.2, tall: 1.25, turn: 0 },
+  slumped: { wide: 1.4, tall: 0.35, turn: 0.6 },
 };
 /** Chest height of a robot: where a tap is measured from. */
 const CHEST_Y = 1;
 /** A room's name plate, in CSS pixels: it keeps its size on screen at every zoom. */
-const LABEL = { height: PLATE_HEIGHT_PX, paddingX: 7, radius: 6, fontSize: 12, maxWidth: 150 };
+const LABEL = { height: PLATE_HEIGHT_PX, paddingX: 8, radius: 6, fontSize: 12, maxWidth: 152 };
 // The app's UI font stack on web (DEFAULT_UI_FONT_STACK, packages/app/src/styles/theme.ts).
 const LABEL_FONT_STACK =
   "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -452,10 +452,13 @@ function createLayers(three: ThreeModule, parent: Object3DLike, materials: Mater
       materials.robotHead,
     ),
     // Three of the four lamps are round. The danger lamp is a diamond (eight faces, stretched),
-    // so it differs from the warning lamp without its colour.
+    // so it differs from the warning lamp without its colour. It is turned to face the camera:
+    // seen from any other side its outline is a lopsided square.
     lamps: layer(new three.SphereGeometry(1, 14, 10), materials.tinted),
     dangers: layer(
-      new three.SphereGeometry(1, 4, 2).scale(DIAMOND.wide, DIAMOND.tall, DIAMOND.wide),
+      new three.SphereGeometry(1, 4, 2)
+        .rotateY(VIEW_TURN)
+        .scale(DIAMOND.wide, DIAMOND.tall, DIAMOND.wide),
       materials.tinted,
     ),
     deskShadows: layer(flat, materials.shadow),
@@ -934,6 +937,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     rig.neck.rotation.set(motion.nod, 0, motion.tilt);
     rig.antenna.rotation.set(-motion.lean - motion.nod, 0, -motion.tilt);
     rig.lamp.position.set(0, lamp.y, 0);
+    // The antenna is upright; this leaves the lamp facing the camera whichever way the robot walks.
+    rig.lamp.rotation.set(0, -motion.heading, 0);
     rig.lamp.scale.set(lamp.radius, lamp.radius, lamp.radius);
     rig.eyeLeft.scale.set(eyes.wide, eyes.tall, 1);
     rig.eyeLeft.rotation.set(0, 0, eyes.turn);
