@@ -44,19 +44,28 @@ import {
   pinchView,
   targetAt,
   zoomAbout,
+  type Boards,
   type PickTarget,
   type PinchState,
   type RobotSpot,
   type WorldPoint,
 } from "./picking.js";
 import {
+  BOARD_CENTER_Y,
+  BOARD_SIZE,
+  DESK_SIZE,
+  NOTE_SIZE,
   TYPING_FRAME_MS,
   animationNeed,
   deskPlans,
+  noteFade,
   overflowTail,
+  planeFrame,
   robotFrame,
   type AnimationNeed,
   type LampState,
+  type MentionPlan,
+  type NotePlan,
   type RobotFrame,
   type RobotPlan,
   type RobotPose,
@@ -70,6 +79,7 @@ import type {
   GeometryLike,
   InstancedMeshLike,
   MaterialLike,
+  MeshLike,
   Object3DLike,
   SpriteLike,
   TextureLike,
@@ -93,6 +103,8 @@ export interface OfficeSceneOptions {
    */
   camera?: KeptCamera | null;
   onSelectAgent(agentId: string): void;
+  /** A tap on a room's whiteboard or on one of its notes on a desk. */
+  onSelectBoard(roomId: string): void;
   onContextLost(): void;
 }
 
@@ -112,7 +124,6 @@ const WALL_THICKNESS = 0.12;
 const SLAB_HEIGHT = 0.3;
 /** The frame on top of each glass wall. */
 const RAIL_HEIGHT = 0.05;
-const DESK_SIZE = { width: 1, height: 0.7, depth: 0.6 };
 /** A desk's screen lies in its top, like a light table: the camera looks down on it. */
 const SCREEN_SIZE = { width: 0.66, height: 0.03, depth: 0.38 };
 /**
@@ -124,13 +135,23 @@ const GLOW = {
   pool: { width: 2.1, depth: 1.8, back: 0.12 },
   face: { size: 1.4, y: 1, front: 0.08 },
 };
-const BOARD_SIZE = { width: 4, height: 1.6, depth: 0.06 };
-const BOARD_CENTER_Y = 1.3;
 /** The whiteboard's frame and legs. */
 const BOARD_FRAME = 0.08;
 /** Side of the soft shadow under a robot and under a desk, as (width, depth). */
 const ROBOT_SHADOW = { width: 1.5, depth: 1.5 };
 const DESK_SHADOW = { width: 1.9, depth: 1.5 };
+/**
+ * A paper plane: a dart `length` long and `span` wide at its tail, pressed nearly flat, its
+ * fold on top. The camera looks down on it and sees two wings of two tones, as folded paper
+ * shows them. `shadow` is the side of the soft patch under it on the floor: the gap between
+ * the two is how high it flies.
+ */
+const PLANE = { length: 1, span: 0.6, flat: 0.35, shadow: 0.8 };
+/**
+ * A note on a desk is drawn at this share of its size on the whiteboard: the desk's front then
+ * shows around it, as the whiteboard does, and it reads as a slip stuck there and not as a panel.
+ */
+const DESK_NOTE_SCALE = 0.75;
 /** Flat layers are stacked this far apart, so a 16-bit depth buffer still tells them apart. */
 const FLAT_STEP = 0.03;
 /**
@@ -206,6 +227,7 @@ type MaterialName =
   | "robotBody"
   | "robotHead"
   | "robotEye"
+  | "paper"
   | "tinted"
   | "glow"
   | "shadow";
@@ -216,6 +238,9 @@ type LayerName =
   | "walls"
   | "rails"
   | "boards"
+  | "notes"
+  | "planes"
+  | "planeShadows"
   | "desks"
   | "screens"
   | "stands"
@@ -281,6 +306,8 @@ interface Placement {
   z: number;
   /** Turned about the x axis: a quarter turn stands a flat patch up, facing the camera's side. */
   rx?: number;
+  /** Turned about the vertical axis: a plane's heading. Not together with `rx`. */
+  ry?: number;
   sx?: number;
   sy?: number;
   sz?: number;
@@ -339,6 +366,8 @@ function createMaterials(three: ThreeModule, soft: TextureLike): Materials {
     robotBody: new three.MeshLambertMaterial({ color: WHITE, flatShading: true }),
     robotHead: lit(),
     robotEye: new three.MeshBasicMaterial({ color: WHITE }),
+    // Lit, and each face one tone: the two wings of a plane differ, like folded paper.
+    paper: new three.MeshLambertMaterial({ color: WHITE, flatShading: true }),
     tinted: new three.MeshBasicMaterial({ color: WHITE }),
     glow: patch(WHITE),
     shadow: patch("#000000"),
@@ -355,6 +384,7 @@ function applyPalette(materials: Materials, palette: ScenePalette): void {
   materials.robotBody.color.set(palette.robotBody);
   materials.robotHead.color.set(palette.robotHead);
   materials.robotEye.color.set(palette.robotEye);
+  materials.paper.color.set(palette.plane);
   materials.glow.color.set(palette.glow);
   materials.glow.opacity = palette.glowOpacity;
   materials.shadow.opacity = palette.shadowOpacity;
@@ -399,7 +429,7 @@ function finishLayer(layer: Layer, count: number): void {
 
 function place(dummy: Object3DLike, at: Placement): Object3DLike {
   dummy.position.set(at.x, at.y, at.z);
-  dummy.rotation.set(at.rx ?? 0, 0, 0);
+  dummy.rotation.set(at.rx ?? 0, at.ry ?? 0, 0);
   dummy.scale.set(at.sx ?? 1, at.sy ?? 1, at.sz ?? 1);
   dummy.updateMatrixWorld(true);
   return dummy;
@@ -419,6 +449,21 @@ function createLayers(three: ThreeModule, parent: Object3DLike, materials: Mater
       new three.BoxGeometry(BOARD_SIZE.width, BOARD_SIZE.height, BOARD_SIZE.depth),
       materials.board,
     ),
+    // Unlit, each in its own colour, like the screens: a slip of paper has one tone.
+    notes: layer(
+      new three.BoxGeometry(NOTE_SIZE.width, NOTE_SIZE.height, NOTE_SIZE.depth),
+      materials.tinted,
+    ),
+    // A cone of three sides points up. Laid on its back and turned about, its tip leads (+z)
+    // and one edge runs along the top: pressed flat, that edge is the fold between two wings.
+    planes: layer(
+      new three.ConeGeometry(PLANE.span / 2, PLANE.length, 3)
+        .rotateX(-Math.PI / 2)
+        .rotateY(Math.PI)
+        .scale(1, PLANE.flat, 1),
+      materials.paper,
+    ),
+    planeShadows: layer(flat, materials.shadow),
     desks: layer(
       new three.BoxGeometry(DESK_SIZE.width, DESK_SIZE.height, DESK_SIZE.depth),
       materials.desk,
@@ -583,6 +628,22 @@ function writeRooms(stage: Stage, rooms: readonly RoomPlan[]): void {
     ...boardFrame(room),
   ]);
   writeAll(stage, rails, frames);
+}
+
+function noteScale(note: NotePlan): number {
+  return note.onDesk ? DESK_NOTE_SCALE : 1;
+}
+
+function writeNotes(stage: Stage, notes: readonly NotePlan[]): void {
+  const layer = stage.layers.notes;
+  ensureCapacity(stage, layer, notes.length);
+  notes.forEach((note, index) => {
+    const size = noteScale(note);
+    const at = { x: note.x, y: note.y, z: note.z, sx: size, sy: size };
+    layer.mesh.setMatrixAt(index, place(stage.dummy, at).matrixWorld);
+    layer.mesh.setColorAt(index, stage.tint.set(note.color));
+  });
+  finishLayer(layer, notes.length);
 }
 
 function writeDesks(stage: Stage, plan: ScenePlan, colors: ScenePalette): void {
@@ -803,7 +864,15 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     robots: [],
     bounds: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
     columns: 0,
+    notes: [],
+    mentions: [],
   };
+  /** Posts whose plane has flown, or that were there when the scene opened: they fly no more. */
+  const flown = new Set<string>();
+  let seeded = false;
+  const flights: { mention: MentionPlan; start: number }[] = [];
+  /** Notes that left the plan, each drawn on its own while it fades. */
+  const fades: { mesh: MeshLike; material: ColorMaterialLike; start: number }[] = [];
   /** The ground the rooms cover, as the camera sees it: what is framed and panned over. */
   let span: GroundSpan = groundSpan([]);
   let colors: ScenePalette | null = null;
@@ -1008,11 +1077,90 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     finishLayer(dangers, lit.dangers);
   }
 
+  /** A note that left the plan fades where it was. With reduced motion it is gone at once. */
+  function startFades(previous: readonly NotePlan[], next: readonly NotePlan[]): void {
+    if (options.reducedMotion) return;
+    const staying = new Set(next.map((note) => note.postId));
+    const now = performance.now();
+    for (const note of previous) {
+      if (staying.has(note.postId)) continue;
+      const material = new three.MeshBasicMaterial({
+        color: note.color,
+        transparent: true,
+        depthWrite: false,
+      });
+      const mesh = new three.Mesh(layers.notes.geometry, material);
+      mesh.position.set(note.x, note.y, note.z);
+      mesh.scale.set(noteScale(note), noteScale(note), 1);
+      world.add(mesh);
+      fades.push({ mesh, material, start: now });
+    }
+  }
+
+  function endFade(fade: { mesh: MeshLike; material: ColorMaterialLike }): void {
+    world.remove(fade.mesh);
+    fade.material.dispose();
+  }
+
+  /** True while a note is still fading. */
+  function stepFades(now: number): boolean {
+    for (let index = fades.length - 1; index >= 0; index -= 1) {
+      const fade = fades[index];
+      if (!fade) continue;
+      const opacity = noteFade(fade.start, now);
+      fade.material.opacity = opacity;
+      if (opacity > 0) continue;
+      endFade(fade);
+      fades.splice(index, 1);
+    }
+    return fades.length > 0;
+  }
+
+  /**
+   * A plane flies for each post that names an agent and appears while the scene is open. The
+   * first plan only says which posts were already there.
+   */
+  function startFlights(mentions: readonly MentionPlan[]): void {
+    const now = performance.now();
+    for (const mention of mentions) {
+      if (flown.has(mention.postId)) continue;
+      flown.add(mention.postId);
+      if (seeded && !options.reducedMotion) flights.push({ mention, start: now });
+    }
+    seeded = true;
+  }
+
+  /** True while a plane is in the air. */
+  function writePlanes(now: number): boolean {
+    const { planes, planeShadows } = layers;
+    const frames = flights.map((flight) => planeFrame(flight.mention, flight.start, now));
+    for (let index = flights.length - 1; index >= 0; index -= 1) {
+      if (frames[index]?.done) {
+        flights.splice(index, 1);
+        frames.splice(index, 1);
+      }
+    }
+    ensureCapacity(stage, planes, frames.length);
+    ensureCapacity(stage, planeShadows, frames.length);
+    frames.forEach((at, index) => {
+      const placed = place(stage.dummy, { x: at.x, y: at.y, z: at.z, ry: at.heading });
+      planes.mesh.setMatrixAt(index, placed.matrixWorld);
+      const shadow = { x: at.x, y: FLAT_STEP * 3, z: at.z, sx: PLANE.shadow, sz: PLANE.shadow };
+      planeShadows.mesh.setMatrixAt(index, place(stage.dummy, shadow).matrixWorld);
+    });
+    finishLayer(planes, frames.length);
+    finishLayer(planeShadows, frames.length);
+    return frames.length > 0;
+  }
+
   function draw(now: number): { easing: boolean; need: AnimationNeed } {
     const moving = applyCamera(now);
     placeLabels();
     writeRobots(now);
+    const flying = writePlanes(now);
+    const fading = stepFades(now);
     renderer.render(scene, camera);
+    if (flying || fading) return { easing: moving, need: "smooth" };
     const need = animationNeed(plan.robots, enteredAt, now, options.reducedMotion, posedAt);
     return { easing: moving, need };
   }
@@ -1148,8 +1296,24 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     });
   }
 
+  /** Each room's whiteboard as it stands, and the notes on desks: what opens a board. */
+  function boardSpots(): Boards {
+    return {
+      faces: plan.rooms.map((room) => ({
+        roomId: room.roomId,
+        center: { x: room.board.x, y: BOARD_CENTER_Y, z: room.board.z },
+        width: BOARD_SIZE.width,
+        height: BOARD_SIZE.height,
+      })),
+      notes: plan.notes
+        .filter((note) => note.onDesk)
+        .map((note) => ({ roomId: note.roomId, at: { x: note.x, y: note.y, z: note.z } })),
+    };
+  }
+
   function pickAt(at: ScreenPoint): PickTarget | null {
-    return targetAt({ view, viewport }, labels, robotSpots(performance.now()), at);
+    const robots = robotSpots(performance.now());
+    return targetAt({ view, viewport }, labels, robots, at, boardSpots());
   }
 
   function pointerAt(event: { clientX: number; clientY: number }): ScreenPoint {
@@ -1214,6 +1378,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     const target = pickAt(at);
     if (target === null) return;
     if ("agentId" in target) options.onSelectAgent(target.agentId);
+    else if ("boardId" in target) options.onSelectBoard(target.boardId);
     else focusOnTarget(target);
   }
 
@@ -1281,7 +1446,10 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       // After a new deal (a phone turned on its side) the old view shows the wrong place, and an
       // office that emptied is framed again when its rooms come back. Both jump, without easing.
       if (nextPlan.rooms.length > 0) takeKeptCamera(nextPlan.columns);
-      focus = replan(focus, dealtAgain(plan, nextPlan) || nextPlan.rooms.length === 0);
+      const dealt = dealtAgain(plan, nextPlan);
+      focus = replan(focus, dealt || nextPlan.rooms.length === 0);
+      // After a new deal the old places are another room's: nothing fades there.
+      if (!dealt) startFades(plan.notes, nextPlan.notes);
       plan = nextPlan;
       span = groundSpan(nextPlan.rooms.map(roomFootprint));
       colors = nextPalette;
@@ -1289,6 +1457,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       background.set(nextPalette.background);
       writeRooms(stage, nextPlan.rooms);
       writeDesks(stage, nextPlan, nextPalette);
+      writeNotes(stage, nextPlan.notes);
+      startFlights(nextPlan.mentions);
       writeLabels(nextPalette);
       frameOffice(true);
       stayOverOffice();
@@ -1319,6 +1489,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       canvas.removeEventListener("webglcontextlost", onContextLost);
       for (const label of labels.values()) disposeLabel(label);
       labels.clear();
+      for (const fade of fades) endFade(fade);
+      fades.length = 0;
       for (const layer of Object.values(layers)) {
         layer.mesh.dispose();
         layer.geometry.dispose();

@@ -428,6 +428,7 @@ function SurfaceBody({
         layoutKeeper={layoutKeeper}
         cameraKeeper={cameraKeeper}
         onSelectAgent={onSelectAgent}
+        onSelectBoard={onOpenBoard}
         onProblem={onSceneProblem}
       />
     );
