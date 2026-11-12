@@ -5,6 +5,7 @@ import { fakeOffice } from "./fake-office.js";
 import {
   NO_LAYOUT,
   UNMEASURED,
+  columnsNow,
   nextLayout,
   shapeAfterResize,
   type ContainerShape,
@@ -18,6 +19,7 @@ interface Size {
 
 const PHONE: Size = { width: 390, height: 640 };
 const TABLET: Size = { width: 1180, height: 700 };
+const UPRIGHT: Size = { width: 820, height: 1000 };
 const HIDDEN: Size = { width: 0, height: 0 };
 const NO_ROOMS: OfficeModel = {
   rooms: [],
@@ -52,7 +54,7 @@ function layoutsAfter(model: OfficeModel, sizes: readonly Size[]): (OfficeLayout
   let state: SceneLayout = NO_LAYOUT;
   return sizes.map((size) => {
     shape = shapeAfterResize(shape, size.width, size.height);
-    state = nextLayout(state, model, shape.columns);
+    state = nextLayout(state, model, columnsNow(shape, model.rooms.length, state.columns));
     return state.layout;
   });
 }
@@ -61,28 +63,43 @@ function cellOf(state: SceneLayout, roomId: string): GridCell | null {
   return state.layout?.roomById.get(roomId)?.cell ?? null;
 }
 
-test("a container that was never measured has no size", () => {
+test("a container that was never measured has no size and no columns", () => {
   const shape: ContainerShape = shapeAfter([HIDDEN]);
-  expect(shape).toEqual({ sized: false, columns: undefined });
+  expect(shape).toEqual({ sized: false, width: 0, height: 0 });
+  expect(columnsNow(shape, 5, undefined)).toEqual(undefined);
 });
 
 test("a tall container stacks the rooms in one column and a wide one gets two", () => {
-  const shapes: ContainerShape[] = [shapeAfter([PHONE]), shapeAfter([TABLET])];
-  expect(shapes).toEqual([
-    { sized: true, columns: 1 },
-    { sized: true, columns: 2 },
-  ]);
+  const columns = [PHONE, TABLET].map((size) => columnsNow(shapeAfter([size]), 5, undefined));
+  expect(columns).toEqual([1, 2]);
 });
 
-test("a hidden container keeps the columns it had", () => {
+test("a hidden container keeps the size and the columns it had", () => {
   const shape: ContainerShape = shapeAfter([TABLET, HIDDEN]);
-  expect(shape).toEqual({ sized: true, columns: 2 });
+  expect(shape).toEqual({ sized: true, width: 1180, height: 700 });
+  expect(columnsNow(shape, 5, 2)).toEqual(2);
 });
 
-test("a size that gives the same columns is not a new shape", () => {
+test("the same size again is not a new shape", () => {
   const first = shapeAfter([PHONE]);
-  const same: boolean = shapeAfterResize(first, 400, 700) === first;
+  const same: boolean = shapeAfterResize(first, PHONE.width, PHONE.height) === first;
   expect(same).toEqual(true);
+});
+
+test("a size that gives the same columns is not a new layout", () => {
+  const layouts = layoutsAfter(office(), [PHONE, { width: 400, height: 700 }]);
+  expect(new Set(layouts).size).toEqual(1);
+});
+
+test("an upright tablet stacks a small office and deals a large one into two columns", () => {
+  const shape = shapeAfter([UPRIGHT]);
+  const columns = [5, 15].map((rooms) => columnsNow(shape, rooms, undefined));
+  expect(columns).toEqual([1, 2]);
+});
+
+test("the lobby alone for a moment keeps the grid the large office was dealt for", () => {
+  const shape = shapeAfter([UPRIGHT]);
+  expect(columnsNow(shape, 1, 2)).toEqual(2);
 });
 
 test("phone, hidden, phone again is one layout, not three", () => {
@@ -149,5 +166,6 @@ test("a layout kept while the view was away is the layout the view draws when it
   const kept = nextLayout(NO_LAYOUT, model, 2);
   // A new view measures its container again, then lays out from what the surface kept.
   const shape = shapeAfter([HIDDEN, TABLET]);
-  expect(nextLayout(kept, model, shape.columns) === kept).toEqual(true);
+  const columns = columnsNow(shape, model.rooms.length, kept.columns);
+  expect(nextLayout(kept, model, columns) === kept).toEqual(true);
 });
