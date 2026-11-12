@@ -10,6 +10,7 @@ import {
   nextSwitchStep,
   savedThreeD,
   switchSync,
+  switchUnsaved,
   type OfficeView,
   type PointerFacts,
   type StoredSwitch,
@@ -385,4 +386,24 @@ test("giving up twice for the same revision changes nothing", () => {
   const once = apply(sync, giveUp("r0"));
   const same: boolean = apply(once, giveUp("r0")) === once;
   expect(same).toEqual(true);
+});
+
+test("a switch whose save was refused for good is unsaved until the next tap or a change from elsewhere", () => {
+  let sync = apply(IDLE_SWITCH, tap(false));
+  const before = [switchUnsaved(IDLE_SWITCH), switchUnsaved(sync)];
+  sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
+  // Refused, but the surface has not given up yet: the store is still being read.
+  const refused = switchUnsaved(sync);
+  sync = apply(sync, giveUp("r0"));
+  const givenUp = switchUnsaved(sync);
+  const after = [
+    switchUnsaved(apply(sync, tap(true))),
+    switchUnsaved(apply(sync, { type: "settle" })),
+  ];
+  expect({ before, refused, givenUp, after }).toEqual({
+    before: [false, false],
+    refused: false,
+    givenUp: true,
+    after: [false, false],
+  });
 });

@@ -4,6 +4,7 @@ import { ScrollView } from "@getpaseo/plugin/client/ui";
 import { stateLabel } from "./agent-card.js";
 import { agentMeta, agentTitle, dotTone, type OfficeRoom, type OfficeRow } from "./model.js";
 import { PermissionActions } from "./permission-actions.js";
+import { RoomBoard } from "./room-board.js";
 import type { OfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";
 
@@ -100,11 +101,21 @@ interface RoomCardProps {
   room: OfficeRoom;
   styles: OfficeStyles;
   actions: AgentActions;
+  name(author: string): string;
   onSelectAgent(agentId: string): void;
   onOpenSession: ((agentId: string) => void) | undefined;
+  onOpenBoard(roomId: string): void;
 }
 
-function RoomCard({ room, styles, actions, onSelectAgent, onOpenSession }: RoomCardProps) {
+function RoomCard({
+  room,
+  styles,
+  actions,
+  name,
+  onSelectAgent,
+  onOpenSession,
+  onOpenBoard,
+}: RoomCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
@@ -129,6 +140,7 @@ function RoomCard({ room, styles, actions, onSelectAgent, onOpenSession }: RoomC
           onOpenSession={onOpenSession}
         />
       ))}
+      <RoomBoard room={room} name={name} styles={styles} onOpenBoard={onOpenBoard} />
     </View>
   );
 }
@@ -137,9 +149,12 @@ export interface StructureViewProps {
   rooms: readonly OfficeRoom[];
   styles: OfficeStyles;
   actions: AgentActions;
+  /** How a post names its author, its claimer and the agent it is for. */
+  name(author: string): string;
   onSelectAgent(agentId: string): void;
   /** Opens an agent's session from its row. Absent on a host that gives no navigation. */
   onOpenSession?(agentId: string): void;
+  onOpenBoard(roomId: string): void;
 }
 
 /** The office as cards: one per room, the lobby first (or the tab's own room). */
@@ -147,8 +162,10 @@ export function StructureView({
   rooms,
   styles,
   actions,
+  name,
   onSelectAgent,
   onOpenSession,
+  onOpenBoard,
 }: StructureViewProps) {
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -158,8 +175,10 @@ export function StructureView({
           room={room}
           styles={styles}
           actions={actions}
+          name={name}
           onSelectAgent={onSelectAgent}
           onOpenSession={onOpenSession}
+          onOpenBoard={onOpenBoard}
         />
       ))}
     </ScrollView>
