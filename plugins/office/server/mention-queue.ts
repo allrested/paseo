@@ -44,13 +44,6 @@ export function wakePrompt(deliveries: readonly Delivery[]): string {
   return [`Office board: ${deliveries.length} post(s) for you.`, ...lines].join("\n");
 }
 
-/** The agent to name as a wake's source: the one author of every post in it, unless the user. */
-function sourceOf(batch: readonly Delivery[]): string | null {
-  const authors = new Set(batch.map((item) => item.author));
-  const [only] = authors;
-  return authors.size === 1 && only !== undefined && only !== USER_AUTHOR ? only : null;
-}
-
 export interface MentionQueuePorts {
   clock: Clock;
   status(agentId: string): Promise<WakeTarget>;
@@ -145,14 +138,18 @@ export function createMentionQueue(ports: MentionQueuePorts, paused: boolean): M
       return;
     }
     const waiting = queues.get(agentId) ?? [];
-    if (waiting.length === 0) return;
-    // One prompt carries at most a read's worth of posts; the rest wait for the next wake.
-    const batch = waiting.slice(0, READ_POST_MAX);
-    const rest = waiting.slice(READ_POST_MAX);
+    const oldest = waiting[0];
+    if (oldest === undefined) return;
+    // One prompt holds one author's posts, at most a read's worth: an agent's text goes out
+    // with that agent as its source, never as a prompt from the user or under another agent's
+    // name. The other authors' posts and the rest wait for the next wake.
+    const batch = waiting.filter((item) => item.author === oldest.author).slice(0, READ_POST_MAX);
+    const rest = waiting.filter((item) => !batch.includes(item));
     if (rest.length > 0) queues.set(agentId, rest);
     else queues.delete(agentId);
     try {
-      await ports.send(agentId, wakePrompt(batch), sourceOf(batch));
+      const source = oldest.author === USER_AUTHOR ? null : oldest.author;
+      await ports.send(agentId, wakePrompt(batch), source);
     } catch (error) {
       ports.log(`[office] unable to wake ${agentId}: ${errorMessage(error)}`);
       queues.set(agentId, [...batch, ...(queues.get(agentId) ?? [])]);
