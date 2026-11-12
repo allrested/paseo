@@ -22,9 +22,12 @@ export interface BoardsFile {
 export const EMPTY_BOARDS: BoardsFile = { version: 1, nextSeq: 1, wakesPaused: false, posts: [] };
 
 export interface BoardStore {
-  /** Never rejects for a missing or broken file; a broken one is moved aside. */
+  /**
+   * Runs after every earlier load and save. Never rejects for a missing or broken file; a broken
+   * one is moved aside.
+   */
   load(): Promise<BoardsFile>;
-  /** Runs after every earlier save; rejects when the write fails. */
+  /** Runs after every earlier load and save; rejects when the write fails. */
   save(data: BoardsFile): Promise<void>;
 }
 
@@ -47,11 +50,13 @@ export function createBoardStore(options: {
 
   async function moveAside(reason: string): Promise<void> {
     const target = `${file}.corrupt-${options.now()}`;
-    log(`[office] ${file} is unreadable (${reason}); moved to ${target}, starting empty`);
     try {
       await rename(file, target);
+      log(`[office] ${file} is unreadable (${reason}); moved to ${target}, starting empty`);
     } catch (error) {
-      log(`[office] unable to move ${file} aside: ${errorMessage(error)}`);
+      log(
+        `[office] ${file} is unreadable (${reason}) and could not be moved aside (${errorMessage(error)}); starting empty, the next save will replace the file`,
+      );
     }
   }
 
@@ -68,35 +73,43 @@ export function createBoardStore(options: {
     }
   }
 
+  async function read(): Promise<BoardsFile> {
+    let text: string;
+    try {
+      text = await readFile(file, "utf8");
+    } catch (error) {
+      if (isMissing(error)) return emptyBoards();
+      // Moved aside like a corrupt file, so a later save never overwrites unread data.
+      await moveAside(errorMessage(error));
+      return emptyBoards();
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
+      await moveAside(errorMessage(error));
+      return emptyBoards();
+    }
+    const parsed = BoardsFileSchema.safeParse(json);
+    if (!parsed.success) {
+      await moveAside("unexpected shape");
+      return emptyBoards();
+    }
+    return parsed.data;
+  }
+
+  // Loads and saves share one queue, so a load never moves aside a file a save just wrote.
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = chain.then(task);
+    chain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   return {
-    async load() {
-      let text: string;
-      try {
-        text = await readFile(file, "utf8");
-      } catch (error) {
-        if (isMissing(error)) return emptyBoards();
-        // Moved aside like a corrupt file, so a later save never overwrites unread data.
-        await moveAside(errorMessage(error));
-        return emptyBoards();
-      }
-      let json: unknown;
-      try {
-        json = JSON.parse(text);
-      } catch (error) {
-        await moveAside(errorMessage(error));
-        return emptyBoards();
-      }
-      const parsed = BoardsFileSchema.safeParse(json);
-      if (!parsed.success) {
-        await moveAside("unexpected shape");
-        return emptyBoards();
-      }
-      return parsed.data;
-    },
-    save(data) {
-      const run = chain.then(() => write(data));
-      chain = run.catch(() => undefined);
-      return run;
-    },
+    load: () => enqueue(read),
+    save: (data) => enqueue(() => write(data)),
   };
 }
