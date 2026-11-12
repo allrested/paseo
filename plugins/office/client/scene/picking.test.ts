@@ -13,12 +13,15 @@ import {
   type Viewport,
 } from "./camera.js";
 import {
+  boardUnder,
   canvasPoint,
   labelUnder,
   pinchView,
   robotNear,
   targetAt,
   zoomAbout,
+  type BoardFace,
+  type NoteSpot,
   type Plate,
   type RobotSpot,
   type Screen,
@@ -103,6 +106,103 @@ test("a plate within 12 px of the finger loses to a robot in reach, and wins ove
   expect(targetAt(SCREEN, named, [], TAP)).toEqual({ roomId: "w-main" });
   // 13 px below the edge is out of the plate's reach.
   expect(targetAt(SCREEN, plateAt(offset(TAP, -14, -23)), [], TAP)).toBeNull();
+});
+
+/** A whiteboard at the back of a room: 4 by 1.6, its middle 1.3 above the floor. */
+const FACE: BoardFace = {
+  roomId: "w-main",
+  center: { x: 3, y: 1.3, z: -2 },
+  width: 4,
+  height: 1.6,
+};
+
+/** Where the point of the face `dx` right of and `dy` above its middle is drawn. */
+function onFace(dx: number, dy: number): ScreenPoint {
+  const { x, y, z } = FACE.center;
+  return screenPoint(VIEW, PHONE, { x: x + dx, y: y + dy, z });
+}
+
+function noteAt(at: ScreenPoint): NoteSpot {
+  return { roomId: "w-main", at: groundAt(SCREEN, at) };
+}
+
+test("a tap on a whiteboard's face picks its board, up to its edges and not past them", () => {
+  const inside = [onFace(0, 0), onFace(-1.95, 0.75), onFace(1.95, 0.75), onFace(-1.95, -0.75)];
+  const outside = [onFace(-2.05, 0), onFace(2.05, 0), onFace(0, 0.85), onFace(0, -0.85)];
+  expect(inside.map((at) => boardUnder(SCREEN, [FACE], at))).toEqual([
+    "w-main",
+    "w-main",
+    "w-main",
+    "w-main",
+  ]);
+  expect(outside.map((at) => boardUnder(SCREEN, [FACE], at))).toEqual([null, null, null, null]);
+  const boards = { faces: [FACE], notes: [] };
+  expect(targetAt(SCREEN, NO_PLATES, [], onFace(1, 0.5), boards)).toEqual({ boardId: "w-main" });
+  expect(targetAt(SCREEN, NO_PLATES, [], onFace(2.05, 0), boards)).toBeNull();
+});
+
+test("the whiteboard is drawn slanted: the corners of the upright box around it are off it", () => {
+  // The view is turned, so the face is a parallelogram on screen that falls to the right.
+  const [lowLeft, lowRight] = [onFace(-2, -0.8), onFace(2, -0.8)];
+  const [highLeft, highRight] = [onFace(-2, 0.8), onFace(2, 0.8)];
+  expect(lowRight.y).toBeGreaterThan(lowLeft.y + 4);
+  const aboveRight: ScreenPoint = { x: highRight.x - 2, y: highLeft.y + 2 };
+  const belowLeft: ScreenPoint = { x: lowLeft.x + 2, y: lowRight.y - 2 };
+  expect([aboveRight, belowLeft].map((at) => boardUnder(SCREEN, [FACE], at))).toEqual([null, null]);
+  // Just inside the same two edges, it is the board.
+  const underTop: ScreenPoint = { x: highRight.x - 2, y: highRight.y + 2 };
+  const overBottom: ScreenPoint = { x: lowLeft.x + 2, y: lowLeft.y - 2 };
+  expect([underTop, overBottom].map((at) => boardUnder(SCREEN, [FACE], at))).toEqual([
+    "w-main",
+    "w-main",
+  ]);
+});
+
+test("a robot within reach wins over the whiteboard behind it", () => {
+  const at = onFace(0, 0);
+  const boards = { faces: [FACE], notes: [] };
+  expect(targetAt(SCREEN, NO_PLATES, [robotAt("robot", offset(at, 10, 0))], at, boards)).toEqual({
+    agentId: "robot",
+  });
+});
+
+test("a plate under the finger wins over the whiteboard; a plate that is only near loses to it", () => {
+  const at = onFace(0, 0);
+  const boards = { faces: [FACE], notes: [] };
+  expect(targetAt(SCREEN, plateAt(offset(at, -14, 0)), [], at, boards)).toEqual({
+    roomId: "w-main",
+  });
+  // The plate's lower edge is 5 px above the tap.
+  expect(targetAt(SCREEN, plateAt(offset(at, -14, -15)), [], at, boards)).toEqual({
+    boardId: "w-main",
+  });
+});
+
+test("a tap within 22 px of a note on a desk picks its board; of a note and a robot the nearer wins", () => {
+  const boards = { faces: [], notes: [noteAt(TAP)] };
+  expect(targetAt(SCREEN, NO_PLATES, [], offset(TAP, 22, 0), boards)).toEqual({
+    boardId: "w-main",
+  });
+  expect(targetAt(SCREEN, NO_PLATES, [], offset(TAP, 23, 0), boards)).toBeNull();
+  const robots = [robotAt("robot", offset(TAP, 30, 0))];
+  expect(targetAt(SCREEN, NO_PLATES, robots, offset(TAP, 10, 0), boards)).toEqual({
+    boardId: "w-main",
+  });
+  expect(targetAt(SCREEN, NO_PLATES, robots, offset(TAP, 20, 0), boards)).toEqual({
+    agentId: "robot",
+  });
+});
+
+test("a robot and a note equally near: the robot", () => {
+  // Both 15 px from the tap, to either side, so neither sum rounds the other way.
+  const boards = { faces: [], notes: [noteAt(offset(TAP, 0, -15))] };
+  const robots = [robotAt("robot", offset(TAP, 0, 15))];
+  const [toNote, toRobot] = [
+    Math.hypot(0, screenPoint(VIEW, PHONE, boards.notes[0]?.at ?? ROBOT.chest).y - TAP.y),
+    Math.hypot(0, screenPoint(VIEW, PHONE, robots[0]?.chest ?? ROBOT.chest).y - TAP.y),
+  ];
+  expect(toNote).toBeCloseTo(toRobot, 9);
+  expect(targetAt(SCREEN, NO_PLATES, robots, TAP, boards)).toEqual({ agentId: "robot" });
 });
 
 test("after a pan a tap picks the robot where it is drawn now", () => {
