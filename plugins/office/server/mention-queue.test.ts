@@ -111,11 +111,11 @@ test("an idle agent is woken at once", async () => {
   ]);
 });
 
-test("a busy agent is retried 3 times, then everything goes out as one prompt when its turn ends", async () => {
+test("a busy agent is retried 3 times, then its posts go out as one prompt when its turn ends", async () => {
   const { queue, clock, targets, sent, statusCalls } = harness();
   targets.set("b", "busy");
   queue.enqueue("b", delivery(1));
-  queue.enqueue("b", delivery(2, "c"));
+  queue.enqueue("b", delivery(2));
   await settle();
   for (let round = 0; round < 3; round += 1) {
     clock.advance(BUSY_RETRY_MS);
@@ -128,7 +128,7 @@ test("a busy agent is retried 3 times, then everything goes out as one prompt wh
   queue.turnEnded("b");
   await settle();
   expect(sent).toEqual([
-    ["b", "Office board: 2 post(s) for you.\n- p1 from Agent a: text 1\n- p2 from Agent c: text 2"],
+    ["b", "Office board: 2 post(s) for you.\n- p1 from Agent a: text 1\n- p2 from Agent a: text 2"],
   ]);
 });
 
@@ -207,21 +207,77 @@ test("stop cancels every timer and sends nothing more", async () => {
   expect(sent).toEqual([]);
 });
 
-test("a wake names its source when one agent wrote every post in it", async () => {
-  const { queue, targets, sources } = harness();
-  targets.set("c", "wakeable");
-  targets.set("d", "wakeable");
+test("posts of several authors go out as one prompt for each author, in the order they first posted", async () => {
+  const { queue, targets, sent, sources } = harness();
+  targets.set("b", "busy");
   queue.enqueue("b", delivery(1, "a"));
-  queue.enqueue("c", delivery(2, "user"));
-  targets.set("d", "busy");
-  queue.enqueue("d", delivery(3, "a"));
-  queue.enqueue("d", delivery(4, "b"));
+  queue.enqueue("b", { ...delivery(2, "user"), authorLabel: "the user" });
+  queue.enqueue("b", delivery(3, "a"));
+  queue.enqueue("b", delivery(4, "c"));
   await settle();
-  targets.set("d", "wakeable");
-  queue.turnEnded("d");
+  targets.set("b", "wakeable");
+  queue.turnEnded("b");
   await settle();
-  // One agent's post, the user's post, and posts of two agents in one prompt.
-  expect(sources).toEqual(["a", null, null]);
+  // Agent a's posts alone, with a as the source: an agent's text never arrives as a prompt from
+  // the user, and never under another agent's name.
+  expect(sent).toEqual([
+    ["b", "Office board: 2 post(s) for you.\n- p1 from Agent a: text 1\n- p3 from Agent a: text 3"],
+  ]);
+  expect(sources).toEqual(["a"]);
+  expect(queue.state().queued).toEqual({ b: 2 });
+  queue.turnEnded("b");
+  await settle();
+  queue.turnEnded("b");
+  await settle();
+  expect(sent.slice(1)).toEqual([
+    ["b", "Office board: 1 post(s) for you.\n- p2 from the user: text 2"],
+    ["b", "Office board: 1 post(s) for you.\n- p4 from Agent c: text 4"],
+  ]);
+  expect(sources).toEqual(["a", null, "c"]);
+  expect(queue.state().queued).toEqual({});
+});
+
+test("each author's prompt counts as one wake against the hourly limit", async () => {
+  const { queue, clock, targets, sent } = harness();
+  targets.set("b", "busy");
+  for (let n = 1; n <= 7; n += 1) queue.enqueue("b", delivery(n, `author${n}`));
+  await settle();
+  targets.set("b", "wakeable");
+  for (let n = 1; n <= 7; n += 1) {
+    queue.turnEnded("b");
+    await settle();
+  }
+  expect(sent).toHaveLength(6);
+  expect(queue.state().queued).toEqual({ b: 1 });
+  clock.advance(3_600_000);
+  await settle();
+  expect(sent).toHaveLength(7);
+  expect(sent[6]).toEqual([
+    "b",
+    "Office board: 1 post(s) for you.\n- p7 from Agent author7: text 7",
+  ]);
+});
+
+test("a prompt that could not be sent goes out again as the same author's posts", async () => {
+  const { queue, clock, targets, sent, sources, failSends } = harness();
+  targets.set("b", "busy");
+  queue.enqueue("b", delivery(1, "a"));
+  queue.enqueue("b", delivery(2, "c"));
+  queue.enqueue("b", delivery(3, "a"));
+  await settle();
+  targets.set("b", "wakeable");
+  failSends.count = 1;
+  queue.turnEnded("b");
+  await settle();
+  expect(sent).toEqual([]);
+  expect(queue.state().queued).toEqual({ b: 3 });
+  clock.advance(BUSY_RETRY_MS);
+  await settle();
+  expect(sent).toEqual([
+    ["b", "Office board: 2 post(s) for you.\n- p1 from Agent a: text 1\n- p3 from Agent a: text 3"],
+  ]);
+  expect(sources).toEqual(["a"]);
+  expect(queue.state().queued).toEqual({ b: 1 });
 });
 
 test("a prompt carries at most 30 posts; the rest go out when the agent's turn ends", async () => {
