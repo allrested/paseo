@@ -27,16 +27,10 @@ export function UsageWindowBar({
   onTogglePin,
   pinLabel,
   pinTestID,
-  showsRunOut,
   retained = false,
 }: {
   retained?: boolean;
   window: UsageWindow;
-  /**
-   * Whether a window on pace to run out shows when it runs out in place of its reset. An agent's
-   * usage does; the Usage page always shows the reset.
-   */
-  showsRunOut: boolean;
   displayAs: UsageDisplayAs;
   /** Whether the row pins the window to the sidebar. When false the row is a plain bar. */
   pinnable: boolean;
@@ -51,12 +45,12 @@ export function UsageWindowBar({
   const tone = windowTone(window);
 
   const now = useRelativeTimeTick({ enabled: window.runsOutAt != null || window.resetsAt != null });
-  const isAtRisk = usageWindowCountdown({ window, retained, showsRunOut, now }) === "runsOut";
+  const isAtRisk = usageWindowCountdown({ window, retained, now }) === "runsOut";
   const countdown = isAtRisk
     ? formatRunsOutLabel(window.runsOutAt, now, t)
     : formatResetLabel(window.resetsAt, retained, now, t);
   // The exact time belongs to the reset; beside a runs-out warning it would read as the moment
-  // the quota runs out.
+  // the quota runs out. The card lists that window's reset under the bars instead.
   const exactTime = isAtRisk ? null : formatResetTime(window.resetsAt, now, t);
 
   const value =

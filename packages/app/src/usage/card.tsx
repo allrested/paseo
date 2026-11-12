@@ -19,11 +19,17 @@ import { isNative } from "@/constants/platform";
 import type { TFunction } from "i18next";
 import { UsageBalanceBar } from "./balance-bar";
 import type { UsageDisplay } from "./display";
-import { formatAgo, formatProviderUsageLabel, formatUsageAccountName } from "./format";
-import { resolveUsageReport, type UsageRefresh } from "./model";
+import {
+  formatAgo,
+  formatProviderUsageLabel,
+  formatResetLabel,
+  formatResetTime,
+  formatUsageAccountName,
+} from "./format";
+import { resolveUsageReport, usageResetsUnderBars, type UsageRefresh } from "./model";
 import { useReportRefresh } from "./queries";
 import { UsageSourceIcon } from "./source-icon";
-import type { UsageReport, UsageReportEntry, UsageWindow } from "./types";
+import type { UsageDetail, UsageReport, UsageReportEntry, UsageWindow } from "./types";
 import { UsageWindowBar } from "./window-bar";
 import { useRelativeTimeTick } from "./use-relative-time-tick";
 
@@ -196,7 +202,6 @@ function UsageCardBody({
               retained={retained}
               display={display}
               pinnable={pinnable}
-              showsRunOut={agentId !== undefined}
             />
           ))}
           {balances.map((balance) => (
@@ -205,20 +210,7 @@ function UsageCardBody({
         </View>
       ) : null}
 
-      {details.length > 0 ? (
-        <View style={styles.details}>
-          {details.map((detail) => (
-            <View key={detail.id} style={styles.detailRow}>
-              <Text style={styles.detailLabel} numberOfLines={1}>
-                {detail.label}
-              </Text>
-              <Text style={styles.detailValue} numberOfLines={1}>
-                {detail.value}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
+      <UsageDetailRows details={details} windows={windows} retained={retained} />
 
       {footer || showsFreshnessInline ? (
         <View style={styles.footerRow}>
@@ -267,7 +259,6 @@ function CardWindowBar({
   window,
   display,
   pinnable,
-  showsRunOut,
   retained,
 }: {
   retained: boolean;
@@ -275,7 +266,6 @@ function CardWindowBar({
   window: UsageWindow;
   display: UsageDisplay;
   pinnable: boolean;
-  showsRunOut: boolean;
 }) {
   const { t } = useTranslation();
   const pin = useMemo(
@@ -290,12 +280,71 @@ function CardWindowBar({
       retained={retained}
       displayAs={display.displayAs}
       pinnable={pinnable}
-      showsRunOut={showsRunOut}
       pinned={display.isPinned(pin)}
       onTogglePin={toggle}
       pinLabel={`${t("providerUsage.pin")} ${entry.sourceLabel} ${formatProviderUsageLabel(window.id, window.label, t)}`}
       pinTestID={`usage-pin-${entry.sourceId}-${window.id}`}
     />
+  );
+}
+
+/**
+ * The source's own details, then the reset of each window whose row shows its run-out instead.
+ * Its own component so the relative-time clock re-renders these rows, not the card.
+ */
+function UsageDetailRows({
+  details,
+  windows,
+  retained,
+}: {
+  details: readonly UsageDetail[];
+  windows: readonly UsageWindow[];
+  retained: boolean;
+}) {
+  const { t } = useTranslation();
+  const now = useRelativeTimeTick({ enabled: windows.some((window) => window.runsOutAt != null) });
+  const resets = usageResetsUnderBars({ windows, retained, now });
+  if (details.length === 0 && resets.length === 0) return null;
+  return (
+    <View style={styles.details}>
+      {details.map((detail) => (
+        <UsageDetailRow key={detail.id} label={detail.label} value={detail.value} />
+      ))}
+      {resets.map((window) => (
+        <UsageDetailRow
+          key={`reset-${window.id}`}
+          label={formatProviderUsageLabel(window.id, window.label, t)}
+          value={[
+            formatResetLabel(window.resetsAt, retained, now, t),
+            formatResetTime(window.resetsAt, now, t),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          testID={`usage-reset-${window.id}`}
+        />
+      ))}
+    </View>
+  );
+}
+
+function UsageDetailRow({
+  label,
+  value,
+  testID,
+}: {
+  label: string;
+  value: string;
+  testID?: string;
+}) {
+  return (
+    <View style={styles.detailRow} testID={testID}>
+      <Text style={styles.detailLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.detailValue} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
