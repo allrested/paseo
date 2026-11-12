@@ -124,13 +124,21 @@ export function roomDepth(rows: number): number {
  * not pass it to decide the columns. While its container is 0 x 0 it keeps the last count and
  * does not lay the office out again, or the rooms are dealt anew and framed anew on every tab
  * switch.
+ *
+ * This is the count for the view's shape alone, the fewest it gets. A large office gets more,
+ * up to `columnsFitting` (scene/grid.ts).
  */
 export function columnsFor(viewport: { width: number; height: number }): number {
   const { width, height } = viewport;
   if (!(width > 0) || !(height > 0)) return 1;
-  const fitting = Math.max(1, Math.floor(width / COLUMN_MIN_PX));
   if (width < height) return 1;
-  return Math.min(fitting, width < height * VERY_WIDE ? 2 : 3);
+  return Math.min(columnsFitting(viewport), width < height * VERY_WIDE ? 2 : 3);
+}
+
+/** The most columns of rooms a view this wide has room for at a legible size, at least one. */
+export function columnsFitting(viewport: { width: number }): number {
+  if (!(viewport.width > 0)) return 1;
+  return Math.max(1, Math.floor(viewport.width / COLUMN_MIN_PX));
 }
 
 /** Column indexes from the middle outwards, the left one first of two equally near. */
