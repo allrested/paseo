@@ -74,12 +74,19 @@ export interface RobotFrame {
   tilt: number;
   armLeft: number;
   armRight: number;
+  /** The right arm swung out to its side, on top of its splay: the wave of a waiting robot. */
+  armSway: number;
 }
 
 /** "smooth" draws every frame; "typing" draws every TYPING_FRAME_MS. */
 export type AnimationNeed = "none" | "smooth" | "typing";
 
 export const WALK_MS = 1500;
+/** A robot that starts to wait waves for this long, once, and then holds its hand still. */
+export const WAVE_MS = 1400;
+/** How far the hand swings to each side at first, in radians, and how many times it goes over. */
+const WAVE_REACH = 0.42;
+const WAVE_SWINGS = 2.5;
 export const TYPING_FRAME_MS = 50;
 const ARM_TYPING = -1.2;
 const ARM_UP = Math.PI;
@@ -224,8 +231,19 @@ function seated(
     tilt: 0,
     armLeft: 0,
     armRight: 0,
+    armSway: 0,
     ...posture,
   };
+}
+
+/**
+ * How far the raised hand is out to its side `since` milliseconds after the robot began to
+ * wait: over and back `WAVE_SWINGS` times, less each time, and still from `WAVE_MS` on.
+ */
+function waveSway(since: number): number {
+  const progress = since / WAVE_MS;
+  if (!(progress > 0) || progress >= 1) return 0;
+  return Math.sin(progress * WAVE_SWINGS * 2 * Math.PI) * WAVE_REACH * (1 - progress);
 }
 
 function walkingFrame(
@@ -249,23 +267,27 @@ function walkingFrame(
     tilt: 0,
     armLeft: swing,
     armRight: -swing,
+    armSway: 0,
   };
 }
 
 /**
- * The robot's transform at `now`; `enteredAt` is when the scene first saw the agent.
+ * The robot's transform at `now`; `enteredAt` is when the scene first saw the agent and
+ * `posedAt` when it took its present pose (the same moment, unless the scene says otherwise).
  *
  * Seen from above, each pose is its own silhouette, so state reads without colour or motion:
  * typing sits upright with both arms on the desk and looks down at it; idle leans back with its
  * head laid to one side; raised stands taller than its neighbours with one arm straight up and
- * looks ahead; slumped folds forward with its head hanging to one side; a starting robot crosses from the
- * door, then sits upright with its arms down.
+ * looks ahead, and waves that arm once when it starts to wait; slumped folds forward with its
+ * head hanging to one side; a starting robot crosses from the door, then sits upright with its
+ * arms down.
  */
 export function robotFrame(
   robot: RobotPlan,
   enteredAt: number,
   now: number,
   reducedMotion: boolean,
+  posedAt: number = enteredAt,
 ): RobotFrame {
   switch (robot.pose) {
     case "typing": {
@@ -284,7 +306,11 @@ export function robotFrame(
     case "idle":
       return seated(robot, { lean: -0.3, nod: -0.1, tilt: restSide(robot.seatIndex) * REST_TILT });
     case "raised":
-      return seated(robot, { lift: STAND_LIFT, armRight: ARM_UP });
+      return seated(robot, {
+        lift: STAND_LIFT,
+        armRight: ARM_UP,
+        armSway: reducedMotion ? 0 : waveSway(now - posedAt),
+      });
     case "slumped":
       return seated(robot, {
         lift: -0.08,
@@ -304,11 +330,16 @@ export function animationNeed(
   enteredAt: ReadonlyMap<string, number>,
   now: number,
   reducedMotion: boolean,
+  posedAt: ReadonlyMap<string, number> = enteredAt,
 ): AnimationNeed {
   if (reducedMotion) return "none";
   const walking = robots.some(
     (robot) => robot.pose === "walking" && now - (enteredAt.get(robot.agentId) ?? now) < WALK_MS,
   );
-  if (walking) return "smooth";
+  const waving = robots.some((robot) => {
+    const began = robot.pose === "raised" ? posedAt.get(robot.agentId) : undefined;
+    return began !== undefined && now - began < WAVE_MS;
+  });
+  if (walking || waving) return "smooth";
   return robots.some((robot) => robot.pose === "typing") ? "typing" : "none";
 }
