@@ -34,7 +34,6 @@ it("translates mounted usage rows when the language changes", async () => {
           window={window}
           displayAs="used"
           pinnable={false}
-          showsRunOut={false}
           pinned={false}
           onTogglePin={ignorePin}
           pinLabel=""

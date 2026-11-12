@@ -7,6 +7,7 @@ export type AvailableUsageReport = Extract<UsageReport, { status: "available" }>
 export type UsageWindow = AvailableUsageReport["windows"][number];
 export type UsageBalance = NonNullable<AvailableUsageReport["balances"]>[number];
 export type UsageBalanceUnit = UsageBalance["unit"];
+export type UsageDetail = NonNullable<AvailableUsageReport["details"]>[number];
 
 /** What a host's usage surface shows. `unavailable` is a host state, not a failed request. */
 export type UsageView =
