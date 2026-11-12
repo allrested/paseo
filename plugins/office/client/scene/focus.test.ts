@@ -3,6 +3,7 @@ import {
   INITIAL_FOCUS,
   replan,
   requestFocus,
+  resumeCamera,
   settle,
   takeCamera,
   type FocusState,
@@ -103,4 +104,12 @@ test("a new grid or an emptied office follows again and frames again, keeping a 
   const waiting: FocusState = { ...MOVED, pending: ROOM };
   expect(replan(waiting, true)).toEqual({ following: true, framed: false, pending: ROOM });
   expect(replan(waiting, false)).toEqual(waiting);
+});
+
+test("a scene that starts with a kept camera neither frames the office nor waits for a room", () => {
+  // The workspace tab asks for its room before the first plan, as on every start.
+  const asked = requestFocus(INITIAL_FOCUS, ROOM, false).state;
+  const resumed = resumeCamera(asked);
+  expect(resumed).toEqual(MOVED);
+  expect(settle(resumed, true, shownAll)).toEqual({ state: MOVED, goal: null });
 });
