@@ -1,16 +1,24 @@
 import { expect, test } from "vitest";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { OfficeAgent, OfficeSnapshot } from "../../shared/contracts.js";
+import type { OfficeAgent, OfficeSnapshot, Post } from "../../shared/contracts.js";
 import { EMPTY_LAYOUT_MEMORY, layoutOffice } from "../layout.js";
 import { buildOfficeModel } from "../model.js";
+import { fakeOffice } from "./fake-office.js";
 import { scenePalette, sceneVisor, visorColor } from "./palette.js";
 import {
+  BOARD_CENTER_Y,
   DESK_OFFSET_Z,
+  DESK_SIZE,
+  NOTE_FADE_MS,
+  NOTE_SLOTS,
+  PLANE_MS,
   WALK_MS,
   WAVE_MS,
   animationNeed,
   buildScenePlan,
+  noteFade,
   overflowTail,
+  planeFrame,
   robotFrame,
   robotPose,
   roomLabel,
@@ -50,12 +58,12 @@ function agent(id: string, overrides: Partial<OfficeAgent> = {}): OfficeAgent {
   };
 }
 
-function plan(agents: readonly OfficeAgent[]) {
+function plan(agents: readonly OfficeAgent[], posts: readonly Post[] = []) {
   const state: OfficeSnapshot = {
     agents: [...agents],
     workspaces: [{ id: "w1", name: "main", projectName: "paseo" }],
     activity: {},
-    boards: {},
+    boards: { w1: [...posts] },
     wake: { paused: false, queued: {} },
   };
   const model = buildOfficeModel(state);
@@ -294,4 +302,195 @@ test("a robot's visor is the palette's scene visor, so a warm provider colour is
   ]);
   // Pi's identity colour is the app's red, too close to the danger lamp to be used as it is.
   expect(sceneVisor("pi", PALETTE)).not.toBe(visorColor("pi", true));
+});
+
+/** To a millionth of a unit: sums in another order differ in the last bit. */
+function tidy(value: number): number {
+  return Math.round(value * 1e6) / 1e6;
+}
+
+function fakePlan() {
+  const model = buildOfficeModel(fakeOffice());
+  const { layout } = layoutOffice(model, EMPTY_LAYOUT_MEMORY);
+  return buildScenePlan(model, layout, PALETTE);
+}
+
+/** A post on the board of room w1, made `seq` minutes past nine. */
+function post(seq: number, fields: Partial<Post> = {}): Post {
+  const at = `2026-11-11T09:${String(seq).padStart(2, "0")}:00.000Z`;
+  return {
+    id: `p${seq}`,
+    seq,
+    board: "w1",
+    kind: "task",
+    text: "t",
+    author: "user",
+    state: "open",
+    createdAt: at,
+    updatedAt: at,
+    ...fields,
+  };
+}
+
+test("tasks and notes stand on the whiteboard; a claimed task is on the front of its claimer's desk", () => {
+  const scene = fakePlan();
+  const notes = new Map(scene.notes.map((note) => [note.postId, note]));
+  const claimer = scene.robots.find((item) => item.agentId === "Hub tests");
+  const onDesk = notes.get("p2");
+  expect({ ...onDesk, z: tidy(onDesk?.z ?? 0) }).toEqual({
+    postId: "p2",
+    roomId: "w-main",
+    x: claimer?.seat.x ?? 0,
+    y: DESK_SIZE.height / 2,
+    // On the desk's front face, the note's middle 0.03 off it.
+    z: tidy((claimer?.seat.z ?? 0) + DESK_OFFSET_Z + DESK_SIZE.depth / 2 + 0.03),
+    color: PALETTE.noteClaimed,
+    onDesk: true,
+  });
+  const main = scene.rooms.find((room) => room.roomId === "w-main");
+  // The oldest open task has the first place: top left.
+  const first = notes.get("p4");
+  expect({ ...first, y: tidy(first?.y ?? 0), z: tidy(first?.z ?? 0) }).toEqual({
+    postId: "p4",
+    roomId: "w-main",
+    x: (main?.board.x ?? 0) - 1.5,
+    y: tidy(BOARD_CENTER_Y + 0.4),
+    z: tidy((main?.board.z ?? 0) + 0.06),
+    color: PALETTE.noteTask,
+    onDesk: false,
+  });
+  expect([notes.get("p3")?.onDesk, notes.get("p3")?.color, notes.get("p1")?.roomId]).toEqual([
+    false,
+    PALETTE.noteNote,
+    "lobby",
+  ]);
+});
+
+test("a whiteboard holds eight notes in two rows of four, oldest open tasks first; the rest stay off it", () => {
+  const posts = Array.from({ length: 10 }, (_, index) => post(index + 1));
+  const scene = plan([agent("a")], [post(11, { kind: "note", state: undefined }), ...posts]);
+  const board = scene.rooms.find((room) => room.roomId === "w1")?.board ?? { x: 0, z: 0 };
+  expect(NOTE_SLOTS).toBe(8);
+  expect(scene.notes.map((note) => note.postId)).toEqual([
+    "p1",
+    "p2",
+    "p3",
+    "p4",
+    "p5",
+    "p6",
+    "p7",
+    "p8",
+  ]);
+  expect(
+    scene.notes.map((note) => [tidy(note.x - board.x), tidy(note.y - BOARD_CENTER_Y)]),
+  ).toEqual([
+    [-1.5, 0.4],
+    [-0.5, 0.4],
+    [0.5, 0.4],
+    [1.5, 0.4],
+    [-1.5, -0.4],
+    [-0.5, -0.4],
+    [0.5, -0.4],
+    [1.5, -0.4],
+  ]);
+});
+
+test("a task claimed by an agent without a desk stays on the whiteboard; one on a desk takes no place there", () => {
+  const scene = plan(
+    [agent("a")],
+    [
+      post(1, { state: "claimed", claimedBy: "gone" }),
+      post(2, { state: "claimed", claimedBy: "a" }),
+      post(3),
+      post(4, { kind: "note", state: undefined }),
+      // Open again, with the name of who had it left on the post.
+      post(5, { claimedBy: "a" }),
+    ],
+  );
+  const board = scene.rooms.find((room) => room.roomId === "w1")?.board ?? { x: 0, z: 0 };
+  // Board order is open tasks, then claimed ones, then notes.
+  expect(
+    scene.notes.map((note) => [
+      note.postId,
+      note.onDesk,
+      note.color,
+      note.onDesk ? null : tidy(note.x - board.x),
+    ]),
+  ).toEqual([
+    ["p3", false, PALETTE.noteTask, -1.5],
+    ["p5", false, PALETTE.noteTask, -0.5],
+    ["p1", false, PALETTE.noteClaimed, 0.5],
+    ["p2", true, PALETTE.noteClaimed, null],
+    ["p4", false, PALETTE.noteNote, 1.5],
+  ]);
+});
+
+test("tasks claimed by one agent are fanned on its desk, each in front of the one before", () => {
+  const claimed = { state: "claimed" as const, claimedBy: "a" };
+  const scene = plan(
+    [agent("a")],
+    [post(1, claimed), post(2, claimed), post(3, claimed), post(4, claimed)],
+  );
+  const seat = scene.robots[0]?.seat ?? { x: 0, z: 0 };
+  const front = seat.z + DESK_OFFSET_Z + DESK_SIZE.depth / 2;
+  expect(
+    scene.notes.map((note) => [
+      note.postId,
+      tidy(note.x - seat.x),
+      tidy(note.y - DESK_SIZE.height / 2),
+      tidy(note.z - front),
+    ]),
+  ).toEqual([
+    ["p1", 0, 0, 0.03],
+    ["p2", 0.12, -0.05, 0.06],
+    ["p3", 0.24, -0.1, 0.09],
+    // The desk's front is no wider: from here on a note only comes forward.
+    ["p4", 0.24, -0.1, 0.12],
+  ]);
+});
+
+test("a post that names a seated agent is a mention from its author's seat to the target's", () => {
+  const scene = fakePlan();
+  const seat = (id: string) => scene.robots.find((item) => item.agentId === id)?.seat;
+  expect(scene.mentions).toEqual([
+    { postId: "p2", from: seat("Refactor hub"), to: seat("Hub tests") },
+  ]);
+});
+
+test("the user's post leaves from the whiteboard; a post for an agent without a desk, or for its own author, is no mention", () => {
+  const scene = plan(
+    [agent("a")],
+    [post(1, { to: "a" }), post(2, { to: "gone" }), post(3), post(4, { author: "a", to: "a" })],
+  );
+  const board = scene.rooms.find((room) => room.roomId === "w1")?.board;
+  expect(scene.mentions).toEqual([{ postId: "p1", from: board, to: scene.robots[0]?.seat }]);
+});
+
+test("a plane arcs from start to end and then is done", () => {
+  const mention = { postId: "p9", from: { x: 0, z: 0 }, to: { x: 10, z: 0 } };
+  expect(planeFrame(mention, 0, 0)).toEqual({
+    x: 0,
+    y: 1.4,
+    z: 0,
+    heading: Math.PI / 2,
+    done: false,
+  });
+  const middle = planeFrame(mention, 0, PLANE_MS / 2);
+  expect([middle.x, middle.y, middle.done]).toEqual([5, 3.4, false]);
+  expect(planeFrame(mention, 0, PLANE_MS).done).toBe(true);
+  // A plane asked for before its start (a frame's clock can run behind) waits at the start.
+  expect(planeFrame(mention, 100, 0).x).toBe(0);
+});
+
+test("a short hop is a low arc: a plane rises by a third of the way it has to go, at most 2", () => {
+  const hop = { postId: "p9", from: { x: 0, z: 0 }, to: { x: 0, z: 3 } };
+  expect(planeFrame(hop, 0, PLANE_MS / 2).y).toBeCloseTo(1.4 + 1, 9);
+  const far = { postId: "p9", from: { x: 0, z: 0 }, to: { x: 30, z: 40 } };
+  expect(planeFrame(far, 0, PLANE_MS / 2).y).toBeCloseTo(1.4 + 2, 9);
+});
+
+test("a removed note fades from full to nothing", () => {
+  expect(noteFade(0, 0)).toBe(1);
+  expect(noteFade(0, NOTE_FADE_MS / 2)).toBe(0.5);
+  expect(noteFade(0, NOTE_FADE_MS * 2)).toBe(0);
 });
