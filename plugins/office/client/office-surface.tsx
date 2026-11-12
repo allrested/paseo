@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useReducer,
   useRef,
@@ -31,7 +32,7 @@ import {
   type SceneLayout,
   type SceneLayoutKeeper,
 } from "./scene/scene-view.js";
-import { hasWebGL2 } from "./scene/web-env.web.js";
+import { hasWebGL2, listenForSpace } from "./scene/web-env.web.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
@@ -317,8 +318,12 @@ function ThreeDSwitch({ value, onChange, styles }: ThreeDSwitchProps) {
   const on = value ?? true;
   const disabled = value === null;
   const flip = useCallback(() => onChange(!on), [onChange, on]);
+  // Enter presses any Pressable; Space, the key that turns a switch, only a button.
+  const id = useId();
+  useEffect(() => (disabled ? undefined : listenForSpace(id, flip)), [id, flip, disabled]);
   return (
     <Pressable
+      id={id}
       accessibilityRole="switch"
       accessibilityLabel="3D view"
       aria-checked={on}
