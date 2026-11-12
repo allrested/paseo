@@ -2,23 +2,25 @@
 import { DOOR_WIDTH, ROOM_WIDTH, WALL_HEIGHT, type Bounds } from "../layout.js";
 import {
   CAMERA_EASE_MS,
+  FIRST_MARGINS,
   RISE_SCALE,
   TAP_SLOP_PX,
   cameraPosition,
   easeView,
   firstView,
   focusOn,
-  frameBounds,
   frustumFor,
   groundSpan,
+  keptInside,
+  keptOver,
   panBy,
+  partView,
   pixelRatioFor,
   pixelsPerUnit,
   screenPoint,
   shiftOnScreen,
   wheelFactor,
   type CameraView,
-  type FrameMargins,
   type GroundSpan,
   type ScreenPoint,
   type Viewport,
@@ -170,13 +172,6 @@ const LABEL_FONT_STACK =
 const ARM_SPLAY = 0.35;
 /** A name plate's middle stands this far above the top of its room's back wall. */
 const PLATE_RISE = 0.45;
-/**
- * What the first view keeps clear: the whiteboard stands at the back of the first rooms and the
- * name plates above their walls, and on a phone every pixel at the sides is scale.
- */
-const FIRST_MARGINS: FrameMargins = { rise: 2.2, top: 10, side: 8, bottom: 12 };
-/** Room to spare around a room when the camera frames it. */
-const ROOM_FRAME = { side: 0.6, back: 2, front: 1 };
 
 interface Layer {
   mesh: InstancedMeshLike;
@@ -704,15 +699,6 @@ function roomFootprint(room: RoomPlan): Bounds {
   };
 }
 
-function roomBounds(room: RoomPlan): Bounds {
-  return {
-    minX: room.center.x - ROOM_WIDTH / 2 - ROOM_FRAME.side,
-    maxX: room.center.x + ROOM_WIDTH / 2 + ROOM_FRAME.side,
-    minZ: room.center.z - room.depth / 2 - ROOM_FRAME.back,
-    maxZ: room.center.z + room.depth / 2 + ROOM_FRAME.front,
-  };
-}
-
 /**
  * Each lamp as a frame draws it. A lamp grows to stay findable from far away. A round one then
  * rises, so that its lower edge stays where it was on screen, on the antenna. The diamond stands
@@ -1025,10 +1011,9 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     }
   }
 
-  /** The camera on one room: as close as a focus goes, but never so close the room is cut. */
+  /** The camera on one room: the room whole and as wide as the screen takes it. */
   function roomView(room: RoomPlan): CameraView {
-    const whole = frameBounds(roomBounds(room), viewport);
-    return { x: whole.x, z: whole.z, zoom: Math.min(whole.zoom, focusOn(view, room.center).zoom) };
+    return partView(groundSpan([roomFootprint(room)]), span, viewport, FIRST_MARGINS);
   }
 
   function isShown(target: FocusTarget): boolean {
@@ -1044,7 +1029,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       return room ? roomView(room) : null;
     }
     const robot = plan.robots.find((candidate) => candidate.agentId === goal.agentId);
-    return robot ? focusOn(view, robot.seat) : null;
+    if (!robot) return null;
+    return keptInside(focusOn(view, robot.seat, viewport), span, viewport, FIRST_MARGINS);
   }
 
   /**
@@ -1064,6 +1050,17 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     if (wasFramed && same) return;
     if (ease && wasFramed) moveTo(next);
     else setView(next);
+  }
+
+  /**
+   * The camera stays the user's when rooms leave, but not over ground the office gave up: left
+   * there, the next drag would snap it back by the whole distance.
+   */
+  function stayOverOffice(): void {
+    if (!focus.framed || focus.following || plan.rooms.length === 0) return;
+    const target = easing?.to ?? view;
+    const over = keptOver(target, span);
+    if (over !== target) moveTo(over);
   }
 
   /** A focus from the host or a plate tap: eased to at once, or kept until it can be shown. */
@@ -1250,6 +1247,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       writeDesks(stage, nextPlan, nextPalette);
       writeLabels(nextPalette);
       frameOffice(true);
+      stayOverOffice();
       invalidate();
     },
     focusRoom(roomId) {
