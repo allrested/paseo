@@ -47,6 +47,8 @@ export interface SceneViewProps {
   /** The camera as the user left it, kept by the surface between two lives of the view. */
   cameraKeeper: SceneCameraKeeper;
   onSelectAgent(agentId: string): void;
+  /** A tap on a room's whiteboard or on one of its notes: opens that room's board. */
+  onSelectBoard(roomId: string): void;
   /** three.js could not load, the scene could not start, or the WebGL context was lost. */
   onProblem(message: string): void;
 }
@@ -138,6 +140,8 @@ const NO_ROOMS: ScenePlan = {
   robots: [],
   bounds: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
   columns: 0,
+  notes: [],
+  mentions: [],
 };
 const CONTEXT_LOST = "the graphics context was lost";
 
@@ -162,13 +166,14 @@ export function SceneView({
   layoutKeeper,
   cameraKeeper,
   onSelectAgent,
+  onSelectBoard,
   onProblem,
 }: SceneViewProps) {
   const containerId = useId();
   const loadState = useSyncExternalStore(subscribe, read, read);
   const fetchAsset = useRpc(assetRpc);
   const sceneRef = useRef<OfficeScene | null>(null);
-  const handlers = useRef({ onSelectAgent, onProblem });
+  const handlers = useRef({ onSelectAgent, onSelectBoard, onProblem });
   const [shape, setShape] = useState<ContainerShape>(UNMEASURED);
   const palette = useMemo(() => scenePalette(theme), [theme]);
   const environment = useMemo(
@@ -184,8 +189,8 @@ export function SceneView({
   );
 
   useEffect(() => {
-    handlers.current = { onSelectAgent, onProblem };
-  }, [onSelectAgent, onProblem]);
+    handlers.current = { onSelectAgent, onSelectBoard, onProblem };
+  }, [onSelectAgent, onSelectBoard, onProblem]);
 
   useEffect(() => {
     const container = document.getElementById(containerId);
@@ -230,6 +235,7 @@ export function SceneView({
         ...environment,
         camera: cameraKeeper.current,
         onSelectAgent: (agentId) => handlers.current.onSelectAgent(agentId),
+        onSelectBoard: (roomId) => handlers.current.onSelectBoard(roomId),
         onContextLost: () => handlers.current.onProblem(CONTEXT_LOST),
       });
     } catch (error) {

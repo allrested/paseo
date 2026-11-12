@@ -1,4 +1,5 @@
-import type { OfficeAgent } from "../../shared/contracts.js";
+import type { OfficeAgent, Post } from "../../shared/contracts.js";
+import { orderBoardPosts } from "../board-text.js";
 import {
   CELL_COLUMNS,
   seatPosition,
@@ -6,7 +7,7 @@ import {
   type OfficeLayout,
   type Point,
 } from "../layout.js";
-import type { OfficeModel } from "../model.js";
+import type { OfficeModel, OfficeRoom } from "../model.js";
 import { sceneVisor, type ScenePalette } from "./palette.js";
 
 export type RobotPose = "typing" | "idle" | "raised" | "slumped" | "walking";
@@ -19,6 +20,35 @@ export type LampState = "off" | "steady" | "warning" | "danger";
 
 /** A desk stands this far in front (+z) of its seat; robots at their desks face +z. */
 export const DESK_OFFSET_Z = 0.55;
+export const DESK_SIZE = { width: 1, height: 0.7, depth: 0.6 };
+/** The whiteboard's face, upright and turned to +z, and how high its middle stands. */
+export const BOARD_SIZE = { width: 4, height: 1.6, depth: 0.06 };
+export const BOARD_CENTER_Y = 1.3;
+/** A note is a slip of this size, upright like the face it is stuck to. */
+export const NOTE_SIZE = { width: 0.62, height: 0.5, depth: 0.02 };
+/** A whiteboard holds this many notes, in rows of `NOTE_COLUMNS`. */
+export const NOTE_SLOTS = 8;
+const NOTE_COLUMNS = 4;
+/** A note's middle stands this far off the face it is stuck to. */
+const NOTE_STANDOFF = 0.03;
+/**
+ * Each further note on one desk lies this far right, down and forward of the one before, so
+ * two notes never share a plane and a second one shows. From the third on only forward: the
+ * desk's front is no wider.
+ */
+const DESK_FAN = { x: 0.12, y: 0.05, z: 0.03, steps: 2 };
+/** A removed note fades for this long; a paper plane flies for `PLANE_MS`. */
+export const NOTE_FADE_MS = 800;
+export const PLANE_MS = 1400;
+/**
+ * A plane leaves and lands at this height, over the walls. On the way it rises by a third of
+ * the distance it has to go, `PLANE_ARC` at most: a hop to the next desk is a low arc, and only a
+ * flight to another room goes high. From the camera's side a high arc on a short hop reads as a
+ * plane that hangs in place.
+ */
+const PLANE_Y = 1.4;
+const PLANE_ARC = 2;
+const PLANE_RISE = 1 / 3;
 
 export interface RobotPlan {
   agentId: string;
@@ -51,12 +81,42 @@ export interface RoomPlan {
   labelAt: Point;
 }
 
+export interface NotePlan {
+  postId: string;
+  /** The room whose board the post is on, wherever its note is. */
+  roomId: string;
+  x: number;
+  y: number;
+  z: number;
+  color: string;
+  /** On the front of its claimer's desk; otherwise on the whiteboard. */
+  onDesk: boolean;
+}
+
+/** A post that names an agent: a paper plane flies it from `from` to `to`. */
+export interface MentionPlan {
+  postId: string;
+  from: Point;
+  to: Point;
+}
+
 export interface ScenePlan {
   rooms: RoomPlan[];
   robots: RobotPlan[];
   bounds: Bounds;
   /** The column count the rooms were dealt for; another count is a new arrangement. */
   columns: number;
+  notes: NotePlan[];
+  mentions: MentionPlan[];
+}
+
+export interface PlaneFrame {
+  x: number;
+  y: number;
+  z: number;
+  /** Rotation about the vertical axis; 0 points to +z. */
+  heading: number;
+  done: boolean;
 }
 
 export interface RobotFrame {
@@ -140,6 +200,103 @@ function lampColor(lamp: LampState, palette: ScenePalette): string {
   return colors[lamp];
 }
 
+function boardSlot(board: Point, index: number): { x: number; y: number; z: number } {
+  const column = index % NOTE_COLUMNS;
+  const row = Math.floor(index / NOTE_COLUMNS);
+  const rows = NOTE_SLOTS / NOTE_COLUMNS;
+  return {
+    x: board.x + (column - (NOTE_COLUMNS - 1) / 2) * (BOARD_SIZE.width / NOTE_COLUMNS),
+    y: BOARD_CENTER_Y + ((rows - 1) / 2 - row) * (BOARD_SIZE.height / rows),
+    z: board.z + (BOARD_SIZE.depth / 2 + NOTE_STANDOFF),
+  };
+}
+
+/** The `index`th note on the front of the desk of the robot seated at `seat`. */
+function deskSlot(seat: Point, index: number): { x: number; y: number; z: number } {
+  const step = Math.min(index, DESK_FAN.steps);
+  return {
+    x: seat.x + step * DESK_FAN.x,
+    y: DESK_SIZE.height / 2 - step * DESK_FAN.y,
+    z: seat.z + DESK_OFFSET_Z + DESK_SIZE.depth / 2 + NOTE_STANDOFF + index * DESK_FAN.z,
+  };
+}
+
+function noteColor(post: Post, palette: ScenePalette): string {
+  if (post.kind === "note") return palette.noteNote;
+  return post.state === "claimed" ? palette.noteClaimed : palette.noteTask;
+}
+
+/**
+ * A room's posts as notes, in board order. A claimed task is on its claimer's desk, in whatever
+ * room that is; everything else takes the whiteboard's places from the top left, and what does
+ * not fit is left to the list view and the board sheet.
+ */
+function roomNotes(
+  room: OfficeRoom,
+  board: Point,
+  robots: ReadonlyMap<string, RobotPlan>,
+  onDesks: Map<string, number>,
+  palette: ScenePalette,
+): NotePlan[] {
+  const notes: NotePlan[] = [];
+  let slot = 0;
+  for (const post of orderBoardPosts(room.posts)) {
+    const base = { postId: post.id, roomId: room.id, color: noteColor(post, palette) };
+    const claimer =
+      post.state === "claimed" && post.claimedBy !== undefined
+        ? robots.get(post.claimedBy)
+        : undefined;
+    if (claimer) {
+      const before = onDesks.get(claimer.agentId) ?? 0;
+      onDesks.set(claimer.agentId, before + 1);
+      notes.push({ ...base, ...deskSlot(claimer.seat, before), onDesk: true });
+    } else if (slot < NOTE_SLOTS) {
+      notes.push({ ...base, ...boardSlot(board, slot), onDesk: false });
+      slot += 1;
+    }
+  }
+  return notes;
+}
+
+/**
+ * The user has no seat: their post leaves from the room's whiteboard. An agent that names itself
+ * has nowhere to send a plane.
+ */
+function roomMentions(
+  room: OfficeRoom,
+  board: Point,
+  robots: ReadonlyMap<string, RobotPlan>,
+): MentionPlan[] {
+  const mentions: MentionPlan[] = [];
+  for (const post of room.posts) {
+    const target = post.to === undefined ? undefined : robots.get(post.to);
+    if (!target || post.to === post.author) continue;
+    const from = robots.get(post.author)?.seat ?? board;
+    mentions.push({ postId: post.id, from, to: target.seat });
+  }
+  return mentions;
+}
+
+/** Where a plane is `now`: straight over the ground from start to end, up and down in one arc. */
+export function planeFrame(mention: MentionPlan, startedAt: number, now: number): PlaneFrame {
+  const t = Math.min(1, Math.max(0, (now - startedAt) / PLANE_MS));
+  const dx = mention.to.x - mention.from.x;
+  const dz = mention.to.z - mention.from.z;
+  const arc = Math.min(PLANE_ARC, Math.hypot(dx, dz) * PLANE_RISE);
+  return {
+    x: mention.from.x + dx * t,
+    y: PLANE_Y + Math.sin(Math.PI * t) * arc,
+    z: mention.from.z + dz * t,
+    heading: Math.atan2(dx, dz),
+    done: t >= 1,
+  };
+}
+
+/** Opacity of a removed note, 1 down to 0 over NOTE_FADE_MS. */
+export function noteFade(startedAt: number, now: number): number {
+  return 1 - Math.min(1, Math.max(0, (now - startedAt) / NOTE_FADE_MS));
+}
+
 export function buildScenePlan(
   model: OfficeModel,
   layout: OfficeLayout,
@@ -184,7 +341,17 @@ export function buildScenePlan(
     }
   }
   robots.sort((left, right) => left.agentId.localeCompare(right.agentId));
-  return { rooms, robots, bounds: layout.bounds, columns: layout.columns };
+  const byAgent = new Map(robots.map((item) => [item.agentId, item]));
+  const onDesks = new Map<string, number>();
+  const notes: NotePlan[] = [];
+  const mentions: MentionPlan[] = [];
+  for (const room of model.rooms) {
+    const placed = layout.roomById.get(room.id);
+    if (!placed) continue;
+    notes.push(...roomNotes(room, placed.board, byAgent, onDesks, palette));
+    mentions.push(...roomMentions(room, placed.board, byAgent));
+  }
+  return { rooms, robots, bounds: layout.bounds, columns: layout.columns, notes, mentions };
 }
 
 export interface DeskPlan {

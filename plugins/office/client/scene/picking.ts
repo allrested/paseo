@@ -40,7 +40,30 @@ export interface RobotSpot {
   chest: WorldPoint;
 }
 
-export type PickTarget = { roomId: string } | { agentId: string };
+/** A whiteboard's face: upright and turned to +z, `width` by `height` about `center`. */
+export interface BoardFace {
+  roomId: string;
+  center: WorldPoint;
+  width: number;
+  height: number;
+}
+
+/** The middle of a note on a desk. It is small, so a tap takes the nearest in reach, as a robot. */
+export interface NoteSpot {
+  roomId: string;
+  at: WorldPoint;
+}
+
+/** What opens a room's board: its whiteboard, and its notes on desks. */
+export interface Boards {
+  faces: readonly BoardFace[];
+  notes: readonly NoteSpot[];
+}
+
+const NO_BOARDS: Boards = { faces: [], notes: [] };
+
+/** A room to look at, an agent's card to open, or a room's board to open. */
+export type PickTarget = { roomId: string } | { agentId: string } | { boardId: string };
 
 /** Two fingers on the screen: how far apart they are and the point between them. */
 export interface PinchState {
@@ -81,39 +104,93 @@ export function labelUnder(
   return null;
 }
 
+/** The item drawn nearest `at`, within a touch target's reach, and how far from it. */
+function nearestInReach<Item>(
+  screen: Screen,
+  items: readonly Item[],
+  point: (item: Item) => WorldPoint,
+  at: ScreenPoint,
+): { item: Item; gap: number } | null {
+  let nearest: { item: Item; gap: number } | null = null;
+  for (const item of items) {
+    const gap = distance(at, screenPoint(screen.view, screen.viewport, point(item)));
+    if (gap <= (nearest?.gap ?? TAP_RADIUS_PX)) nearest = { item, gap };
+  }
+  return nearest;
+}
+
 /** The robot whose chest is nearest `at`, within a touch target's reach. */
 export function robotNear(
   screen: Screen,
   robots: readonly RobotSpot[],
   at: ScreenPoint,
 ): string | null {
-  let nearest: string | null = null;
-  let best = TAP_RADIUS_PX;
-  for (const robot of robots) {
-    const gap = distance(at, screenPoint(screen.view, screen.viewport, robot.chest));
-    if (gap <= best) {
-      best = gap;
-      nearest = robot.agentId;
-    }
+  return nearestInReach(screen, robots, (robot) => robot.chest, at)?.item.agentId ?? null;
+}
+
+/**
+ * The room whose whiteboard is drawn under `at`. The view is turned, so a face is a
+ * parallelogram on screen: the tap is measured along its lower edge and up its left one.
+ */
+export function boardUnder(
+  screen: Screen,
+  faces: readonly BoardFace[],
+  at: ScreenPoint,
+): string | null {
+  for (const face of faces) {
+    const { x, y, z } = face.center;
+    const drawn = (dx: number, dy: number) =>
+      screenPoint(screen.view, screen.viewport, { x: x + dx, y: y + dy, z });
+    const corner = drawn(-face.width / 2, -face.height / 2);
+    const right = drawn(face.width / 2, -face.height / 2);
+    const up = drawn(-face.width / 2, face.height / 2);
+    const along = { x: right.x - corner.x, y: right.y - corner.y };
+    const rise = { x: up.x - corner.x, y: up.y - corner.y };
+    const tap = { x: at.x - corner.x, y: at.y - corner.y };
+    const area = along.x * rise.y - along.y * rise.x;
+    if (area === 0) continue;
+    const across = (tap.x * rise.y - tap.y * rise.x) / area;
+    const height = (along.x * tap.y - along.y * tap.x) / area;
+    if (across >= 0 && across <= 1 && height >= 0 && height <= 1) return face.roomId;
   }
-  return nearest;
+  return null;
+}
+
+/** The robot or the note on a desk nearest `at`, within reach; equally near, the robot. */
+function nearestSmall(
+  screen: Screen,
+  robots: readonly RobotSpot[],
+  notes: readonly NoteSpot[],
+  at: ScreenPoint,
+): PickTarget | null {
+  const robot = nearestInReach(screen, robots, (item) => item.chest, at);
+  const note = nearestInReach(screen, notes, (item) => item.at, at);
+  if (note !== null && (robot === null || note.gap < robot.gap)) {
+    return { boardId: note.item.roomId };
+  }
+  return robot === null ? null : { agentId: robot.item.agentId };
 }
 
 /**
  * What a tap or a click at `at` means. Zoomed out, a robot is a few pixels wide, so a tap takes
- * the nearest robot within a touch target's reach. A plate under the finger wins, since it is
- * drawn over everything; a plate merely nearby loses to a robot.
+ * the nearest robot within a touch target's reach, or the nearest note on a desk if that is
+ * nearer. A plate under the finger wins, since it is drawn over everything. A whiteboard is
+ * large and stands behind its room, so it loses to a robot in reach; a plate merely nearby loses
+ * to all of them.
  */
 export function targetAt(
   screen: Screen,
   plates: ReadonlyMap<string, Plate>,
   robots: readonly RobotSpot[],
   at: ScreenPoint,
+  boards: Boards = NO_BOARDS,
 ): PickTarget | null {
   const plate = labelUnder(screen, plates, at, 0);
   if (plate !== null) return { roomId: plate };
-  const robot = robotNear(screen, robots, at);
-  if (robot !== null) return { agentId: robot };
+  const small = nearestSmall(screen, robots, boards.notes, at);
+  if (small !== null) return small;
+  const board = boardUnder(screen, boards.faces, at);
+  if (board !== null) return { boardId: board };
   const nearby = labelUnder(screen, plates, at, TAP_RADIUS_PX - PLATE_HEIGHT_PX / 2);
   return nearby === null ? null : { roomId: nearby };
 }
