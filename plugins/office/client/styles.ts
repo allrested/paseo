@@ -116,6 +116,8 @@ const POINTER_SWITCH = { width: 34, height: 20, thumb: 16 };
 const COLUMN = 720;
 /** The scene's floor where its parent gives it no height. A phone on its side leaves about 210. */
 const SCENE_MIN_HEIGHT = 160;
+/** Room around a focusable row inside a scroller, which would cut its focus ring off. */
+const FOCUS_RING = 4;
 const DOT = 8;
 const DOT_GAP = 12;
 /** Where a row's text starts, from the row's own left edge. A child's dot sits on this rail. */
@@ -284,11 +286,17 @@ export function useOfficeStyles(
         gap: 8,
       },
       bannerText: { ...base, color: colors.statusDanger },
-      stripRail: compact ? column : { ...column, paddingHorizontal: pad },
+      // On a wide screen the rail gives the scroller the ring's room at each side, so the first
+      // and the last entry keep their focus rings and still rest on the cards' rails.
+      stripRail: compact ? column : { ...column, paddingHorizontal: pad - FOCUS_RING },
       stripScroll: { width: "100%" },
-      // The vertical padding leaves room for an entry's focus ring inside the scroll view. On a
-      // phone the side padding puts the entries at rest on the cards' rails.
-      strip: { gap: 8, paddingVertical: 4, paddingHorizontal: compact ? pad : 0 },
+      // The padding leaves room for an entry's focus ring inside the scroll view. On a phone the
+      // side padding puts the entries at rest on the cards' rails.
+      strip: {
+        gap: 8,
+        paddingVertical: FOCUS_RING,
+        paddingHorizontal: compact ? pad : FOCUS_RING,
+      },
       stripItem,
       // A pressed row or entry keeps its own box: the fill is the pressedFill layer inside it.
       stripItemPressed: stripItem,
