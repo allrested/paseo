@@ -28,8 +28,8 @@ interface Sent {
   options: unknown;
 }
 
-function setup() {
-  const sent: Sent[] = [];
+/** The daemon's API as the office holds it: the agents of KNOWN, and a record of every send. */
+function fakeHolder(sent: Sent[]): PaseoHolder {
   const paseo = {
     agents: {
       ref: (agentId: string) => ({
@@ -43,8 +43,12 @@ function setup() {
       }),
     },
   };
-  const holder = { remember: () => undefined, require: () => paseo } as unknown as PaseoHolder;
-  return { ports: liveAgentPorts(holder), sent };
+  return { remember: () => undefined, require: () => paseo };
+}
+
+function setup() {
+  const sent: Sent[] = [];
+  return { ports: liveAgentPorts(fakeHolder(sent)), sent };
 }
 
 test("an agent's wake state is read from the daemon; one it does not know is gone", async () => {
