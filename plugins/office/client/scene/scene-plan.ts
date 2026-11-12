@@ -278,9 +278,9 @@ function walkingFrame(
  * Seen from above, each pose is its own silhouette, so state reads without colour or motion:
  * typing sits upright with both arms on the desk and looks down at it; idle leans back with its
  * head laid to one side; raised stands taller than its neighbours with one arm straight up and
- * looks ahead, and waves that arm once when it starts to wait; slumped folds forward with its
- * head hanging to one side; a starting robot crosses from the door, then sits upright with its
- * arms down.
+ * looks ahead, and waves that arm once when it starts to wait; slumped folds forward over its
+ * desk with its arms hanging, its head on one side and its face still up to the room; a starting
+ * robot crosses from the door, then sits upright with its arms down.
  */
 export function robotFrame(
   robot: RobotPlan,
@@ -314,11 +314,11 @@ export function robotFrame(
     case "slumped":
       return seated(robot, {
         lift: -0.08,
-        lean: 0.55,
-        nod: 0.3,
-        tilt: 0.3,
-        armLeft: 0.25,
-        armRight: 0.25,
+        lean: 0.5,
+        nod: -0.4,
+        tilt: 0.9,
+        armLeft: -0.5,
+        armRight: -0.5,
       });
     case "walking":
       return walkingFrame(robot, enteredAt, now, reducedMotion);

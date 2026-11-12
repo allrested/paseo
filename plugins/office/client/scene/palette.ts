@@ -221,6 +221,8 @@ const LIGHT_PLAN: ContrastPlan = {
 
 /** By night a lit screen holds this contrast against the room floor. */
 const NIGHT_SCREEN = 5;
+/** By night the pool of light is this far from its screen's colour towards the foreground. */
+const NIGHT_POOL_PALE = 0.6;
 /** By day an unused screen is this far from its desk towards the foreground. */
 const DAY_SCREEN_DIM = 0.3;
 
@@ -287,8 +289,9 @@ export function scenePalette(theme: PluginTheme): ScenePalette {
     lampOff: onFloor(c.foregroundMuted, plan.lampOff),
     lampOn: onFloor(withSaturation(c.foreground, LAMP_SATURATION), plan.lampOn),
     // The pool is never darker than the desk it lies on: by night it is the light in the room,
-    // by day a wash lighter than the desk.
-    glow: dark ? mix(monitorLit, c.foreground, 0.35) : monitorLit,
+    // by day a wash lighter than the desk. By night it is pale: at the screen's own strength a
+    // green pool ran into the green visor above it.
+    glow: dark ? mix(monitorLit, c.foreground, NIGHT_POOL_PALE) : monitorLit,
     glowOpacity: dark ? 0.55 : 0.3,
     shadowOpacity: dark ? 0.35 : 0.18,
     lightWarning: onFloor(saturated(c.statusWarning), plan.lightWarning),

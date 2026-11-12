@@ -52,6 +52,7 @@ export interface DisposableLike {
 
 export interface GeometryLike extends DisposableLike {
   rotateX(angle: number): this;
+  rotateY(angle: number): this;
   translate(x: number, y: number, z: number): this;
   scale(x: number, y: number, z: number): this;
 }
