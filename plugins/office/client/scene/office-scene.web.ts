@@ -29,6 +29,7 @@ import {
   INITIAL_FOCUS,
   replan,
   requestFocus,
+  resumeCamera,
   settle,
   takeCamera,
   type FocusGoal,
@@ -75,11 +76,22 @@ import type {
   ThreeModule,
 } from "./three-types.js";
 
+/** The camera as the user left it, and the column count of the office it looked at. */
+export interface KeptCamera {
+  view: CameraView;
+  columns: number;
+}
+
 export interface OfficeSceneOptions {
   three: ThreeModule;
   container: HTMLElement;
   coarsePointer: boolean;
   reducedMotion: boolean;
+  /**
+   * The camera an earlier scene was left with. The first plan with rooms starts from it when it
+   * has the same column count; for another count the rooms stand elsewhere and it is dropped.
+   */
+  camera?: KeptCamera | null;
   onSelectAgent(agentId: string): void;
   onContextLost(): void;
 }
@@ -88,6 +100,8 @@ export interface OfficeScene {
   update(plan: ScenePlan, palette: ScenePalette): void;
   focusRoom(roomId: string): void;
   focusAgent(agentId: string): void;
+  /** The camera to keep for the next scene; null while it follows the office. */
+  camera(): KeptCamera | null;
   dispose(): void;
 }
 
@@ -796,6 +810,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   let view: CameraView = { x: 0, z: 0, zoom: 1 };
   let easing: { from: CameraView; to: CameraView; start: number } | null = null;
   let focus: FocusState = INITIAL_FOCUS;
+  /** The camera of an earlier scene, until the first plan with rooms takes it or drops it. */
+  let kept: KeptCamera | null = options.camera ?? null;
   let onScreen = true;
   let visible = document.visibilityState === "visible";
   /** Set by dispose and by a lost context: after either, nothing is drawn again. */
@@ -1053,6 +1069,19 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   }
 
   /**
+   * The first plan with rooms starts from the camera an earlier scene was left with. For another
+   * column count the rooms stand elsewhere, so the office is framed as on any first plan.
+   */
+  function takeKeptCamera(columns: number): void {
+    if (kept === null) return;
+    if (kept.columns === columns) {
+      view = kept.view;
+      focus = resumeCamera(focus);
+    }
+    kept = null;
+  }
+
+  /**
    * The camera stays the user's when rooms leave, but not over ground the office gave up: left
    * there, the next drag would snap it back by the whole distance.
    */
@@ -1237,6 +1266,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       for (const agentId of enteredAt.keys()) if (!present.has(agentId)) enteredAt.delete(agentId);
       // After a new deal (a phone turned on its side) the old view shows the wrong place, and an
       // office that emptied is framed again when its rooms come back. Both jump, without easing.
+      if (nextPlan.rooms.length > 0) takeKeptCamera(nextPlan.columns);
       focus = replan(focus, dealtAgain(plan, nextPlan) || nextPlan.rooms.length === 0);
       plan = nextPlan;
       span = groundSpan(nextPlan.rooms.map(roomFootprint));
@@ -1255,6 +1285,11 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     },
     focusAgent(agentId) {
       focusOnTarget({ agentId });
+    },
+    camera() {
+      if (kept !== null) return kept;
+      if (!focus.framed || focus.following || plan.rooms.length === 0) return null;
+      return { view: easing?.to ?? view, columns: plan.columns };
     },
     dispose() {
       stopped = true;
