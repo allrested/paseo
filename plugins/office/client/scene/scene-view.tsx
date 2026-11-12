@@ -20,7 +20,7 @@ import {
 } from "../layout.js";
 import type { OfficeModel } from "../model.js";
 import type { OfficeStyles } from "../styles.js";
-import { createOfficeScene, type OfficeScene } from "./office-scene.web.js";
+import { createOfficeScene, type KeptCamera, type OfficeScene } from "./office-scene.web.js";
 import { scenePalette } from "./palette.js";
 import { buildScenePlan, type ScenePlan } from "./scene-plan.js";
 import { messageOf, sharedThreeLoader } from "./three-loader.js";
@@ -44,6 +44,8 @@ export interface SceneViewProps {
    * goes and comes back (3D off and on, "Try 3D again", a subscription error).
    */
   layoutKeeper: SceneLayoutKeeper;
+  /** The camera as the user left it, kept by the surface between two lives of the view. */
+  cameraKeeper: SceneCameraKeeper;
   onSelectAgent(agentId: string): void;
   /** three.js could not load, the scene could not start, or the WebGL context was lost. */
   onProblem(message: string): void;
@@ -96,6 +98,11 @@ export interface SceneLayoutKeeper {
   current: SceneLayout;
 }
 
+/** Where the surface keeps the scene's camera between two lives of the view (a React ref). */
+export interface SceneCameraKeeper {
+  current: KeptCamera | null;
+}
+
 /**
  * Lays the office out again only for a new model or a new grid. An office with no rooms is not
  * laid out and the memory stays as it was, so the rooms return to their cells and seats.
@@ -138,6 +145,7 @@ export function SceneView({
   focusRoomId,
   focusRequest,
   layoutKeeper,
+  cameraKeeper,
   onSelectAgent,
   onProblem,
 }: SceneViewProps) {
@@ -199,6 +207,7 @@ export function SceneView({
         three,
         container,
         ...environment,
+        camera: cameraKeeper.current,
         onSelectAgent: (agentId) => handlers.current.onSelectAgent(agentId),
         onContextLost: () => handlers.current.onProblem(CONTEXT_LOST),
       });
@@ -209,9 +218,11 @@ export function SceneView({
     sceneRef.current = scene;
     return () => {
       sceneRef.current = null;
+      // What the user set outlives the scene: 3D off and on, "Try 3D again", an error.
+      cameraKeeper.current = scene.camera();
       scene.dispose();
     };
-  }, [three, sized, containerId, environment]);
+  }, [three, sized, containerId, environment, cameraKeeper]);
 
   // Effects run in the order they are written. On the render that creates the scene, the room
   // is asked for first and the plan follows, so the first frame is already on the tab's room.
