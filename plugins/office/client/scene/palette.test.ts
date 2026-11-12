@@ -244,6 +244,13 @@ test("a lit desk throws a pool of light by night; by day the pool is faint", () 
   expect(day.glowOpacity).toBeGreaterThan(0);
 });
 
+test("by night the pool is light more than colour: under half the colour of its screen", () => {
+  // A green screen under a green visor read as one patch; the pool between them is now pale.
+  for (const night of [scenePalette(theme(DARK)), scenePalette(APP_DARK)]) {
+    expect(chroma(night.glow)).toBeLessThanOrEqual(0.5 * chroma(night.monitorLit));
+  }
+});
+
 test("a visor near the warning or danger hue is muted to a tinted neutral; cool ones keep their colour", () => {
   const providers = identityProviders();
   expect(providers).toHaveLength(10);
