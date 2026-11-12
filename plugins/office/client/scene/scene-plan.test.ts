@@ -7,6 +7,7 @@ import { scenePalette, sceneVisor, visorColor } from "./palette.js";
 import {
   DESK_OFFSET_Z,
   WALK_MS,
+  WAVE_MS,
   animationNeed,
   buildScenePlan,
   overflowTail,
@@ -147,6 +148,7 @@ test("typing bobs the arms and sways the head unless motion is reduced", () => {
     tilt: 0,
     armLeft: -1.2,
     armRight: -1.2,
+    armSway: 0,
   });
   // Neighbours type out of step.
   const neighbour = robotFrame(robot({ pose: "typing", seatIndex: 2 }), 0, 1000, false);
@@ -169,6 +171,7 @@ test("a starting agent walks from the door to its desk, or is already there with
     tilt: 0,
     armLeft: 0,
     armRight: 0,
+    armSway: 0,
   });
   expect(robotFrame(walker, 0, 0, true)).toEqual(arrived);
 });
@@ -184,6 +187,7 @@ test("the other poses are fixed", () => {
     tilt: 0.16,
     armLeft: 0,
     armRight: 0,
+    armSway: 0,
   });
   // Desk by desk the resting heads lie to the other side, so a quiet room is not one stamp.
   expect(robotFrame(robot({ pose: "idle", seatIndex: 1 }), 0, 0, false).tilt).toBe(0.16);
@@ -198,6 +202,7 @@ test("the other poses are fixed", () => {
     tilt: 0,
     armLeft: 0,
     armRight: Math.PI,
+    armSway: 0,
   });
   expect(robotFrame(robot({ pose: "slumped" }), 0, 0, false)).toEqual({
     x: 10,
@@ -209,7 +214,44 @@ test("the other poses are fixed", () => {
     tilt: 0.3,
     armLeft: 0.25,
     armRight: 0.25,
+    armSway: 0,
   });
+});
+
+test("a robot that starts to wait waves once, then holds its hand still", () => {
+  const waiting = robot({ pose: "raised" });
+  const began = 5000;
+  const still = { ...robotFrame(waiting, 0, began, false, began) };
+  expect(still.armSway).toBe(0);
+  // A quarter of the way in, the raised arm is out to one side; nothing else moves.
+  const early = robotFrame(waiting, 0, began + WAVE_MS / 4, false, began);
+  expect(Math.abs(early.armSway)).toBeGreaterThan(0.1);
+  expect(Math.abs(early.armSway)).toBeLessThan(0.5);
+  expect({ ...early, armSway: 0 }).toEqual(still);
+  // It swings to both sides, and less each time.
+  const sways = [0.1, 0.3, 0.5, 0.7, 0.9].map(
+    (part) => robotFrame(waiting, 0, began + WAVE_MS * part, false, began).armSway,
+  );
+  expect(sways.some((sway) => sway > 0) && sways.some((sway) => sway < 0)).toBe(true);
+  expect(Math.abs(sways[4] ?? 1)).toBeLessThan(Math.abs(sways[0] ?? 0));
+  // Then the hand is still, for as long as the robot waits.
+  expect(robotFrame(waiting, 0, began + WAVE_MS, false, began)).toEqual(still);
+  expect(robotFrame(waiting, 0, began + 60_000, false, began)).toEqual(still);
+  // With reduced motion it never waves.
+  expect(robotFrame(waiting, 0, began + WAVE_MS / 4, true, began)).toEqual(still);
+});
+
+test("the scene animates smoothly while a robot waves, then not at all", () => {
+  const entered = new Map([["r", 0]]);
+  const posed = new Map([["r", 5000]]);
+  const waiting = robot({ agentId: "r", pose: "raised" });
+  expect(animationNeed([waiting], entered, 5000 + WAVE_MS / 2, false, posed)).toBe("smooth");
+  expect(animationNeed([waiting], entered, 5000 + WAVE_MS, false, posed)).toBe("none");
+  expect(animationNeed([waiting], entered, 5000 + WAVE_MS / 2, true, posed)).toBe("none");
+  // A robot the scene has no time for does not wave.
+  expect(animationNeed([robot({ agentId: "x", pose: "raised" })], entered, 100, false, posed)).toBe(
+    "none",
+  );
 });
 
 test("the scene animates smoothly while someone walks, slowly while someone types, else not at all", () => {
