@@ -195,6 +195,24 @@ test("robots, lit screens by night, lamps, notes and planes stand at least 3:1 o
   }
 });
 
+test("a note stands at least 3:1 off what it is pinned to: the whiteboard, or a desk", () => {
+  for (const palette of palettes()) {
+    const weakest = Math.min(
+      contrast(palette.noteTask, palette.board),
+      contrast(palette.noteClaimed, palette.board),
+      contrast(palette.noteNote, palette.board),
+      contrast(palette.noteClaimed, palette.desk),
+    );
+    expect(weakest).toBeGreaterThanOrEqual(3);
+  }
+});
+
+test("a plane is not the grey of a task's note: the two stand 1.5:1 apart or more", () => {
+  for (const palette of palettes()) {
+    expect(contrast(palette.plane, palette.noteTask)).toBeGreaterThanOrEqual(1.5);
+  }
+});
+
 test("the warning light is lighter than the danger light, so the two differ without hue", () => {
   for (const palette of [scenePalette(theme({})), scenePalette(theme(DARK))]) {
     expect(contrast(palette.lightWarning, palette.lightDanger)).toBeGreaterThanOrEqual(1.4);
