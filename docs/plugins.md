@@ -326,8 +326,13 @@ that opens the session, sends a prompt, answers a tool, mode or other permission
 question says to answer it in the session), or stops the running turn with the SDK's `cancel()`.
 The server keeps one directory from subscribed `agents.list` and `workspaces.list` calls (the
 first 200 of each) and streams a compact projection over the `office.state` subscription; the
-directory and the 5 s "doing now" reads run only while an office surface is open. Design:
-[the spec](superpowers/specs/2026-11-11-agent-office-design.md).
+directory and the 5 s "doing now" reads run only while an office surface is open. On web, with
+WebGL2, the office draws the same model as a small 3D office, one glass room per workspace and one
+robot per agent whose pose shows its state; a per-device "3D" switch turns it off. The 3D view
+loads the plugin's vendored three.js r170 (`plugins/office/vendor`) through the
+`office.asset.request` RPC the first time it is shown on a page, evaluates it from a Blob URL, and
+draws only while something moves; native clients, devices without WebGL2 and a lost graphics
+context get the list. Design: [the spec](superpowers/specs/2026-11-11-agent-office-design.md).
 
 `scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
 and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
