@@ -30,6 +30,24 @@ export function isCoarsePointer(): boolean {
 }
 
 /**
+ * Calls `onSpace` when Space goes down on the element with this id, and returns what stops it.
+ * react-native-web presses on Space only for a button; a switch is turned with Space (WAI-ARIA).
+ * Without a document (native) nothing is listened to.
+ */
+export function listenForSpace(elementId: string, onSpace: () => void): () => void {
+  const element = typeof document === "undefined" ? null : document.getElementById(elementId);
+  if (element === null) return () => undefined;
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== " " && event.key !== "Spacebar") return;
+    // Space scrolls the page; a key held down turns the switch once.
+    event.preventDefault();
+    if (!event.repeat) onSpace();
+  };
+  element.addEventListener("keydown", onKeyDown);
+  return () => element.removeEventListener("keydown", onKeyDown);
+}
+
+/**
  * Evaluates an ES module from bytes and returns its namespace. The import lives in a string so
  * esbuild's CJS output does not rewrite it into a require() the app's evaluator would refuse,
  * and only a browser ever parses it. The three.js build is an ES module, which eval cannot run.
