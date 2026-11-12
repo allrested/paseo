@@ -148,7 +148,7 @@ export function zoomAbout(
   viewport: Viewport,
   span: GroundSpan,
 ): CameraView {
-  const zoomed = zoomBy(from, factor);
+  const zoomed = zoomBy(from, factor, viewport);
   const applied = zoomed.zoom / from.zoom - 1;
   const dx = (at.x - viewport.width / 2) * applied;
   const dy = (at.y - viewport.height / 2) * applied;

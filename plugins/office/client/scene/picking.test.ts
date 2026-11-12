@@ -6,6 +6,7 @@ import {
   pixelsPerUnit,
   screenPoint,
   zoomBy,
+  zoomLimits,
   type CameraView,
   type GroundSpan,
   type ScreenPoint,
@@ -116,7 +117,7 @@ test("after a pan a tap picks the robot where it is drawn now", () => {
 });
 
 test("after a zoom a tap picks the robot where it is drawn now", () => {
-  const zoomed = zoomBy(VIEW, 2);
+  const zoomed = zoomBy(VIEW, 2, PHONE);
   const screen: Screen = { view: zoomed, viewport: PHONE };
   const before = screenPoint(VIEW, PHONE, ROBOT.chest);
   const after = screenPoint(zoomed, PHONE, ROBOT.chest);
@@ -152,7 +153,8 @@ test("zooming about a point keeps the ground under it where it is on screen", ()
 });
 
 test("a zoom already at its limit does not move the camera", () => {
-  const atMax: CameraView = { x: 1, z: 2, zoom: 3 };
+  // The limit is a size on screen (camera.ts, SCALE_LIMITS), so its zoom depends on the view.
+  const atMax: CameraView = { x: 1, z: 2, zoom: zoomLimits(PHONE).max };
   expect(zoomAbout(atMax, 2, { x: 10, y: 10 }, PHONE, OPEN)).toEqual(atMax);
 });
 
