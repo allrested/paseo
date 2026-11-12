@@ -1,1 +1,1 @@
-{ "id": "office", "requirements": { "paseo": ">=0.15.4" } }
+{ "id": "office", "requirements": { "paseo": ">=0.16.0" } }
