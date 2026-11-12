@@ -1,5 +1,6 @@
 import { READ_POST_MAX, USER_AUTHOR, WAKES_PER_HOUR, type WakeState } from "../shared/contracts.js";
 import { errorMessage } from "./errors.js";
+import { indented, oneLine } from "./prompt-text.js";
 import type { Clock } from "./timers.js";
 
 export const WAKE_WINDOW_MS = 60 * 60 * 1000;
@@ -36,10 +37,10 @@ export interface Delivery {
  * start a line that reads as another post.
  */
 export function wakePrompt(deliveries: readonly Delivery[]): string {
-  const lines = deliveries.map((delivery) => {
-    const author = delivery.authorLabel.replace(/\s+/g, " ").trim();
-    return `- ${delivery.postId} from ${author}: ${delivery.text.replace(/\r\n?|\n/g, "\n  ")}`;
-  });
+  const lines = deliveries.map(
+    (delivery) =>
+      `- ${delivery.postId} from ${oneLine(delivery.authorLabel)}: ${indented(delivery.text)}`,
+  );
   return [`Office board: ${deliveries.length} post(s) for you.`, ...lines].join("\n");
 }
 
