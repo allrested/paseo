@@ -42,19 +42,34 @@ export function usageWindowRowLabel(input: {
 export type UsageWindowCountdown = "reset" | "runsOut";
 
 /**
- * The run-out shows only where `showsRunOut` asks for it (an agent's usage), for a window on pace
- * to run out. A retained report's run-out stops showing once its time has passed.
+ * A window on pace to run out shows its run-out. A retained report's run-out stops showing once
+ * its time has passed.
  */
 export function usageWindowCountdown(input: {
   window: Pick<UsageWindow, "runsOutAt" | "shortfallPct">;
   retained: boolean;
-  showsRunOut: boolean;
   now: number;
 }): UsageWindowCountdown {
   const { runsOutAt, shortfallPct } = input.window;
-  if (!input.showsRunOut || runsOutAt == null || shortfallPct == null) return "reset";
+  if (runsOutAt == null || shortfallPct == null) return "reset";
   if (input.retained && Date.parse(runsOutAt) <= input.now) return "reset";
   return "runsOut";
+}
+
+/**
+ * The windows whose reset is listed under the bars: a row that shows when its window runs out has
+ * no room left to say when it resets.
+ */
+export function usageResetsUnderBars(input: {
+  windows: readonly UsageWindow[];
+  retained: boolean;
+  now: number;
+}): UsageWindow[] {
+  const { retained, now } = input;
+  return input.windows.filter(
+    (window) =>
+      window.resetsAt != null && usageWindowCountdown({ window, retained, now }) === "runsOut",
+  );
 }
 
 /** A user-requested refresh of one report. The previous report stays on screen throughout. */
