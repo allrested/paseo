@@ -1607,8 +1607,9 @@ export async function createPaseoDaemon(
       },
     }),
   });
-  // A minute is long enough for the move dialog and the move it leads to to share one answer.
-  const targetLoginLookup = createUsageLookup<TargetLogin>();
+  // Nothing is reused: someone who signs in after a refusal is not held to the old answer. The
+  // lookup still shares a probe in flight and gives up on a slow one.
+  const targetLoginLookup = createUsageLookup<TargetLogin>({ ttlMs: 0 });
   const targetLogin = async (providerId: string): Promise<TargetLogin> => {
     const info = providerSnapshotManager.getProviderLaunchInfo(providerId);
     if (!info) return "unknown";
@@ -2068,11 +2069,9 @@ export async function createPaseoDaemon(
                   agentManager
                     .listAgents()
                     .filter((agent) => !agent.internal)
-                    .map((agent) => ({
-                      id: agent.id,
-                      provider: agent.provider,
-                      limitReachedAt: agent.limitReached?.at ?? null,
-                    })),
+                    .map((agent) => ({ id: agent.id, provider: agent.provider })),
+                limitReachedAt: (agentId) =>
+                  agentManager.getAgent(agentId)?.limitReached?.at ?? null,
                 listAgentUsage: (agentId) => pluginRuntime.listUsageReports({ agentId }),
                 setLimitReached: (agentId, value) => agentManager.setLimitReached(agentId, value),
                 now: () => new Date(),
