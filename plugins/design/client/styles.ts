@@ -33,6 +33,8 @@ export interface DesignStyles {
   iconButton: ViewStyle;
   iconColor: string;
   banner: ViewStyle;
+  /** The banner under the web editor's full-width title row, on the same edges. */
+  editorBanner: ViewStyle;
   bannerText: Record<"muted" | "warning" | "danger", TextStyle>;
   sectionLabel: TextStyle;
   /** The phone picture's frame: the page's own picture, contained, on a quiet surface. */
@@ -198,6 +200,7 @@ export function useDesignStyles(
         paddingHorizontal: pad,
         paddingBottom: 8,
       },
+      editorBanner: { paddingHorizontal: pad, paddingBottom: 8 },
       bannerText: {
         muted: { ...small, color: colors.foregroundMuted },
         warning: { ...small, color: colors.statusWarning },
