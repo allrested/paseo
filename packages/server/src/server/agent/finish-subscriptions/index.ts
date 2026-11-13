@@ -106,12 +106,16 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     void watch.task.then(() => tasks.delete(watch.task!));
     return watch;
   }
+  /** `group` is where the caller last saw the watch; a re-pointed watch sits under a newer key. */
   function stop(watch: Watch, group: Set<Watch>): void {
     watch.controller.abort();
     watch.decide(false);
-    group.delete(watch);
-    if (!group.size && watches.get(key(watch.records[0]!)) === group)
-      watches.delete(key(watch.records[0]!));
+    const current = key(watch.records[0]!);
+    for (const holder of new Set([group, watches.get(current)])) {
+      if (!holder) continue;
+      holder.delete(watch);
+      if (!holder.size && watches.get(current) === holder) watches.delete(current);
+    }
   }
   async function remove(watch: Watch): Promise<void> {
     // Only IDs captured by this observer are eligible; newer registrations survive.
@@ -240,9 +244,14 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     async function followCaller(): Promise<boolean> {
       const caller = await deps.resolveCaller(record.callerAgentId);
       if (caller === null) return false;
-      if (caller === record.callerAgentId) return true;
+      // A watch stopped meanwhile is neither saved again nor filed again; the loop ends it.
+      if (caller === record.callerAgentId || signal.aborted) return true;
       const records = watch.records.map((intent) => ({ ...intent, callerAgentId: caller }));
       for (const intent of records) await deps.store.put(intent);
+      if (signal.aborted) {
+        for (const intent of records) await deps.store.remove(intent.id);
+        return true;
+      }
       group = refile(watch, group, records);
       record = { ...record, callerAgentId: caller };
       return true;
