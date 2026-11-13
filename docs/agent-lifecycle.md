@@ -422,8 +422,10 @@ the target with its previous labels, move state and `limitReached`. A daemon res
 therefore leaves at worst two live agents and no lost work. One move runs per agent at a time; a
 second request is refused as busy.
 
-Schedules and heartbeats aimed at the agent you move are completed when the move archives it, and
-finish notifications addressed to it stop. Move back restores neither.
+Schedules and heartbeats aimed at the agent you move are aimed at its successor before the move
+archives it, and move back returns them. A finish notification addressed to an agent that moved
+is delivered to its successor. When you move a sub-agent and let it continue, its parent is told
+when the successor finishes.
 
 ## Tabs vs archive
 
