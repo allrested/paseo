@@ -11,6 +11,7 @@ import {
   savedThreeD,
   switchSync,
   switchUnsaved,
+  threeDMode,
   type OfficeView,
   type PointerFacts,
   type StoredSwitch,
@@ -406,4 +407,23 @@ test("a switch whose save was refused for good is unsaved until the next tap or 
     givenUp: true,
     after: [false, false],
   });
+});
+
+test("threeDMode draws locally on web with WebGL2, whatever the host can do", () => {
+  expect(threeDMode({ platform: "web", webgl2: true, hostRender: true })).toBe("local");
+  expect(threeDMode({ platform: "web", webgl2: true, hostRender: false })).toBe("local");
+});
+
+test("threeDMode streams in the installed app when the host can draw", () => {
+  expect(threeDMode({ platform: "ios", webgl2: false, hostRender: true })).toBe("stream");
+  expect(threeDMode({ platform: "android", webgl2: false, hostRender: true })).toBe("stream");
+});
+
+test("threeDMode streams on web without WebGL2 when the host can draw", () => {
+  expect(threeDMode({ platform: "web", webgl2: false, hostRender: true })).toBe("stream");
+});
+
+test("threeDMode is none when neither the device nor the host can draw", () => {
+  expect(threeDMode({ platform: "android", webgl2: false, hostRender: false })).toBe("none");
+  expect(threeDMode({ platform: "web", webgl2: false, hostRender: false })).toBe("none");
 });
