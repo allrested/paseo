@@ -147,6 +147,7 @@ export interface ThreeModule {
     antialias: boolean;
     alpha: boolean;
     powerPreference: "low-power" | "default" | "high-performance";
+    preserveDrawingBuffer?: boolean;
   }) => RendererLike;
   readonly Scene: new () => SceneLike;
   readonly Group: new () => Object3DLike;

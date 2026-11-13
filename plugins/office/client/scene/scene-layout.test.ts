@@ -10,7 +10,7 @@ import {
   shapeAfterResize,
   type ContainerShape,
   type SceneLayout,
-} from "./scene-view.js";
+} from "./scene-layout.js";
 
 interface Size {
   width: number;

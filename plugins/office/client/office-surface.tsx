@@ -28,14 +28,8 @@ import {
   type OfficeModel,
   type OfficeRoom,
 } from "./model.js";
-import {
-  NO_LAYOUT,
-  SceneView,
-  type FocusRequest,
-  type SceneCameraKeeper,
-  type SceneLayout,
-  type SceneLayoutKeeper,
-} from "./scene/scene-view.js";
+import { NO_LAYOUT, type SceneLayout, type SceneLayoutKeeper } from "./scene/scene-layout.js";
+import { SceneView, type FocusRequest, type SceneCameraKeeper } from "./scene/scene-view.js";
 import { hasWebGL2 } from "./scene/web-env.web.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
