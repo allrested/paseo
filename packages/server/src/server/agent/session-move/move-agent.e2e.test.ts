@@ -618,6 +618,98 @@ describe("moveAgent", () => {
     });
   });
 
+  describe("when the target is not signed in", () => {
+    let interrupts = 0;
+    let releaseHold: () => void = () => {};
+
+    beforeEach(async () => {
+      interrupts = 0;
+      const hold = new Promise<void>((resolve) => {
+        releaseHold = resolve;
+      });
+      ctx = await createDaemonTestContext({
+        agentClients: {
+          ...createTestAgentClients(),
+          claude: createTestAgentClient("claude", {
+            beforeTurnComplete: (prompt) =>
+              typeof prompt === "string" && prompt.includes("HOLD") ? hold : Promise.resolve(),
+            onInterrupt: () => {
+              interrupts += 1;
+            },
+          }),
+        },
+      });
+    });
+
+    // Runs before the outer afterEach, so a held turn never blocks the daemon cleanup.
+    afterEach(() => releaseHold());
+
+    /** The CLI of `provider` says nobody is signed in; every other login is unknown. */
+    function signOut(provider: string): void {
+      const { agentManager } = requireCtx().daemon.daemon;
+      const carry = agentManager.moveCarry;
+      if (!carry) throw new Error("test daemon has no move carry");
+      agentManager.setMoveCarry({
+        ...carry,
+        targetLogin: async (providerId) => (providerId === provider ? "signed_out" : "unknown"),
+      });
+    }
+
+    it("refuses the move without stopping the running turn", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const { agentManager, agentStorage } = requireCtx().daemon.daemon;
+      signOut("codex");
+      const run = agentManager.runAgent(sourceId, "HOLD");
+      await waitForRunning(sourceId);
+
+      await expect(
+        moveAgent(deps(), {
+          agentId: sourceId,
+          target: { provider: "codex" },
+          continueWork: false,
+        }),
+      ).rejects.toMatchObject({ code: "unavailable", message: "Codex is not signed in" });
+
+      expect(interrupts).toBe(0);
+      expect(agentManager.getAgent(sourceId)?.lifecycle).toBe("running");
+      expect((await agentStorage.get(sourceId))?.archivedAt ?? null).toBeNull();
+      expect(providersOf(await agentStorage.listAll())).not.toContain("codex");
+      releaseHold();
+      await run;
+    });
+
+    it("refuses a move back to an account that signed out since", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const moved = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      signOut("claude");
+
+      await expect(
+        moveAgentBack(deps(), { agentId: moved.agentId, continueWork: false }),
+      ).rejects.toMatchObject({ code: "unavailable", message: "Claude is not signed in" });
+
+      const { agentStorage } = requireCtx().daemon.daemon;
+      expect((await agentStorage.get(moved.agentId))?.archivedAt ?? null).toBeNull();
+      expect((await agentStorage.get(sourceId))?.archivedAt).toBeTruthy();
+    });
+
+    it("moves when the login is unknown", async () => {
+      const sourceId = await createRanClaudeAgent();
+      signOut("opencode");
+
+      const moved = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+
+      expect(moved.strategy).toBe("handoff");
+    });
+  });
+
   describe("when the new agent fails to start", () => {
     // Counts turns the new Codex agent tried to start: proves it existed before the rollback.
     let codexTurnStarts = 0;

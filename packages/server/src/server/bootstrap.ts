@@ -16,6 +16,13 @@ import {
 import { startUsageLimitFallback } from "./agent/session-move/usage-limit-fallback.js";
 import { getParentAddressFromLabels } from "@getpaseo/protocol/agent-labels";
 import { movedAgentLookup, resolveMovedAgent } from "./agent/session-move/move-agent.js";
+import { createUsageLookup } from "./agent/session-move/move-targets.js";
+import {
+  probeTargetLogin,
+  runStatusCommand,
+  type RunCommand,
+  type TargetLogin,
+} from "./agent/session-move/target-login.js";
 import {
   createFinishSubscriptions,
   createFinishObservation,
@@ -543,6 +550,8 @@ export interface PaseoDaemonDependencies {
     daemonStatusRpc?: boolean;
     relayConfig?: boolean;
   };
+  /** Runs a CLI's login status command for session move. Tests pass one that runs nothing. */
+  runLoginStatusCommand?: RunCommand;
 }
 
 function resolveBuiltinPluginLoader(dependencies: PaseoDaemonDependencies): BuiltinPluginLoader {
@@ -1598,7 +1607,18 @@ export async function createPaseoDaemon(
       },
     }),
   });
+  // A minute is long enough for the move dialog and the move it leads to to share one answer.
+  const targetLoginLookup = createUsageLookup<TargetLogin>();
+  const targetLogin = async (providerId: string): Promise<TargetLogin> => {
+    const info = providerSnapshotManager.getProviderLaunchInfo(providerId);
+    if (!info) return "unknown";
+    const login = await targetLoginLookup(providerId, () =>
+      probeTargetLogin(info, dependencies.runLoginStatusCommand ?? runStatusCommand),
+    );
+    return login ?? "unknown";
+  };
   agentManager.setMoveCarry({
+    targetLogin,
     retargetSchedules: (from, to) => scheduleService.retargetAgent(from, to),
     notifyParentOnFinish: async (agentId, labels) => {
       const parent = getParentAddressFromLabels(labels, serverId);

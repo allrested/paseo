@@ -104,6 +104,10 @@ async function requireTarget(
         : `Provider ${provider} is not available`,
     );
   }
+  // Before settle, which stops the source's turn: a signed-out target would fail its first one.
+  if ((await deps.agentManager.moveCarry?.targetLogin(provider)) === "signed_out") {
+    throw new MoveAgentError("unavailable", `${info.label} is not signed in`);
+  }
   return { info, modes: entry.modes ?? [] };
 }
 
