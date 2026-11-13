@@ -122,9 +122,26 @@ describe("CdpOffscreenPages", () => {
 
     await until(() => closed === 1, "the closed listener");
     await expect(page.evaluate("1")).rejects.toThrow();
-    // Nothing is left to close.
     await page.close();
-    expect(commandsOf("Target.closeTarget")).toHaveLength(0);
+    // The target is asked to close once, in case only its connection died; never twice.
+    await until(() => commandsOf("Target.closeTarget").length === 1, "the one close");
+    await page.close();
+    expect(commandsOf("Target.closeTarget")).toHaveLength(1);
+  });
+
+  test("a page whose connection dies has its window closed, so none is left in the browser", async () => {
+    const page = await pages.open(VIEWPORT);
+    let closed = 0;
+    page.onClosed(() => closed++);
+    const targetId = [...chromium.targets.keys()][0]!;
+
+    // As after a command timeout: the socket goes, the Chromium window stays.
+    chromium.disconnect(targetId);
+
+    await until(() => closed === 1, "the closed listener");
+    await until(() => chromium.targets.size === 0, "the window to close");
+    await pages.stop();
+    expect(commandsOf("Target.closeTarget")).toHaveLength(1);
   });
 
   test("stop closes every open page", async () => {

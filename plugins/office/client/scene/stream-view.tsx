@@ -3,6 +3,7 @@
 // here is a React Native primitive: the store app evaluates this bundle as it is.
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
+  AppState,
   Image,
   PixelRatio,
   Text,
@@ -47,11 +48,24 @@ interface Size {
   height: number;
 }
 
-/** The view's size once it has one; a hidden tab measures 0 x 0 and keeps the last. */
+/**
+ * The view's size, or null while it has none. A hidden workspace tab measures 0 x 0: its stream
+ * closes, so a view nobody sees holds none of the host's two places.
+ */
 export function sizeAfterLayout(previous: Size | null, width: number, height: number): Size | null {
-  if (width < 1 || height < 1) return previous;
+  if (width < 1 || height < 1) return null;
   if (previous !== null && previous.width === width && previous.height === height) return previous;
   return { width, height };
+}
+
+/** The stream runs only for a view that has a size, in an app that is not in the background. */
+export function streamShown(size: Size | null, appState: string): size is Size {
+  return size !== null && appState !== "background";
+}
+
+/** The size to tell the host, or null when it already has it. */
+export function resizeToSend(sent: Size, now: Size): Size | null {
+  return sent.width === now.width && sent.height === now.height ? null : now;
 }
 
 export function StreamView(props: StreamViewProps) {
@@ -61,14 +75,19 @@ export function StreamView(props: StreamViewProps) {
     const { width, height } = event.nativeEvent.layout;
     setSize((previous) => sizeAfterLayout(previous, width, height));
   }, []);
+  const [appState, setAppState] = useState<string>(() => AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", setAppState);
+    return () => subscription.remove();
+  }, []);
   // A new theme is a new stream: the host draws in the colours it was opened with.
   const themeKey = useMemo(() => Object.values(props.theme.colors).join("|"), [props.theme]);
   return (
     <View style={styles.scene} onLayout={onLayout}>
-      {size === null ? (
-        <Text style={styles.sceneStatus}>Loading the 3D view...</Text>
-      ) : (
+      {streamShown(size, appState) ? (
         <Stream key={themeKey} size={size} {...props} />
+      ) : (
+        <Text style={styles.sceneStatus}>Loading the 3D view...</Text>
       )}
     </View>
   );
@@ -134,10 +153,15 @@ function Stream({
     return () => clearInterval(timer);
   }, [outbox]);
 
+  // Compared with the last size the host was told, not the opening one: turning the phone and
+  // turning it back has to send the opening size again.
+  const sentSize = useRef<Size>({ width: input.width, height: input.height });
   const { width, height } = size;
   useEffect(() => {
-    if (width === input.width && height === input.height) return;
-    outbox.resize({ width, height, pixelRatio: input.pixelRatio });
+    const next = resizeToSend(sentSize.current, { width, height });
+    if (next === null) return;
+    sentSize.current = next;
+    outbox.resize({ ...next, pixelRatio: input.pixelRatio });
   }, [width, height, input, outbox]);
 
   // A request that was already there when this view appeared was made for the structure view.
