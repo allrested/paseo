@@ -80,7 +80,7 @@ interface Harness {
   activity: FakeActivity;
 }
 
-function startHarness(initial: DirectoryView): Harness {
+function startHarness(initial: DirectoryView, extra: Partial<HubPorts> = {}): Harness {
   const clock = createFakeClock();
   let directoryListener: ((view: DirectoryView) => void) | null = null;
   let endListener: (() => void) | null = null;
@@ -129,6 +129,7 @@ function startHarness(initial: DirectoryView): Harness {
     },
     timers: clock,
     log: () => undefined,
+    ...extra,
   };
   return { hub: createHub(ports), clock, directory, activity };
 }
@@ -516,4 +517,22 @@ test("stopping the hub cancels a pending restart", async () => {
   expect(harness.directory.opens).toBe(2);
   subscriber.controller.abort();
   await subscriber.done;
+});
+
+test("the snapshot says whether the host can draw 3D", async () => {
+  for (const available of [true, false]) {
+    const { hub } = startHarness(
+      { agents: [], workspaces: [] },
+      { renderAvailable: () => available },
+    );
+    const subscriber = subscribe(hub);
+    await settle();
+
+    expect(subscriber.events[0]).toMatchObject({
+      type: "snapshot",
+      state: { render: { available } },
+    });
+    subscriber.controller.abort();
+    await subscriber.done;
+  }
 });

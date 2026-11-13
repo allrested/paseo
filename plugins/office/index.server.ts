@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
@@ -9,12 +10,20 @@ import { liveAgentPorts, liveHubPorts } from "./server/live-ports.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import { boardsFile } from "./server/paths.js";
+import {
+  createRenderPageHost,
+  type PagesPort,
+  type RenderPageHost,
+} from "./server/render/page-host.js";
+import { createRenderSessions } from "./server/render/sessions.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
   assetRpc,
   deleteRpc,
   officeStateSubscription,
   postRpc,
+  renderInputRpc,
+  renderSubscription,
   setWakesPausedRpc,
   updateRpc,
 } from "./shared/contracts.js";
@@ -23,6 +32,10 @@ import { officeHostSettings } from "./shared/settings.js";
 /** What the daemon passes a built-in beside the server context (as in plugins/default-skills). */
 interface BuiltinPluginInfo {
   directory: string;
+  /** Pages in the daemon's Chromium that no pane or agent sees; absent without a Chromium. */
+  offscreenPages?: PagesPort;
+  /** Builds one self-contained browser script from an entry file. */
+  bundleBrowserScript?: (entryPath: string) => Promise<string>;
 }
 
 /** What the office needs from outside the daemon's plugin API. */
@@ -32,6 +45,8 @@ export interface OfficePluginDeps {
   log(message: string): void;
   /** The folder of the vendored three.js build, or null when the daemon named no plugin folder. */
   vendorDirectory: string | null;
+  /** Draws the 3D view on the host for a device that cannot; null when the host has no browser. */
+  render: RenderPageHost | null;
 }
 
 // Runs inside the daemon process: every handler, hook and timer catches its own errors.
@@ -41,7 +56,17 @@ export function createOfficePlugin(
 ): () => Promise<void> {
   const { log, vendorDirectory } = deps;
   const holder = createPaseoHolder();
-  const hub = createHub(liveHubPorts(holder, deps.clock, log));
+  const hub = createHub({
+    ...liveHubPorts(holder, deps.clock, log),
+    renderAvailable: () => deps.render !== null,
+  });
+  const renderSessions = createRenderSessions({
+    host: deps.render,
+    hub,
+    clock: deps.clock,
+    newStreamId: randomUUID,
+    log,
+  });
   const office = createOffice({
     store: deps.store,
     clock: deps.clock,
@@ -68,6 +93,13 @@ export function createOfficePlugin(
     return hub.attach(context);
   });
   server.handle(assetRpc, () => guarded("asset", () => readThreeAsset(vendorDirectory)));
+  // Resolves when the stream ends, which closes the subscription. It never rejects: a stream
+  // that cannot run says why in a problem event first.
+  server.handle(renderSubscription, (input, context) => {
+    holder.remember(context.paseo);
+    return renderSessions.attach(input, context);
+  });
+  server.handle(renderInputRpc, (input) => renderSessions.input(input));
   server.handle(postRpc, (input, context) => {
     holder.remember(context.paseo);
     return guarded("post", () => office.post(input));
@@ -139,6 +171,7 @@ export function createOfficePlugin(
 
   return async () => {
     for (const remove of removeHooks) remove();
+    await renderSessions.stop();
     office.stop();
     await hub.stop();
   };
@@ -149,6 +182,7 @@ export default function contribute(
   builtin?: BuiltinPluginInfo,
 ): () => Promise<void> {
   const log = (message: string) => console.error(message);
+  const vendorDirectory = builtin ? join(builtin.directory, "vendor") : null;
   return createOfficePlugin(server, {
     // Built-ins run in the daemon process, so process.env is the daemon's env.
     store: createBoardStore({
@@ -158,6 +192,15 @@ export default function contribute(
     }),
     clock: nodeClock,
     log,
-    vendorDirectory: builtin ? join(builtin.directory, "vendor") : null,
+    vendorDirectory,
+    render:
+      builtin?.offscreenPages && builtin.bundleBrowserScript
+        ? createRenderPageHost({
+            pages: builtin.offscreenPages,
+            bundle: builtin.bundleBrowserScript,
+            readThree: () => readThreeAsset(vendorDirectory),
+            pageEntry: join(builtin.directory, "render", "page.ts"),
+          })
+        : null,
   });
 }

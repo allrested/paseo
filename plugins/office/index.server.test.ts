@@ -131,6 +131,7 @@ function setup(read: () => Promise<SettingsState>) {
     clock,
     log: (message) => logs.push(message),
     vendorDirectory: null,
+    render: null,
   });
   async function open(
     overrides: Partial<PluginSessionOpenRequest> = {},
@@ -233,12 +234,14 @@ test("a post for a running agent goes out when its turn ends", async () => {
   await stop();
 });
 
-test("the entry serves the office state, the asset and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the entry serves the office state, the asset, the 3D stream and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
     "office.state",
     "office.asset.request",
+    "office.render",
+    "office.render.input.request",
     "office.post.request",
     "office.update.request",
     "office.delete.request",
@@ -256,4 +259,20 @@ test("the entry serves the office state, the asset and the four board calls, and
   await stop();
   expect(recorded.hooks.size).toBe(0);
   expect(clock.pending()).toBe(0);
+});
+
+test("a host with no browser refuses the 3D stream with a problem, and knows no stream", async () => {
+  const { recorded, context, stop } = setup(async () => ON);
+  const events: unknown[] = [];
+  const stream = recorded.handlers.get("office.render");
+  const input = recorded.handlers.get("office.render.input.request");
+
+  await stream?.({ width: 390, height: 700, pixelRatio: 3, colors: {}, coarsePointer: true }, {
+    ...context,
+    push: async (event: unknown) => void events.push(event),
+  } as never);
+
+  expect(events).toEqual([{ type: "problem", message: "The host has no browser to draw 3D" }]);
+  expect(await input?.({ streamId: "s1" }, context)).toEqual({ ok: false });
+  await stop();
 });
