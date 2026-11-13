@@ -1,0 +1,71 @@
+{
+  "access": "edit",
+  "address": "127.0.0.1:37867",
+  "attempt": null,
+  "available": true,
+  "canHost": true,
+  "chat": "",
+  "code": null,
+  "color": "#9747FF",
+  "document": 1,
+  "editing": null,
+  "fileName": "contract",
+  "follow": null,
+  "hosting": {
+    "expires": null,
+    "idleDays": 30,
+    "maxFileMb": 64,
+    "open": false,
+    "operator": "",
+    "terms": ""
+  },
+  "link": "figcraft://join?host=127.0.0.1:37867&file=0b4af6ef0a7515aa&token=<redacted>",
+  "me": 2,
+  "name": "Builder (agent)",
+  "network": false,
+  "pages": [
+    {
+      "id": 1,
+      "name": "Page 1"
+    }
+  ],
+  "peers": [
+    {
+      "chat": null,
+      "color": "#0D99FF",
+      "editing": null,
+      "id": 1,
+      "name": "Paseo (agent)",
+      "presence": {
+        "cursor": null,
+        "editing_text": null,
+        "selection": [4294967297],
+        "viewport": [1, -100, -100, 1200, 800]
+      }
+    }
+  ],
+  "published": null,
+  "readOnly": false,
+  "reason": null,
+  "role": "guest",
+  "session": 1,
+  "sessions": [
+    {
+      "document": 1,
+      "fileName": "contract",
+      "link": "figcraft://join?host=127.0.0.1:37867&file=0b4af6ef0a7515aa&token=<redacted>",
+      "peers": 1,
+      "reason": null,
+      "role": "guest",
+      "session": 1,
+      "status": "live"
+    }
+  ],
+  "share": null,
+  "signals": true,
+  "spotlight": null,
+  "spotlighting": false,
+  "status": "live",
+  "syncing": true,
+  "url": "ws://127.0.0.1:37867/?file=0b4af6ef0a7515aa&token=<redacted>"
+}

@@ -1,0 +1,5 @@
+{
+  "code": "// Card as React + Tailwind CSS v4. Theme: variable.export {format: \"tailwind\"}.\nexport function Card() {\n  return (\n    <div className=\"relative w-80 h-50 bg-[#FFFFFF]\"></div>\n  );\n}\n",
+  "connected": false,
+  "language": "tailwind"
+}

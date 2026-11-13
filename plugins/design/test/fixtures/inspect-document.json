@@ -1,0 +1,50 @@
+{
+  "colorProfile": "srgb",
+  "currentPage": 1,
+  "dirty": true,
+  "history": {
+    "redo": 0,
+    "undo": ["Add comment", "Import variables", "Create layer"]
+  },
+  "id": 1,
+  "images": 0,
+  "kind": "design",
+  "name": "contract",
+  "pages": [
+    {
+      "background": "#F5F5F5",
+      "children": [
+        {
+          "absoluteBounds": {
+            "height": 200,
+            "width": 320,
+            "x": 40,
+            "y": 30
+          },
+          "clip": true,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 200,
+          "id": 4294967297,
+          "name": "Card",
+          "type": "FRAME",
+          "width": 320,
+          "x": 40,
+          "y": 30
+        }
+      ],
+      "id": 1,
+      "name": "Page 1",
+      "type": "PAGE"
+    }
+  ],
+  "path": null,
+  "selection": [4294967297],
+  "styles": [],
+  "textEdit": null,
+  "variables": 2
+}

@@ -1,0 +1,25 @@
+{
+  "comments": [
+    {
+      "agent": true,
+      "anchor": null,
+      "author": "contract-a (agent)",
+      "created": 1794565368,
+      "edited": 0,
+      "frame": 4294967297,
+      "frameName": "Card",
+      "id": 4294967302,
+      "link": "figcraft://comment/4294967302",
+      "mentions": [],
+      "page": 1,
+      "pageName": "Page 1",
+      "reactions": [],
+      "replies": [],
+      "resolved": false,
+      "text": "Make it rounder",
+      "unread": false,
+      "x": 50,
+      "y": 40
+    }
+  ]
+}

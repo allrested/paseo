@@ -1,0 +1,25 @@
+{
+  "comments": [
+    {
+      "agent": true,
+      "anchor": null,
+      "author": "contract-a (agent)",
+      "frame": 4294967297,
+      "frameName": "Card",
+      "id": 4294967302,
+      "link": "figcraft://comment/4294967302",
+      "mentions": [],
+      "page": 1,
+      "pageName": "Page 1",
+      "preview": "Make it rounder",
+      "replies": 0,
+      "resolved": false,
+      "unread": false,
+      "x": 50,
+      "y": 40
+    }
+  ],
+  "count": 1,
+  "text": "# FigCraft feedback\n\nDocument: contract\nPath: not saved\nThreads: 1\n\nFix these comments in the FigCraft document. For each thread:\n1. Inspect the anchored layer with get_node and the frame with screens…",
+  "truncated": false
+}
