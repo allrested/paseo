@@ -328,7 +328,9 @@ out of quota can continue elsewhere. The code is in `packages/server/src/server/
 Paseo never moves an agent by itself. A turn that fails with a usage-limit error sets `limitReached`
 on the agent, which offers a move in the app until a later turn completes. A turn that fails on any
 other error sets it too when a fresh usage read shows a window of the agent's account at 100%
-(`usage-limit-fallback.ts`), because the matcher reads English error text. Before an account runs
+(`usage-limit-fallback.ts`), because the matcher reads English error text. The usage watch sets it
+without a failed turn, on every open agent whose own account reads 100%, and clears the flags it
+set once the account reads lower. Before an account runs
 out, the move banner shows a heads-up from 80% of a window or a projected run-out within three
 hours, with a one-click move when another account has room. The daemon sends one notification per
 account window at 80% and again at 95% while an agent on that account is running; background agents

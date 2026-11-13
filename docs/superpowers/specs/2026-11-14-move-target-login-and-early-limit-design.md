@@ -1,6 +1,6 @@
 # A move refuses a signed-out target, and the limit shows before a turn fails: design
 
-Date: 2026-11-14. Fork: allrested/paseo. Status: approved by the user on 2026-11-14 ("A"); not built.
+Date: 2026-11-14. Fork: allrested/paseo. Status: approved by the user on 2026-11-14 ("A"); built 2026-11-14.
 Builds on [session move](2026-11-05-session-move-design.md) and
 [the usage heads-up](2026-11-06-usage-heads-up-design.md).
 
@@ -24,6 +24,7 @@ Two moments where a move or a turn fails in front of the user stop happening:
 | Refusal        | The move refuses a signed-out target before it settles the source, with "<label> is not signed in".                                      | shown to user    |
 | Dialog         | A signed-out target is listed as unavailable, labelled "Not signed in". One new optional field on the target.                            | shown to user    |
 | Watch scope    | The usage watch reads the account of every open agent, idle ones included. Its 80% and 95% notices still name a running agent only.      | user, 2026-11-14 |
+| Which usage    | Each agent's own usage, scoped to its account and model, not the provider-wide read the notices use.                                     | this spec        |
 | Limit flag     | A window at 100% sets `limitReached` on that account's agents. It clears when the watch reads the account below 100%, or on a good turn. | shown to user    |
 | Freshness      | As fresh as the watch, which runs every 310 seconds.                                                                                     | shown to user    |
 
@@ -93,24 +94,26 @@ and shows the target as unavailable, which is correct. The app's `move-targets.t
 
 ## Limit before a failed turn
 
-The usage watch (`usage-watch.ts`) changes in two ways.
+The usage watch (`usage-watch.ts`) gains a second pass after its 80% and 95% notices, which are
+unchanged and still read only the accounts of running agents.
 
-**Which accounts it reads.** `UsageWatchDeps.runningAgents` is joined by `openAgents()`: every
-agent the manager holds that is not internal. The watch reads one account per provider that has
-an open agent. The 80% and 95% notices are unchanged: they fire only for a provider with a
-running watched agent, and name that agent.
+The pass takes every agent the manager holds that is not internal, idle ones included, and reads
+each agent's own usage through `listUsageReports({ agentId })`, the read behind the agent's usage
+popover. It is scoped to the agent's account and model, so a window that limits another model
+does not flag this agent. The registry caches each account for five minutes, so many agents on
+one account cost one fetch.
 
-**What it does at 100%.** After reading a provider's reports:
-
-- A report is available and has a window at 100% or more: every open agent on that provider with
-  no `limitReached` gets one, `{ at, message: "<account> <window label> limit reached" }`. The
-  watch remembers the `at` it set for each agent.
-- Every available report is below 100%: each agent whose `limitReached.at` is the one the watch
-  set is cleared. A flag a failed turn set is never cleared by the watch.
+- A report is available and has a window at 100% or more: an agent with no `limitReached` gets
+  one, `{ at, message: "<account> <window label> limit reached" }`. The watch remembers the `at`
+  it set for each agent.
+- Reports are available and none is at 100%: an agent whose `limitReached.at` is the one the
+  watch set is cleared. A flag a failed turn set carries another time and is never cleared by
+  the watch.
 - No report is available (unavailable, error, none): nothing changes.
 
-`UsageWatchDeps` gains `setLimitReached(agentId, value)` and `limitReachedOf(agentId)`.
-`hasSpentWindow` moves from `usage-limit-fallback.ts` to a shared export so both use one rule.
+`UsageWatchDeps` gains `openAgents`, `listAgentUsage`, `setLimitReached` and `now`.
+`findSpentWindow` is exported from the watch and replaces the fallback's private copy, so both
+use one rule.
 
 The memory of what the watch set does not survive a daemon restart. A flag left over after one is
 cleared by the agent's next good turn, as today.
@@ -123,8 +126,7 @@ cleared by the agent's next good turn, as today.
 - The limit flag is up to 310 seconds behind the account. A turn sent inside that gap fails as
   today, and the failed turn sets the flag.
 - A flag the watch set before a daemon restart stays until the agent's next good turn.
-- The watch reads one account per provider id per pass. With usage turned off in the daemon
-  config it reads nothing, as today.
+- With usage turned off in the daemon config the watch reads nothing, as today.
 
 ## Goals, non-goals, anti-goals
 
@@ -148,9 +150,10 @@ Anti-goals:
   carries `signedOut`; the current provider is not probed; an unknown login changes nothing.
 - `move-agent.e2e.test.ts`: a move to a signed-out target is refused, the source is not archived
   and its running turn is not cancelled; the same for move back; an unknown login moves as today.
-- `usage-watch.test.ts`: an idle agent's account is read; a window at 100% flags every open agent
-  on the provider and none on another; a later read below 100% clears only flags the watch set;
-  an unavailable report changes nothing; the 80% and 95% notices still need a running agent.
+- `usage-watch.test.ts`: an idle agent on a spent account is flagged and an agent on another
+  account is not; a later read below 100% clears only flags the watch set; an unreadable account
+  changes nothing; a failed read for one agent does not stop the next; nothing is read with
+  usage off.
 - App `move-targets.test.ts`: a signed-out target shows the "Not signed in" label.
 
 ## Docs
