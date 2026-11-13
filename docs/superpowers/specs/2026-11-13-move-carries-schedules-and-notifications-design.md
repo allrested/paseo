@@ -1,6 +1,6 @@
 # A move carries schedules, heartbeats and finish notifications design
 
-Date: 2026-11-13. Fork: allrested/paseo. Status: approved by the user on 2026-11-13 ("LGTM"); not built.
+Date: 2026-11-13. Fork: allrested/paseo. Status: approved by the user on 2026-11-13 ("LGTM"), watched side revised the same day (option A); not built.
 Builds on [session move](2026-11-05-session-move-design.md).
 
 ## Goal
@@ -16,29 +16,59 @@ Today a move archives the agent it leaves, and three things end with it:
 - A finish notification whose watcher (`callerAgentId`) is the archived agent is dropped:
   `callerIsActive` is false for it, so the record is removed undelivered. The successor never hears
   that its sub-agent finished.
-- A finish notification whose watched agent (`childAgentId`) is the archived agent reports "was
-  closed" to the watcher, while the work goes on in the successor. Nothing reports when the
-  successor finishes.
+- A sub-agent that hits its limit reports "errored" to its parent, which uses up the parent's
+  finish notification. When the sub-agent is then moved and continues, nothing tells the parent
+  that the successor finished.
 
 ## Decisions
 
-| Subject          | Decision                                                                                                                         | Source           |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| Scope            | Schedules, heartbeats and finish notifications, in one piece.                                                                    | user, 2026-11-13 |
-| Watched moves    | The watcher hears nothing at the move and gets one notification when the successor finishes.                                     | user, 2026-11-13 |
-| Mechanism        | Schedules are re-pointed at the move. Finish notifications follow the moved-to link when they are about to be dropped or closed. | user, 2026-11-13 |
-| Move back        | The same rule in the other direction. No separate code path.                                                                     | this spec        |
-| Failed move      | The schedules the move re-pointed are pointed back. Notifications need no undo: a failed move removes the link they follow.      | this spec        |
-| Earlier losses   | Schedules completed by a move before this ships stay completed.                                                                  | this spec        |
-| Schedule content | Cadence, run history, pause state, expiry and run count are untouched. Only the target agent id changes.                         | this spec        |
+| Subject          | Decision                                                                                                                                    | Source           |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| Scope            | Schedules, heartbeats and finish notifications, in one piece.                                                                               | user, 2026-11-13 |
+| Watched moves    | When a moved agent has a parent on this host and the move continues its work, the parent gets one notification when the successor finishes. | user, 2026-11-13 |
+| Mechanism        | Schedules are re-pointed at the move. A notification for a watcher that moved follows the moved-to link at delivery.                        | user, 2026-11-13 |
+| Wiring           | The move reaches both stores through one `MoveCarry` object held by `AgentManager`, as the agent-archived callback is.                      | this spec        |
+| Move back        | The same rule in the other direction. No separate code path.                                                                                | this spec        |
+| Failed move      | The schedules the move re-pointed are pointed back, and the parent's new notification is withdrawn.                                         | this spec        |
+| Earlier losses   | Schedules completed by a move before this ships stay completed.                                                                             | this spec        |
+| Schedule content | Cadence, run history, pause state, expiry and run count are untouched. Only the target agent id changes.                                    | this spec        |
 
-Why two mechanisms: a heartbeat belongs to an agent, and the heartbeat tools check the stored
-target (`requireCallerHeartbeat`), so the successor must be the stored target at once or it can
-neither list nor delete its own heartbeats. A finish notification has no owner-facing tool; what
-matters is where it is delivered and what it watches, and the record of a watcher on one host can
-watch an agent on another, where this host sees no move happen. The moved-to label
-(`paseo.moved-to-agent-id`) travels with the watched agent's final state, so following it works
-across hosts.
+Why schedules are rewritten and notifications are not: a heartbeat belongs to an agent, and the
+heartbeat tools check the stored target (`requireCallerHeartbeat`), so the successor must be the
+stored target at once or it can neither list nor delete its own heartbeats. A finish notification
+has no owner-facing tool; what matters is where it is delivered, and that is decided at delivery.
+
+Why the watched side registers a new notification: by the time a watched agent is archived, its
+notification is spent. A turn that fails on the limit reports "errored" at once. A move of a
+running agent cancels the turn first (`settle`), which reports "finished". An idle agent reports
+immediately. Following a link from the archived agent would be code that does not run. The first
+plan for this side, and the user's "hears nothing at the move", were dropped for that reason on
+2026-11-13; the user chose this one.
+
+## The move's access to both stores
+
+`session-move/move-carry.ts` defines:
+
+```ts
+export interface MoveCarry {
+  /** Points not-completed schedules aimed at `from` at `to`; with `only`, just those ids. */
+  retargetSchedules(from: string, to: string, only?: readonly string[]): Promise<string[]>;
+  /**
+   * Registers a finish notification from `agentId` to its parent, held until `accept()`.
+   * Undefined when the labels name no parent, or a parent on another host.
+   */
+  notifyParentOnFinish(
+    agentId: string,
+    labels: Record<string, string>,
+  ): Promise<FinishRegistration | undefined>;
+}
+```
+
+`AgentManager` gets `setMoveCarry(carry: MoveCarry | null)` and a `moveCarry` getter, next to
+`setAgentArchivedCallback`. `bootstrap.ts` sets it once the schedule service and the finish
+subscriptions exist. The move is started from two places (`session.ts` and the `move_agent` tool),
+both of which already pass the agent manager, so neither changes. A manager with no carry set, as
+in unit tests, moves as today.
 
 ## Schedules and heartbeats
 
@@ -53,11 +83,7 @@ It updates each matching schedule through `store.update`, changing `target.agent
 `updatedAt` and nothing else. With `only`, it touches just those ids, which is how the undo runs.
 A schedule that is completed, or aimed at another agent, is left alone.
 
-`MoveAgentDeps` gets an optional `retargetSchedules(fromAgentId, toAgentId, only?)`, wired in
-`bootstrap.ts` to the service. Optional, because the move's unit tests build the deps without a
-schedule service, and a daemon without one has nothing to carry.
-
-`finish` in `session-move/move-agent.ts` calls it after the sub-agents are handed over and before
+`finish` in `session-move/move-agent.ts` calls `moveCarry.retargetSchedules` after the sub-agents are handed over and before
 `archiveAgentCommand`, and stores the returned ids in `FinishProgress.retargetedScheduleIds`. The
 archive that follows calls `completeForAgent(from.id)` as before and finds nothing.
 
@@ -80,7 +106,9 @@ name twice across the chain; it is recorded here, not designed around.
 
 ### Where an agent is now
 
-A new function in `session-move`, used by the finish subscriptions:
+A new function in `session-move/move-agent.ts`, used by the finish subscriptions. It takes a lookup
+as `resolveMoveBackChain` does, so it is tested without a daemon; `movedAgentLookup(deps)` builds
+the real one from agent storage and the agent manager:
 
 ```ts
 /**
@@ -88,7 +116,7 @@ A new function in `session-move`, used by the finish subscriptions:
  * until one that is not archived. Null when the chain ends at an archived agent with no link,
  * at an agent with no record, or in a loop.
  */
-resolveMovedAgent(deps: { agentStorage; agentManager }, agentId: string): Promise<string | null>;
+resolveMovedAgent(agentId: string, lookup: MovedAgentLookup): Promise<string | null>;
 ```
 
 An agent that is not archived resolves to itself, whatever stale label it carries: move back
@@ -110,34 +138,41 @@ active, its live successor when it moved, null when neither exists.
   parent label with the resolved caller. The move re-parented the child to the successor, so the
   check holds for a moved watcher and still ends the subscription for a detached child.
 
-### The watched agent has moved
-
-In `run`, before `deliver`: when the observed result is final, its status is `closed`, and its
-labels carry a moved-to id, nothing is delivered. The record is saved with `childAgentId` set to
-that id, the observation is closed, and the watch continues on the new agent under its new key.
-`serverId` is unchanged: a move stays on its host.
-
-This reads only the label in the final state, so the watcher's host needs no knowledge of the
-move. If the successor has already finished by the time the watch reopens, the observation
-reports that at once, as it does for any idle agent.
-
-A chain of moves is followed one step per observation: each archived agent names the next.
-
 ### Saving a re-pointed record
 
-Both cases replace a stored record. `store.put` with the same `id` overwrites it, so a daemon
-restart resumes the watch on the right pair. The in-memory watch group is keyed by caller, child
-and host; re-pointing moves the watch from its old group to the one for the new key, where the
-existing supersession rules apply to it as to any other registration for that pair.
+`store.put` with the same `id` overwrites the record, so a daemon restart resumes the watch with
+the right watcher. The in-memory watch group is keyed by caller, child and host; re-pointing moves
+the watch from its old group to the one for the new key, keeping the result it already observed.
+
+### A moved agent that continues reports to its parent
+
+In the three places a move sends the continue turn (native forward, handoff forward, move back),
+when `continueWork` is on:
+
+1. `moveCarry.notifyParentOnFinish(successorId, labels)` registers a notification from the
+   successor to the parent named in its labels, with `requireParentOwnership` on and dispatch
+   pending, as agent creation does for an initial prompt.
+2. The continue turn is sent. If that throws, the registration is rejected and the error goes on.
+3. The registration is accepted.
+
+If the move fails later, the catch path rejects the registration before it removes the successor,
+so the parent is not told about an agent that no longer exists.
+
+With `continueWork` off nothing is registered: the successor is idle and would report at once.
+
+The parent may itself have moved since; delivery follows its moved-to link as above.
 
 ## Known limits
 
 - Schedules completed by a move before this ships stay completed.
-- A watched agent on a host whose daemon predates the moved-to label in final states still
-  reports "was closed".
+- Only a parent is told when a moved agent's successor finishes. An agent that prompted the moved
+  agent with notify-on-finish, without being its parent, is not: nothing records who it was once
+  its notification is spent.
+- A parent on another host is not told. Its notifications live on its own host.
+- The parent still gets the notification the old agent's turn produced: "errored" for a limit,
+  "finished" for a turn the move cancelled.
 - A finish that arrives while the watcher's move is in progress, before the old agent is
-  archived, is delivered to the old agent. Its turn is already ending; the successor does not
-  see it unless the handoff history carries it.
+  archived, is delivered to the old agent.
 - A schedule run already started when the move happens goes to the agent being left.
 
 ## Goals, non-goals, anti-goals
@@ -145,12 +180,12 @@ existing supersession rules apply to it as to any other registration for that pa
 Goals: no schedule, heartbeat or finish notification is lost to a move or a move back; the
 successor owns its heartbeats at once; a failed move leaves all three as they were.
 
-Non-goals: reviving what earlier moves completed; telling a watcher at the moment of the move;
+Non-goals: reviving what earlier moves completed; telling watchers other than the parent;
 retargeting anything that names an agent outside these two stores.
 
 Anti-goals:
 
-- A "was closed" notification for an agent whose work continues elsewhere.
+- A notification about a successor that a failed move removed.
 - A schedule that fires at an archived agent, or at both agents.
 - A notification delivered twice, to the old watcher and to its successor.
 
@@ -159,19 +194,17 @@ Anti-goals:
 - `schedule/service.test.ts`: `retargetAgent` changes the target of every not-completed schedule
   aimed at the agent and returns their ids; leaves completed schedules and other agents' schedules
   alone; keeps pause state, runs and expiry; with `only`, touches just those ids.
-- `session-move/move-agent.test.ts`: a move re-points before the archive, so the archive completes
-  nothing; a move that fails after `finish` began points exactly the changed schedules back; move
-  back returns them to the original.
-- `session-move`: `resolveMovedAgent` for a live agent, one move, two moves, a chain ending at an
+- `session-move/move-agent.test.ts`: `resolveMovedAgent` for a live agent, one move, two moves, a chain ending at an
   archived agent with no link, a missing record, and a loop.
-- `finish-subscriptions/finish-subscriptions.test.ts`: a watcher that moved once and twice gets
-  the notification at its successor, and the stored record names it; a watcher with no successor
-  is dropped; a creation subscription still reports to a moved watcher and still stops for a
-  detached child; a watched agent that moved sends no "was closed", and the successor's finish is
-  delivered once; a restart between the move and the finish resumes on the re-pointed record.
-- One case on the move itself, with a real schedule service and finish subscriptions: an agent
-  with a heartbeat and a watching parent moves and finishes; the heartbeat's next run reaches the
-  successor and the parent gets one notification, naming the successor.
+- `finish-subscriptions/finish-subscriptions.test.ts`: a watcher that moved gets the notification
+  at its successor, and the stored record names it; a watcher with no successor is dropped; a
+  creation subscription still reports to a moved watcher and still stops for a detached child; a
+  restart after the re-point resumes with the new watcher.
+- `session-move/move-agent.e2e.test.ts`, which runs a real daemon and so the real carry: a moved
+  agent's heartbeat is aimed at the successor and still active; a failed move leaves it aimed at
+  the original; move back returns it; a sub-agent moved with continue on reports its successor's
+  finish to the parent, once; with continue off the parent gets nothing; a parent that moved gets
+  its sub-agent's finish at its successor.
 
 ## Docs
 
