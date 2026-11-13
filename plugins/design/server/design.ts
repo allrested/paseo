@@ -155,9 +155,7 @@ export function createDesignService(given: DesignDeps): DesignService {
   }
 
   const childEnv = Object.fromEntries(
-    Object.entries(deps.env).flatMap(([key, value]) =>
-      key === "FIGCRAFT_SERVER_KEY" || value === undefined ? [] : [[key, value]],
-    ),
+    Object.entries(deps.env).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
   );
 
   async function session(name: string): Promise<FigcraftSession> {

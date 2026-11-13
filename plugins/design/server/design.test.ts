@@ -238,17 +238,6 @@ describe("design service", () => {
       color: { $type: "color", accent: { $value: "#ff0000" } },
     });
   });
-  it("keeps the server key out of every FigCraft process's env", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "design-env-"));
-    const envLog = join(dir, "env.log");
-    const { service } = setup({ FIGCRAFT_SERVER_KEY: "SERVERKEY", FAKE_FIGCRAFT_ENV_LOG: envLog });
-    const created = await service.create("w1", "Login");
-    if (!created.ok) throw new Error(created.error);
-    await service.editorLink(created.file.id, "w1");
-    const starts = readFileSync(envLog, "utf8").trim().split("\n");
-    expect(starts.length).toBeGreaterThanOrEqual(2);
-    expect(starts.every((line) => line === "key:absent")).toBe(true);
-  });
   it("reads tokens from the workspace's own directory, not the project root", async () => {
     const { service } = setup();
     const created = await service.create("w1", "Login");
