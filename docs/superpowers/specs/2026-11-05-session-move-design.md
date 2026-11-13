@@ -142,7 +142,7 @@ All additions are optional fields or new messages, per `docs/protocol-compatibil
 
 - Cross-provider moves lose tool-level fidelity. The target sees a text history, not the source's native session.
 - A handoff to another CLI starts in the target's default mode. Mode and feature values carry over only within one CLI family.
-- A Claude or Codex target whose CLI says nobody is signed in is refused before the move starts. Other families are not asked, and a stored login the provider now rejects still fails on its first turn; see [the target login check](2026-11-14-move-target-login-and-early-limit-design.md).
+- A Claude target whose CLI says nobody is signed in is refused before the move starts. Other families are not asked, and a stored login the provider now rejects still fails on its first turn; see [the target login check](2026-11-14-move-target-login-and-early-limit-design.md).
 - The limit notice can be up to 310 seconds behind the account: the usage watch sets it on every open agent whose account is at 100%, and a turn sent inside that gap fails first. See [the limit before a failed turn](2026-11-14-move-target-login-and-early-limit-design.md).
 - The pending history is delivered at most once: it is taken when the turn starts and never restored, because a turn that fails after dispatch may already be stored by the provider. The work is not lost, since `moveHistory` keeps it and the next move carries it.
 - Move back replaces the target's older `paseo.moved-from-agent-id`, which takes that agent out of move-back reach. It stays archived, and its work stays in `moveHistory`.

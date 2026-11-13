@@ -18,7 +18,6 @@ export interface CommandOutcome {
   stderr: string;
 }
 
-/** Rejects only when the command could not be started. */
 export type RunCommand = (
   command: string,
   args: string[],
@@ -44,15 +43,13 @@ function readClaudeStatus(outcome: CommandOutcome): TargetLogin {
   return status.loggedIn === false ? "signed_out" : "unknown";
 }
 
-/** `codex login status` exits 1 for a broken config too, so only its own words mean signed out. */
-function readCodexStatus(outcome: CommandOutcome): TargetLogin {
-  if (/not logged in/i.test(`${outcome.stdout}\n${outcome.stderr}`)) return "signed_out";
-  return outcome.exitCode === 0 ? "signed_in" : "unknown";
-}
-
+/**
+ * Claude only. `codex login status` says "Not logged in" for setups that work without a stored
+ * login (an API key, a custom model provider in config.toml), and a wrong refusal has no way
+ * around it. `claude auth status` knows every way that CLI can be signed in.
+ */
 const STATUS_COMMANDS: Record<string, StatusCommand> = {
   claude: { command: "claude", args: ["auth", "status"], read: readClaudeStatus },
-  codex: { command: "codex", args: ["login", "status"], read: readCodexStatus },
 };
 
 /**
@@ -83,7 +80,10 @@ interface ExecFailure {
   stderr?: unknown;
 }
 
-/** Runs the CLI with the daemon's environment overlaid with the provider's. */
+/**
+ * Runs the CLI with the daemon's environment overlaid with the provider's. Resolves for every
+ * ending: a command that could not start or was killed has no exit code.
+ */
 export const runStatusCommand: RunCommand = async (command, args, env) => {
   try {
     const { stdout, stderr } = await execCommand(command, args, {
@@ -93,15 +93,11 @@ export const runStatusCommand: RunCommand = async (command, args, env) => {
     return { exitCode: 0, stdout, stderr };
   } catch (error) {
     const failure = error as ExecFailure;
-    // A numeric code is the CLI's own exit; anything else is a spawn failure or a kill.
-    if (typeof failure.code !== "number") {
-      if (typeof failure.stdout !== "string") throw error;
-      return { exitCode: null, stdout: failure.stdout, stderr: String(failure.stderr ?? "") };
-    }
     return {
-      exitCode: failure.code,
-      stdout: String(failure.stdout ?? ""),
-      stderr: String(failure.stderr ?? ""),
+      // A numeric code is the CLI's own exit; a spawn failure or a kill carries none.
+      exitCode: typeof failure.code === "number" ? failure.code : null,
+      stdout: typeof failure.stdout === "string" ? failure.stdout : "",
+      stderr: typeof failure.stderr === "string" ? failure.stderr : "",
     };
   }
 };

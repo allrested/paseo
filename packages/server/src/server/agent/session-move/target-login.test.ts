@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { probeTargetLogin, type CommandOutcome, type RunCommand } from "./target-login.js";
+import {
+  probeTargetLogin,
+  runStatusCommand,
+  type CommandOutcome,
+  type RunCommand,
+} from "./target-login.js";
 
 interface Call {
   command: string;
@@ -51,31 +56,11 @@ describe("probeTargetLogin", () => {
     }
   });
 
-  test("Codex that says Not logged in is signed out, on either stream", async () => {
-    const onStdout = runner({ exitCode: 1, stdout: "Not logged in\n", stderr: "" });
-    const onStderr = runner({ exitCode: 1, stdout: "", stderr: "WARNING: x\nNot logged in\n" });
-
-    expect(await probeTargetLogin(CODEX, onStdout.run)).toBe("signed_out");
-    expect(await probeTargetLogin(CODEX, onStderr.run)).toBe("signed_out");
-    expect(onStdout.calls).toEqual([
-      { command: "codex", args: ["login", "status"], env: CODEX.env },
-    ]);
-  });
-
-  test("Codex that exits 0 is signed in", async () => {
-    const { run } = runner({ exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" });
-
-    expect(await probeTargetLogin(CODEX, run)).toBe("signed_in");
-  });
-
-  test("Codex that fails for another reason is unknown", async () => {
-    const { run } = runner({
-      exitCode: 1,
-      stdout: "",
-      stderr: "Error loading configuration: config.toml:8:12",
-    });
+  test("Codex is not asked: its status command cannot see an API key or a custom provider", async () => {
+    const { run, calls } = runner({ exitCode: 1, stdout: "Not logged in\n", stderr: "" });
 
     expect(await probeTargetLogin(CODEX, run)).toBe("unknown");
+    expect(calls).toEqual([]);
   });
 
   test("a command that cannot run, or runs out of time, is unknown", async () => {
@@ -84,7 +69,6 @@ describe("probeTargetLogin", () => {
 
     expect(await probeTargetLogin(CLAUDE, missing.run)).toBe("unknown");
     expect(await probeTargetLogin(CLAUDE, killed.run)).toBe("unknown");
-    expect(await probeTargetLogin(CODEX, killed.run)).toBe("unknown");
   });
 
   test("a family with no status command is unknown and runs nothing", async () => {
@@ -109,5 +93,34 @@ describe("probeTargetLogin", () => {
     expect(await probeTargetLogin(input, run)).toBe("signed_out");
     expect(calls[0]?.command).toBe("claude");
     expect(calls[0]?.args).toEqual(["auth", "status"]);
+  });
+});
+
+describe("runStatusCommand", () => {
+  test("reports a command's own exit code and output, with the given env laid over the daemon's", async () => {
+    const outcome = await runStatusCommand(
+      process.execPath,
+      ["-e", "process.stdout.write(process.env.PROBE_MARK ?? ''); process.exit(3)"],
+      { PROBE_MARK: "from-profile" },
+    );
+
+    expect(outcome).toEqual({ exitCode: 3, stdout: "from-profile", stderr: "" });
+  });
+
+  test("reports exit 0", async () => {
+    const outcome = await runStatusCommand(process.execPath, ["-e", "console.log('ok')"], {});
+
+    expect(outcome).toEqual({ exitCode: 0, stdout: "ok\n", stderr: "" });
+  });
+
+  test("a command that does not exist has no exit code, which the probe reads as unknown", async () => {
+    const outcome = await runStatusCommand("paseo-no-such-cli", ["status"], {});
+
+    expect(outcome.exitCode).toBeNull();
+    expect(
+      await probeTargetLogin({ family: "claude", env: {} }, (_command, args, env) =>
+        runStatusCommand("paseo-no-such-cli", args, env),
+      ),
+    ).toBe("unknown");
   });
 });

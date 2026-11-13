@@ -114,6 +114,7 @@ function harness(overrides: Partial<UsageWatchDeps> = {}): Harness {
       notices.push(notice);
     },
     openAgents: async () => [],
+    limitReachedAt: () => null,
     listAgentUsage: async () => [],
     setLimitReached: async () => undefined,
     now: () => new Date("2026-11-06T10:00:00.000Z"),
@@ -310,17 +311,23 @@ describe("createUsageWatch, the limit before a failed turn", () => {
     const flags = new Map<string, Flag | null>(agents.map((agent) => [agent.id, null]));
     const usage = new Map<string, UsageReportEntry[]>();
     const clock = { now: new Date("2026-11-06T10:00:00.000Z") };
+    /** Steps that run while the next usage read is in flight, as a turn ending then would. */
+    const duringRead: Array<() => void> = [];
     const subject = harness({
       runningAgents: async () => [],
-      openAgents: async () =>
-        agents.map((agent) => ({ ...agent, limitReachedAt: flags.get(agent.id)?.at ?? null })),
-      listAgentUsage: async (agentId) => usage.get(agentId) ?? [],
+      openAgents: async () => agents,
+      limitReachedAt: (agentId) => flags.get(agentId)?.at ?? null,
+      listAgentUsage: async (agentId) => {
+        const reports = usage.get(agentId) ?? [];
+        duringRead.splice(0).forEach((step) => step());
+        return reports;
+      },
       setLimitReached: async (agentId, value) => {
         flags.set(agentId, value);
       },
       now: () => clock.now,
     });
-    return { subject, flags, usage, clock };
+    return { subject, flags, usage, clock, duringRead };
   }
 
   const IDLE = { id: "idle-1", provider: "claude-work" };
@@ -395,16 +402,48 @@ describe("createUsageWatch, the limit before a failed turn", () => {
     expect(flags.get("idle-1")).toBe(set);
   });
 
-  it("sets a flag again after a good turn cleared it while the account is still spent", async () => {
+  it("does not flag again after a good turn cleared its flag, until the account drops and fills again", async () => {
     const { subject, flags, usage, clock } = limits([IDLE]);
     usage.set("idle-1", weeklyReport(100));
     await subject.watch.check();
+    // A turn that completes at 100%, as with extra usage, shows the account still works.
     flags.set("idle-1", null);
 
     clock.now = new Date("2026-11-06T10:05:10.000Z");
     await subject.watch.check();
+    expect(flags.get("idle-1")).toBeNull();
 
-    expect(flags.get("idle-1")?.at).toBe("2026-11-06T10:05:10.000Z");
+    usage.set("idle-1", weeklyReport(20));
+    await subject.watch.check();
+    usage.set("idle-1", weeklyReport(100));
+    clock.now = new Date("2026-11-06T10:15:30.000Z");
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")?.at).toBe("2026-11-06T10:15:30.000Z");
+  });
+
+  it("keeps a flag a turn set while the watch was reading a spent account", async () => {
+    const { subject, flags, usage, duringRead } = limits([IDLE]);
+    usage.set("idle-1", weeklyReport(100));
+    const fromTurn = { at: "2026-11-06T10:00:01.000Z", message: "usage limit reached" };
+    duringRead.push(() => flags.set("idle-1", fromTurn));
+
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")).toBe(fromTurn);
+  });
+
+  it("keeps a flag a turn set while the watch was reading an account that has room again", async () => {
+    const { subject, flags, usage, duringRead } = limits([IDLE]);
+    usage.set("idle-1", weeklyReport(100));
+    await subject.watch.check();
+    usage.set("idle-1", weeklyReport(3));
+    const fromTurn = { at: "2026-11-06T10:05:00.000Z", message: "usage limit reached" };
+    duringRead.push(() => flags.set("idle-1", fromTurn));
+
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")).toBe(fromTurn);
   });
 
   it("goes on to the next agent when one agent's usage read fails", async () => {
@@ -413,10 +452,7 @@ describe("createUsageWatch, the limit before a failed turn", () => {
     usage.set("idle-2", weeklyReport(100));
     const failing = harness({
       runningAgents: async () => [],
-      openAgents: async () => [
-        { ...IDLE, limitReachedAt: null },
-        { ...second, limitReachedAt: null },
-      ],
+      openAgents: async () => [IDLE, second],
       listAgentUsage: async (agentId) => {
         if (agentId === "idle-1") throw new Error("unknown agent");
         return usage.get(agentId) ?? [];
@@ -438,7 +474,7 @@ describe("createUsageWatch, the limit before a failed turn", () => {
     usage.set("idle-1", weeklyReport(100));
     const off = harness({
       usageEnabled: () => false,
-      openAgents: async () => [{ ...IDLE, limitReachedAt: null }],
+      openAgents: async () => [IDLE],
       listAgentUsage: async (agentId) => usage.get(agentId) ?? [],
       setLimitReached: async (agentId, value) => {
         flags.set(agentId, value);
