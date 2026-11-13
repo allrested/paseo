@@ -32,8 +32,6 @@ const STRIPPED_ENV_KEYS = new Set([
   "CLAUDE_CODE_ENTRYPOINT",
   "CLAUDE_CODE_SSE_PORT",
   "CLAUDE_AGENT_SDK_VERSION",
-  // The key goes into collab.publish's server address when needed, never into a process's env.
-  "FIGCRAFT_SERVER_KEY",
 ]);
 // FigCraft prints share links in some messages; a link is a file's key.
 const SECRET_PARAM = /\b(key|token)=[^&\s"']+/g;

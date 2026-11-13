@@ -77,8 +77,9 @@ The user picked A.
   under `/app/`. Dokploy's Traefik gives TLS and passes WebSocket upgrades.
 - The image is built in the fork's CI from the pinned release assets, checked against the
   release's `SHA256SUMS.txt`.
-- The server key lives in Dokploy's env and in each Paseo instance's env (`FIGCRAFT_SERVER_KEY`,
-  with `FIGCRAFT_URL`). Never in git.
+- The server key lives in the FigCraft stack's volume and, in each Paseo instance, in the file
+  `FIGCRAFT_SERVER_KEY_FILE` names (`FIGCRAFT_URL` and `FIGCRAFT_WEB_URL` stay in env). Never in
+  git.
 - DNS: the wildcard `*.dev.mtapp.dev` already points at the VM (user, 2026-11-13).
 
 ### Paseo: the built-in plugin `design`
@@ -147,8 +148,11 @@ components with no `codeConnect` mapping. Mapping them is a task you can give an
 - The domain is public and FigCraft has no accounts, so a file's edit link is its key. Links stay
   in the daemon: given only to agents in that workspace and to your editor tab, never shown in
   chat, logs, the phone view or a client message other than the editor tab's.
-- The server key stays in env; only the plugin uses it, to publish and manage files. It never
-  reaches an agent or a client.
+- The server key is read from a file, not the env: Paseo hands its own env to every agent and
+  terminal it starts, so an env key would show up in any `env` an agent prints. Only the plugin
+  uses it, to publish and manage files, and it is never given to an agent or a client. (An agent
+  runs as the same user, so a determined one could read the file; this keeps it out of
+  transcripts and logs, it is not a sandbox.)
 - Bridge and agent FigCraft processes run without `--automation-read-root`/`--automation-write-root`:
   FigCraft 0.18.1 turns publishing and live sessions off in a process that has them, and an agent's
   own tools reach the same files anyway. The guard in front of an agent's `figcraft-cli` is what
