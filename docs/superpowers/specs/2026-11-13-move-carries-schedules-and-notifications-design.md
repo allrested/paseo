@@ -51,8 +51,8 @@ plan for this side, and the user's "hears nothing at the move", were dropped for
 
 ```ts
 export interface MoveCarry {
-  /** Points not-completed schedules aimed at `from` at `to`; with `only`, just those ids. */
-  retargetSchedules(from: string, to: string, only?: readonly string[]): Promise<string[]>;
+  /** Points not-completed schedules aimed at `from` at `to`. */
+  retargetSchedules(from: string, to: string): Promise<string[]>;
   /**
    * Registers a finish notification from `agentId` to its parent, held until `accept()`.
    * Undefined when the labels name no parent, or a parent on another host.
@@ -76,25 +76,31 @@ in unit tests, moves as today.
 
 ```ts
 /** Points every not-completed schedule aimed at `fromAgentId` at `toAgentId`. Returns their ids. */
-retargetAgent(fromAgentId: string, toAgentId: string, only?: readonly string[]): Promise<string[]>;
+retargetAgent(fromAgentId: string, toAgentId: string): Promise<string[]>;
 ```
 
 It updates each matching schedule through `store.update`, changing `target.agentId` and
-`updatedAt` and nothing else. With `only`, it touches just those ids, which is how the undo runs.
-A schedule that is completed, or aimed at another agent, is left alone.
+`updatedAt` and nothing else. A schedule that is completed, or aimed at another agent, is left
+alone.
 
-`finish` in `session-move/move-agent.ts` calls `moveCarry.retargetSchedules` after the sub-agents are handed over and before
-`archiveAgentCommand`, and stores the returned ids in `FinishProgress.retargetedScheduleIds`. The
-archive that follows calls `completeForAgent(from.id)` as before and finds nothing.
+`finish` in `session-move/move-agent.ts` calls `moveCarry.retargetSchedules` after the sub-agents
+are handed over and before `archiveAgentCommand`, and notes the agent it hands to in
+`FinishProgress.schedulesMovedTo` before the first schedule changes. The archive that follows
+calls `completeForAgent(from.id)` as before and finds nothing.
 
-`undoFinish` calls it with the arguments swapped and `only` set to the stored ids, before it
-unarchives `from`. A failure there is logged, as the other undo steps are, and does not stop the
-rest of the undo.
+`undoFinish` points everything aimed at that agent back at `from`, as its last step, after `from`
+is unarchived: a schedule aimed at an archived agent is completed when it comes due. It needs no
+list of ids. Whatever is aimed at the agent handed to came from `from`: a successor is new, and an
+agent moved back to was archived, which left it no open schedule of its own. So a re-point that
+failed halfway is undone too. A failure there is logged, as the other undo steps are.
 
 Move back runs the same `finish`, with the original as `to`, so its schedules return to it.
 
 A run in flight during the move is not interrupted. `runSchedule` read its target before the
-move; that run goes to the agent it read. The next run reads the new target.
+move; that run goes to the agent it read. If the move archives that agent first, the run fails
+with "target gone". `finishRun` completes a schedule on that error only while the schedule still
+aims at the agent the run was claimed for, so a re-pointed schedule stays active and its next run
+reads the new target.
 
 Name collisions: `upsertByNameAndTarget` treats name plus target as one identity. If the successor
 already holds a schedule with the same name as one being carried, both are kept. A later create
@@ -173,7 +179,10 @@ The parent may itself have moved since; delivery follows its moved-to link as ab
   "finished" for a turn the move cancelled.
 - A finish that arrives while the watcher's move is in progress, before the old agent is
   archived, is delivered to the old agent.
-- A schedule run already started when the move happens goes to the agent being left.
+- A schedule run already started when the move happens goes to the agent being left, or fails if
+  that agent is archived first. The schedule itself stays active.
+- If the successor of a watcher already holds its own notification for the same agent, the
+  re-pointed one and its own can both be delivered.
 
 ## Goals, non-goals, anti-goals
 
@@ -193,17 +202,20 @@ Anti-goals:
 
 - `schedule/service.test.ts`: `retargetAgent` changes the target of every not-completed schedule
   aimed at the agent and returns their ids; leaves completed schedules and other agents' schedules
-  alone; keeps pause state, runs and expiry; with `only`, touches just those ids.
+  alone; keeps pause state, runs and expiry. A run that finds its agent gone after the schedule
+  was re-pointed leaves the schedule active.
 - `session-move/move-agent.test.ts`: `resolveMovedAgent` for a live agent, one move, two moves, a chain ending at an
   archived agent with no link, a missing record, and a loop.
 - `finish-subscriptions/finish-subscriptions.test.ts`: a watcher that moved gets the notification
   at its successor, and the stored record names it; a watcher with no successor is dropped; a
   creation subscription still reports to a moved watcher and still stops for a detached child; a
-  restart after the re-point resumes with the new watcher.
+  restart after the re-point resumes with the new watcher; withdrawing a re-pointed notification
+  leaves no record and no watch.
 - `session-move/move-agent.e2e.test.ts`, which runs a real daemon and so the real carry: a moved
   agent's heartbeat is aimed at the successor and still active; a failed move leaves it aimed at
   the original; move back returns it; a sub-agent moved with continue on reports its successor's
-  finish to the parent, once; with continue off the parent gets nothing.
+  finish to the parent, once; with continue off the parent gets nothing; a move that fails after
+  the continue turn was sent tells the parent nothing and leaves the heartbeat with the original.
 
 ## Docs
 
@@ -214,7 +226,12 @@ Anti-goals:
 
 ## As built
 
-- The failed-move test makes the archive itself fail, the step right after the schedules are
-  re-pointed, and checks the heartbeat is back with the original.
+- The whole-branch review found four defects, fixed before the branch was offered: a re-pointed
+  watch that `stop` and `reject` no longer found, so it stayed registered; a schedule run in
+  flight completing the re-pointed schedule; a half-done re-point that the undo missed; and the
+  undo pointing schedules back before the original was unarchived. The text above describes the
+  fixed behaviour.
+- The failed-move tests make the archive itself fail, the step right after the schedules are
+  re-pointed.
 - A parent that moved getting its sub-agent's finish is covered in the finish subscription tests,
   not by a move on a test daemon.

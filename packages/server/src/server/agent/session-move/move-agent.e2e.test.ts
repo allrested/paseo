@@ -827,8 +827,45 @@ describe("moveAgent", () => {
       await requireCtx().daemon.daemon.agentManager.waitForAgentEvent(moved.agentId);
 
       await waitForOneNotice();
+      // Long enough for a second notification to arrive if one were sent.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(notices).toHaveLength(1);
       expect(notices[0]!.prompt).toContain(`Agent ${moved.agentId} (`);
       expect(notices[0]!.prompt).not.toContain(`Agent ${child.id} (`);
+    });
+
+    it("a failed move that had sent the continue turn tells the parent nothing", async () => {
+      const parentId = await createRanClaudeAgent();
+      const child = await requireCtx().client.createAgent({
+        config: { provider: "claude", cwd, modeId: "bypassPermissions" },
+        labels: { [PARENT_AGENT_ID_LABEL]: parentId },
+      });
+      await runTurn(child.id, SOURCE_PROMPT);
+      const heartbeat = await createHeartbeat(child.id);
+      const real = deps();
+      const agentManager = new Proxy(real.agentManager, {
+        get(target, property) {
+          if (property === "archiveAgent") {
+            return async (agentId: string) => {
+              if (agentId === child.id) throw new Error("archive failed");
+              return target.archiveAgent(agentId);
+            };
+          }
+          const value: unknown = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      await expect(
+        moveAgent(
+          { ...real, agentManager },
+          { agentId: child.id, target: { provider: "codex" }, continueWork: true },
+        ),
+      ).rejects.toMatchObject({ code: "failed" });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      expect(notices).toHaveLength(0);
+      expect(await scheduleState(heartbeat)).toEqual({ agentId: child.id, status: "active" });
     });
 
     it("with continue off the parent is told nothing", async () => {

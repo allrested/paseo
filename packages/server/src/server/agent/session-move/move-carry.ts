@@ -5,8 +5,8 @@ import type { FinishRegistration } from "../finish-subscriptions/index.js";
  * agent manager at startup; a manager without one, as in unit tests, moves without it.
  */
 export interface MoveCarry {
-  /** Points not-completed schedules aimed at `from` at `to`; with `only`, just those ids. */
-  retargetSchedules(from: string, to: string, only?: readonly string[]): Promise<string[]>;
+  /** Points not-completed schedules aimed at `from` at `to`. */
+  retargetSchedules(from: string, to: string): Promise<string[]>;
   /**
    * Registers a finish notification from `agentId` to its parent, held until `accept()`.
    * Undefined when the labels name no parent, or a parent on another host.

@@ -1599,7 +1599,7 @@ export async function createPaseoDaemon(
     }),
   });
   agentManager.setMoveCarry({
-    retargetSchedules: (from, to, only) => scheduleService.retargetAgent(from, to, only),
+    retargetSchedules: (from, to) => scheduleService.retargetAgent(from, to),
     notifyParentOnFinish: async (agentId, labels) => {
       const parent = getParentAddressFromLabels(labels, serverId);
       if (!parent || parent.serverId !== serverId) return undefined;

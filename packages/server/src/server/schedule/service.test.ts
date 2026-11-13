@@ -3147,35 +3147,37 @@ describe("ScheduleService", () => {
     });
   });
 
-  test("retargetAgent with a list of ids touches only those", async () => {
-    const service = createScheduleService({
+  test("a run that finds its agent gone after the schedule was re-pointed leaves the schedule active", async () => {
+    const fromId = "11111111-1111-4111-8111-111111111111";
+    const toId = "33333333-3333-4333-8333-333333333333";
+    let service!: ScheduleService;
+    service = createScheduleService({
       paseoHome: tempDir,
       logger: createTestLogger(),
       agentManager: new AgentManager({ logger: createTestLogger() }),
       agentStorage,
       providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
       now: () => now,
-      runner: async () => ({ agentId: null, output: "ok" }),
+      runner: async () => {
+        // A session move re-points the schedule and archives the agent this run was claimed for.
+        await service.retargetAgent(fromId, toId);
+        throw new ScheduleTargetGoneError(`Agent ${fromId} is archived`);
+      },
     });
-    const fromId = "11111111-1111-4111-8111-111111111111";
-    const toId = "33333333-3333-4333-8333-333333333333";
-    const cadence = { type: "every", everyMs: 60_000 } as const;
-    const first = await service.create({
-      prompt: "first",
-      cadence,
+    const created = await service.create({
+      prompt: "ping",
+      cadence: { type: "every", everyMs: 60_000 },
       target: { type: "agent", agentId: fromId },
-      runOnCreate: false,
-    });
-    const second = await service.create({
-      prompt: "second",
-      cadence,
-      target: { type: "agent", agentId: fromId },
-      runOnCreate: false,
     });
 
-    expect(await service.retargetAgent(fromId, toId, [second.id])).toEqual([second.id]);
-    expect((await service.inspect(first.id)).target).toEqual({ type: "agent", agentId: fromId });
-    expect((await service.inspect(second.id)).target).toEqual({ type: "agent", agentId: toId });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+
+    const inspected = await service.inspect(created.id);
+    expect(inspected.status).toBe("active");
+    expect(inspected.target).toEqual({ type: "agent", agentId: toId });
+    expect(inspected.nextRunAt).not.toBeNull();
+    expect(inspected.runs.at(-1)?.status).toBe("failed");
   });
 
   test("startup sweep completes agent-target schedules whose agent is gone", async () => {
