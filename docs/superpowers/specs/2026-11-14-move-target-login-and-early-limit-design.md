@@ -16,17 +16,17 @@ Two moments where a move or a turn fails in front of the user stop happening:
 
 ## Decisions
 
-| Subject        | Decision                                                                                                                                 | Source           |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| Login signal   | The CLI's own answer: `claude auth status` and `codex login status`, run with the target's environment.                                  | this spec        |
-| Other families | Unknown. A family with no probe moves as today.                                                                                          | this spec        |
-| Unknown        | Allowed. A slow, failing or unreadable probe never blocks a move.                                                                        | shown to user    |
-| Refusal        | The move refuses a signed-out target before it settles the source, with "<label> is not signed in".                                      | shown to user    |
-| Dialog         | A signed-out target is listed as unavailable, labelled "Not signed in". One new optional field on the target.                            | shown to user    |
-| Watch scope    | The usage watch reads the account of every open agent, idle ones included. Its 80% and 95% notices still name a running agent only.      | user, 2026-11-14 |
-| Which usage    | Each agent's own usage, scoped to its account and model, not the provider-wide read the notices use.                                     | this spec        |
-| Limit flag     | A window at 100% sets `limitReached` on that account's agents. It clears when the watch reads the account below 100%, or on a good turn. | shown to user    |
-| Freshness      | As fresh as the watch, which runs every 310 seconds.                                                                                     | shown to user    |
+| Subject        | Decision                                                                                                                            | Source                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Login signal   | The Claude CLI's own answer: `claude auth status`, run with the target's environment.                                               | this spec               |
+| Other families | Unknown, Codex included. A family with no probe moves as today.                                                                     | this spec, after review |
+| Unknown        | Allowed. A slow, failing or unreadable probe never blocks a move.                                                                   | shown to user           |
+| Refusal        | The move refuses a signed-out target before it settles the source, with "<label> is not signed in".                                 | shown to user           |
+| Dialog         | A signed-out target is listed as unavailable, labelled "Not signed in". One new optional field on the target.                       | shown to user           |
+| Watch scope    | The usage watch reads the account of every open agent, idle ones included. Its 80% and 95% notices still name a running agent only. | user, 2026-11-14        |
+| Which usage    | Each agent's own usage, scoped to its account and model, not the provider-wide read the notices use.                                | this spec               |
+| Limit flag     | A window at 100% sets `limitReached` on the agent once. It clears when the watch reads the account below 100%, or on a good turn.   | shown to user           |
+| Freshness      | As fresh as the watch, which runs every 310 seconds.                                                                                | shown to user           |
 
 Why the CLI and not the usage sources: the usage sources were the first idea, and they do not
 agree on what "no login" looks like. The Claude source returns no account, which is also what it
@@ -56,22 +56,26 @@ export function probeTargetLogin(input: LoginProbeInput, run: RunCommand): Promi
 | Family   | Command              | Signed out when                       | Signed in when                       |
 | -------- | -------------------- | ------------------------------------- | ------------------------------------ |
 | `claude` | `claude auth status` | stdout is JSON with `loggedIn: false` | stdout is JSON with `loggedIn: true` |
-| `codex`  | `codex login status` | output contains "Not logged in"       | exit code 0                          |
 
-Anything else is `unknown`: another family, a non-zero exit with other output (a broken Codex
-config exits 1 too), output that does not parse, a missing binary, or five seconds without an
-answer. A provider whose command is replaced (`command.mode === "replace"`) is `unknown` as well:
+Codex has no row. `codex login status` prints "Not logged in" for setups that work without a
+stored login: an API key, or a custom model provider in `config.toml` or in a Paseo profile. A
+wrong refusal has no way around it, so Codex is not asked. `claude auth status` reports
+`loggedIn: true` for an API key, Bedrock, Vertex and an `apiKeyHelper`, so it has no such case.
+
+Anything else is `unknown`: another family, output that does not parse, a missing binary, or five
+seconds without an answer. A provider whose command is replaced (`command.mode === "replace"`) is `unknown` as well:
 the replacement may be a wrapper that does not take these arguments. An appended command keeps
 the default binary and is probed.
 
 The command runs with the daemon's environment overlaid with the target's launch `env`, which is
-how a profile selects its login (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
+how a profile selects its login (`CLAUDE_CONFIG_DIR`).
 
 `ProviderLaunchInfo` gains `command?: ProviderCommand`, from the same runtime settings its `env`
 comes from.
 
-Results are cached for 60 seconds per provider id through `createUsageLookup`, which already gives
-the move dialog a time limit and a shared in-flight call.
+Answers are not reused: someone who signs in after a refusal can move at once. The probe still
+goes through `createUsageLookup`, with no time to live, for its time limit and its shared
+in-flight call. It takes about 0.3 seconds per Claude target.
 
 ## Where the probe is used
 
@@ -104,14 +108,20 @@ does not flag this agent. The registry caches each account for five minutes, so 
 one account cost one fetch.
 
 - A report is available and has a window at 100% or more: an agent with no `limitReached` gets
-  one, `{ at, message: "<account> <window label> limit reached" }`. The watch remembers the `at`
-  it set for each agent.
+  one, `{ at, message: "<account> <window label> limit reached" }`, once per spent window. The
+  watch remembers the `at` it set. If a good turn then clears the flag while the window still
+  reads 100%, as happens with extra usage, the watch does not set it again until the account has
+  read below 100% in between.
 - Reports are available and none is at 100%: an agent whose `limitReached.at` is the one the
   watch set is cleared. A flag a failed turn set carries another time and is never cleared by
   the watch.
 - No report is available (unavailable, error, none): nothing changes.
 
-`UsageWatchDeps` gains `openAgents`, `listAgentUsage`, `setLimitReached` and `now`.
+The agent's flag is read after the usage read returns, not before it: the read takes a while, and
+a turn that ended meanwhile owns the flag.
+
+`UsageWatchDeps` gains `openAgents`, `limitReachedAt`, `listAgentUsage`, `setLimitReached` and
+`now`.
 `findSpentWindow` is exported from the watch and replaces the fallback's private copy, so both
 use one rule.
 
@@ -120,7 +130,7 @@ cleared by the agent's next good turn, as today.
 
 ## Known limits
 
-- Only Claude and Codex targets are probed.
+- Only Claude targets are probed.
 - A login that is stored but that the provider now rejects reads as signed in. The first turn
   still fails for it.
 - The limit flag is up to 310 seconds behind the account. A turn sent inside that gap fails as
@@ -143,9 +153,10 @@ Anti-goals:
 
 ## Tests
 
-- `target-login.test.ts`, with a fake `run`: each row of the table; non-JSON output; exit 1 with
-  other output; a thrown spawn error; a timeout; an unknown family; a replaced command; the env
-  passed to the command.
+- `target-login.test.ts`: with a fake `run`, both rows of the table, output that is not the
+  status JSON, a command that cannot run or is killed, a family with no row (Codex among them), a
+  replaced and an appended command, and the env passed on. With the real runner, a command's exit
+  code, output and env, and a command that does not exist.
 - `move-targets.test.ts` / `list-move-targets.test.ts`: a signed-out target is not available and
   carries `signedOut`; the current provider is not probed; an unknown login changes nothing.
 - `move-agent.e2e.test.ts`: a move to a signed-out target is refused, the source is not archived
@@ -161,3 +172,10 @@ Anti-goals:
 - The session move spec's two "Known limits" lines on sign-in and on the limit notice are
   rewritten to state what holds now and to point here.
 - `docs/agent-lifecycle.md`, where it says what sets `limitReached`: the watch is added.
+
+## As built
+
+- The whole-branch review found that the Codex row refused targets that work, and that the watch
+  judged an agent's flag from a reading taken before its usage read. Both are fixed, and the text
+  above describes the result. It also led to login answers not being cached and to the
+  once-per-window rule for the flag.

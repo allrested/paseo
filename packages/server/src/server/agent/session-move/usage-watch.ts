@@ -33,8 +33,6 @@ export interface UsageNotice {
 export interface OpenAgent {
   id: string;
   provider: string;
-  /** When the agent's limit flag was set; null while it has none. */
-  limitReachedAt: string | null;
 }
 
 export interface LimitFlag {
@@ -63,6 +61,8 @@ export interface UsageWatchDeps {
   notify(notice: UsageNotice): Promise<void>;
   /** Every agent the daemon holds that is not internal, idle ones included. */
   openAgents(): Promise<OpenAgent[]>;
+  /** When the agent's limit flag was set, read now; null while it has none or the agent is gone. */
+  limitReachedAt(agentId: string): string | null;
   /** The usage of the agent's own account and model, as its usage popover shows it. */
   listAgentUsage(agentId: string): Promise<UsageReportEntry[]>;
   setLimitReached(agentId: string, value: LimitFlag | null): Promise<void>;
@@ -138,15 +138,17 @@ export function createUsageWatch(deps: UsageWatchDeps): UsageWatch {
     if (!reports.some((entry) => entry.report.status === "available")) return;
     const spent = findSpentWindow(reports);
     const setByWatch = flagged.get(agent.id);
+    // Read after the usage read, which takes a while: a turn that ended since owns the flag.
+    const current = deps.limitReachedAt(agent.id);
     if (!spent) {
       flagged.delete(agent.id);
       // A failed turn sets its own flag, with its own time; that one is the turn's to clear.
-      if (setByWatch && agent.limitReachedAt === setByWatch) {
-        await deps.setLimitReached(agent.id, null);
-      }
+      if (setByWatch && current === setByWatch) await deps.setLimitReached(agent.id, null);
       return;
     }
-    if (agent.limitReachedAt) return;
+    // Flagged once per spent window: a good turn that cleared the flag shows the account still
+    // works at 100%, as with extra usage, so it is not set again until the window has had room.
+    if (current || setByWatch) return;
     const at = deps.now().toISOString();
     const account = deps.launchInfo(agent.provider)?.label ?? agent.provider;
     await deps.setLimitReached(agent.id, {
