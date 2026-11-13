@@ -80,7 +80,7 @@ function FileBody(props: BodyProps & { file: FileRow }) {
     );
   }
   return (
-    <View style={styles.sheetActions}>
+    <View style={styles.sheetActionsSplit}>
       <ActionButton
         label="Remove from Paseo"
         pendingLabel="Remove from Paseo"
@@ -90,6 +90,7 @@ function FileBody(props: BodyProps & { file: FileRow }) {
       <ActionButton
         label="Rename"
         pendingLabel="Renaming..."
+        primary
         disabled={name.trim() === "" || name.trim() === file.name}
         styles={styles}
         onPress={submitRename}
