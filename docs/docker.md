@@ -228,9 +228,18 @@ background tab. The window opens on top of the desktop you see in noVNC, over yo
 Chromium also stops rendering a window that another window covers, which freezes a pane tab as
 soon as the next one opens over it, so `docker-compose.yml` and `docker-compose.vpn.yml` launch
 Chromium with `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding` in
-`CHROME_CLI`. A stack that borrows another stack's browser, such as `docker-compose.agent.yml`,
-and a deployment that keeps its own copy of a compose file need the same flags on the Chromium
-they use.
+`CHROME_CLI`.
+
+The office draws its 3D view for the installed app in a page of this Chromium (see
+[plugins.md](plugins.md)), which needs WebGL. Chrome 156 refuses WebGL on the container's
+software GL driver, so the same `CHROME_CLI` carries `--ignore-gpu-blocklist`. Without it the
+office in the app shows the structure view under "The host browser has no WebGL". The same
+setting can be turned on in a running Chromium at `chrome://flags` ("Override software rendering
+list"); it is kept in the profile volume and takes effect when Chromium restarts.
+
+A stack that borrows another stack's browser, such as `docker-compose.agent.yml`, and a
+deployment that keeps its own copy of a compose file need all three flags on the Chromium they
+use.
 
 The profile is shared: a tab the daemon opens has your logins.
 

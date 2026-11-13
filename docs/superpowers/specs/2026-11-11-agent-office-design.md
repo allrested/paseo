@@ -13,22 +13,22 @@ first target for every decision here.
 
 ## Decisions
 
-| Subject     | Decision                                                                                                                                            | Source                                        |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Renderer    | three.js, in the web UI on phone, tablet and desktop. No Rust, no WASM.                                                                             | user, 2026-11-10                              |
-| 3D switch   | A switch in the office turns 3D on or off, remembered per device. Off shows the structure view and never loads three.js.                            | user, 2026-11-11                              |
-| Role        | Watch, act, and agents coordinate in it.                                                                                                            | user, 2026-11-11                              |
-| Scope       | The agents of the connected host. One room per workspace.                                                                                           | user, 2026-11-11                              |
-| Places      | A screen opened from the sidebar, and a workspace tab.                                                                                              | user, 2026-11-11                              |
-| Boards      | One board per workspace room, plus one lobby board for the host. A post may name any agent on the host.                                             | user, 2026-11-11                              |
-| Posts       | Tasks (open, claimed, done) and notes.                                                                                                              | user, 2026-11-11                              |
-| Wake        | A post that names an agent is delivered to it as a prompt when it is idle. Posts without a name wake nobody.                                        | user, 2026-11-11                              |
-| Wake limits | At most 6 wakes per agent per hour, and a switch that pauses every wake.                                                                            | user, 2026-11-11                              |
-| 3D default  | On. A device without WebGL gets the structure view.                                                                                                 | user, 2026-11-11                              |
-| Look        | A scale model of a small studio, seen from a three-quarter angle; small robots. Direction below, approved from screenshots with fake data.          | user: "surprise me", then approved 2026-11-11 |
-| Packaging   | A built-in plugin, `office`, so every instance has it. three.js is vendored in the plugin and fetched on first use.                                 | earlier decision                              |
-| Native app  | Structure view only. Plugins cannot draw WebGL on native, and the owner does not use the native app.                                                | this spec                                     |
-| Core change | One: `cancel()` on the plugin SDK's agent handle (`packages/client/src/index.ts`, next to `send`), calling the existing `DaemonClient.cancelAgent`. | this spec                                     |
+| Subject     | Decision                                                                                                                                                                        | Source                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Renderer    | three.js, in the web UI on phone, tablet and desktop. No Rust, no WASM.                                                                                                         | user, 2026-11-10                              |
+| 3D switch   | A switch in the office turns 3D on or off, remembered per device. Off shows the structure view and never loads three.js.                                                        | user, 2026-11-11                              |
+| Role        | Watch, act, and agents coordinate in it.                                                                                                                                        | user, 2026-11-11                              |
+| Scope       | The agents of the connected host. One room per workspace.                                                                                                                       | user, 2026-11-11                              |
+| Places      | A screen opened from the sidebar, and a workspace tab.                                                                                                                          | user, 2026-11-11                              |
+| Boards      | One board per workspace room, plus one lobby board for the host. A post may name any agent on the host.                                                                         | user, 2026-11-11                              |
+| Posts       | Tasks (open, claimed, done) and notes.                                                                                                                                          | user, 2026-11-11                              |
+| Wake        | A post that names an agent is delivered to it as a prompt when it is idle. Posts without a name wake nobody.                                                                    | user, 2026-11-11                              |
+| Wake limits | At most 6 wakes per agent per hour, and a switch that pauses every wake.                                                                                                        | user, 2026-11-11                              |
+| 3D default  | On. A device without WebGL gets the structure view.                                                                                                                             | user, 2026-11-11                              |
+| Look        | A scale model of a small studio, seen from a three-quarter angle; small robots. Direction below, approved from screenshots with fake data.                                      | user: "surprise me", then approved 2026-11-11 |
+| Packaging   | A built-in plugin, `office`, so every instance has it. three.js is vendored in the plugin and fetched on first use.                                                             | earlier decision                              |
+| Native app  | The 3D view as pictures drawn on the host, since 2026-11-13: see [the streamed 3D spec](2026-11-13-office-streamed-3d-design.md). The structure view when the host cannot draw. | user, 2026-11-13                              |
+| Core change | One: `cancel()` on the plugin SDK's agent handle (`packages/client/src/index.ts`, next to `send`), calling the existing `DaemonClient.cancelAgent`.                             | this spec                                     |
 
 ## What the user sees
 
@@ -236,5 +236,5 @@ Agent data comes from the SDK's live `useAgents` and `useWorkspaces`, and pendin
 
 ## Not in this version
 
-Several hosts on one floor, 3D in the native app, custom avatars, robots walking between rooms,
+Several hosts on one floor, pinch zoom in the installed app's 3D view, custom avatars, robots walking between rooms,
 sound, agents posting files.
