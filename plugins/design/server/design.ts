@@ -10,7 +10,7 @@ import type {
 } from "@getpaseo/plugin/server";
 import type { DesignConfig } from "../shared/config.js";
 import type { FileRow, PublicFile, ViewEvent } from "../shared/contracts.js";
-import { Bridge, type TokensPort } from "./bridge.js";
+import { BRIDGE_AUTHOR, Bridge, type TokensPort } from "./bridge.js";
 import { createBridges, type Bridges } from "./bridges.js";
 import { createCommentRouter, type CommentRouter } from "./comments.js";
 import { FigcraftSession } from "./figcraft-session.js";
@@ -416,7 +416,12 @@ export function createDesignService(given: DesignDeps): DesignService {
           const threads = await current.openThreads().catch(() => []);
           await push({
             type: "threads",
-            threads: threads.map(({ id, author, preview }) => ({ id, author, preview })),
+            // The user's own comments from the phone are posted by the bridge, under its name.
+            threads: threads.map(({ id, author, preview }) => ({
+              id,
+              author: author === BRIDGE_AUTHOR ? "You" : author,
+              preview,
+            })),
           });
           if (input.pictures) {
             const event = await pictureEvent(current, pictures);

@@ -14,6 +14,8 @@ export interface DesignStyles {
   screen: ViewStyle;
   /** The title row: on the column's rails, the action on the trailing one. */
   header: ViewStyle;
+  /** The title row over the web editor, which fills the panel: off the column, on its edges. */
+  editorHeader: ViewStyle;
   headerLead: ViewStyle;
   title: TextStyle;
   content: ViewStyle;
@@ -46,6 +48,8 @@ export interface DesignStyles {
   sheet: ViewStyle;
   sheetText: TextStyle;
   sheetActions: ViewStyle;
+  /** A removal on the leading edge, the sheet's own action on the trailing one. */
+  sheetActionsSplit: ViewStyle;
   input: TextStyle;
   inputMultiline: TextStyle;
   placeholderColor: string;
@@ -157,6 +161,14 @@ export function useDesignStyles(
         paddingHorizontal: pad,
         paddingVertical: 8,
       },
+      editorHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        minHeight: controlHeight + 16,
+        paddingHorizontal: pad,
+        paddingVertical: 8,
+      },
       headerLead: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 },
       title: { ...base, fontWeight: "500", color: colors.foreground, flexShrink: 1 },
       content: { ...column, paddingHorizontal: pad - 4, paddingBottom: 24, gap: 4 },
@@ -216,15 +228,31 @@ export function useDesignStyles(
         paddingHorizontal: pad,
         paddingTop: 8,
       },
-      threads: { maxHeight: 240 },
+      // The picture gives way first: a squeezed list would cut its rows and their Send buttons.
+      threads: { maxHeight: 240, flexShrink: 0 },
       threadsEmpty: { ...small, color: colors.foregroundMuted, paddingHorizontal: pad },
-      thread: { ...row, flex: 0, alignItems: "flex-start", paddingVertical: 10 },
+      // Not row's flex: 1. On web flex: 0 is a zero basis, which cut a row to its minimum height.
+      thread: {
+        ...row,
+        flex: undefined,
+        flexGrow: 0,
+        flexShrink: 0,
+        flexBasis: "auto",
+        alignItems: "flex-start",
+        paddingVertical: 10,
+      },
       threadBody: { flex: 1, minWidth: 0, gap: 2 },
       threadAuthor: { ...small, color: colors.foregroundMuted },
       threadText: { ...base, color: colors.foreground },
       sheet: { gap: 16 },
       sheetText: { ...base, color: colors.foregroundMuted },
       sheetActions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 },
+      sheetActionsSplit: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        justifyContent: "space-between",
+        gap: 8,
+      },
       input,
       inputMultiline: {
         ...input,
