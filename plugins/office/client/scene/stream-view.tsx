@@ -154,15 +154,25 @@ function Stream({
   }, [outbox]);
 
   // Compared with the last size the host was told, not the opening one: turning the phone and
-  // turning it back has to send the opening size again.
-  const sentSize = useRef<Size>({ width: input.width, height: input.height });
+  // turning it back has to send the opening size again. A new stream on this view, as after a
+  // reconnect, has a new page at the opening size, so what the old one was told counts no more.
+  const hostSize = useRef<Size & { streamId: string | null }>({
+    streamId: null,
+    width: input.width,
+    height: input.height,
+  });
+  const { streamId } = state;
   const { width, height } = size;
   useEffect(() => {
-    const next = resizeToSend(sentSize.current, { width, height });
+    if (streamId === null) return;
+    if (hostSize.current.streamId !== streamId) {
+      hostSize.current = { streamId, width: input.width, height: input.height };
+    }
+    const next = resizeToSend(hostSize.current, { width, height });
     if (next === null) return;
-    sentSize.current = next;
+    hostSize.current = { streamId, ...next };
     outbox.resize({ ...next, pixelRatio: input.pixelRatio });
-  }, [width, height, input, outbox]);
+  }, [streamId, width, height, input, outbox]);
 
   // A request that was already there when this view appeared was made for the structure view.
   const handledNonce = useRef(focusRequest?.nonce ?? 0);
