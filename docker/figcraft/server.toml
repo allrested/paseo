@@ -1,0 +1,6 @@
+# figcraft-server settings for the Paseo design stack. The two values a deploy changes,
+# public_url and web_url, come from the environment through entrypoint.sh.
+listen = "127.0.0.1:47900"
+data = "/data"
+# Caddy, in this container. It hands the server the client's own address (see Caddyfile).
+trusted_proxy = "127.0.0.1"
