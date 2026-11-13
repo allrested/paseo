@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { readDesignConfig } from "./shared/config.js";
+import { readDesignConfig } from "./server/config.js";
 import {
   addCommentRpc,
   agentsRpc,
