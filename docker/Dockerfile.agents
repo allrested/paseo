@@ -170,6 +170,15 @@ RUN set -eux; \
       libfontconfig1 libfreetype6 fonts-liberation fonts-noto-color-emoji; \
     rm -rf /var/lib/apt/lists/*
 
+# adb, for the stack's Android device (the `android` compose profile). The
+# daemon's android built-in runs it, and agents can call it themselves. Without
+# a device configured it is unused.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends adb; \
+    rm -rf /var/lib/apt/lists/*; \
+    adb version
+
 # GitHub's SSH host keys, system-wide.
 #
 # Without this, the first `git clone git@github.com:...` in a fresh container
