@@ -1,6 +1,6 @@
 # Office 3D in the installed app (streamed) design
 
-Date: 2026-11-13. Fork: allrested/paseo. Status: draft, waiting for the user's approval.
+Date: 2026-11-13. Fork: allrested/paseo. Status: approved by the user on 2026-11-13 ("LGTM"); built the same day.
 Builds on [the agent office](2026-11-11-agent-office-design.md).
 
 ## Goal
@@ -256,6 +256,22 @@ Anti-goals:
   at `PASEO_BROWSER_CDP_URL` (`http://127.0.0.1:9222`), WebGL is on in it since 2026-11-13, and
   the user allowed opening and closing windows in it. Nobody else uses this instance's Chromium.
 - The store app itself cannot be run here. The user checks the phone after deploy.
+
+## As built
+
+Differences from the text above, found while building:
+
+- The scene draws a touch view at 1.5 device pixels at most (`pixelRatioFor`), the web UI's own
+  rule, so a 390×700 phone gets a 585×1050 picture of about 40 KB. The 1280-pixel cap is the outer
+  limit, rarely reached.
+- The page script is 43 KB. It was 375 KB until the two names the scene needs left
+  `shared/contracts.ts`, which loads the schema library; a test caps the script at 150 KB.
+- The app's outgoing calls (confirmations, pointer steps, focus, resize, keep-alive) go through one
+  queue that keeps a single call in flight (`client/scene/stream-outbox.ts`).
+- A tap is released at the point it was pressed: a finger that wobbles within 8 pixels must not
+  reach the host as a drag.
+- The snapshot's `render` field is present only when the hub is told whether the host can draw,
+  which the plugin entry always does.
 
 ## Left to the builder
 
