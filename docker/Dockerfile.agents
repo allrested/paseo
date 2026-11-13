@@ -179,6 +179,27 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     adb version
 
+# Maestro, for running a repo's mobile flows against that device:
+#   maestro --device 127.0.0.1:5555 test <flow>
+# It is a JVM program, hence the Java runtime. Pinned with its checksum: the
+# flows a repo wrote were written against one version. Together they add about
+# 550 MB to the image. MAESTRO_CLI_NO_ANALYTICS keeps the build, and every agent
+# run, from phoning home.
+ARG MAESTRO_VERSION=2.12.1
+ARG MAESTRO_SHA256=54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7
+ENV MAESTRO_CLI_NO_ANALYTICS=1
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends openjdk-17-jre-headless; \
+    rm -rf /var/lib/apt/lists/*; \
+    curl -fsSL -o /tmp/maestro.zip \
+      "https://github.com/mobile-dev-inc/maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"; \
+    echo "${MAESTRO_SHA256}  /tmp/maestro.zip" | sha256sum -c -; \
+    unzip -q /tmp/maestro.zip -d /opt; \
+    rm /tmp/maestro.zip; \
+    ln -s /opt/maestro/bin/maestro /usr/local/bin/maestro; \
+    maestro --version
+
 # GitHub's SSH host keys, system-wide.
 #
 # Without this, the first `git clone git@github.com:...` in a fresh container
