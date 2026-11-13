@@ -8,6 +8,7 @@ import {
   type MoveTarget,
   type UsageWindowLike,
 } from "./move-targets.js";
+import type { TargetLogin } from "./target-login.js";
 
 export interface UsageScopeQuery {
   provider: string;
@@ -48,6 +49,8 @@ export interface ListMoveTargetsInput {
   /** Null when no plugin runtime reports usage. */
   listUsageReportsForScope: ListUsageReportsForScope | null;
   usageLookup: MoveTargetUsageLookup;
+  /** What a target's own CLI says about its login. Left out, no target is asked. */
+  loginOf?: (providerId: string) => Promise<TargetLogin>;
   logger: Pick<Logger, "warn">;
   now: number;
 }
@@ -90,9 +93,23 @@ export async function listAgentMoveTargets(input: ListMoveTargetsInput): Promise
         currentProvider: agent.provider,
         windows: input.usageEnabled ? await usageWindows(input, info) : null,
         now: input.now,
+        // The agent is running on its own provider, so that login is not in question.
+        login: info.providerId === agent.provider ? undefined : await targetLogin(input, info),
       }),
     ),
   );
+}
+
+/** A lookup that fails reads as unknown: only a CLI's own "signed out" marks a target. */
+async function targetLogin(
+  input: ListMoveTargetsInput,
+  info: ProviderLaunchInfo,
+): Promise<TargetLogin | undefined> {
+  if (!input.loginOf) return undefined;
+  return input.loginOf(info.providerId).catch((err: unknown): TargetLogin => {
+    input.logger.warn({ err, providerId: info.providerId }, "move targets: login lookup failed");
+    return "unknown";
+  });
 }
 
 /** Usage windows for one target, or null when unknown (no source, failed or too slow). */
