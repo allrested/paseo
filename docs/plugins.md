@@ -331,8 +331,24 @@ WebGL2, the office draws the same model as a small 3D office, one glass room per
 robot per agent whose pose shows its state; a per-device "3D view" switch turns it off. The 3D
 view loads the plugin's vendored three.js r170 (`plugins/office/vendor`) through the
 `office.asset.request` RPC the first time it is shown on a page, evaluates it from a Blob URL, and
-draws only while something moves; native clients, devices without WebGL2 and a lost graphics
-context get the list.
+draws only while something moves.
+
+A client that cannot draw, which is the installed app (plugin code there has React Native views
+only) and a browser without WebGL2, gets the same 3D view as pictures from the host when the
+daemon has a Chromium (`PASEO_BROWSER_CDP_URL`, with WebGL on: see [docker.md](docker.md)). The
+office opens a page there that no pane and no agent sees, runs the same scene in it as a headless
+office client fed the `office.state` events (`plugins/office/render/page.ts`), and asks it for a
+JPEG every 125 ms; a still office sends nothing. The client shows the latest picture and sends
+taps and drags back over `office.render.input.request`, which the host replays as mouse events.
+The daemon hands built-ins the two things this needs beside their directory: `offscreenPages` and
+`bundleBrowserScript` (`BuiltinPluginInfo`); directory plugins get neither. Two viewers at most
+per host, and a viewer that says nothing for 30 seconds is closed. Without a Chromium or without
+WebGL in it, with 3D off, and after a lost graphics context or a stream that ended, the client
+shows the list.
+
+Server code of a plugin cannot import from its `client/` folder (the compiler refuses it), and
+the render page must not import `shared/contracts.ts`, which would add the schema library to a
+script that only draws: names both sides need live in `shared/names.ts` and `shared/render.ts`.
 
 Each room has a board, and the lobby has one for the host: posts are tasks (open, claimed, done) or
 notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days). A
