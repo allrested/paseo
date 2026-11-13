@@ -40,6 +40,7 @@ agent auth, and troubleshooting notes.
 | ------------- | ------------------------------------------------------ |
 | `paseo`       | Daemon + web UI, from the `Dockerfile.agents` image    |
 | `browser`     | Chromium with a screen you can reach over noVNC        |
+| `android`     | Android 14 device for app testing, opt-in profile      |
 | `browser-cdp` | Publishes Chromium's CDP port onto the Compose network |
 | `paseo-cdp`   | Puts that CDP port on `paseo`'s loopback               |
 
