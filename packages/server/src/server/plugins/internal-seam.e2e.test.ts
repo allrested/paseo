@@ -80,3 +80,55 @@ test("a failing built-in does not stop the daemon or the next built-in", async (
     await rm(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+// Fork delta (office stream).
+test("a built-in receives the daemon's extras beside its directory, and a directory plugin none", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "paseo-builtin-extras-"));
+  const source = [
+    'import { defineRpc } from "@getpaseo/plugin";',
+    'import { z } from "zod";',
+    'const extras = defineRpc({ name: "extras", input: z.object({}), output: z.object({',
+    "  directory: z.boolean(), bundle: z.boolean(), pages: z.boolean() }) });",
+    "export default function contribute(server, builtin) {",
+    "  server.handle(extras, () => ({",
+    '    directory: typeof builtin?.directory === "string",',
+    '    bundle: typeof builtin?.bundleBrowserScript === "function",',
+    "    pages: builtin?.offscreenPages !== undefined,",
+    "  }));",
+    "  return () => {};",
+    "}",
+  ].join("\n");
+  for (const id of ["extras-builtin", "extras-directory"]) {
+    await mkdir(path.join(root, id));
+    await writeFile(
+      path.join(root, id, "paseo-plugin.json"),
+      JSON.stringify({ id, requirements: { paseo: ">=0.8.0" } }),
+    );
+    await writeFile(path.join(root, id, "index.server.ts"), source);
+  }
+  const daemon = await createTestPaseoDaemon({
+    daemonVersion: "0.8.0",
+    pluginsEnabled: true,
+    builtinPlugins: new BuiltinPluginLoader(root, ["extras-builtin"]),
+  });
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws`, appVersion: "0.8.0" });
+  try {
+    await client.connect();
+    // The test daemon has no Chromium, so it has a bundler and no pages.
+    expect(await client.invokePluginRpc("extras-builtin", "extras", {})).toEqual({
+      directory: true,
+      bundle: true,
+      pages: false,
+    });
+    await client.installDirectoryPlugin(path.join(root, "extras-directory"));
+    expect(await client.invokePluginRpc("extras-directory", "extras", {})).toEqual({
+      directory: false,
+      bundle: false,
+      pages: false,
+    });
+  } finally {
+    await client.close();
+    await daemon.close();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);

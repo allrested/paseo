@@ -186,6 +186,10 @@ import { resolvePaseoToolPolicy } from "./agent/paseo-tool-policy.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
 import type { CdpBrowserService } from "./browser-tools/cdp/cdp-browser-service.js";
 import { createCdpBrowserService } from "./browser-tools/cdp/create-cdp-browser-service.js";
+import { CdpEndpoint } from "./browser-tools/cdp/cdp-endpoint.js";
+import { CdpOffscreenPages } from "./browser-tools/cdp/offscreen-pages.js";
+import { CDP_COMMAND_TIMEOUT_MS } from "./browser-tools/cdp/cdp-browser-service.js";
+import { bundleBrowserScript } from "./plugins/browser-script.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
 import { resolveWorkspaceIdForPath } from "./resolve-workspace-id-for-path.js";
@@ -559,6 +563,30 @@ function createBootstrapManagedProcessRegistry(
   });
 }
 
+// Fork delta (office stream): offscreen pages use the same Chromium as the browser pane. A bad URL
+// leaves built-ins without them and never stops the daemon from starting.
+function createDaemonOffscreenPages(input: {
+  config: PaseoDaemonConfig;
+  logger: Logger;
+}): CdpOffscreenPages | null {
+  const url = input.config.browserCdpUrl;
+  if (!url) return null;
+  const logger = input.logger.child({ module: "offscreen-pages" });
+  try {
+    return new CdpOffscreenPages({
+      endpoint: new CdpEndpoint({
+        url,
+        commandTimeoutMs: CDP_COMMAND_TIMEOUT_MS,
+        onError: (error) => logger.debug({ err: error }, "CDP error"),
+      }),
+      logger,
+    });
+  } catch (error) {
+    logger.error({ err: error, url }, "Offscreen pages are off: the CDP URL is not usable");
+    return null;
+  }
+}
+
 // Fork delta (web browser pane): the daemon hosts the Docker Chromium when a CDP URL is set. A bad
 // URL turns the host off with an error in the log; it never stops the daemon from starting.
 function createDaemonCdpBrowser(input: {
@@ -719,6 +747,8 @@ export async function createPaseoDaemon(
   const browserToolsBroker = new BrowserToolsBroker({});
   const cdpBrowser = createDaemonCdpBrowser({ config, broker: browserToolsBroker, logger });
   browserToolsBroker.cdpBrowser = cdpBrowser;
+  // Fork delta (office stream): built-ins may open pages in that Chromium that no pane sees.
+  const offscreenPages = createDaemonOffscreenPages({ config, logger });
   const pluginRuntime: PluginService = new PluginService(logger, daemonConfigStore, daemonVersion, {
     usageAgents: {
       hasAgent: (id) => agentManager.getAgent(id) !== null,
@@ -729,6 +759,7 @@ export async function createPaseoDaemon(
       defaultUrl: config.pluginRegistryUrl,
     }),
     builtinPlugins: resolveBuiltinPluginLoader(dependencies),
+    builtinExtras: { offscreenPages: offscreenPages ?? undefined, bundleBrowserScript },
     settingsDirectory: path.join(config.paseoHome, "plugin-settings"),
   });
 
@@ -2080,6 +2111,8 @@ export async function createPaseoDaemon(
       unsubscribePluginProviders();
       unsubscribePluginSessionChanges();
       await pluginRuntime.stopAllPlugins().catch(() => undefined);
+      // Fork delta (office stream): no page outlives the plugins that opened it.
+      await offscreenPages?.stop().catch(() => undefined);
       // Fork delta (web browser pane): a failed start leaves no CDP reconnect timer running.
       await cdpBrowser?.stop().catch(() => undefined);
       await serviceProxy.stopStandalone().catch(() => undefined);
@@ -2133,6 +2166,10 @@ export async function createPaseoDaemon(
     await agentStorage.flush().catch(() => undefined);
     await agentProviderRuntime.shutdown();
     await pluginRuntime.stopAllPlugins();
+    // Fork delta (office stream): no page outlives the plugins that opened it.
+    await offscreenPages?.stop().catch((error) => {
+      logger.warn({ err: error }, "Failed to close the offscreen pages");
+    });
     try {
       if (keepTerminals) {
         await terminalManager.detach();
