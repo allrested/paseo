@@ -7,7 +7,6 @@
 //   FAKE_FIGCRAFT_AGENT_SELECTION  the same for an agent member ("Claude (agent)")
 //   FAKE_FIGCRAFT_COMMENTS     a JSON array that comment.list answers with
 //   FAKE_FIGCRAFT_EMPTY=1      the page has no layers (screenshot fails, no bounds)
-//   FAKE_FIGCRAFT_ENV_LOG      a file that receives "key:present" or "key:absent" at start
 import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -20,12 +19,6 @@ const empty = env.FAKE_FIGCRAFT_EMPTY === "1";
 // As FigCraft 0.18.1: a session confined with automation roots has no network.
 const confined = process.argv.some((arg) => arg.startsWith("--automation-"));
 const NETWORK = new Set(["collab.publish", "collab.join", "collab.share", "collab.host"]);
-if (env.FAKE_FIGCRAFT_ENV_LOG) {
-  appendFileSync(
-    env.FAKE_FIGCRAFT_ENV_LOG,
-    `key:${env.FIGCRAFT_SERVER_KEY ? "present" : "absent"}\n`,
-  );
-}
 const PNG_1PX =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
