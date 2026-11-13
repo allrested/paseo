@@ -6,6 +6,7 @@ import type { Logger } from "pino";
 import {
   UsageReportSchema,
   type ProviderUsage,
+  type ProviderUsageWindow,
   type UsageReportEntry,
   type UsageProblem,
   type UsageReport,
@@ -70,6 +71,8 @@ export class UsageSourceRegistry {
   private readonly pending = new Map<string, Promise<UsageReportEntry>>();
   // Fork delta (usage heads-up): fetch samples behind each window's projected run-out.
   private readonly pace = createUsagePace();
+  /** The `<report id>:<window id>` of each window whose run-out is the pace's, not its source's. */
+  private readonly projectedRunOuts = new Set<string>();
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -99,6 +102,9 @@ export class UsageSourceRegistry {
     for (const key of this.pending.keys()) if (key.startsWith(`${id}:`)) this.pending.delete(key);
     // Fork delta (usage heads-up): a removed source drops its fetch samples.
     this.pace.forget(`${id}:`);
+    for (const key of this.projectedRunOuts) {
+      if (key.startsWith(`${id}:`)) this.projectedRunOuts.delete(key);
+    }
   }
 
   async listReports(options: ListUsageReportsOptions = {}): Promise<UsageReportEntry[]> {
@@ -122,7 +128,11 @@ export class UsageSourceRegistry {
         const known = reports.get(id);
         if (!known) return [];
         return [
-          this.fetchId(id, known, options.forceRefresh).then((entry) => {
+          this.fetchId(id, known, options.forceRefresh).then((fetched) => {
+            // Fork delta (usage heads-up): only an agent's own usage warns of a projected
+            // run-out. The host's list shows when each window resets.
+            const entry =
+              options.agentId === undefined ? this.withoutProjectedRunOuts(fetched) : fetched;
             options.onReport?.(entry);
             return entry;
           }),
@@ -389,9 +399,44 @@ export class UsageSourceRegistry {
     }
     return {
       ...report,
-      windows: report.windows.map((window) =>
-        this.pace.project({ key: `${id}:${window.id}`, window, at }),
-      ),
+      windows: report.windows.map((window) => {
+        const key = `${id}:${window.id}`;
+        const projected = this.pace.project({ key, window, at });
+        if (window.runsOutAt == null && projected.runsOutAt != null) {
+          this.projectedRunOuts.add(key);
+        } else {
+          this.projectedRunOuts.delete(key);
+        }
+        return projected;
+      }),
+    };
+  }
+
+  /** The entry as its source reported it: the run-outs `projectPace` filled in are taken out. */
+  private withoutProjectedRunOuts(entry: UsageReportEntry): UsageReportEntry {
+    const isProjected = (window: ProviderUsageWindow) =>
+      this.projectedRunOuts.has(`${entry.id}:${window.id}`);
+    const strip = <T extends UsageReport>(report: T): T => {
+      if (report.status !== "available" || !report.windows.some(isProjected)) return report;
+      return {
+        ...report,
+        windows: report.windows.map((window) => {
+          if (!isProjected(window)) return window;
+          const { runsOutAt: _runsOutAt, shortfallPct: _shortfallPct, ...reported } = window;
+          return reported;
+        }),
+      };
+    };
+    const report = strip(entry.report);
+    const kept = entry.lastSuccessful ? strip(entry.lastSuccessful.report) : undefined;
+    // An entry with nothing projected goes out as it is: callers of one fetch share one object.
+    if (report === entry.report && kept === entry.lastSuccessful?.report) return entry;
+    return {
+      ...entry,
+      report,
+      ...(entry.lastSuccessful && kept
+        ? { lastSuccessful: { ...entry.lastSuccessful, report: kept } }
+        : {}),
     };
   }
 
