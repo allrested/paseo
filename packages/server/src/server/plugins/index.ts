@@ -27,6 +27,7 @@ import { runPluginBuild } from "./preparation.js";
 import { PluginRuntime } from "./runtime.js";
 import type { PluginRuntimeSubscription } from "./runtime-subscription.js";
 import { BuiltinPluginLoader, type BuiltinPlugin } from "./builtin/index.js";
+import type { BuiltinPluginExtras } from "./bundle-evaluator.js";
 import type { PluginProviderMetadata } from "./plugin-process-protocol.js";
 import { readPluginProviderIcon } from "./provider-icon.js";
 import {
@@ -74,6 +75,8 @@ interface PluginServiceDependencies {
   runtime?: PluginRuntimePort;
   managedSources?: ManagedPluginSources;
   builtinPlugins?: BuiltinPluginLoader;
+  /** Fork delta (office stream): what every built-in receives beside its directory. */
+  builtinExtras?: BuiltinPluginExtras;
 }
 
 function resolvePluginStatus(input: {
@@ -124,6 +127,7 @@ export class PluginService {
       dependencies.runtime ??
       new PluginRuntime(logger, daemonVersion, {
         settingsDirectory: dependencies.settingsDirectory,
+        builtinExtras: dependencies.builtinExtras,
         onSettingsChanged: (pluginId, settingsId) => {
           for (const listener of this.settingsListeners) listener(pluginId, settingsId);
         },
