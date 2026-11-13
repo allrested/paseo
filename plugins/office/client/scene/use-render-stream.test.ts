@@ -43,3 +43,13 @@ test("a selection changes nothing here", () => {
     INITIAL_STREAM,
   );
 });
+
+test("a new stream on the same view, as after a reconnect, starts over: its first picture shows", () => {
+  const old = streamReducer(INITIAL_STREAM, picture(40, "OLD"));
+
+  const reopened = streamReducer(old, { type: "ready", streamId: "s2" });
+  const fresh = streamReducer(reopened, picture(1, "NEW"));
+
+  expect(reopened.picture).toBeNull();
+  expect(fresh.picture?.uri).toBe("data:image/jpeg;base64,NEW");
+});

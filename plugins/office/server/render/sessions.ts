@@ -38,12 +38,18 @@ export function deviceScaleFactor(size: RenderSize): number {
   return Math.min(size.pixelRatio, MAX_SCALE, MAX_PICTURE_SIDE / Math.max(size.width, size.height));
 }
 
-function viewportOf(size: RenderSize): RenderViewport {
-  return { width: size.width, height: size.height, deviceScaleFactor: deviceScaleFactor(size) };
+/**
+ * The size in whole CSS pixels: Chromium takes no fractions, and a phone reports them
+ * (411.43 x 866.29). Null for a size that rounds to nothing.
+ */
+function wholeSize(size: RenderSize): RenderSize | null {
+  const width = Math.round(size.width);
+  const height = Math.round(size.height);
+  return width >= 1 && height >= 1 ? { width, height, pixelRatio: size.pixelRatio } : null;
 }
 
-function hasSize(size: RenderSize): boolean {
-  return size.width >= 1 && size.height >= 1;
+function viewportOf(size: RenderSize): RenderViewport {
+  return { width: size.width, height: size.height, deviceScaleFactor: deviceScaleFactor(size) };
 }
 
 export interface RenderSubscriber {
@@ -101,13 +107,14 @@ export function createRenderSessions(deps: RenderSessionsDeps): RenderSessions {
 
     if (deps.host === null) return refuse(NO_BROWSER);
     if (sessions.size + opening >= MAX_RENDER_SESSIONS) return refuse(FULL);
-    if (!hasSize(input)) return refuse(NO_SIZE);
+    const size = wholeSize(input);
+    if (size === null) return refuse(NO_SIZE);
 
     let page: RenderPage;
     opening += 1;
     try {
       page = await deps.host.open({
-        viewport: viewportOf(input),
+        viewport: viewportOf(size),
         colors: input.colors,
         coarsePointer: input.coarsePointer,
       });
@@ -197,7 +204,9 @@ export function createRenderSessions(deps: RenderSessionsDeps): RenderSessions {
         session.taking = true;
         page
           .take()
-          .then(taken, (error: unknown) => session.end(errorMessage(error)))
+          .then(taken)
+          // Also what `taken` throws on a malformed answer: an unhandled rejection stops the daemon.
+          .catch((error: unknown) => session.end(errorMessage(error)))
           .finally(() => {
             session.taking = false;
           });
@@ -247,9 +256,8 @@ export function createRenderSessions(deps: RenderSessionsDeps): RenderSessions {
         session.flush();
       }
       try {
-        if (message.resize && hasSize(message.resize)) {
-          await session.page.resize(viewportOf(message.resize));
-        }
+        const resized = message.resize ? wholeSize(message.resize) : null;
+        if (resized !== null) await session.page.resize(viewportOf(resized));
         if (message.steps && message.steps.length > 0) await session.page.pointer(message.steps);
         if (message.focus) await session.page.focus(message.focus);
       } catch (error) {
