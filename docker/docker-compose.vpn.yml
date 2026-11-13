@@ -53,6 +53,13 @@ services:
       # the host off.
       PASEO_BROWSER_CDP_URL: ${PASEO_BROWSER_CDP_URL-http://127.0.0.1:9222}
       PASEO_BROWSER_TOOLS_ENABLED: ${PASEO_BROWSER_TOOLS_ENABLED:-true}
+      # The Android device, off by default and only in docker-compose.yml. To
+      # turn it on set both of these in the stack's environment:
+      # COMPOSE_PROFILES=android (starts the `android` service and its sidecar)
+      # and PASEO_ANDROID_ADB=127.0.0.1:5555 (tells the daemon where
+      # paseo-android-adb puts the device's adb). The host needs the binder
+      # kernel module first; see docs/docker.md#android-device.
+      PASEO_ANDROID_ADB: ${PASEO_ANDROID_ADB-}
       # Claude Code defaults that cut token use; see docs/docker.md#token-use.
       # The daemon passes its environment to every agent it starts.
       ENABLE_TOOL_SEARCH: ${ENABLE_TOOL_SEARCH:-true}

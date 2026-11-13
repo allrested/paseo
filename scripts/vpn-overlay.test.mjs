@@ -1815,3 +1815,64 @@ test("the agent image has the libraries a repo's Playwright Chromium needs", () 
     .join("\n");
   assert.doesNotMatch(commands, /playwright install/);
 });
+
+// The Android device (redroid). Its adb has no authentication, so the tests pin where it can be
+// reached from: the paseo container's loopback, and nothing else.
+function composeService(name) {
+  const compose = readFileSync(new URL("docker/docker-compose.yml", repoRoot), "utf8");
+  const start = compose.indexOf(`\n  ${name}:\n`);
+  assert.notEqual(start, -1, `docker-compose.yml has no ${name} service`);
+  const rest = compose.slice(start + 1);
+  const end = rest.slice(1).search(/\n {2}[a-z][a-z0-9-]*:\n|\n[a-z]+:\n/);
+  const block = end === -1 ? rest : rest.slice(0, end + 1);
+  // Comments say what a setting is not; only the settings count.
+  return block
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+}
+
+test("the Android device is privileged, publishes no port and joins no shared network", () => {
+  const android = composeService("android");
+  assert.match(android, /image: redroid\/redroid:14\.0\.0_64only-latest/);
+  assert.match(android, /container_name: \$\{INSTANCE_NAME:-paseo\}-android\n/);
+  assert.match(android, /privileged: true/);
+  // Opt-in: a host without the binder kernel module must not get a container that cannot start.
+  assert.match(android, /profiles: \["android"\]/);
+  assert.match(android, /mem_limit: 4g/);
+  assert.doesNotMatch(android, /\n\s+ports:/);
+  assert.match(android, /networks:\n\s+- default\n(?!\s+- )/);
+  assert.match(android, /- [^\n]+:\/data\n/);
+  for (const argument of [
+    "androidboot.redroid_width=720",
+    "androidboot.redroid_height=1280",
+    "androidboot.redroid_dpi=320",
+    "androidboot.redroid_gpu_mode=guest",
+  ]) {
+    assert.ok(android.includes(argument), `the device is missing ${argument}`);
+  }
+  assert.match(android, /sys\.boot_completed/);
+});
+
+test("adb reaches the paseo container's loopback through a sidecar, and nowhere else", () => {
+  const sidecar = composeService("paseo-android-adb");
+  assert.match(sidecar, /network_mode: "service:paseo"/);
+  assert.match(sidecar, /profiles: \["android"\]/);
+  assert.match(
+    sidecar,
+    /command: TCP-LISTEN:5555,fork,reuseaddr,bind=127\.0\.0\.1 TCP:\$\{INSTANCE_NAME:-paseo\}-android:5555\n/,
+  );
+  assert.doesNotMatch(sidecar, /\n\s+ports:/);
+  const paseo = composeService("paseo");
+  // Empty unless the instance turns the device on, and then it is the sidecar's address.
+  assert.match(paseo, /PASEO_ANDROID_ADB: \$\{PASEO_ANDROID_ADB-\}\n/);
+  assert.doesNotMatch(paseo, /5555:5555/);
+});
+
+test("the agent image has adb", () => {
+  const dockerfile = readFileSync(new URL("docker/Dockerfile.agents", repoRoot), "utf8");
+  const installed = [
+    ...dockerfile.matchAll(/apt-get install -y --no-install-recommends([^;]+);/g),
+  ].flatMap((match) => match[1].split(/[\s\\]+/).filter(Boolean));
+  assert.ok(installed.includes("adb"), "Dockerfile.agents does not install adb");
+});
