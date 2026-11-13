@@ -2062,6 +2062,20 @@ export async function createPaseoDaemon(
                 notify: async (notice) => {
                   await wsServer?.broadcastUsageAttention(notice);
                 },
+                // Fork delta (session move): an idle agent's account is read too, so the limit
+                // shows before a turn fails.
+                openAgents: async () =>
+                  agentManager
+                    .listAgents()
+                    .filter((agent) => !agent.internal)
+                    .map((agent) => ({
+                      id: agent.id,
+                      provider: agent.provider,
+                      limitReachedAt: agent.limitReached?.at ?? null,
+                    })),
+                listAgentUsage: (agentId) => pluginRuntime.listUsageReports({ agentId }),
+                setLimitReached: (agentId, value) => agentManager.setLimitReached(agentId, value),
+                now: () => new Date(),
                 logger: usageWatchLogger,
               }),
               logger: usageWatchLogger,

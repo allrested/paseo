@@ -113,6 +113,10 @@ function harness(overrides: Partial<UsageWatchDeps> = {}): Harness {
     notify: async (notice) => {
       notices.push(notice);
     },
+    openAgents: async () => [],
+    listAgentUsage: async () => [],
+    setLimitReached: async () => undefined,
+    now: () => new Date("2026-11-06T10:00:00.000Z"),
     logger: recordingLogger(logs),
     ...overrides,
   };
@@ -294,6 +298,158 @@ class ManualTimer implements IntervalTimer {
 function settle(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
+
+describe("createUsageWatch, the limit before a failed turn", () => {
+  interface Flag {
+    at: string;
+    message: string;
+  }
+
+  /** Open agents with their limit flag, and each agent's own usage as the watch reads it. */
+  function limits(agents: Array<{ id: string; provider: string }>) {
+    const flags = new Map<string, Flag | null>(agents.map((agent) => [agent.id, null]));
+    const usage = new Map<string, UsageReportEntry[]>();
+    const clock = { now: new Date("2026-11-06T10:00:00.000Z") };
+    const subject = harness({
+      runningAgents: async () => [],
+      openAgents: async () =>
+        agents.map((agent) => ({ ...agent, limitReachedAt: flags.get(agent.id)?.at ?? null })),
+      listAgentUsage: async (agentId) => usage.get(agentId) ?? [],
+      setLimitReached: async (agentId, value) => {
+        flags.set(agentId, value);
+      },
+      now: () => clock.now,
+    });
+    return { subject, flags, usage, clock };
+  }
+
+  const IDLE = { id: "idle-1", provider: "claude-work" };
+  const OTHER = { id: "other-1", provider: "codex" };
+
+  it("flags an idle agent whose account has a window at 100%, and not an agent on another account", async () => {
+    const { subject, flags, usage } = limits([IDLE, OTHER]);
+    usage.set("idle-1", weeklyReport(100));
+    usage.set("other-1", weeklyReport(40, "codex"));
+
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")).toEqual({
+      at: "2026-11-06T10:00:00.000Z",
+      message: "Claude (work) Weekly limit reached",
+    });
+    expect(flags.get("other-1")).toBeNull();
+    expect(subject.notices).toEqual([]);
+  });
+
+  it("clears its own flag once the account reads below 100%", async () => {
+    const { subject, flags, usage } = limits([IDLE]);
+    usage.set("idle-1", weeklyReport(100));
+    await subject.watch.check();
+
+    usage.set("idle-1", weeklyReport(3));
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")).toBeNull();
+  });
+
+  it("never clears a flag a failed turn set", async () => {
+    const { subject, flags, usage } = limits([IDLE]);
+    const fromTurn = { at: "2026-11-06T09:00:00.000Z", message: "usage limit reached" };
+    flags.set("idle-1", fromTurn);
+    usage.set("idle-1", weeklyReport(100));
+    await subject.watch.check();
+    expect(flags.get("idle-1")).toBe(fromTurn);
+
+    usage.set("idle-1", weeklyReport(3));
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")).toBe(fromTurn);
+  });
+
+  it("leaves a flag that a failed turn replaced after the watch set it", async () => {
+    const { subject, flags, usage } = limits([IDLE]);
+    usage.set("idle-1", weeklyReport(100));
+    await subject.watch.check();
+    const fromTurn = { at: "2026-11-06T10:03:00.000Z", message: "usage limit reached" };
+    flags.set("idle-1", fromTurn);
+
+    usage.set("idle-1", weeklyReport(3));
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")).toBe(fromTurn);
+  });
+
+  it("changes nothing while the account's usage cannot be read", async () => {
+    const { subject, flags, usage } = limits([IDLE]);
+    usage.set("idle-1", weeklyReport(100));
+    await subject.watch.check();
+    const set = flags.get("idle-1");
+
+    usage.set("idle-1", [
+      { ...weeklyReport(0)[0]!, report: { status: "error", error: "usage API returned 500" } },
+    ]);
+    await subject.watch.check();
+    usage.set("idle-1", []);
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")).toBe(set);
+  });
+
+  it("sets a flag again after a good turn cleared it while the account is still spent", async () => {
+    const { subject, flags, usage, clock } = limits([IDLE]);
+    usage.set("idle-1", weeklyReport(100));
+    await subject.watch.check();
+    flags.set("idle-1", null);
+
+    clock.now = new Date("2026-11-06T10:05:10.000Z");
+    await subject.watch.check();
+
+    expect(flags.get("idle-1")?.at).toBe("2026-11-06T10:05:10.000Z");
+  });
+
+  it("goes on to the next agent when one agent's usage read fails", async () => {
+    const second = { id: "idle-2", provider: "claude-work" };
+    const { subject, flags, usage } = limits([IDLE, second]);
+    usage.set("idle-2", weeklyReport(100));
+    const failing = harness({
+      runningAgents: async () => [],
+      openAgents: async () => [
+        { ...IDLE, limitReachedAt: null },
+        { ...second, limitReachedAt: null },
+      ],
+      listAgentUsage: async (agentId) => {
+        if (agentId === "idle-1") throw new Error("unknown agent");
+        return usage.get(agentId) ?? [];
+      },
+      setLimitReached: async (agentId, value) => {
+        flags.set(agentId, value);
+      },
+    });
+
+    await failing.watch.check();
+
+    expect(flags.get("idle-2")?.message).toBe("Claude (work) Weekly limit reached");
+    expect(failing.logs).toContain("warn usage watch: limit check failed");
+    expect(subject.notices).toEqual([]);
+  });
+
+  it("reads nothing while usage is turned off", async () => {
+    const { flags, usage } = limits([IDLE]);
+    usage.set("idle-1", weeklyReport(100));
+    const off = harness({
+      usageEnabled: () => false,
+      openAgents: async () => [{ ...IDLE, limitReachedAt: null }],
+      listAgentUsage: async (agentId) => usage.get(agentId) ?? [],
+      setLimitReached: async (agentId, value) => {
+        flags.set(agentId, value);
+      },
+    });
+
+    await off.watch.check();
+
+    expect(flags.get("idle-1")).toBeNull();
+  });
+});
 
 describe("startUsageWatch", () => {
   it("checks on each tick, skips a tick while a check still runs, and stops", async () => {

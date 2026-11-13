@@ -1,8 +1,8 @@
 import type { Logger } from "pino";
 import type { UsageReportEntry } from "@getpaseo/protocol/messages";
-import { windowUsedPct } from "@getpaseo/protocol/usage-heads-up";
 import type { AgentManager } from "../agent-manager.js";
 import { isUsageLimitError } from "./limit-matcher.js";
+import { findSpentWindow } from "./usage-watch.js";
 
 export interface UsageLimitFallbackDeps {
   agentManager: Pick<AgentManager, "subscribe" | "getAgent" | "setLimitReached">;
@@ -13,14 +13,6 @@ export interface UsageLimitFallbackDeps {
   logger: Pick<Logger, "warn">;
 }
 
-function hasSpentWindow(reports: readonly UsageReportEntry[]): boolean {
-  return reports.some(
-    (entry) =>
-      entry.report.status === "available" &&
-      entry.report.windows.some((window) => (windowUsedPct(window) ?? 0) >= 100),
-  );
-}
-
 /**
  * Sets `limitReached` when a turn fails on an error the limit matcher does not know and the
  * agent's account has a window at 100%. The matcher reads English error text, so a provider that
@@ -29,7 +21,7 @@ function hasSpentWindow(reports: readonly UsageReportEntry[]): boolean {
 export function startUsageLimitFallback(deps: UsageLimitFallbackDeps): () => void {
   async function check(agentId: string, error: string): Promise<void> {
     if (!deps.usageEnabled()) return;
-    if (!hasSpentWindow(await deps.listAgentUsage(agentId))) return;
+    if (!findSpentWindow(await deps.listAgentUsage(agentId))) return;
     // The read takes a while: a turn that ran since then owns the agent's state.
     const agent = deps.agentManager.getAgent(agentId);
     if (!agent || agent.lastError !== error || agent.limitReached) return;

@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import type { UsageReportEntry } from "@getpaseo/protocol/messages";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import {
   chooseBestMoveTarget,
@@ -28,6 +29,29 @@ export interface UsageNotice {
   body: string;
 }
 
+/** An agent the daemon holds, running or idle, whose own account the watch reads for a limit. */
+export interface OpenAgent {
+  id: string;
+  provider: string;
+  /** When the agent's limit flag was set; null while it has none. */
+  limitReachedAt: string | null;
+}
+
+export interface LimitFlag {
+  at: string;
+  message: string;
+}
+
+/** The window of an account that is used up, if any report that could be read has one. */
+export function findSpentWindow(reports: readonly UsageReportEntry[]): { label: string } | null {
+  for (const entry of reports) {
+    if (entry.report.status !== "available") continue;
+    const spent = entry.report.windows.find((window) => (windowUsedPct(window) ?? 0) >= 100);
+    if (spent) return { label: spent.label };
+  }
+  return null;
+}
+
 export interface UsageWatchDeps {
   /** Agents that pass `isWatchedAgent`, with their stored titles. */
   runningAgents(): Promise<WatchedAgent[]>;
@@ -37,6 +61,12 @@ export interface UsageWatchDeps {
   listUsageReportsForScope: ListUsageReportsForScope | null;
   listMoveTargets(agentId: string): Promise<MoveTarget[]>;
   notify(notice: UsageNotice): Promise<void>;
+  /** Every agent the daemon holds that is not internal, idle ones included. */
+  openAgents(): Promise<OpenAgent[]>;
+  /** The usage of the agent's own account and model, as its usage popover shows it. */
+  listAgentUsage(agentId: string): Promise<UsageReportEntry[]>;
+  setLimitReached(agentId: string, value: LimitFlag | null): Promise<void>;
+  now(): Date;
   logger: Pick<Logger, "info" | "warn">;
 }
 
@@ -95,6 +125,49 @@ function describeUsageNotice(input: {
 
 export function createUsageWatch(deps: UsageWatchDeps): UsageWatch {
   const crossings = createCrossingTracker();
+  /** The `at` of each limit flag this watch set, so it clears only its own. */
+  const flagged = new Map<string, string>();
+
+  /**
+   * Sets the limit flag on an agent whose account is used up, so the move is offered before a
+   * turn fails, and clears that flag once the account reads below its limit. An account that
+   * cannot be read changes nothing.
+   */
+  async function checkLimit(agent: OpenAgent): Promise<void> {
+    const reports = await deps.listAgentUsage(agent.id);
+    if (!reports.some((entry) => entry.report.status === "available")) return;
+    const spent = findSpentWindow(reports);
+    const setByWatch = flagged.get(agent.id);
+    if (!spent) {
+      flagged.delete(agent.id);
+      // A failed turn sets its own flag, with its own time; that one is the turn's to clear.
+      if (setByWatch && agent.limitReachedAt === setByWatch) {
+        await deps.setLimitReached(agent.id, null);
+      }
+      return;
+    }
+    if (agent.limitReachedAt) return;
+    const at = deps.now().toISOString();
+    const account = deps.launchInfo(agent.provider)?.label ?? agent.provider;
+    await deps.setLimitReached(agent.id, {
+      at,
+      message: `${account} ${spent.label} limit reached`,
+    });
+    flagged.set(agent.id, at);
+  }
+
+  async function checkLimits(): Promise<void> {
+    const open = await deps.openAgents();
+    const ids = new Set(open.map((agent) => agent.id));
+    for (const id of flagged.keys()) if (!ids.has(id)) flagged.delete(id);
+    for (const agent of open) {
+      try {
+        await checkLimit(agent);
+      } catch (err) {
+        deps.logger.warn({ err, agentId: agent.id }, "usage watch: limit check failed");
+      }
+    }
+  }
 
   async function notifyCrossing(input: {
     agent: WatchedAgent;
@@ -148,6 +221,7 @@ export function createUsageWatch(deps: UsageWatchDeps): UsageWatch {
         deps.logger.warn({ err, provider: agent.provider }, "usage watch: check failed");
       }
     }
+    await checkLimits();
   }
 
   return { check };
