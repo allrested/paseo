@@ -1,3 +1,4 @@
+import { TAP_SLOP_PX } from "../../shared/render.js";
 import { VIEW_TURN, type Bounds, type Point } from "../layout.js";
 
 /** How far above the horizon the camera stands, in radians. */
@@ -18,8 +19,8 @@ export const SCALE_LIMITS = { min: 10, max: 90 };
 /** A focus on a robot comes at least this close, in CSS pixels per world unit. */
 export const FOCUS_SCALE = 45;
 export const CAMERA_EASE_MS = 450;
-/** A pointer that moved less than this between down and up is a tap. */
-export const TAP_SLOP_PX = 8;
+// Declared in shared/, because the host replays a streamed view's touches by the same rule.
+export { TAP_SLOP_PX };
 /** Ground distance towards the camera per unit of screen height (1 / sin of the tilt). */
 export const GROUND_SCALE = CAMERA_REACH / CAMERA_HEIGHT;
 /** World height per unit of screen height (1 / cos of the tilt). */

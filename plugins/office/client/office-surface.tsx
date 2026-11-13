@@ -30,6 +30,7 @@ import {
 } from "./model.js";
 import { NO_LAYOUT, type SceneLayout, type SceneLayoutKeeper } from "./scene/scene-layout.js";
 import { SceneView, type FocusRequest, type SceneCameraKeeper } from "./scene/scene-view.js";
+import { StreamView } from "./scene/stream-view.js";
 import { hasWebGL2 } from "./scene/web-env.web.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
@@ -235,8 +236,25 @@ export function nextFocusRequest(previous: FocusRequest | null, agentId: string)
 /** "fallback" is the structure view under the "Try 3D again" banner. */
 export type OfficeView = "pending" | "scene" | "fallback" | "structure";
 
+/** Where the 3D view is drawn: by this device's WebGL, on the host as pictures, or nowhere. */
+export type ThreeDMode = "local" | "stream" | "none";
+
+export interface ThreeDModeInput {
+  platform: Platform;
+  /** This device can draw: a browser with WebGL2. */
+  webgl2: boolean;
+  /** The host can draw for a device that cannot (the snapshot's `render.available`). */
+  hostRender: boolean;
+}
+
+/** A device that can draw does; the installed app and a browser without WebGL2 ask the host. */
+export function threeDMode({ platform, webgl2, hostRender }: ThreeDModeInput): ThreeDMode {
+  if (platform === "web" && webgl2) return "local";
+  return hostRender ? "stream" : "none";
+}
+
 export interface OfficeViewInput {
-  /** Web with WebGL2. */
+  /** 3D can be drawn, here or on the host. */
   available: boolean;
   /** The 3D switch; null while the device's setting is being read. */
   threeD: boolean | null;
@@ -257,7 +275,8 @@ export function sceneModelFor(view: OfficeView, model: OfficeModel): OfficeModel
 }
 
 interface ThreeDState {
-  /** Web with WebGL2: the switch is shown. */
+  mode: ThreeDMode;
+  /** 3D can be drawn, here or on the host: the switch is shown. */
   available: boolean;
   /** The switch's position; null while the device's setting is being read. */
   on: boolean | null;
@@ -267,9 +286,11 @@ interface ThreeDState {
 }
 
 /** The per-device 3D switch. Off, and everywhere 3D is unavailable, three.js is never loaded. */
-function useThreeD(platform: Platform): ThreeDState {
+function useThreeD(platform: Platform, hostRender: boolean): ThreeDState {
   const settings = useSettings(officeDeviceSettings);
-  const available = useMemo(() => platform === "web" && hasWebGL2(), [platform]);
+  const webgl2 = useMemo(() => platform === "web" && hasWebGL2(), [platform]);
+  const mode = threeDMode({ platform, webgl2, hostRender });
+  const available = mode !== "none";
   // The view follows the switch at once. A choice the device could not store stays here, so the
   // switch still does what it says until the surface closes.
   const [sync, dispatch] = useReducer(switchSync, IDLE_SWITCH);
@@ -307,6 +328,7 @@ function useThreeD(platform: Platform): ThreeDState {
   }, [sync, revision, storedValue, save, reload]);
   const toggle = useCallback((next: boolean) => dispatch({ type: "tap", value: next }), []);
   return {
+    mode,
     available,
     on: available ? (sync.wanted ?? savedThreeD(settings)) : false,
     unsaved: available && switchUnsaved(sync),
@@ -360,6 +382,9 @@ interface SurfaceBodyProps {
   rooms: readonly OfficeRoom[];
   /** The model the scene draws; null shows the structure view. */
   sceneModel: OfficeModel | null;
+  /** Who draws that scene. */
+  sceneMode: ThreeDMode;
+  touchScreen: boolean;
   /** The 3D switch is still being read: neither view yet. */
   waiting: boolean;
   theme: PluginTheme;
@@ -380,6 +405,8 @@ function SurfaceBody({
   office,
   rooms,
   sceneModel,
+  sceneMode,
+  touchScreen,
   waiting,
   theme,
   focusRoomId,
@@ -411,6 +438,21 @@ function SurfaceBody({
     );
   }
   if (!office.loaded || waiting) return <Text style={styles.sceneStatus}>Loading...</Text>;
+  if (sceneModel !== null && sceneMode === "stream") {
+    // The host draws from its own copy of the office, so this view takes no model.
+    return (
+      <StreamView
+        theme={theme}
+        styles={styles}
+        coarsePointer={touchScreen}
+        focusRoomId={focusRoomId}
+        focusRequest={focusRequest}
+        onSelectAgent={onSelectAgent}
+        onSelectBoard={onOpenBoard}
+        onProblem={onSceneProblem}
+      />
+    );
+  }
   if (sceneModel !== null) {
     return (
       <SceneView
@@ -472,7 +514,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const office = useOffice();
   const actions = useAgentActions();
   const boardActions = useBoardActions();
-  const threeD = useThreeD(layout.platform);
+  const threeD = useThreeD(layout.platform, office.state.render?.available === true);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
@@ -551,6 +593,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         office={office}
         rooms={rooms}
         sceneModel={sceneModelFor(view, model)}
+        sceneMode={threeD.mode}
+        touchScreen={touchScreen}
         waiting={view === "pending"}
         theme={theme}
         focusRoomId={focusRoomId}
