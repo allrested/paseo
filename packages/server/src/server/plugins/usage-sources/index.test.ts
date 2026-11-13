@@ -1027,25 +1027,114 @@ function firstWindow(entries: UsageReportEntry[]): ProviderUsageWindow | undefin
   return report.windows[0];
 }
 
-test("fills a rising window's run-out from its fetch history", async () => {
+/** A registry with one agent, "agent-1", running on the Claude account. */
+function registryWithAgent(now: () => number): UsageSourceRegistry {
+  return new UsageSourceRegistry(now, 300_000, undefined, {
+    hasAgent: (id) => id === "agent-1",
+    usageSession: () => ({ provider: "claude", sessionKey: "agent-1", env: {} }),
+  });
+}
+
+test("an agent's usage fills a rising window's run-out from its fetch history", async () => {
   let now = Date.parse("2026-11-06T10:00:00.000Z");
-  const registry = new UsageSourceRegistry(() => now);
+  const registry = registryWithAgent(() => now);
   registry.register(risingSource([50, 60]));
 
-  expect(firstWindow(await registry.listReports())).toEqual({
+  expect(firstWindow(await registry.listReports({ agentId: "agent-1" }))).toEqual({
     id: "weekly",
     label: "Weekly",
     usedPct: 50,
     resetsAt: PACE_RESETS_AT,
   });
   now += 20 * 60_000;
-  expect(firstWindow(await registry.listReports({ forceRefresh: true }))).toEqual({
+  expect(
+    firstWindow(await registry.listReports({ agentId: "agent-1", forceRefresh: true })),
+  ).toEqual({
     id: "weekly",
     label: "Weekly",
     usedPct: 60,
     resetsAt: PACE_RESETS_AT,
     runsOutAt: "2026-11-06T11:40:00.000Z",
     shortfallPct: 70,
+  });
+});
+
+test("the host's usage list leaves out a projected run-out, so the window shows its reset", async () => {
+  let now = Date.parse("2026-11-06T10:00:00.000Z");
+  const registry = registryWithAgent(() => now);
+  registry.register(risingSource([50, 60]));
+  await registry.listReports();
+  now += 20 * 60_000;
+  const streamed: UsageReportEntry[] = [];
+
+  const listed = await registry.listReports({
+    forceRefresh: true,
+    onReport: (report) => streamed.push(report),
+  });
+
+  const resetOnly = { id: "weekly", label: "Weekly", usedPct: 60, resetsAt: PACE_RESETS_AT };
+  expect(firstWindow(listed)).toEqual(resetOnly);
+  expect(firstWindow(streamed)).toEqual(resetOnly);
+  // The same cached report, read for an agent, still carries the run-out.
+  expect(firstWindow(await registry.listReports({ agentId: "agent-1" }))?.runsOutAt).toBe(
+    "2026-11-06T11:40:00.000Z",
+  );
+});
+
+test("the host's usage list keeps a run-out the source reports itself", async () => {
+  const registry = new UsageSourceRegistry(() => Date.parse("2026-11-06T10:00:00.000Z"));
+  const reported = {
+    id: "weekly",
+    label: "Weekly",
+    usedPct: 60,
+    resetsAt: PACE_RESETS_AT,
+    runsOutAt: "2026-11-06T12:30:00.000Z",
+    shortfallPct: 20,
+  };
+  registry.register(
+    source({
+      id: "claude",
+      discover: async () => [{ key: "work", input: {} }],
+      fetch: async () => ({ status: "available", windows: [reported] }),
+    }),
+  );
+
+  expect(firstWindow(await registry.listReports())).toEqual(reported);
+});
+
+test("the host's usage list leaves a projected run-out out of the last successful report too", async () => {
+  let now = Date.parse("2026-11-06T10:00:00.000Z");
+  const usedPcts = [50, 60];
+  const registry = new UsageSourceRegistry(() => now);
+  registry.register(
+    source({
+      id: "claude",
+      discover: async () => [{ key: "work", input: {} }],
+      fetch: async () => {
+        const usedPct = usedPcts.shift();
+        if (usedPct === undefined) return { status: "error", error: "usage API down" };
+        return {
+          status: "available",
+          windows: [{ id: "weekly", label: "Weekly", usedPct, resetsAt: PACE_RESETS_AT }],
+        };
+      },
+    }),
+  );
+  await registry.listReports();
+  now += 20 * 60_000;
+  await registry.listReports({ forceRefresh: true });
+  now += 60_000;
+
+  const [entry] = await registry.listReports({ forceRefresh: true });
+
+  expect(entry?.report.status).toBe("error");
+  const kept = entry?.lastSuccessful?.report;
+  if (kept?.status !== "available") throw new Error("Expected a kept successful report");
+  expect(kept.windows[0]).toEqual({
+    id: "weekly",
+    label: "Weekly",
+    usedPct: 60,
+    resetsAt: PACE_RESETS_AT,
   });
 });
 
