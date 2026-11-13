@@ -10,7 +10,7 @@ import type {
 import { afterEach, expect, test, vi } from "vitest";
 import contribute, { createAndroidPlugin } from "./index.server.js";
 import type { AndroidDevice } from "./server/device.js";
-import type { Clock } from "./server/timers.js";
+import { nodeClock, type Clock } from "./server/timers.js";
 import type { androidHostSettings } from "./shared/settings.js";
 
 type SettingsState = PluginSettingsState<typeof androidHostSettings.schema>;
@@ -89,7 +89,11 @@ function openRequest(overrides: Partial<PluginSessionOpenRequest> = {}): PluginS
   };
 }
 
-function setup(read: () => Promise<SettingsState>, device: AndroidDevice | null = {} as never) {
+function setup(
+  read: () => Promise<SettingsState>,
+  device: AndroidDevice | null = {} as never,
+  useClock: Clock = clock,
+) {
   const recorded: Recorded = {
     hooks: new Map(),
     handlers: new Map(),
@@ -99,7 +103,7 @@ function setup(read: () => Promise<SettingsState>, device: AndroidDevice | null 
   const logs: string[] = [];
   const stop = createAndroidPlugin(fakeServer(recorded, read), {
     device,
-    clock,
+    clock: useClock,
     log: (message) => logs.push(message),
   });
   const open = (overrides: Partial<PluginSessionOpenRequest> = {}) =>
@@ -163,12 +167,46 @@ test("a state call whose setting cannot be read answers without tools and does n
   await stop();
 });
 
-test("the entry serves one call and one hook, and stopping removes the hook", async () => {
+test("the entry serves the state call, the picture stream and its input, and one hook; stopping removes the hook", async () => {
   const { recorded, stop } = setup(async () => ON);
-  expect([...recorded.handlers.keys()]).toEqual(["android.state.request"]);
+  expect([...recorded.handlers.keys()]).toEqual([
+    "android.state.request",
+    "android.stream",
+    "android.stream.input.request",
+  ]);
   expect([...recorded.hooks.keys()]).toEqual(["agent.open.before"]);
   await stop();
   expect(recorded.hooks.size).toBe(0);
+});
+
+test("the input call reaches the device, and stopping closes an open stream", async () => {
+  const taps: Array<[number, number]> = [];
+  const device = {
+    size: async () => ({ width: 720, height: 1280 }),
+    screenshot: async () => Buffer.from("a"),
+    tap: async (x: number, y: number) => {
+      taps.push([x, y]);
+    },
+  } as unknown as AndroidDevice;
+  const { recorded, stop } = setup(async () => ON, device, nodeClock);
+  const events: Array<{ type: string; streamId?: string }> = [];
+  const controller = new AbortController();
+  const served = recorded.handlers.get("android.stream")?.({}, {
+    signal: controller.signal,
+    push: async (event: never) => void events.push(event),
+  } as never) as Promise<void>;
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(events[0]).toMatchObject({ type: "ready", width: 720, height: 1280 });
+
+  const answer = await recorded.handlers.get("android.stream.input.request")?.(
+    { streamId: events[0]?.streamId, tap: { x: 5, y: 6 } },
+    context,
+  );
+  expect(answer).toEqual({ ok: true });
+  expect(taps).toEqual([[5, 6]]);
+
+  await stop();
+  await served;
 });
 
 test("with no device the entry registers no hook, no handler, no setting and no timer", async () => {
@@ -210,7 +248,11 @@ test("the default export is on with a serial and adb on PATH", async () => {
   process.env.PASEO_ANDROID_ADB = "127.0.0.1:5555";
   process.env.PATH = `${directory}:/nonexistent`;
   const { recorded, stop } = registrations();
-  expect([...recorded.handlers.keys()]).toEqual(["android.state.request"]);
+  expect([...recorded.handlers.keys()]).toEqual([
+    "android.state.request",
+    "android.stream",
+    "android.stream.input.request",
+  ]);
   expect([...recorded.hooks.keys()]).toEqual(["agent.open.before"]);
   await stop();
   await rm(directory, { recursive: true, force: true });
