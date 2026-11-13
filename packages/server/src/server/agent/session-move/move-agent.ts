@@ -614,6 +614,45 @@ export async function resolveMoveBackChain(
   return chain;
 }
 
+export type MovedAgentLookup = (
+  agentId: string,
+) => Promise<{ archived: boolean; labels: Record<string, string> } | null>;
+
+/**
+ * The agent that carries `agentId`'s session now: follows moved-to links from an archived agent
+ * until one that is not archived. Null when the chain ends at an archived agent with no link, at
+ * an agent with no record, or in a loop.
+ */
+export async function resolveMovedAgent(
+  agentId: string,
+  lookup: MovedAgentLookup,
+): Promise<string | null> {
+  const seen = new Set<string>();
+  let current = agentId;
+  while (!seen.has(current) && seen.size < MAX_MOVE_CHAIN) {
+    seen.add(current);
+    const state = await lookup(current);
+    if (!state) return null;
+    if (!state.archived) return current;
+    const next = getMovedToAgentId(state.labels);
+    if (!next) return null;
+    current = next;
+  }
+  return null;
+}
+
+/** An internal agent has no record and is live while the manager holds it. */
+export function movedAgentLookup(
+  deps: Pick<MoveAgentDeps, "agentManager" | "agentStorage">,
+): MovedAgentLookup {
+  return async (agentId) => {
+    const record = await deps.agentStorage.get(agentId);
+    if (record) return { archived: Boolean(record.archivedAt), labels: record.labels };
+    const live = deps.agentManager.getAgent(agentId);
+    return live ? { archived: false, labels: live.labels } : null;
+  };
+}
+
 function labelsLookup(deps: MoveAgentDeps): LabelsLookup {
   return async (agentId) =>
     deps.agentManager.getAgent(agentId)?.labels ?? (await deps.agentStorage.get(agentId))?.labels;
