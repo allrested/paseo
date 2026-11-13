@@ -195,7 +195,7 @@ function CommentSheet(props: {
       <Modal.Content>
         <View style={styles.sheet}>
           <TextInput
-            accessibilityLabel="Comment"
+            accessibilityLabel="Comment text"
             value={text}
             onChangeText={setText}
             placeholder="What should change here?"
@@ -241,7 +241,8 @@ export function EditorView(
   props: PluginWorkspacePanelProps & { file: FileRow; styles: DesignStyles; onClose(): void },
 ) {
   const { file, workspaceId, layout, styles } = props;
-  const web = layout.platform === "web";
+  // FigCraft's editor needs a wide screen; a phone, in the app or a browser, views and comments.
+  const web = layout.platform === "web" && !layout.compact;
   const [attempt, setAttempt] = useState(0);
   const [failure, setFailure] = useState<string | null>(null);
   const [picture, setPicture] = useState<Picture>(null);
@@ -312,7 +313,7 @@ export function EditorView(
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
+      <View style={web ? styles.editorHeader : styles.header}>
         <View style={styles.headerLead}>
           <IconButton
             label="Back to designs"
