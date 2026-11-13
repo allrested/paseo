@@ -1,7 +1,7 @@
 # End-to-end testing in the stack: design
 
 Date: 2026-11-13. Fork: allrested/paseo. Status: part 1 approved by the user on 2026-11-13
-("Yes LGTM") and built; parts 2 to 4 approved in outline, waiting on a check of the VM host.
+("Yes LGTM") and built; parts 2 to 4 approved in outline, host check passed, full design pending.
 
 ## Goal
 
@@ -63,11 +63,29 @@ Neoverse-N1, 32-bit and 64-bit modes. 8 cores, 39 GB of memory free, 33 GB of di
 user's Oracle trial ends 2026-12-10 and a cost guard shrinks the VM to 2 cores and 12 GB the day
 before.
 
+### Host check (2026-11-13, with the user's go-ahead)
+
+`sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"` loaded the module; it is not
+persisted, so a reboot unloads it. A throwaway container then ran and was removed:
+
+```
+docker run -d --rm --privileged --memory 4g -p 127.0.0.1:5555:5555 \
+  redroid/redroid:14.0.0_64only-latest \
+  androidboot.redroid_width=720 androidboot.redroid_height=1280 \
+  androidboot.redroid_dpi=320 androidboot.redroid_gpu_mode=guest
+```
+
+- Android 14 (arm64-v8a) reported `sys.boot_completed=1` about 15 seconds after start.
+- Idle it used about 620 MB of memory and under 3% of one core, with the launcher or Settings open.
+- Over adb (`adb connect 127.0.0.1:5555`): `uiautomator dump` gave the screen as 47 nodes with
+  their texts, `exec-out screencap -p` gave a 720×1280 PNG of 69 KB, `input tap` worked.
+- The same tools run through `docker exec` do not work for anything that starts a Java process
+  (`uiautomator` printed nothing): the Android environment comes from adbd. Everything goes
+  through adb.
+- The image is 2.27 GB and is still on the host.
+
 ### Open
 
-- Whether a redroid container boots and answers on this host. Not tried yet: loading the module
-  needs sudo, and the SSH tool's approval gate refused it twice on 2026-11-13.
-- Where the APK comes from. Building a Flutter APK on arm64 Linux is not supported by the Android
-  build tools, so it likely comes from CI.
-
-The full design for these parts is written after the host check.
+- Where the APK comes from. The Flutter app's CI builds it (`e2e-build.yml`). Building a Flutter
+  APK on arm64 Linux is not supported by the Android build tools.
+  The full design for these parts follows once the open point is settled with the user.
