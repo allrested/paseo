@@ -1,6 +1,6 @@
 # A move carries schedules, heartbeats and finish notifications design
 
-Date: 2026-11-13. Fork: allrested/paseo. Status: approved by the user on 2026-11-13 ("LGTM"), watched side revised the same day (option A); not built.
+Date: 2026-11-13. Fork: allrested/paseo. Status: approved by the user on 2026-11-13 ("LGTM"), watched side revised the same day (option A); built 2026-11-13.
 Builds on [session move](2026-11-05-session-move-design.md).
 
 ## Goal
@@ -203,8 +203,7 @@ Anti-goals:
 - `session-move/move-agent.e2e.test.ts`, which runs a real daemon and so the real carry: a moved
   agent's heartbeat is aimed at the successor and still active; a failed move leaves it aimed at
   the original; move back returns it; a sub-agent moved with continue on reports its successor's
-  finish to the parent, once; with continue off the parent gets nothing; a parent that moved gets
-  its sub-agent's finish at its successor.
+  finish to the parent, once; with continue off the parent gets nothing.
 
 ## Docs
 
@@ -212,3 +211,10 @@ Anti-goals:
   is rewritten to state what holds now and to point here.
 - `docs/agent-lifecycle.md` states the same limit in its session move section ("Schedules and
   heartbeats aimed at the agent you move are completed..."); that sentence is rewritten too.
+
+## As built
+
+- The failed-move test makes the archive itself fail, the step right after the schedules are
+  re-pointed, and checks the heartbeat is back with the original.
+- A parent that moved getting its sub-agent's finish is covered in the finish subscription tests,
+  not by a move on a test daemon.
