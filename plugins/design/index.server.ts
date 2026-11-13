@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { PaseoApi } from "@getpaseo/client";
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { readDesignConfig } from "./server/config.js";
 import {
   addCommentRpc,
@@ -15,6 +14,9 @@ import {
   viewSubscription,
 } from "./shared/contracts.js";
 import { createDesignService } from "./server/design.js";
+
+// The packaged app resolves only the plugin SDK, so the API type comes from it, not @getpaseo/client.
+type PaseoApi = PluginHandlerContext["paseo"];
 
 const TICK_MS = 10_000;
 
