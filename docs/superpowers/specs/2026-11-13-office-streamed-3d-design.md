@@ -105,13 +105,16 @@ plugin, `plugins/office/render/page.ts`, bundled for a browser. It holds:
 
 The daemon talks to it through one global, `__officeRender`, with these calls:
 
-| Call                               | Does                                                                                         |
-| ---------------------------------- | -------------------------------------------------------------------------------------------- |
-| `start({ theme, coarsePointer })`  | Builds the scene in the page's one full-size container.                                      |
-| `state(message)`                   | Takes one `office.state` message (snapshot or change), as a client does.                     |
-| `focus({ roomId } \| { agentId })` | `focusRoom` or `focusAgent` on the scene.                                                    |
-| `pointer(steps)`                   | Dispatches pointer events on the scene's canvas: `down`, `move`, `up`, `cancel`, CSS pixels. |
-| `take()`                           | Returns what happened since the last call: a picture if a frame was drawn, and the events.   |
+| Call                               | Does                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| `start({ theme, coarsePointer })`  | Builds the scene in the page's one full-size container.                                    |
+| `state(message)`                   | Takes one `office.state` message (snapshot or change), as a client does.                   |
+| `focus({ roomId } \| { agentId })` | `focusRoom` or `focusAgent` on the scene.                                                  |
+| `take()`                           | Returns what happened since the last call: a picture if a frame was drawn, and the events. |
+
+Pointer steps do not go through the global. The scene captures the pointer on press
+(`setPointerCapture`), which refuses an event a script made up, so the daemon sends real ones with
+`Input.dispatchMouseEvent`: pressed, moved, released, in CSS pixels.
 
 `take()` returns `{ picture: { jpeg, width, height } | null, events: [...] }`. `jpeg` is base64
 from `canvas.toDataURL("image/jpeg", 0.6)`. Events are `{ type: "agent", agentId }`,
@@ -132,8 +135,8 @@ picture source. The occlusion flags the compose files already set keep a covered
 beside `CdpBrowserService`, on the same endpoint and connection code:
 
 - `open({ width, height, deviceScaleFactor })` creates a target on `about:blank`, sets its
-  viewport, and returns a page with `evaluate(expression)`, `setViewport(...)`, `close()` and an
-  `onClosed` listener.
+  viewport, and returns a page with `evaluate(expression)`, `send(method, params)` for a raw CDP command,
+  `setViewport(...)`, `close()` and an `onClosed` listener.
 - Its targets are in no tab registry: no `opened` event, no pane, no `browser_*` tool, no
   `list_tabs` entry. The service closes its pages when the daemon stops.
 - `bundle(entryPath)` returns a browser script (IIFE) built with the daemon's esbuild, the one
@@ -151,7 +154,7 @@ Built-ins receive it as an optional field of the second argument the daemon alre
 3. Check WebGL2 in the page. Without it, end with the problem "The host browser has no WebGL".
 4. Feed the page the office state: a snapshot first, then every change the hub broadcasts.
 5. Every 125 ms call `take()`. Push a picture when there is one, and each event.
-6. On input, call `pointer` or `focus`.
+6. On input, send the pointer steps as CDP mouse events, or call `focus`.
 7. On unsubscribe, a closed page, or an error: close the page and end the subscription.
 
 Limits and pacing:
