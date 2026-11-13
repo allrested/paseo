@@ -1,4 +1,4 @@
-import { LOBBY } from "../shared/contracts.js";
+import { LOBBY } from "../shared/names.js";
 import type { OfficeModel, OfficeRoom, OfficeRow } from "./model.js";
 
 export const DESKS_PER_ROOM = 24;
