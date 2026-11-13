@@ -85,6 +85,13 @@ export class CdpOffscreenPages implements OffscreenPages {
   private pageOf(targetId: string, connection: CdpConnection): OffscreenPage {
     const listeners = new Set<() => void>();
     let gone = false;
+    // The connection can die while the Chromium window lives on (a command timeout closes the
+    // socket), so the window is closed on its own flag, once, whoever notices first.
+    let targetClosing: Promise<void> | null = null;
+    const closeTargetOnce = (): Promise<void> => {
+      targetClosing ??= this.closeTarget(targetId);
+      return targetClosing;
+    };
     const markGone = () => {
       if (gone) return;
       gone = true;
@@ -97,7 +104,10 @@ export class CdpOffscreenPages implements OffscreenPages {
       }
       listeners.clear();
     };
-    connection.onClose(markGone);
+    connection.onClose(() => {
+      markGone();
+      void closeTargetOnce();
+    });
     return {
       evaluate: async <T>(expression: string): Promise<T> => {
         const answer = await connection.send<EvaluateResult>("Runtime.evaluate", {
@@ -116,10 +126,9 @@ export class CdpOffscreenPages implements OffscreenPages {
         await connection.send("Emulation.setDeviceMetricsOverride", metrics(next));
       },
       close: async () => {
-        if (gone) return;
         markGone();
         connection.close();
-        await this.closeTarget(targetId);
+        await closeTargetOnce();
       },
       onClosed: (listener) => {
         if (gone) return () => {};

@@ -231,10 +231,10 @@ test("refuses a third viewer and keeps the first two", async () => {
   expect([first.ended, second.ended]).toEqual([false, false]);
 });
 
-test("refuses a size below 1 x 1 without opening a page", async () => {
+test("refuses a size that rounds to nothing without opening a page", async () => {
   const { sessions, opened } = setup();
 
-  const viewer = await attach(sessions, { ...INPUT, width: 0.5 });
+  const viewer = await attach(sessions, { ...INPUT, width: 0.4 });
 
   expect(problemsOf(viewer)).toEqual(["The 3D view has no size"]);
   expect(opened).toEqual([]);
@@ -505,4 +505,38 @@ test("stop closes every page", async () => {
 
   expect(pages.map((page) => page.closed)).toEqual([true, true]);
   expect([first.ended, second.ended]).toEqual([true, true]);
+});
+
+test("a size in fractions of a pixel, as Android reports it, reaches the browser in whole pixels", async () => {
+  const { sessions, opened, pages } = setup();
+
+  await attach(sessions, { ...INPUT, width: 411.43, height: 866.29 });
+  await sessions.input({
+    streamId: "stream-1",
+    resize: { width: 392.73, height: 0.4, pixelRatio: 2 },
+  });
+  await sessions.input({
+    streamId: "stream-1",
+    resize: { width: 392.73, height: 850.9, pixelRatio: 2 },
+  });
+
+  expect(opened[0]!.viewport).toEqual({ width: 411, height: 866, deviceScaleFactor: 1280 / 866 });
+  // A size that rounds to nothing is not sent.
+  expect(pages[0]!.sizes).toEqual([{ width: 393, height: 851, deviceScaleFactor: 1280 / 851 }]);
+});
+
+test("a take() that answers with something malformed ends the session and rejects nothing", async () => {
+  const { sessions, pages, tick } = setup();
+  const viewer = await attach(sessions);
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  pages[0]!.takes.push({ picture: null } as never);
+
+  await tick(2);
+  process.off("unhandledRejection", onUnhandled);
+
+  expect(unhandled).toEqual([]);
+  expect(viewer.ended).toBe(true);
+  expect(pages[0]!.closed).toBe(true);
 });
