@@ -259,11 +259,20 @@ In Dokploy, add it as a Compose service and give it the domain `figcraft.dev.mta
 
 The editor is at `/app/`; the root of the domain is the WebSocket endpoint.
 
-The server makes its key on first start and keeps it in the `figcraft-data` volume. Read it with
-`docker exec figcraft figcraft-server --config /tmp/server.toml key` and put it in each Paseo
-instance's `FIGCRAFT_SERVER_KEY`. The key publishes and manages files, so it stays in the
-instances' environment, never in git or a page: the domain is public and FigCraft has no
-accounts.
+The server makes its key on first start and keeps it in the `figcraft-data` volume. The key
+publishes and manages files, and the domain is public with no accounts, so it never goes in git,
+a page or a chat. Each Paseo instance reads it from the file `FIGCRAFT_SERVER_KEY_FILE` names
+(`/home/paseo/.paseo/design/server-key` by default), next to `FIGCRAFT_URL` and
+`FIGCRAFT_WEB_URL` in its env. Copy it in without printing it, once per instance:
+
+```bash
+docker exec figcraft figcraft-server --config /tmp/server.toml key \
+  | grep -o 'key=[^&[:space:]]*' | cut -d= -f2 \
+  | docker exec -i -u paseo <instance> sh -c 'umask 077; mkdir -p /home/paseo/.paseo/design; cat > /home/paseo/.paseo/design/server-key'
+```
+
+It is a file because the daemon's env is every agent's and terminal's env: a `FIGCRAFT_SERVER_KEY`
+variable would show up in any `env` an agent prints, so the plugin refuses one.
 
 Removing a design in Paseo only stops listing it. The file stays on the server until you run
 `docker exec figcraft figcraft-server --config /tmp/server.toml files remove <id>`.
