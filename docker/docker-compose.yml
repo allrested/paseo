@@ -112,6 +112,9 @@ services:
       # Lets a reverse proxy in its own stack reach this container by name.
       # See the networks block at the bottom of this file.
       - dokploy-network
+      # The Android device's network (docker-compose.yml only). This container
+      # is the only one that shares it with the device; see the networks block.
+      - device
 
   # One real Chromium with two ways in: agents drive it over CDP, you watch and
   # take over through noVNC. Because both attach to the same browser, an agent
@@ -290,8 +293,9 @@ services:
   # privileged container.
   #
   # Its adb has no authentication. It publishes no port and joins only the
-  # stack's own network, never the proxy's: on a shared network any other stack
-  # could install apps on it and read its screen.
+  # `device` network, which it shares with the paseo container alone: on the
+  # stack's `default` network the browser container could reach it, and on the
+  # proxy's network any other stack could.
   android:
     image: redroid/redroid:14.0.0_64only-latest
     container_name: ${INSTANCE_NAME:-paseo}-android
@@ -310,7 +314,7 @@ services:
       # Installed apps and their data survive a restart.
       - android-data:/data
     networks:
-      - default
+      - device
     healthcheck:
       # getprop exits 0 with an empty answer while Android is still booting.
       test: ["CMD", "sh", "-c", 'test "$(getprop sys.boot_completed)" = 1']
@@ -348,6 +352,13 @@ volumes:
 networks:
   # The stack's own network: container-to-container traffic between these four.
   default: {}
+  # The Android device and the paseo container, and nothing else. The device's
+  # adb has no authentication, so it must not sit on `default`, where the
+  # browser container (which renders arbitrary web pages) could open it. Empty
+  # unless the `android` profile is on. Named so that it sorts after `default`:
+  # Docker takes a container's default gateway from its first network by name,
+  # and joining this one must not change the route paseo already has.
+  device: {}
   # A reverse proxy living in a different compose stack (Dokploy's Traefik, for
   # one) can only reach these containers if it shares a network with them.
   # Created by that proxy, so it is external here.

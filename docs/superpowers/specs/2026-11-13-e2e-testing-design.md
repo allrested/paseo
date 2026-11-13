@@ -238,5 +238,8 @@ while nobody tests; a broken stack on a host without the kernel module.
 1. Compose service, sidecar, host step, `adb` in the image.
 2. The plugin's server: adb, snapshot, tools.
 3. The panel and its picture stream.
-4. Java and Maestro in the image; one flow run by hand. Gate, before this step and before the
-   release: a real APK of the Flutter app installs and opens on the device.
+4. Java and Maestro in the image; one flow run by hand.
+
+The user decided on 2026-11-13 to leave the Flutter app's APK for later, so nothing here waits for
+it: the device was checked with the stock Android apps only, and whether the Flutter app runs
+without Google Play services is still unknown.
