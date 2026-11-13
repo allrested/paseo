@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { createAdbRunner, findOnPath } from "./server/adb.js";
 import { createAndroidTools } from "./server/agent-tools.js";
 import { createAndroidDevice, type AndroidDevice } from "./server/device.js";
 import { errorMessage } from "./server/errors.js";
 import { nodeClock, type Clock } from "./server/timers.js";
-import { androidStateRpc } from "./shared/contracts.js";
+import { createAndroidStreams } from "./server/stream.js";
+import { androidInputRpc, androidStateRpc, androidStreamSubscription } from "./shared/contracts.js";
 import { androidHostSettings } from "./shared/settings.js";
 
 export interface AndroidPluginDeps {
@@ -43,6 +45,17 @@ export function createAndroidPlugin(
     }
   });
 
+  const streams = createAndroidStreams({
+    device,
+    clock,
+    newStreamId: () => randomUUID(),
+    log,
+  });
+  // The handler settles when the viewer leaves or the stream ends, and settling closes the
+  // subscription. It never rejects.
+  server.handle(androidStreamSubscription, (_input, context) => streams.attach(context));
+  server.handle(androidInputRpc, (input) => streams.input(input));
+
   const removeHook = server.addHook("agent.open.before", async ({ request }) => {
     try {
       if (request.purpose !== "interactive") return undefined;
@@ -57,6 +70,7 @@ export function createAndroidPlugin(
 
   return async () => {
     removeHook();
+    await streams.stop();
   };
 }
 
