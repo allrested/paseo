@@ -1,10 +1,10 @@
 // Opens a render page in the daemon's Chromium and speaks to it. The only file that knows how
 // three.js and the page script get into the page.
 import type { PluginTheme } from "@getpaseo/plugin";
-import { TAP_SLOP_PX } from "../../client/scene/camera.js";
 import type { OfficeEvent, PointerStep } from "../../shared/contracts.js";
 import {
   RENDER_GLOBAL,
+  TAP_SLOP_PX,
   THREE_GLOBAL,
   type RenderFocus,
   type RenderStart,
