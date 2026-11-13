@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
 import { useSessionStore } from "@/stores/session-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import { getMovedFromAgentId } from "@getpaseo/protocol/agent-labels";
+import type { Agent } from "@/stores/session-store";
 import { findSessionAgent, resolveMovedAgentId } from "./resolve-moved-agent";
 
 /**
@@ -33,14 +35,27 @@ export function retargetAgentTabs(
   if (destinationTab) layout.focusTab(workspaceKey, destinationTab.tabId);
 }
 
-/** Retargets the tabs whose agent was archived by a move, e.g. one made while the app was away. */
+/** The live agent that was moved from `agentId`, read from the active agents' moved-from links. */
+function findLiveSuccessor(agents: Map<string, Agent>, agentId: string): string | null {
+  for (const agent of agents.values()) {
+    if (!agent.archivedAt && getMovedFromAgentId(agent.labels) === agentId) return agent.id;
+  }
+  return null;
+}
+
+/**
+ * Retargets the tabs whose agent was archived by a move, e.g. one made while the app was away.
+ * After such a move the session holds no record of the archived agent, so the live agent's
+ * moved-from link is what names it.
+ */
 export function retargetStaleAgentTabs(serverId: string, workspaceKey: string): void {
   const session = useSessionStore.getState().sessions[serverId];
   if (!session) return;
   const getAgent = (id: string) => findSessionAgent(session, id);
+  const liveSuccessorOf = (id: string) => findLiveSuccessor(session.agents, id);
   for (const tab of useWorkspaceLayoutStore.getState().getWorkspaceTabs(workspaceKey)) {
     if (tab.target.kind !== "agent") continue;
-    const movedTo = resolveMovedAgentId(tab.target.agentId, getAgent);
+    const movedTo = resolveMovedAgentId(tab.target.agentId, getAgent, liveSuccessorOf);
     if (movedTo) retargetAgentTabs(workspaceKey, tab.target.agentId, movedTo);
   }
 }
@@ -72,7 +87,9 @@ export function useFollowMovedAgents(serverId: string, workspaceKey: string | nu
     };
   }, [client, supportsAgentMove, workspaceKey]);
 
-  useEffect(() => {
+  // A layout effect, and the hook sits above the screen's tab reconcile: a tab on an agent that was
+  // moved while the app was away has to be retargeted before the reconcile closes it as archived.
+  useLayoutEffect(() => {
     if (!supportsAgentMove || !workspaceKey) return;
     retargetStaleAgentTabs(serverId, workspaceKey);
     // Store subscriptions rather than selectors: the workspace screen must not re-render on every
