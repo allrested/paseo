@@ -1,3 +1,4 @@
+import type { ProviderCommand } from "@getpaseo/protocol/provider-config";
 import { normalizeAgentModelCatalog, type ProviderOptions } from "@getpaseo/protocol/agent-types";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -117,6 +118,8 @@ export interface ProviderLaunchInfo {
   label: string;
   enabled: boolean;
   env: Record<string, string>;
+  /** The provider's command override, when it has one. */
+  command?: ProviderCommand;
 }
 
 export interface ProviderSnapshotManagerOptions {
@@ -373,6 +376,7 @@ export class ProviderSnapshotManager {
       label: this.getProviderLabel(providerId),
       enabled: definition.enabled,
       env: { ...definition.configuration?.runtimeSettings?.env },
+      command: definition.configuration?.runtimeSettings?.command,
     };
   }
 

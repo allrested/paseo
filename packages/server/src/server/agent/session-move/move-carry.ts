@@ -1,8 +1,9 @@
 import type { FinishRegistration } from "../finish-subscriptions/index.js";
+import type { TargetLogin } from "./target-login.js";
 
 /**
- * What a session move takes along from outside the agent itself. The daemon sets one on the
- * agent manager at startup; a manager without one, as in unit tests, moves without it.
+ * What a session move needs from outside the agent itself. The daemon sets one on the agent
+ * manager at startup; a manager without one, as in unit tests, moves without it.
  */
 export interface MoveCarry {
   /** Points not-completed schedules aimed at `from` at `to`. */
@@ -15,4 +16,6 @@ export interface MoveCarry {
     agentId: string,
     labels: Record<string, string>,
   ): Promise<FinishRegistration | undefined>;
+  /** Whether the login `providerId` launches with is signed in, as its own CLI says. */
+  targetLogin(providerId: string): Promise<TargetLogin>;
 }
