@@ -8,12 +8,13 @@
 # bddevlab, claude) and session move, which spans the server, the CLI and
 # packages/app/src/session-move. Upstream already proves the rest of the app,
 # desktop, relay, CLI and SDK on its own runs, so re-testing them here buys
-# nothing and costs ~145 runner-minutes. The six jobs below are the ones that
+# nothing and costs ~145 runner-minutes. The seven jobs below are the ones that
 # can actually catch a fork-authored mistake.
 #
 # Deliberately not covered:
 #   playwright        browser E2E of packages/app — 4 shards x ~22 min, and each
-#                     shard re-pays the full build + agent-CLI install
+#                     shard re-pays the full build + agent-CLI install. The one
+#                     journey this fork owns runs alone in session-move-e2e.
 #   desktop-tests     packages/desktop — untouched here
 #   relay-tests       packages/relay — the relay is not deployed
 #   cli/app/sdk       beyond session move, untouched here
@@ -152,6 +153,40 @@ jobs:
       - name: Run CLI move tests
         working-directory: packages/cli
         run: npx vitest run src/commands/agent/move.test.ts
+
+  # The move dialog, the tab swap and the move-back banner in a real browser, against
+  # a real daemon. One spec: a build and about a minute of test time, with no agent CLIs.
+  session-move-e2e:
+    # The locked Playwright installers do not support ubuntu-latest's Ubuntu 26.04.
+    runs-on: ubuntu-24.04
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: Install Playwright browser
+        timeout-minutes: 10
+        run: npx playwright install chromium
+      - name: Build server stack
+        run: npm run build:server
+      - name: Build native app dependency
+        run: npm run build --workspace=@getpaseo/expo-two-way-audio
+      - name: Run the session move journey
+        run: npm run test:e2e --workspace=@getpaseo/app -- e2e/browser/session-move.spec.ts
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-move-e2e-results
+          path: |
+            packages/app/test-results/
+            packages/app/playwright-report/
+          retention-days: 7
 
   # docker/** is most of this fork, and its scripts and compose files are
   # covered only by this node:test suite. It needs no npm install. Without it a
