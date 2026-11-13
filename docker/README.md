@@ -52,6 +52,12 @@ unpinned, and three MCP servers at pinned versions for the `shared-mcp` built-in
 new version, change its pin in `Dockerfile.agents` and check its flags against
 the definition before tagging.
 
+A repo's own Playwright suite runs inside the agent container: the image carries the system
+libraries Chromium links against, and the repo fetches the browser its Playwright version
+expects with `npx playwright install chromium` (kept in the home volume). The browser is not in
+the image, because each repo pins its own version. This is separate from Playwright MCP, which
+drives the `browser` service and launches nothing.
+
 ### Deploying
 
 Nothing builds. Both images are published by `.github/workflows/docker.yml`, so

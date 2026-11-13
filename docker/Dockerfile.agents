@@ -151,6 +151,25 @@ RUN set -eux; \
     rm -rf /tmp/figcraft; \
     figcraft-cli --version
 
+# What a repo's own Playwright suite needs to launch Chromium in this container.
+#
+# The browser is not here: each repo pins its own Playwright version and fetches
+# the matching build with `npx playwright install chromium`, into the home
+# volume. That build links against system libraries, and `playwright
+# install-deps` needs root, which agents do not have, so the libraries are in
+# the image. The list is Playwright's own for Debian 12 (playwright-core's
+# nativeDeps.js, `chromium`), with the fonts a page needs to draw text and emoji.
+# @playwright/mcp above is unaffected: it still drives the `browser` service.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 \
+      libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 \
+      libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 \
+      libxkbcommon0 libxrandr2 \
+      libfontconfig1 libfreetype6 fonts-liberation fonts-noto-color-emoji; \
+    rm -rf /var/lib/apt/lists/*
+
 # GitHub's SSH host keys, system-wide.
 #
 # Without this, the first `git clone git@github.com:...` in a fresh container
