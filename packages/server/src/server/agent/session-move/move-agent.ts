@@ -267,8 +267,8 @@ interface FinishProgress {
   /** The moved-from link `finish` replaced on the agent it hands to; value null means none. */
   previousMovedFrom: { agentId: string; value: string | null } | null;
   linked: boolean;
-  /** Schedules `finish` pointed at the agent it hands to. */
-  retargeted: { toAgentId: string; scheduleIds: string[] } | null;
+  /** The agent `finish` began pointing schedules at. Set before the first one changes. */
+  schedulesMovedTo: string | null;
   /** The parent's notification for the continue turn. */
   parentNotice: FinishRegistration | null;
 }
@@ -278,7 +278,7 @@ function newFinishProgress(): FinishProgress {
     reparentedChildIds: [],
     previousMovedFrom: null,
     linked: false,
-    retargeted: null,
+    schedulesMovedTo: null,
     parentNotice: null,
   };
 }
@@ -309,7 +309,9 @@ async function continueAgent(
       await waitForAgentRunStartWithTimeout(deps.agentManager, agentId);
     }
   } catch (error) {
-    await notice?.reject();
+    await notice?.reject().catch((rejectError: unknown) => {
+      deps.logger.error({ err: rejectError, agentId }, "move: failed to withdraw parent notice");
+    });
     throw error;
   }
   notice?.accept();
@@ -362,8 +364,8 @@ async function finish(
   progress.linked = true;
   await deps.agentManager.setLabels(from.id, { [MOVED_TO_AGENT_ID_LABEL]: to.id });
   // Before the archive, which completes whatever is still aimed at `from`.
-  const scheduleIds = await deps.agentManager.moveCarry?.retargetSchedules(from.id, to.id);
-  if (scheduleIds?.length) progress.retargeted = { toAgentId: to.id, scheduleIds };
+  progress.schedulesMovedTo = to.id;
+  await deps.agentManager.moveCarry?.retargetSchedules(from.id, to.id);
   await archiveAgentCommand(
     { agentManager: deps.agentManager, agentStorage: deps.agentStorage, logger: deps.logger },
     from.id,
@@ -383,14 +385,6 @@ async function undoFinish(
   await progress.parentNotice?.reject().catch((error: unknown) => {
     deps.logger.error({ err: error, agentId: from.id }, "move: failed to withdraw parent notice");
   });
-  const retargeted = progress.retargeted;
-  if (retargeted) {
-    await deps.agentManager.moveCarry
-      ?.retargetSchedules(retargeted.toAgentId, from.id, retargeted.scheduleIds)
-      .catch((error: unknown) => {
-        deps.logger.error({ err: error, agentId: from.id }, "move: failed to restore schedules");
-      });
-  }
   const previous = progress.previousMovedFrom;
   if (previous) {
     await deps.agentManager
@@ -419,6 +413,16 @@ async function undoFinish(
     }
   } catch (error) {
     deps.logger.error({ err: error, agentId: from.id }, "move: failed to restore original agent");
+  }
+  // After the unarchive: a schedule aimed at an archived agent is completed when it comes due.
+  // Everything aimed at the agent handed to came from `from`: a successor is new, and an agent
+  // moved back to was archived, which leaves it no open schedule of its own.
+  if (progress.schedulesMovedTo) {
+    await deps.agentManager.moveCarry
+      ?.retargetSchedules(progress.schedulesMovedTo, from.id)
+      .catch((error: unknown) => {
+        deps.logger.error({ err: error, agentId: from.id }, "move: failed to restore schedules");
+      });
   }
 }
 

@@ -509,17 +509,12 @@ export class ScheduleService {
   /**
    * Points every not-completed schedule aimed at `fromAgentId` at `toAgentId` and returns their
    * ids. A session move calls this before it archives the agent it leaves, so the archive finds
-   * nothing to complete. With `only`, just those ids change, which is how a failed move undoes it.
+   * nothing to complete.
    */
-  async retargetAgent(
-    fromAgentId: string,
-    toAgentId: string,
-    only?: readonly string[],
-  ): Promise<string[]> {
+  async retargetAgent(fromAgentId: string, toAgentId: string): Promise<string[]> {
     const updatedAt = this.now().toISOString();
     const retargeted: string[] = [];
     for (const candidate of await this.store.list()) {
-      if (only && !only.includes(candidate.id)) continue;
       await this.store.update(candidate.id, (schedule) => {
         if (
           schedule.target.type !== "agent" ||
@@ -774,6 +769,8 @@ export class ScheduleService {
         ({ schedule: scheduleWithRun, runId } = claimed);
       }
 
+      const targetAgentId =
+        scheduleWithRun.target.type === "agent" ? scheduleWithRun.target.agentId : null;
       try {
         const result = await this.runner(scheduleWithRun, runId);
         await this.finishRun({
@@ -784,6 +781,7 @@ export class ScheduleService {
           output: result.output,
           error: null,
           targetGone: false,
+          targetAgentId,
           manual,
         });
       } catch (error) {
@@ -795,6 +793,7 @@ export class ScheduleService {
           output: null,
           error: error instanceof Error ? error.message : String(error),
           targetGone: error instanceof ScheduleTargetGoneError,
+          targetAgentId,
           manual,
         });
       }
@@ -875,6 +874,8 @@ export class ScheduleService {
     output: string | null;
     error: string | null;
     targetGone: boolean;
+    /** The agent the run was claimed for, when the schedule aimed at one. */
+    targetAgentId: string | null;
     manual: boolean;
   }): Promise<void> {
     const updatedSchedule = await this.store.update(params.scheduleId, (schedule) => {
@@ -898,7 +899,13 @@ export class ScheduleService {
         updatedAt: now.toISOString(),
       };
 
-      if (params.targetGone) {
+      // A session move re-pointed the schedule while this run was in flight: the agent the run
+      // found gone is no longer its target.
+      const retargeted =
+        params.targetAgentId !== null &&
+        schedule.target.type === "agent" &&
+        schedule.target.agentId !== params.targetAgentId;
+      if (params.targetGone && !retargeted) {
         // The target is permanently gone; retrying only burns the schedule down to
         // its expiry, so complete it now regardless of manual/scheduled origin.
         updated = completeSchedule(updated, now);
