@@ -5,6 +5,7 @@ import { createOfficeScene, type OfficeScene } from "../client/scene/office-scen
 import { scenePalette, type ScenePalette } from "../client/scene/palette.js";
 import { isThreeModule } from "../client/scene/three-types.js";
 import {
+  PAGE_FRAME_MS,
   PICTURE_QUALITY,
   RENDER_GLOBAL,
   THREE_GLOBAL,
@@ -58,6 +59,12 @@ const page: OfficeRenderGlobal = {
       coarsePointer,
       reducedMotion: false,
       preserveDrawingBuffer: true,
+      // Not the browser's frame clock: this window is not on screen, and there that clock runs
+      // about four times a second once the page draws, which shows as a still, jerky office.
+      frames: {
+        request: (callback) => window.setTimeout(() => callback(performance.now()), PAGE_FRAME_MS),
+        cancel: (handle) => window.clearTimeout(handle),
+      },
       onFrame: () => {
         dirty = true;
       },
