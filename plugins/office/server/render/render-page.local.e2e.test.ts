@@ -10,9 +10,12 @@ import { CdpOffscreenPages } from "../../../../packages/server/src/server/browse
 import { bundleBrowserScript } from "../../../../packages/server/src/server/plugins/browser-script.js";
 import { fakeOffice } from "../../client/scene/fake-office.js";
 import { LIGHT_THEME_COLORS } from "../../client/scene/fake-theme.js";
+import type { RenderEvent } from "../../shared/contracts.js";
 import type { RenderTake } from "../../shared/render.js";
 import { readThreeAsset } from "../asset.js";
-import { createRenderPageHost, type RenderPage } from "./page-host.js";
+import { nodeClock } from "../timers.js";
+import { createRenderPageHost, type RenderPage, type RenderPageHost } from "./page-host.js";
+import { createRenderSessions } from "./sessions.js";
 
 const CDP_URL = process.env.PASEO_TEST_CDP_URL;
 const OFFICE_DIR = fileURLToPath(new URL("../../", import.meta.url));
@@ -46,11 +49,12 @@ async function settle(page: RenderPage): Promise<void> {
 
 describe.skipIf(!CDP_URL)("render page against a real Chromium", () => {
   let pages: CdpOffscreenPages;
+  let host: RenderPageHost;
   let page: RenderPage;
 
   beforeAll(async () => {
     pages = new CdpOffscreenPages({ endpoint: new CdpEndpoint({ url: CDP_URL! }), logger });
-    const host = createRenderPageHost({
+    host = createRenderPageHost({
       pages,
       bundle: bundleBrowserScript,
       readThree: () => readThreeAsset(path.join(OFFICE_DIR, "vendor")),
@@ -148,5 +152,40 @@ describe.skipIf(!CDP_URL)("render page against a real Chromium", () => {
       path.join(os.tmpdir(), "office-render-panned.jpg"),
       Buffer.from(take.picture!.jpeg, "base64"),
     );
+  }, 60_000);
+
+  test("a session gives its viewer ready, then a picture, and closes its page when the viewer leaves", async () => {
+    const sessions = createRenderSessions({
+      host,
+      hub: {
+        attach: async (subscriber) => {
+          await subscriber.push({ type: "snapshot", state: fakeOffice() });
+          await new Promise<void>((resolve) =>
+            subscriber.signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+      },
+      clock: nodeClock,
+      newStreamId: () => "stream-e2e",
+      log: console.warn,
+    });
+    const events: RenderEvent[] = [];
+    const viewer = new AbortController();
+    const done = sessions.attach(
+      { ...VIEWPORT, pixelRatio: 3, colors: LIGHT_THEME_COLORS, coarsePointer: true },
+      { signal: viewer.signal, push: async (event) => void events.push(event) },
+    );
+    const deadline = Date.now() + 20_000;
+    while (!events.some((event) => event.type === "picture")) {
+      if (Date.now() > deadline) throw new Error("No picture reached the viewer");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    expect(events[0]).toEqual({ type: "ready", streamId: "stream-e2e" });
+    expect(events.find((event) => event.type === "picture")).toMatchObject({ seq: 1, width: 585 });
+    expect(await sessions.input({ streamId: "stream-e2e", shown: 1 })).toEqual({ ok: true });
+    viewer.abort();
+    await done;
+    expect(await sessions.input({ streamId: "stream-e2e" })).toEqual({ ok: false });
   }, 60_000);
 });
