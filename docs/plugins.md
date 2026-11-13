@@ -338,7 +338,8 @@ only) and a browser without WebGL2, gets the same 3D view as pictures from the h
 daemon has a Chromium (`PASEO_BROWSER_CDP_URL`, with WebGL on: see [docker.md](docker.md)). The
 office opens a page there that no pane and no agent sees, runs the same scene in it as a headless
 office client fed the `office.state` events (`plugins/office/render/page.ts`), and asks it for a
-JPEG every 125 ms; a still office sends nothing. The client shows the latest picture and sends
+JPEG every 80 ms; a still office sends nothing. The page draws from a timer, not the browser's
+frame clock: its window is not on screen, where that clock runs about four times a second. The client shows the latest picture and sends
 taps and drags back over `office.render.input.request`, which the host replays as mouse events.
 The daemon hands built-ins the two things this needs beside their directory: `offscreenPages` and
 `bundleBrowserScript` (`BuiltinPluginInfo`); directory plugins get neither. Two viewers at most
