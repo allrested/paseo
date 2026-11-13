@@ -24,8 +24,9 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     paseo = context.paseo;
   };
   // Built-ins run in the daemon process, so process.env is the daemon's env.
+  const config = readDesignConfig(process.env);
   const service = createDesignService({
-    config: readDesignConfig(process.env),
+    config,
     env: process.env,
     home: homedir(),
     paseo: () => {
@@ -73,6 +74,9 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     remember(context);
     return service.view(input, (event) => context.push(event), context.signal);
   });
+
+  // Off on this host: the RPCs say why, and no hook is added (adding one reloads every session).
+  if ("disabled" in config) return () => service.stop();
 
   const timer = setInterval(() => {
     if (paseo !== null)
