@@ -130,6 +130,18 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       - name: Run built-in plugin tests
         run: npm run test --workspace=@getpaseo/builtin-plugins
+      # The design plugin's contract with the pinned FigCraft release, against a real
+      # figcraft-server and two real figcraft-cli sessions. The step above skips it without the
+      # binaries; this runs it with them, so a FigCraft upgrade that changes the contract fails.
+      - name: Install FigCraft (pinned)
+        id: figcraft
+        run: bash plugins/design/test/install-figcraft.sh "$RUNNER_TEMP/figcraft" >> "$GITHUB_OUTPUT"
+      - name: Run the real FigCraft contract test
+        working-directory: plugins
+        env:
+          FIGCRAFT_CLI: ${{ steps.figcraft.outputs.FIGCRAFT_CLI }}
+          FIGCRAFT_SERVER_BIN: ${{ steps.figcraft.outputs.FIGCRAFT_SERVER_BIN }}
+        run: npx vitest run design/test/figcraft-contract.real.test.ts --bail=1
 
   # Session move's app and CLI tests. The server half runs in server-tests;
   # these are the only fork-authored tests outside it.
