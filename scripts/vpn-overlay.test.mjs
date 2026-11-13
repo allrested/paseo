@@ -1765,3 +1765,53 @@ test("both compose files start Chromium with the flags the daemon's pages need",
     }
   }
 });
+
+// A repo's own Playwright suite launches its own Chromium inside the agent container. The browser
+// is downloaded per repo (`npx playwright install chromium`); the system libraries it links
+// against have to be in the image. The list is Playwright's own for Debian 12 (nativeDeps.js,
+// `chromium`), plus the font packages a page needs to draw text.
+test("the agent image has the libraries a repo's Playwright Chromium needs", () => {
+  const dockerfile = readFileSync(new URL("docker/Dockerfile.agents", repoRoot), "utf8");
+  const installed = new Set(
+    [...dockerfile.matchAll(/apt-get install -y --no-install-recommends([^;]+);/g)].flatMap(
+      (match) => match[1].split(/[\s\\]+/).filter(Boolean),
+    ),
+  );
+  const needed = [
+    "libasound2",
+    "libatk-bridge2.0-0",
+    "libatk1.0-0",
+    "libatspi2.0-0",
+    "libcairo2",
+    "libcups2",
+    "libdbus-1-3",
+    "libdrm2",
+    "libgbm1",
+    "libglib2.0-0",
+    "libnspr4",
+    "libnss3",
+    "libpango-1.0-0",
+    "libx11-6",
+    "libxcb1",
+    "libxcomposite1",
+    "libxdamage1",
+    "libxext6",
+    "libxfixes3",
+    "libxkbcommon0",
+    "libxrandr2",
+    "libfontconfig1",
+    "libfreetype6",
+    "fonts-liberation",
+    "fonts-noto-color-emoji",
+  ];
+  assert.deepEqual(
+    needed.filter((name) => !installed.has(name)),
+    [],
+  );
+  // The browsers themselves stay out of the image: each repo pins its own Playwright version.
+  const commands = dockerfile
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+  assert.doesNotMatch(commands, /playwright install/);
+});
