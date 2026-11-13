@@ -13,7 +13,9 @@ import { killGroup, removePidFile, writePidFile } from "./pid-files.js";
 // FigCraft's image answers and onExit for the bridge.
 
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
-const CLIENT_INFO = { name: "paseo-design", version: "1.0.0" };
+// FigCraft signs an MCP session's comments "<name> (agent)"; the bridge reads its own by this.
+export const CLIENT_NAME = "paseo-design";
+const CLIENT_INFO = { name: CLIENT_NAME, version: "1.0.0" };
 const MAX_STDERR_CHARS = 300;
 const MAX_TOOL_PAGES = 20;
 // After the leader exits, how long to wait for the rest of its stderr before reporting.
