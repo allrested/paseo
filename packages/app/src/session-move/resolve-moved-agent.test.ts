@@ -34,6 +34,30 @@ describe("resolveMovedAgentId", () => {
     ]);
     expect(resolveMovedAgentId("b", (id) => movedBack.get(id) ?? null)).toBe("a");
   });
+  it("follows an agent the session does not hold through the live agent that names it", () => {
+    const live = new Map<string, MovableAgent>([
+      ["b", { id: "b", archivedAt: null, labels: { "paseo.moved-from-agent-id": "a" } }],
+    ]);
+    const successorOf = (id: string) => (id === "a" ? "b" : null);
+    expect(resolveMovedAgentId("a", (id) => live.get(id) ?? null, successorOf)).toBe("b");
+  });
+  it("continues from a found successor that was itself moved on", () => {
+    const held = new Map<string, MovableAgent>([
+      ["b", { id: "b", archivedAt: ARCHIVED_AT, labels: { "paseo.moved-to-agent-id": "c" } }],
+      ["c", { id: "c", archivedAt: null, labels: { "paseo.moved-from-agent-id": "b" } }],
+    ]);
+    const successorOf = (id: string) => (id === "a" ? "b" : null);
+    expect(resolveMovedAgentId("a", (id) => held.get(id) ?? null, successorOf)).toBe("c");
+  });
+  it("does not look for a successor of an agent the session holds", () => {
+    const held = new Map<string, MovableAgent>([
+      ["a", { id: "a", archivedAt: null, labels: {} }],
+      ["z", { id: "z", archivedAt: ARCHIVED_AT, labels: {} }],
+    ]);
+    const successorOf = () => "b";
+    expect(resolveMovedAgentId("a", (id) => held.get(id) ?? null, successorOf)).toBeNull();
+    expect(resolveMovedAgentId("z", (id) => held.get(id) ?? null, successorOf)).toBeNull();
+  });
   it("stops on a cycle", () => {
     const cyclic = new Map<string, MovableAgent>([
       ["x", { id: "x", archivedAt: ARCHIVED_AT, labels: { "paseo.moved-to-agent-id": "y" } }],
