@@ -86,6 +86,27 @@ describe("bridges", () => {
     expect(made[0].closed).toBe(1);
     expect(bridges.running()).toEqual([]);
   });
+  it("lets background work peek at a running bridge without keeping it open", async () => {
+    const { bridges, clock, made } = setup();
+    expect(bridges.peek("f1")).toBeNull();
+    await bridges.acquire("f1", viewer("v1"));
+    bridges.release("f1", viewer("v1"));
+    // The 10 s tick, the comment poll and the list read it every few seconds.
+    for (let t = 0; t < 30; t++) {
+      expect(await bridges.peek("f1")).toBe(made[0]);
+      clock.advance(10_000);
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    expect(made[0].closed).toBe(1);
+    expect(bridges.peek("f1")).toBeNull();
+  });
+  it("peeks at nothing while a bridge is still starting", async () => {
+    const { bridges } = setup();
+    const opening = bridges.acquire("f1", viewer("v1"));
+    expect(bridges.peek("f1")).toBeNull();
+    await opening;
+    expect(bridges.peek("f1")).not.toBeNull();
+  });
   it("refuses a file over the cap", async () => {
     const { bridges } = setup(2);
     await bridges.acquire("f1", viewer("v"));
