@@ -8,8 +8,8 @@ Plan: `docs/superpowers/plans/2026-11-05-session-move.md`. Spec: `docs/superpowe
 1. Check out this branch in `/workspace/QFlavours/paseo`, then `npm ci` and `npm run build:server`.
 2. Tasks 1–9 are done and reviewed. Do not redo them.
 3. Task 10 (app UI) and Task 11 (docs) are done, in commits 988a6be31 and c96d2e9bd, with review fixes on top. Do not redo them.
-4. What remains is the final review and the follow-ups: F1 an e2e test for move and move back, F2 an offline client's moved subagent tab, F3 the usage >= 100% limit signal, and F4 `limitReached` in the stored snapshot. Moving a subagent on its own stays allowed (Q1, ruled 2026-11-06). Details are in `.superpowers/sdd/design-app.md` sections 4 and 5, which is local to the checkout that ran the review.
-5. Run a final whole-branch review against the "Minor (final review)" items below, then squash everything into the single fork commit on v0.15.2. A force-push to `main` needs the user's approval.
+4. The follow-ups are done on branch `feat/session-move-followups` (2026-11-13): F1 a browser test for move and move back (`packages/app/e2e/browser/session-move.spec.ts`), written but not yet run: the paseo container has no browser, so it needs a CI run, F2 an offline client keeps a moved subagent's tab after one move (`use-follow-moved-agents.ts`), F3 a failed turn with the account at 100% sets `limitReached` (`usage-limit-fallback.ts`). F4, `limitReached` in the stored snapshot, was already in `agent-projections.ts`. Moving a subagent on its own stays allowed (Q1, ruled 2026-11-06).
+5. The "Minor (final review)" items below were checked against `main` on 2026-11-13 and are fixed or ruled as limits in the spec. The session-move work is part of the fork delta on `main`; nothing is left to squash.
 
 ## Progress ledger (copied from .superpowers/sdd/progress.md)
 
