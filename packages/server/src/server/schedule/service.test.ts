@@ -3070,6 +3070,114 @@ describe("ScheduleService", () => {
     expect((await service.inspect(newAgentSchedule.id)).status).toBe("active");
   });
 
+  test("retargetAgent points an agent's open schedules at another agent and nothing else", async () => {
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+    const fromId = "11111111-1111-4111-8111-111111111111";
+    const toId = "33333333-3333-4333-8333-333333333333";
+    const otherId = "22222222-2222-4222-8222-222222222222";
+    const cadence = { type: "every", everyMs: 60_000 } as const;
+
+    const carried = await service.create({
+      name: "heartbeat",
+      prompt: "check the build",
+      cadence,
+      target: { type: "agent", agentId: fromId },
+      runOnCreate: false,
+    });
+    const paused = await service.create({
+      prompt: "paused one",
+      cadence,
+      target: { type: "agent", agentId: fromId },
+      runOnCreate: false,
+    });
+    await service.pause(paused.id);
+    const other = await service.create({
+      prompt: "someone else's",
+      cadence,
+      target: { type: "agent", agentId: otherId },
+      runOnCreate: false,
+    });
+    const before = await service.inspect(carried.id);
+
+    now = new Date("2026-01-01T00:05:00.000Z");
+    const ids = await service.retargetAgent(fromId, toId);
+
+    expect(ids.sort()).toEqual([carried.id, paused.id].sort());
+    const after = await service.inspect(carried.id);
+    expect(after.target).toEqual({ type: "agent", agentId: toId });
+    expect(after.updatedAt).toBe("2026-01-01T00:05:00.000Z");
+    expect({ ...after, target: before.target, updatedAt: before.updatedAt }).toEqual(before);
+    const pausedAfter = await service.inspect(paused.id);
+    expect(pausedAfter.target).toEqual({ type: "agent", agentId: toId });
+    expect(pausedAfter.status).toBe("paused");
+    expect((await service.inspect(other.id)).target).toEqual({ type: "agent", agentId: otherId });
+  });
+
+  test("retargetAgent leaves a completed schedule with the agent it had", async () => {
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+    const fromId = "11111111-1111-4111-8111-111111111111";
+    const completed = await service.create({
+      prompt: "done",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: fromId },
+      runOnCreate: false,
+    });
+    await service.completeForAgent(fromId);
+
+    expect(await service.retargetAgent(fromId, "33333333-3333-4333-8333-333333333333")).toEqual([]);
+    expect((await service.inspect(completed.id)).target).toEqual({
+      type: "agent",
+      agentId: fromId,
+    });
+  });
+
+  test("retargetAgent with a list of ids touches only those", async () => {
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+    const fromId = "11111111-1111-4111-8111-111111111111";
+    const toId = "33333333-3333-4333-8333-333333333333";
+    const cadence = { type: "every", everyMs: 60_000 } as const;
+    const first = await service.create({
+      prompt: "first",
+      cadence,
+      target: { type: "agent", agentId: fromId },
+      runOnCreate: false,
+    });
+    const second = await service.create({
+      prompt: "second",
+      cadence,
+      target: { type: "agent", agentId: fromId },
+      runOnCreate: false,
+    });
+
+    expect(await service.retargetAgent(fromId, toId, [second.id])).toEqual([second.id]);
+    expect((await service.inspect(first.id)).target).toEqual({ type: "agent", agentId: fromId });
+    expect((await service.inspect(second.id)).target).toEqual({ type: "agent", agentId: toId });
+  });
+
   test("startup sweep completes agent-target schedules whose agent is gone", async () => {
     const missingAgentId = "44444444-4444-4444-8444-444444444444";
     const archivedAgentId = "55555555-5555-4555-8555-555555555555";
