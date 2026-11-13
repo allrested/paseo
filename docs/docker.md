@@ -319,6 +319,9 @@ With `PASEO_ANDROID_ADB` set and the device down, the Android panel and the agen
 Android device is unreachable". The VPN stack and a stack that borrows another stack's browser
 have no device.
 
+The agent image carries `adb` and the Maestro CLI, so an agent runs a repo's flows with
+`maestro --device 127.0.0.1:5555 test <flow>`.
+
 Nothing builds an APK in the stack: Android's build tools do not support an arm64 Linux host.
 Agents download the APK your CI built. The device has no Google Play services.
 
