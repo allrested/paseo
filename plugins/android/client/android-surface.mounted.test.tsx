@@ -65,6 +65,7 @@ const PROPS = {
 let streams: OpenedStream[];
 let calls: Array<[string, unknown]>;
 let stateAnswer: () => Promise<unknown>;
+let inputAnswer: () => Promise<unknown>;
 let container: HTMLElement;
 let root: Root;
 
@@ -80,6 +81,7 @@ const subscribe: PluginSubscribe = (_method, _input, observer) => {
 async function invoke(method: string, input: unknown): Promise<unknown> {
   calls.push([method, input]);
   if (method === "android.state.request") return stateAnswer();
+  if (method === "android.stream.input.request") return inputAnswer();
   return { ok: true };
 }
 
@@ -111,6 +113,15 @@ async function layout(width: number, height: number): Promise<void> {
   await settle();
 }
 
+/** The view that takes the touches is not the stage: the keys and the text row sit under it. */
+async function layoutPicture(width: number, height: number): Promise<void> {
+  const target = container.querySelector('[aria-label="Android device"]')!;
+  Object.defineProperty(target, "offsetWidth", { configurable: true, value: width });
+  Object.defineProperty(target, "offsetHeight", { configurable: true, value: height });
+  resized([{ target }]);
+  await settle();
+}
+
 async function hostSays(stream: OpenedStream, event: AndroidStreamEvent): Promise<void> {
   await act(async () => stream.observer.event(event));
   await settle();
@@ -122,6 +133,7 @@ beforeEach(async () => {
   calls = [];
   settingsSaved.length = 0;
   stateAnswer = async () => ({ available: true, agentTools: true });
+  inputAnswer = async () => ({ ok: true });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -194,6 +206,7 @@ test("a tap on the picture sends one tap in device pixels", async () => {
   const stream = streams[0]!;
   await hostSays(stream, { type: "ready", streamId: "s1", width: 720, height: 1280 });
   await hostSays(stream, { type: "picture", seq: 1, png: "AAA" });
+  await layoutPicture(360, 1000);
   expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAA");
   calls.length = 0;
 
@@ -214,11 +227,60 @@ test("a tap on the picture sends one tap in device pixels", async () => {
   ]);
 });
 
+test("a tap maps against the picture area, which is shorter than the stage", async () => {
+  await layout(360, 1000);
+  const stream = streams[0]!;
+  await hostSays(stream, { type: "ready", streamId: "s1", width: 720, height: 1280 });
+  await hostSays(stream, { type: "picture", seq: 1, png: "AAA" });
+  // The keys, the text row and a banner take 200 px of the stage: the touched view is 360 x 800.
+  await layoutPicture(360, 800);
+  calls.length = 0;
+
+  // A 720 x 1280 picture in 360 x 800 is 360 x 640, starting 80 px down (the stage would say 180).
+  const touched = container.querySelector('[aria-label="Android device"]')!;
+  touched.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 360, height: 800, right: 360, bottom: 800 }) as DOMRect;
+  await act(async () => {
+    touched.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, clientX: 90, clientY: 200 }),
+    );
+    touched.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 90, clientY: 200 }));
+  });
+  await settle();
+
+  expect(inputs().filter((input) => input.tap)).toEqual([
+    { streamId: "s1", tap: { x: 180, y: 240 } },
+  ]);
+});
+
+test("a touch on a hidden picture area sends nothing", async () => {
+  await layout(360, 1000);
+  const stream = streams[0]!;
+  await hostSays(stream, { type: "ready", streamId: "s1", width: 720, height: 1280 });
+  await hostSays(stream, { type: "picture", seq: 1, png: "AAA" });
+  await layoutPicture(0, 0);
+  calls.length = 0;
+
+  const touched = container.querySelector('[aria-label="Android device"]')!;
+  touched.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 360, height: 800, right: 360, bottom: 800 }) as DOMRect;
+  await act(async () => {
+    touched.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, clientX: 90, clientY: 200 }),
+    );
+    touched.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 90, clientY: 200 }));
+  });
+  await settle();
+
+  expect(inputs().filter((input) => input.tap)).toEqual([]);
+});
+
 test("a touch above the picture sends nothing", async () => {
   await layout(360, 1000);
   const stream = streams[0]!;
   await hostSays(stream, { type: "ready", streamId: "s1", width: 720, height: 1280 });
   await hostSays(stream, { type: "picture", seq: 1, png: "AAA" });
+  await layoutPicture(360, 1000);
   calls.length = 0;
 
   const touched = container.querySelector('[aria-label="Android device"]')!;
@@ -303,4 +365,47 @@ test("the Agent tools switch saves the host setting against its revision", async
   await settle();
 
   expect(settingsSaved).toEqual([[{ agentTools: false }, "1"]]);
+});
+
+test("a new ready clears the lost-link banner and input works again", async () => {
+  await layout(360, 1000);
+  const stream = streams[0]!;
+  await hostSays(stream, { type: "ready", streamId: "s1", width: 720, height: 1280 });
+  inputAnswer = async () => {
+    throw new Error("link down");
+  };
+  await act(async () => (container.querySelector('[aria-label="Home"]') as HTMLElement).click());
+  await settle();
+  expect(container.textContent).toContain("link down");
+
+  inputAnswer = async () => ({ ok: true });
+  await hostSays(stream, { type: "ready", streamId: "s2", width: 720, height: 1280 });
+  expect(container.textContent).not.toContain("link down");
+  calls.length = 0;
+  await act(async () => (container.querySelector('[aria-label="Back"]') as HTMLElement).click());
+  await settle();
+
+  expect(inputs().map((input) => input)).toEqual([{ streamId: "s2", key: "back" }]);
+});
+
+test("a refusal clears on the new ready and after a later accepted input", async () => {
+  await layout(360, 1000);
+  const stream = streams[0]!;
+  await hostSays(stream, { type: "ready", streamId: "s1", width: 720, height: 1280 });
+  inputAnswer = async () => ({ ok: true, message: "Only printable ASCII can be typed" });
+  await act(async () => (container.querySelector('[aria-label="Home"]') as HTMLElement).click());
+  await settle();
+  expect(container.textContent).toContain("Only printable ASCII");
+
+  inputAnswer = async () => ({ ok: true });
+  await act(async () => (container.querySelector('[aria-label="Back"]') as HTMLElement).click());
+  await settle();
+  expect(container.textContent).not.toContain("Only printable ASCII");
+
+  inputAnswer = async () => ({ ok: true, message: "Refused again" });
+  await act(async () => (container.querySelector('[aria-label="Home"]') as HTMLElement).click());
+  await settle();
+  expect(container.textContent).toContain("Refused again");
+  await hostSays(stream, { type: "ready", streamId: "s2", width: 720, height: 1280 });
+  expect(container.textContent).not.toContain("Refused again");
 });

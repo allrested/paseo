@@ -64,7 +64,9 @@ function fakeDevice(overrides: Partial<AndroidDevice> = {}) {
     launch: async (name) => {
       calls.push(`launch ${name}`);
     },
-    stop: async () => {},
+    stop: async (name) => {
+      calls.push(`stop ${name}`);
+    },
     logs: async (input) => {
       calls.push(`logs ${input.packageName ?? "-"} ${input.lines}`);
       return "log line\n";
@@ -176,6 +178,47 @@ test("type, key and swipe reach the device", async () => {
   ]);
 });
 
+test.each([
+  ["up", "swipe 360,640 360,128 300"],
+  ["down", "swipe 360,640 360,1152 300"],
+  ["left", "swipe 360,640 72,640 300"],
+  ["right", "swipe 360,640 648,640 300"],
+])("a swipe %s starts in the middle of the screen and moves 40% of it", async (direction, call) => {
+  const { run, calls } = setup();
+  const answer = await run("android_swipe", { direction });
+  expect(answer.isError).toBeUndefined();
+  expect(calls).toEqual([call]);
+});
+
+test("a swipe by direction takes a duration too", async () => {
+  const { run, calls } = setup();
+  await run("android_swipe", { direction: "up", durationMs: 600 });
+  expect(calls).toEqual(["swipe 360,640 360,128 600"]);
+});
+
+test("a swipe needs two points or a direction, not both and not neither", () => {
+  const swipe = setup().tools.find((tool) => tool.name === "android_swipe")!;
+  const point = { x: 1, y: 2 };
+  expect(swipe.input.safeParse({}).success).toBe(false);
+  expect(swipe.input.safeParse({ from: point }).success).toBe(false);
+  expect(swipe.input.safeParse({ from: point, to: point, direction: "up" }).success).toBe(false);
+  expect(swipe.input.safeParse({ direction: "sideways" }).success).toBe(false);
+  expect(swipe.input.safeParse({ from: point, to: point }).success).toBe(true);
+  expect(swipe.input.safeParse({ direction: "left" }).success).toBe(true);
+});
+
+test("a swipe by direction reports an unreachable device", async () => {
+  const { run } = setup({
+    size: async () => {
+      throw new DeviceUnreachableError();
+    },
+  });
+  expect(await run("android_swipe", { direction: "up" })).toEqual({
+    text: UNREACHABLE,
+    isError: true,
+  });
+});
+
 test("a key that is not a key name is refused by the schema", () => {
   const key = setup().tools.find((tool) => tool.name === "android_key")!;
   expect(key.input.safeParse({ key: "back; reboot" }).success).toBe(false);
@@ -187,6 +230,26 @@ test("launch and logs reach the device", async () => {
   expect((await run("android_logs", { package: "com.example.app" })).text).toBe("log line\n");
   await run("android_logs", { lines: 20 });
   expect(calls).toEqual(["launch com.example.app", "logs com.example.app 100", "logs - 20"]);
+});
+
+test("launch stops a package when asked, and starts it by default or when asked", async () => {
+  const { run, calls } = setup();
+  const stopped = await run("android_launch", { package: "com.example.app", action: "stop" });
+  await run("android_launch", { package: "com.example.app", action: "start" });
+  await run("android_launch", { package: "com.example.app" });
+  expect(stopped).toEqual({ text: "Stopped com.example.app." });
+  expect(calls).toEqual([
+    "stop com.example.app",
+    "launch com.example.app",
+    "launch com.example.app",
+  ]);
+});
+
+test("launch refuses an action that is not start or stop", () => {
+  const launch = setup().tools.find((tool) => tool.name === "android_launch")!;
+  expect(launch.input.safeParse({ package: "com.example.app", action: "kill" }).success).toBe(
+    false,
+  );
 });
 
 test("a long log is cut from the front", async () => {
