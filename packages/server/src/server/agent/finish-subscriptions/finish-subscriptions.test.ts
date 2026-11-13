@@ -253,6 +253,21 @@ test("a watcher that moved gets the notification at its successor, and the recor
   await expect.poll(async () => (await state.store.list()).length).toBe(0);
 });
 
+test("withdrawing a notification after its watcher moved leaves nothing behind", async () => {
+  const state = await scenario();
+  const registration = await state.service.register(intent);
+  await until(() => state.observation.waits.length === 1);
+  state.moveCallerTo("parent-2");
+  state.observation.waits[0]!.result.resolve(outcome());
+  await until(() => state.delivery.prompts.length === 1);
+  expect(state.service.hasPendingForCaller("parent-2")).toBe(true);
+
+  await registration.reject();
+
+  expect(await state.store.list()).toHaveLength(0);
+  expect(state.service.hasPendingForCaller("parent-2")).toBe(false);
+});
+
 test("a restart after the watcher moved resumes with the successor", async () => {
   const first = await scenario();
   await first.service.register(intent);
