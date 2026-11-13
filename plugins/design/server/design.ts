@@ -2,9 +2,9 @@ import { randomUUID, createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PaseoApi } from "@getpaseo/client";
 import type {
   AgentToolResult,
+  PluginHandlerContext,
   PluginHookAgent,
   PluginSessionOpenRequest,
 } from "@getpaseo/plugin/server";
@@ -19,6 +19,9 @@ import { designPaths, type DesignPaths } from "./paths.js";
 import { sendSelection } from "./send-to-agent.js";
 import type { TokenFile } from "./tokens.js";
 import { designTools } from "./agent-tools.js";
+
+// The packaged app resolves only the plugin SDK, so the API type comes from it, not @getpaseo/client.
+type PaseoApi = PluginHandlerContext["paseo"];
 
 const IDLE_MS = 5 * 60_000;
 // FigCraft puts server addresses and links in some error texts; a key or token never leaves here.
