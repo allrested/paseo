@@ -65,6 +65,13 @@ services:
       # the host off.
       PASEO_BROWSER_CDP_URL: ${PASEO_BROWSER_CDP_URL-http://127.0.0.1:9222}
       PASEO_BROWSER_TOOLS_ENABLED: ${PASEO_BROWSER_TOOLS_ENABLED:-true}
+      # The Android device, off by default and only in docker-compose.yml. To
+      # turn it on set both of these in the stack's environment:
+      # COMPOSE_PROFILES=android (starts the `android` service and its sidecar)
+      # and PASEO_ANDROID_ADB=127.0.0.1:5555 (tells the daemon where
+      # paseo-android-adb puts the device's adb). The host needs the binder
+      # kernel module first; see docs/docker.md#android-device.
+      PASEO_ANDROID_ADB: ${PASEO_ANDROID_ADB-}
       # Claude Code defaults that cut token use; see docs/docker.md#token-use.
       # The daemon passes its environment to every agent it starts.
       ENABLE_TOOL_SEARCH: ${ENABLE_TOOL_SEARCH:-true}
@@ -275,6 +282,68 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # An Android device for testing apps: Android 14 running in a container
+  # (redroid), not an emulator, so it needs no virtualization. Agents drive it
+  # over adb and you watch it in Paseo's Android panel. Opt-in through the
+  # `android` profile, because it needs the host's binder kernel module and a
+  # privileged container.
+  #
+  # Its adb has no authentication. It publishes no port and joins only the
+  # stack's own network, never the proxy's: on a shared network any other stack
+  # could install apps on it and read its screen.
+  android:
+    image: redroid/redroid:14.0.0_64only-latest
+    container_name: ${INSTANCE_NAME:-paseo}-android
+    profiles: ["android"]
+    restart: unless-stopped
+    privileged: true
+    mem_limit: 4g
+    memswap_limit: 4g
+    # Software rendering (no GPU in the container) on a phone-sized screen.
+    command:
+      - androidboot.redroid_width=720
+      - androidboot.redroid_height=1280
+      - androidboot.redroid_dpi=320
+      - androidboot.redroid_gpu_mode=guest
+    volumes:
+      # Installed apps and their data survive a restart.
+      - android-data:/data
+    networks:
+      - default
+    healthcheck:
+      # getprop exits 0 with an empty answer while Android is still booting.
+      test: ["CMD", "sh", "-c", 'test "$(getprop sys.boot_completed)" = 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Puts the device's adb on the paseo container's loopback, the way paseo-cdp
+  # does for Chromium, so only this stack's agents and daemon reach it. Targets
+  # the device by CONTAINER name for the same reason paseo-cdp does.
+  paseo-android-adb:
+    image: alpine/socat:latest
+    container_name: ${INSTANCE_NAME:-paseo}-android-adb
+    profiles: ["android"]
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    network_mode: "service:paseo"
+    depends_on:
+      - paseo
+      - android
+    command: TCP-LISTEN:5555,fork,reuseaddr,bind=127.0.0.1 TCP:${INSTANCE_NAME:-paseo}-android:5555
+    # Same zombie-netns detection as paseo-cdp.
+    healthcheck:
+      test: ["CMD", "socat", "/dev/null", "TCP:127.0.0.1:6767,connect-timeout=2"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  android-data: {}
 
 networks:
   # The stack's own network: container-to-container traffic between these four.
