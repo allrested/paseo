@@ -75,6 +75,12 @@ services:
       INTERNAL_SSH_HOST: ${INTERNAL_SSH_HOST:-}
       INTERNAL_SSH_KEY_FILE: ${INTERNAL_SSH_KEY_FILE:-}
       SSH_KNOWN_HOSTS_EXTRA: ${SSH_KNOWN_HOSTS_EXTRA:-}
+      # Design mode (plugins/design): this host's FigCraft stack (docker-compose.figcraft.yml).
+      # Off while FIGCRAFT_URL is empty. The server key is read from a file, never the env,
+      # because every agent and terminal inherits this env. See docs/docker.md.
+      FIGCRAFT_URL: ${FIGCRAFT_URL:-}
+      FIGCRAFT_WEB_URL: ${FIGCRAFT_WEB_URL:-}
+      FIGCRAFT_SERVER_KEY_FILE: ${FIGCRAFT_SERVER_KEY_FILE:-/home/paseo/.paseo/design/server-key}
     volumes:
       # Daemon state and agent credentials. Per-instance, never shared.
       - ${PASEO_HOME_DIR:-./paseo-home}:/home/paseo
