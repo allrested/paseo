@@ -22,6 +22,7 @@ import {
 } from "../agent-prompt.js";
 import type { AgentMode, AgentSessionConfig } from "../agent-sdk-types.js";
 import type { AgentStorage, StoredAgentRecord } from "../agent-storage.js";
+import type { FinishRegistration } from "../finish-subscriptions/index.js";
 import { createAgentCommand } from "../create-agent/create.js";
 import { archiveAgentCommand, cancelAgentRunCommand } from "../lifecycle-command.js";
 import type { ProviderLaunchInfo, ProviderSnapshotManager } from "../provider-snapshot-manager.js";
@@ -260,31 +261,59 @@ async function storedTitle(deps: MoveAgentDeps, agent: ManagedAgent): Promise<st
   return (await deps.agentStorage.get(agent.id))?.title ?? agent.config.title ?? null;
 }
 
-async function continueAgent(deps: MoveAgentDeps, agentId: string): Promise<void> {
-  const { disposition } = await sendPromptToAgent({
-    agentManager: deps.agentManager,
-    agentStorage: deps.agentStorage,
-    logger: deps.logger,
-    agentId,
-    prompt: MOVE_CONTINUE_PROMPT,
-    // A message id makes the prompt a visible user message in the timeline, as a typed one is.
-    messageId: randomUUID(),
-  });
-  if (disposition === "turn_started") {
-    await waitForAgentRunStartWithTimeout(deps.agentManager, agentId);
-  }
-}
-
-/** What `finish` changed so far, so a failed move can undo exactly that. */
+/** What the move's last steps changed so far, so a failed move can undo exactly that. */
 interface FinishProgress {
   reparentedChildIds: string[];
   /** The moved-from link `finish` replaced on the agent it hands to; value null means none. */
   previousMovedFrom: { agentId: string; value: string | null } | null;
   linked: boolean;
+  /** Schedules `finish` pointed at the agent it hands to. */
+  retargeted: { toAgentId: string; scheduleIds: string[] } | null;
+  /** The parent's notification for the continue turn. */
+  parentNotice: FinishRegistration | null;
 }
 
 function newFinishProgress(): FinishProgress {
-  return { reparentedChildIds: [], previousMovedFrom: null, linked: false };
+  return {
+    reparentedChildIds: [],
+    previousMovedFrom: null,
+    linked: false,
+    retargeted: null,
+    parentNotice: null,
+  };
+}
+
+/**
+ * Sends the continue turn. The agent's parent, when it has one on this host, is told when that
+ * work ends: the notification it held for the agent being left was spent by the turn that failed
+ * or was cancelled.
+ */
+async function continueAgent(
+  deps: MoveAgentDeps,
+  agentId: string,
+  progress: FinishProgress,
+): Promise<void> {
+  const labels = deps.agentManager.getAgent(agentId)?.labels ?? {};
+  const notice = await deps.agentManager.moveCarry?.notifyParentOnFinish(agentId, labels);
+  try {
+    const { disposition } = await sendPromptToAgent({
+      agentManager: deps.agentManager,
+      agentStorage: deps.agentStorage,
+      logger: deps.logger,
+      agentId,
+      prompt: MOVE_CONTINUE_PROMPT,
+      // A message id makes the prompt a visible user message in the timeline, as a typed one is.
+      messageId: randomUUID(),
+    });
+    if (disposition === "turn_started") {
+      await waitForAgentRunStartWithTimeout(deps.agentManager, agentId);
+    }
+  } catch (error) {
+    await notice?.reject();
+    throw error;
+  }
+  notice?.accept();
+  progress.parentNotice = notice ?? null;
 }
 
 /** Live sub-agents of `parentId`. Internal ones never reach storage, so they come from memory. */
@@ -332,6 +361,9 @@ async function finish(
   }
   progress.linked = true;
   await deps.agentManager.setLabels(from.id, { [MOVED_TO_AGENT_ID_LABEL]: to.id });
+  // Before the archive, which completes whatever is still aimed at `from`.
+  const scheduleIds = await deps.agentManager.moveCarry?.retargetSchedules(from.id, to.id);
+  if (scheduleIds?.length) progress.retargeted = { toAgentId: to.id, scheduleIds };
   await archiveAgentCommand(
     { agentManager: deps.agentManager, agentStorage: deps.agentStorage, logger: deps.logger },
     from.id,
@@ -348,6 +380,17 @@ async function undoFinish(
   from: ManagedAgent,
   progress: FinishProgress,
 ): Promise<void> {
+  await progress.parentNotice?.reject().catch((error: unknown) => {
+    deps.logger.error({ err: error, agentId: from.id }, "move: failed to withdraw parent notice");
+  });
+  const retargeted = progress.retargeted;
+  if (retargeted) {
+    await deps.agentManager.moveCarry
+      ?.retargetSchedules(retargeted.toAgentId, from.id, retargeted.scheduleIds)
+      .catch((error: unknown) => {
+        deps.logger.error({ err: error, agentId: from.id }, "move: failed to restore schedules");
+      });
+  }
   const previous = progress.previousMovedFrom;
   if (previous) {
     await deps.agentManager
@@ -508,7 +551,7 @@ async function moveForward(
         pendingMoveContext: undelivered,
       });
       if (title) await deps.agentManager.updateAgentMetadata(moved.id, { title });
-      if (options.continueWork) await continueAgent(deps, moved.id);
+      if (options.continueWork) await continueAgent(deps, moved.id, progress);
       await finish(deps, source, moved, progress);
       return { agentId: moved.id, strategy: "native", fellBackFromNative: false };
     }
@@ -553,7 +596,7 @@ async function moveForward(
         cwd: source.cwd,
       }),
     });
-    if (options.continueWork) await continueAgent(deps, moved.id);
+    if (options.continueWork) await continueAgent(deps, moved.id, progress);
     await finish(deps, source, moved, progress);
     return { agentId: moved.id, strategy: "handoff", fellBackFromNative: attemptedNative(shared) };
   } catch (error) {
@@ -791,7 +834,7 @@ async function moveBack(
     // Returning to a login is trusting it again. Cleared before the continue turn, so a limit
     // that turn hits is recorded rather than erased.
     await deps.agentManager.setLimitReached(originalId, null);
-    if (continueWork) await continueAgent(deps, originalId);
+    if (continueWork) await continueAgent(deps, originalId, progress);
     await finish(deps, current, original, progress);
     return {
       agentId: originalId,

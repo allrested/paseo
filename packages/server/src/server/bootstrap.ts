@@ -14,6 +14,7 @@ import {
   startUsageWatch,
 } from "./agent/session-move/usage-watch.js";
 import { startUsageLimitFallback } from "./agent/session-move/usage-limit-fallback.js";
+import { getParentAddressFromLabels } from "@getpaseo/protocol/agent-labels";
 import { movedAgentLookup, resolveMovedAgent } from "./agent/session-move/move-agent.js";
 import {
   createFinishSubscriptions,
@@ -1596,6 +1597,17 @@ export async function createPaseoDaemon(
         return wsServer.toolHosts();
       },
     }),
+  });
+  agentManager.setMoveCarry({
+    retargetSchedules: (from, to, only) => scheduleService.retargetAgent(from, to, only),
+    notifyParentOnFinish: async (agentId, labels) => {
+      const parent = getParentAddressFromLabels(labels, serverId);
+      if (!parent || parent.serverId !== serverId) return undefined;
+      return finishSubscriptions.register(
+        { childAgentId: agentId, callerAgentId: parent.agentId, requireParentOwnership: true },
+        true,
+      );
+    },
   });
 
   const idleRuntimeCleanup = createIdleRuntimeCleanup({

@@ -1,4 +1,5 @@
 import type { AttachedAgentTool, PluginAgentToolsRuntime } from "../plugins/agent-tools.js";
+import type { MoveCarry } from "./session-move/move-carry.js";
 import { ProviderOptionsValidationError } from "./provider-options.js";
 import type { AgentToolResult } from "@getpaseo/plugin/server";
 import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
@@ -911,6 +912,7 @@ export class AgentManager {
   private appendSystemPrompt: string;
   private onAgentAttention?: AgentAttentionCallback;
   private onAgentArchived?: AgentArchivedCallback;
+  private carry: MoveCarry | null = null;
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
   private logger: Logger;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
@@ -1006,6 +1008,15 @@ export class AgentManager {
 
   setAgentArchivedCallback(callback: AgentArchivedCallback): void {
     this.onAgentArchived = callback;
+  }
+
+  /** Set once at daemon startup, as the archived callback is. */
+  setMoveCarry(carry: MoveCarry | null): void {
+    this.carry = carry;
+  }
+
+  get moveCarry(): MoveCarry | null {
+    return this.carry;
   }
 
   setMcpBaseUrl(url: string | null): void {
