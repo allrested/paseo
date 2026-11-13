@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import test from "node:test";
@@ -36,6 +36,10 @@ test("built output compiles and starts every listed built-in", async () => {
     await readFile(path.join(repoRoot, "packages/server/package.json"), "utf8"),
   );
   const settingsDirectory = await mkdtemp(path.join(os.tmpdir(), "builtin-dist-settings-"));
+  // The packaged app copies the built-ins to resources/builtin-plugins, with no node_modules above
+  // them. Compile from such a copy: in the repo, an import the app cannot resolve still resolves.
+  const copied = await mkdtemp(path.join(os.tmpdir(), "builtin-dist-copy-"));
+  await cp(packagedRoot, copied, { recursive: true });
   const runtime = new PluginRuntime(pino({ level: "silent" }), version, { settingsDirectory });
   runtime.bindPaseoSessionHost({
     async attachPluginSocket(_pluginId, socket) {
@@ -65,7 +69,7 @@ test("built output compiles and starts every listed built-in", async () => {
   });
   try {
     for (const id of builtinPlugins) {
-      const directory = path.join(packagedRoot, id);
+      const directory = path.join(copied, id);
       assert.equal((await readPluginManifest(directory)).id, id);
       const bundles = await compilePlugin({
         server: await findEntry(directory, ["index.server.ts", "index.server.tsx"]),
@@ -98,6 +102,7 @@ test("built output compiles and starts every listed built-in", async () => {
   } finally {
     await runtime.stopAll();
     await rm(settingsDirectory, { recursive: true, force: true });
+    await rm(copied, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
   }
 });
