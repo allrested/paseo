@@ -365,6 +365,31 @@ run a turn yet is delivered after that agent's first turn or the next post that 
 agents" switch holds every wake until it is turned back on; wakes that wait are not kept across a
 daemon restart. Design: [the spec](superpowers/specs/2026-11-11-agent-office-design.md).
 
+The `design` built-in keeps a workspace's design files on the host's own FigCraft server (deploy
+it with [docker.md](docker.md#figcraft-design-mode)). It is off until `FIGCRAFT_URL` names that
+server; `FIGCRAFT_WEB_URL` names its browser editor, and the server key is read from the file
+`FIGCRAFT_SERVER_KEY_FILE` names. The key is never an env variable, because the daemon's env is
+every agent's and terminal's: the plugin turns itself off when `FIGCRAFT_SERVER_KEY` is set. The
+Designs workspace panel ("Open designs" in the Command Center) lists the project's files, keyed by
+the repo, in `$PASEO_HOME/design/files.json`. Remove forgets a file in Paseo only; it stays on the
+server. Opening a file starts a bridge, a `figcraft-cli mcp` child that joins the file as "Paseo"
+and stops 5 minutes after the last viewer or agent leaves; at most 3 run at once. On desktop the
+panel frames FigCraft's editor, and FigCraft asks you to confirm the join once. A phone, in the app
+or a compact browser, gets the bridge's picture of the page instead: tap a spot to comment, and send
+an open thread to an agent. New comments reach the agent that last joined the file as one prompt, at
+most one per turn.
+
+On open, the bridge imports `design/tokens.json` (W3C design tokens) into one FigCraft variable
+collection, `Tokens`, with one mode; composite types such as shadows stay in the file only, and
+the repo wins. Token edits made in FigCraft are written back to the file, uncommitted, within one
+10 s tick. Interactive agent sessions in a workspace get the `design_join` tool and a `figcraft`
+MCP server behind `bin/figcraft-guard.mjs`. The guard refuses sharing, publishing, hosting, plugin
+directories and anything that names another server, and joins only links to ours. Neither the
+bridge nor the agents' FigCraft runs with automation roots: FigCraft 0.18.1 turns live sessions
+off in a process that has them. `test/figcraft-contract.real.test.ts` pins that and the rest of
+the FigCraft contract, and CI runs it against the pinned release. Design:
+[the spec](superpowers/specs/2026-11-13-design-mode-figcraft-design.md).
+
 `scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
 and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
 run that starts the real built-ins the same environment. Otherwise `default-skills` copies its
