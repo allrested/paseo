@@ -435,8 +435,9 @@ including declarations. The external esbuild compiler cannot read Electron's `ap
 filesystem, and packaging dependencies excludes `.d.ts` files needed for import validation.
 Built-ins can import only the host modules in
 [runtime modules](../public-docs/plugins/reference.md#runtime-modules), and only server code may
-import Node built-ins. Outside the archive, nothing resolves an npm dependency, and the dist build
-test cannot catch one because it resolves through the repository's `node_modules`.
+import Node built-ins. Outside the archive, nothing resolves an npm dependency, even a type-only
+one. The dist build test compiles the built-ins from a copy in a temporary folder for this reason:
+inside the repository, the `node_modules` above them resolve imports the app cannot.
 The packaged-app smoke check requires every listed built-in to start without relying on
 account credentials.
 
