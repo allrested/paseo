@@ -100,6 +100,9 @@ services:
       # Lets a reverse proxy in its own stack reach this container by name.
       # See the networks block at the bottom of this file.
       - dokploy-network
+      # The Android device's network (docker-compose.yml only). This container
+      # is the only one that shares it with the device; see the networks block.
+      - device
 
   # One real Chromium with two ways in: agents drive it over CDP, you watch and
   # take over through noVNC. Because both attach to the same browser, an agent
@@ -382,6 +385,13 @@ services:
 networks:
   # The stack's own network: container-to-container traffic between these four.
   default: {}
+  # The Android device and the paseo container, and nothing else. The device's
+  # adb has no authentication, so it must not sit on `default`, where the
+  # browser container (which renders arbitrary web pages) could open it. Empty
+  # unless the `android` profile is on. Named so that it sorts after `default`:
+  # Docker takes a container's default gateway from its first network by name,
+  # and joining this one must not change the route paseo already has.
+  device: {}
   # A reverse proxy living in a different compose stack (Dokploy's Traefik, for
   # one) can only reach these containers if it shares a network with them.
   # Created by that proxy, so it is external here.
