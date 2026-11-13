@@ -12,6 +12,7 @@ export const builtinPlugins = [
   "copilot-usage-source",
   "cursor-usage-source",
   "default-skills",
+  "design",
   "fx-provider",
   "grok-usage-source",
   "heavy-command-gate",
