@@ -208,8 +208,9 @@ while nobody tests; a broken stack on a host without the kernel module.
   self-hosted runners) can only be called from another workflow, and the one that calls it also
   seeds data on the live API, so the first APK needs either a small build-only workflow in that
   repo or a file from the user. The agent downloads artifacts with the `gh` login it already has.
-- **Maestro on this device is untried.** Its driver installs over adb, which works; a flow has not
-  been run.
+- **Maestro on this device** was tried on 2026-11-13 with Maestro 2.12.1 and Java 17 on arm64: a
+  flow that opens Settings, asserts a label, taps a row and goes back passed. The Flutter app's
+  own flows are untried until an APK exists.
 - **Picture size.** A PNG of a photo-heavy screen was 686 KB. Two a second over the relay is
   heavy; unchanged screens send nothing, and the builder may lower the device's resolution.
 

@@ -1876,3 +1876,17 @@ test("the agent image has adb", () => {
   ].flatMap((match) => match[1].split(/[\s\\]+/).filter(Boolean));
   assert.ok(installed.includes("adb"), "Dockerfile.agents does not install adb");
 });
+
+// Maestro runs a repo's mobile flows against the stack's Android device. It is a JVM program, so
+// the image needs a Java runtime, and it is pinned with its checksum like the other tools.
+test("the agent image has Maestro at a pinned, checksummed version, and a Java runtime for it", () => {
+  const dockerfile = readFileSync(new URL("docker/Dockerfile.agents", repoRoot), "utf8");
+  assert.match(dockerfile, /apt-get install -y --no-install-recommends openjdk-17-jre-headless;/);
+  assert.match(dockerfile, /ARG MAESTRO_VERSION=\d+\.\d+\.\d+\n/);
+  assert.match(dockerfile, /ARG MAESTRO_SHA256=[0-9a-f]{64}\n/);
+  assert.match(dockerfile, /releases\/download\/cli-\$\{MAESTRO_VERSION\}\/maestro\.zip/);
+  assert.match(dockerfile, /echo "\$\{MAESTRO_SHA256\} {2}\/tmp\/maestro\.zip" \| sha256sum -c -;/);
+  assert.match(dockerfile, /ln -s \/opt\/maestro\/bin\/maestro \/usr\/local\/bin\/maestro;/);
+  // The build fails if the pinned version does not start.
+  assert.match(dockerfile, /maestro --version/);
+});
