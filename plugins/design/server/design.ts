@@ -331,8 +331,11 @@ export function createDesignService(given: DesignDeps): DesignService {
     async editorLink(fileId, workspaceId) {
       try {
         const file = await store.get(fileId);
-        if (!file) return { ok: false, error: "This design is no longer listed" };
-        await holdFor(fileId, workspaceId, { kind: "viewer", id: `editor-${fileId}` });
+        const { projectKey } = await workspace(workspaceId);
+        if (!file || file.projectKey !== projectKey) {
+          return { ok: false, error: "This design is no longer listed" };
+        }
+        // Holds nothing: the editor tab's own view holds the bridge while the tab is open.
         return {
           ok: true,
           url: `${config.webUrl}#join=${encodeURIComponent(file.secrets.editLink)}`,
