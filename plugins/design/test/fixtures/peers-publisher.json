@@ -1,0 +1,65 @@
+{
+  "access": "edit",
+  "address": "127.0.0.1:37867",
+  "attempt": null,
+  "available": true,
+  "canHost": true,
+  "chat": "",
+  "code": null,
+  "color": "#0D99FF",
+  "document": 0,
+  "editing": null,
+  "fileName": "contract",
+  "follow": null,
+  "hosting": {
+    "expires": null,
+    "idleDays": 30,
+    "maxFileMb": 64,
+    "open": false,
+    "operator": "",
+    "terms": ""
+  },
+  "link": "figcraft://join?host=127.0.0.1:37867&file=0b4af6ef0a7515aa&token=<redacted>",
+  "me": 1,
+  "name": "Paseo (agent)",
+  "network": false,
+  "pages": [
+    {
+      "id": 1,
+      "name": "Page 1"
+    }
+  ],
+  "peers": [],
+  "published": {
+    "edit": "figcraft://join?host=127.0.0.1:37867&file=0b4af6ef0a7515aa&token=<redacted>",
+    "expires": null,
+    "file": "0b4af6ef0a7515aa",
+    "name": "contract",
+    "owner": null,
+    "server": "127.0.0.1:37867",
+    "view": "figcraft://join?host=127.0.0.1:37867&file=0b4af6ef0a7515aa&token=<redacted>"
+  },
+  "readOnly": false,
+  "reason": null,
+  "role": "guest",
+  "session": 1,
+  "sessions": [
+    {
+      "document": 0,
+      "fileName": "contract",
+      "link": "figcraft://join?host=127.0.0.1:37867&file=0b4af6ef0a7515aa&token=<redacted>",
+      "peers": 0,
+      "reason": null,
+      "role": "guest",
+      "session": 1,
+      "status": "live"
+    }
+  ],
+  "share": null,
+  "signals": true,
+  "spotlight": null,
+  "spotlighting": false,
+  "status": "live",
+  "syncing": true,
+  "url": "ws://127.0.0.1:37867/?file=0b4af6ef0a7515aa&token=<redacted>"
+}
