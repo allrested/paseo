@@ -401,7 +401,22 @@ is `adb -s <serial> ...` with an argument list and a timeout, and everything sen
 shell is single-quoted. `android_install` takes only a `.apk` inside the agent's workspace or the
 home folder; `android_screenshot` saves a PNG under `<workspace>/.paseo/android/` and answers its
 path. When the device does not answer, every tool says "The Android device is unreachable" and the
-next call tries again. The built-in has no client entry yet.
+next call tries again.
+
+The same built-in has a panel, a sidebar screen and a Command Center item, all drawn with React
+Native primitives so the store-built mobile app can run them. The client entry is always
+registered, because a plugin cannot know the host's state before it mounts; with no device it shows
+"No Android device on this host" (the host answers a call the plugin does not serve with "Unknown
+RPC method", which the panel reads as no device). The host sends the screen as PNGs over
+`android.stream`, one every 500 ms at most and only when the bytes changed, to at most two viewers;
+a viewer silent for 30 seconds is closed and the panel speaks every 10 seconds. A touch goes back
+through `android.stream.input.request` in device pixels, mapped from the letterboxed picture: a
+press and release within 8 view pixels is a tap, anything else one swipe with the gesture's own
+duration (50 to 3000 ms). The panel also has Back, Home and Recents, a text field that types on the
+device (printable ASCII only), and the "Agent tools" switch for the host setting. A hidden or
+backgrounded panel closes its stream; Retry opens it again. The client folder may not import
+`server/`, even for a type: the plugin compiler refuses it, so shapes both sides use live in
+`shared/`. The office's streamed 3D view is the pattern; its modules are copied, not imported.
 
 `scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
 and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
