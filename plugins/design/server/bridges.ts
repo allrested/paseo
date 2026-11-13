@@ -17,6 +17,11 @@ export class TooManyDesigns extends Error {
 export interface Bridges {
   acquire(fileId: string, holder: Holder): Promise<Bridge>;
   release(fileId: string, holder: Holder): void;
+  /**
+   * The bridge, if it is running, for background reads (the tick, the comment poll, the list).
+   * Holds nothing and leaves the idle timer alone: an acquire there would keep a bridge forever.
+   */
+  peek(fileId: string): Promise<Bridge> | null;
   releaseAgent(agentId: string): void;
   running(): string[];
   status(fileId: string): BridgeStatus;
@@ -134,6 +139,10 @@ export function createBridges(options: {
       if (!entry) return;
       entry.holders.delete(key(holder));
       scheduleIdle(fileId, entry);
+    },
+    peek(fileId) {
+      const entry = entries.get(fileId);
+      return entry?.running && !entry.stopping ? entry.bridge : null;
     },
     releaseAgent(agentId) {
       for (const [fileId, entry] of entries) {

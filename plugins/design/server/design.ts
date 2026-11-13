@@ -220,19 +220,16 @@ export function createDesignService(given: DesignDeps): DesignService {
     },
   });
 
+  // Background reads peek: holding the bridge would restart its idle timer every tick.
+  async function runningBridge(fileId: string): Promise<Bridge> {
+    const bridge = bridges.peek(fileId);
+    if (bridge === null) throw new Error("the bridge is not running");
+    return bridge;
+  }
+
   const comments: CommentRouter = createCommentRouter({
-    openThreads: async (fileId) =>
-      (
-        await bridges
-          .acquire(fileId, { kind: "viewer", id: "comments" })
-          .finally(() => bridges.release(fileId, { kind: "viewer", id: "comments" }))
-      ).openThreads(),
-    prompt: async (fileId, ids) =>
-      (
-        await bridges
-          .acquire(fileId, { kind: "viewer", id: "comments" })
-          .finally(() => bridges.release(fileId, { kind: "viewer", id: "comments" }))
-      ).commentPrompt(ids),
+    openThreads: async (fileId) => (await runningBridge(fileId)).openThreads(),
+    prompt: async (fileId, ids) => (await runningBridge(fileId)).commentPrompt(ids),
     agentOf: async (fileId) => (await store.get(fileId))?.lastAgentId ?? null,
     agentIdle: async (agentId) => {
       const result = await deps.paseo().agents.ref(agentId).refresh();
@@ -252,14 +249,12 @@ export function createDesignService(given: DesignDeps): DesignService {
   async function row(file: DesignFile): Promise<FileRow> {
     const status = bridges.status(file.id);
     let outOfStep = false;
-    if (status.status === "running") {
-      const bridge = await bridges.acquire(file.id, { kind: "viewer", id: "list" });
+    const running = bridges.peek(file.id);
+    if (running !== null) {
       try {
-        outOfStep = await bridge.outOfStep();
+        outOfStep = await (await running).outOfStep();
       } catch {
         outOfStep = false;
-      } finally {
-        bridges.release(file.id, { kind: "viewer", id: "list" });
       }
     }
     return {
@@ -497,14 +492,11 @@ export function createDesignService(given: DesignDeps): DesignService {
     agentGone: (agentId) => bridges.releaseAgent(agentId),
     async tick() {
       for (const fileId of bridges.running()) {
+        const bridge = bridges.peek(fileId);
+        if (bridge === null) continue; // Still starting.
         try {
           await comments.poll(fileId);
-          const bridge = await bridges.acquire(fileId, { kind: "viewer", id: "tick" });
-          try {
-            await bridge.syncTokensBack();
-          } finally {
-            bridges.release(fileId, { kind: "viewer", id: "tick" });
-          }
+          await (await bridge).syncTokensBack();
         } catch (error) {
           deps.log(`[design] ${fileId}: tick failed: ${messageOf(error)}`);
         }
