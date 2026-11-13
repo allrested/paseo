@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const builtinPlugins = [
+  "android",
   "antigravity-provider",
   "bddevlab-usage-source",
   "claude-accounts",
