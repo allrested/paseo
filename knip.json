@@ -2,7 +2,7 @@
   "$schema": "./node_modules/knip/schema.json",
   "workspaces": {
     "plugins": {
-      "entry": ["**/index.{server,client}.{ts,tsx}", "**/*.test.ts"],
+      "entry": ["**/index.{server,client}.{ts,tsx}", "**/*.test.{ts,tsx}"],
       "project": ["**/*.{ts,tsx}"]
     },
     ".": {
