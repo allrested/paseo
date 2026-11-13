@@ -1,7 +1,7 @@
 # Design mode on FigCraft design
 
-Date: 2026-11-13. Fork: allrested/paseo. Status: approved by the user section by section on
-2026-11-13; spec waiting for the user's read before the plan.
+Date: 2026-11-13. Fork: allrested/paseo. Status: approved by the user section by section and as
+written ("LGTM") on 2026-11-13.
 Part of sub-project 7 (next-version brainstorm), after [the web browser pane](2026-11-10-web-browser-pane-design.md).
 
 ## Goal
@@ -73,13 +73,13 @@ The user picked A.
 
 - A compose service on the Oracle VM's Dokploy runs `figcraft-server` (pinned version,
   linux-aarch64) with its data on a volume and `web_url` set to the browser build.
-- The same domain (for example `figcraft.dev.mtapp.dev`) serves the static `figcraft-web` build
+- The same domain, `figcraft.dev.mtapp.dev`, serves the static `figcraft-web` build
   under `/app/`. Dokploy's Traefik gives TLS and passes WebSocket upgrades.
 - The image is built in the fork's CI from the pinned release assets, checked against the
   release's `SHA256SUMS.txt`.
 - The server key lives in Dokploy's env and in each Paseo instance's env (`FIGCRAFT_SERVER_KEY`,
   with `FIGCRAFT_URL`). Never in git.
-- The DNS record for the domain is the user's to add.
+- DNS: the wildcard `*.dev.mtapp.dev` already points at the VM (user, 2026-11-13).
 
 ### Paseo: the built-in plugin `design`
 
@@ -192,7 +192,7 @@ components with no `codeConnect` mapping. Mapping them is a task you can give an
 
 ## Deploy
 
-The `figcraft` compose service goes on the Oracle VM's Dokploy with the user's DNS record; the
+The `figcraft` compose service goes on the Oracle VM's Dokploy at `figcraft.dev.mtapp.dev`; the
 plugin ships with the next fork tag.
 
 ## Out of scope
