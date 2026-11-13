@@ -103,11 +103,17 @@ const PANEL = {
 
 function close(): void {}
 
-function Mounted() {
+// A phone browser: web, but compact, so it gets the phone's view and not FigCraft's editor.
+const PHONE_BROWSER = {
+  ...PANEL,
+  layout: { compact: true, platform: "web" },
+} as unknown as PluginWorkspacePanelProps;
+
+function Mounted(props: { panel?: PluginWorkspacePanelProps }) {
   const styles = useDesignStyles(THEME, true, true);
   return (
     <PluginRpcProvider invoke={invoke} subscribe={subscribe}>
-      <EditorView {...PANEL} file={FILE} styles={styles} onClose={close} />
+      <EditorView {...(props.panel ?? PANEL)} file={FILE} styles={styles} onClose={close} />
     </PluginRpcProvider>
   );
 }
@@ -156,6 +162,18 @@ test("asks the bridge for pictures, and shows the latest one with the open threa
   expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
   expect(container.textContent).toContain("Make it rounder");
   expect(container.textContent).not.toContain("Drawing the design...");
+});
+
+test("a phone browser gets the picture to comment on, not the editor", async () => {
+  act(() => root.unmount());
+  views = [];
+  root = createRoot(container);
+  await act(async () => root.render(<Mounted panel={PHONE_BROWSER} />));
+  expect(views.map((view) => view.input)).toEqual([
+    { fileId: "f1", workspaceId: "w1", pictures: true, attempt: 0 },
+  ]);
+  expect(calls.map((call) => call.method)).not.toContain("design.editor_link.request");
+  expect(container.textContent).not.toContain("Send to agent");
 });
 
 test("a tap without a position opens no comment", async () => {
