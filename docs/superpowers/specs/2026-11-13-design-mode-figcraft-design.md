@@ -88,15 +88,15 @@ The user picked A.
    project key, file id, name, owner token, links). Actions: New, Open, Rename, Remove. A file is
    marked when it is out of step (below).
 2. **Bridge.** For each open file the daemon runs one `figcraft-cli mcp` child process, joined to
-   the file's live session as a member named "Paseo", confined with
-   `--automation-read-root`/`--automation-write-root` to the workspace's `design/` folder. It reads
+   the file's live session as a member named "Paseo", with no automation roots (FigCraft turns
+   live sessions off in a confined process; see Security). It reads
    presence, selection and comments, renders pages and syncs tokens. It starts when a viewer or an
    agent opens the file and stops 5 minutes after the last one leaves.
 3. **Tokens sync.** On open, imports `design/tokens.json` into the file's variables. When tokens
    change in FigCraft, writes the changed tokens to `design/tokens.json` in the workspace,
    uncommitted, and posts a notice in the workspace.
 4. **Agent tools.** Claude sessions in the workspace get FigCraft's MCP server
-   (`figcraft-cli mcp`, confined to `design/`) through the shared-mcp plugin, and one Paseo tool,
+   (`figcraft-cli mcp` behind Paseo's guard) through the shared-mcp plugin, and one Paseo tool,
    `design_join {file?}`, that creates the file when needed, starts the bridge and returns the edit
    link for the agent's `collab.join`. The link goes only to that agent.
 5. **Views.**
@@ -149,7 +149,11 @@ components with no `codeConnect` mapping. Mapping them is a task you can give an
   chat, logs, the phone view or a client message other than the editor tab's.
 - The server key stays in env; only the plugin uses it, to publish and manage files. It never
   reaches an agent or a client.
-- Bridge and agent FigCraft processes may read and write only the workspace's `design/` folder.
+- Bridge and agent FigCraft processes run without `--automation-read-root`/`--automation-write-root`:
+  FigCraft 0.18.1 turns publishing and live sessions off in a process that has them, and an agent's
+  own tools reach the same files anyway. The guard in front of an agent's `figcraft-cli` is what
+  keeps it on our server: it refuses sharing, publishing, plugin directories, and joining, server
+  info or libraries on any other host.
 - FigCraft's public server (`collab.craftapps.dev`) is never used: every share and publish names
   our server.
 

@@ -60,6 +60,26 @@ describe("guard policy", () => {
       expect(run(command)).toBe(SHARING(command));
     }
   });
+  it("keeps libraries, server info and plugin directories on our server", () => {
+    const ours = "figcraft.dev.mtapp.dev";
+    expect(run("library.add", { path: "design/brand.figcraft" })).toBeNull();
+    expect(run("library.add", { path: "wss://figcraft.dev.mtapp.dev/?file=a&token=b" })).toBeNull();
+    expect(run("library.add", { path: "wss://collab.craftapps.dev/?file=a&token=b" })).toBe(
+      `library.add may only reach ${ours}`,
+    );
+    expect(run("collab.serverInfo", { server: "wss://figcraft.dev.mtapp.dev/" })).toBeNull();
+    expect(run("collab.serverInfo", { server: "wss://collab.craftapps.dev/" })).toBe(
+      `collab.serverInfo may only reach ${ours}`,
+    );
+    for (const command of [
+      "plugin.directory.list",
+      "plugin.directory.install",
+      "plugin.directory.publish",
+      "plugin.directory.unpublish",
+    ]) {
+      expect(run(command, { server: "wss://figcraft.dev.mtapp.dev/" })).toBe(SHARING(command));
+    }
+  });
   it("checks every command of a batch, and keeps the name out of batches", () => {
     expect(
       refusal(

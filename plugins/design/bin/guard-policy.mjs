@@ -19,6 +19,11 @@ const COLLAB_ALLOWED = new Set([
   "collab.spotlight",
 ]);
 const REFUSED = new Set(["library.publishToServer", "pref.publishServer"]);
+// Commands that take a server or a link: allowed only towards ours. A local library file is fine.
+const SERVER_PARAM = new Map([
+  ["collab.serverInfo", "server"],
+  ["library.add", "path"],
+]);
 const AGENT_SUFFIX = " (agent)";
 
 function hostnameOf(host) {
@@ -46,11 +51,21 @@ function linkHostname(link) {
 }
 
 function refuseCommand(command, params, ourServer) {
-  if (REFUSED.has(command) || (command.startsWith("collab.") && !COLLAB_ALLOWED.has(command))) {
+  const sharing =
+    REFUSED.has(command) ||
+    command.startsWith("plugin.directory.") ||
+    (command.startsWith("collab.") && !COLLAB_ALLOWED.has(command));
+  if (sharing) {
     return `${command} is not allowed here: Paseo shares design files for you`;
   }
+  const ours = new URL(ourServer).hostname.toLowerCase();
+  const param = SERVER_PARAM.get(command);
+  if (param) {
+    const given = String(params?.[param] ?? "");
+    const remote = /^(wss?|figcraft):/i.test(given);
+    if (remote && linkHostname(given) !== ours) return `${command} may only reach ${ours}`;
+  }
   if (command === "collab.join") {
-    const ours = new URL(ourServer).hostname.toLowerCase();
     const given = [params?.link, params?.code].find((value) => typeof value === "string") ?? "";
     if (linkHostname(given) !== ours) return `collab.join may only join files on ${ours}, by link`;
   }

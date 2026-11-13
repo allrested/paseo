@@ -105,7 +105,7 @@ describe("design service", () => {
     });
   });
   it("adds the guarded FigCraft MCP server and the design_join tool to an interactive session", async () => {
-    const { service, home } = setup();
+    const { service } = setup();
     const request = {
       agentId: "a1",
       workspaceId: "w1",
@@ -129,10 +129,10 @@ describe("design service", () => {
         "wss://figcraft.example/",
         "--name",
         "Claude",
-        "--automation-write-root",
-        join(home, "design", "scratch", "p1"),
       ]),
     });
+    // FigCraft turns live sessions off in a process with automation roots (contract test).
+    expect(JSON.stringify(next?.mcpServers.figcraft)).not.toContain("--automation-");
     expect(JSON.stringify(next)).not.toContain("SERVERKEY");
   });
   it("adds nothing to a history session, a background helper or a session with no workspace", async () => {

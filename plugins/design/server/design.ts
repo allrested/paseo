@@ -15,7 +15,7 @@ import { createBridges, type Bridges } from "./bridges.js";
 import { createCommentRouter, type CommentRouter } from "./comments.js";
 import { FigcraftSession } from "./figcraft-session.js";
 import { createFilesStore, publicFile, type DesignFile, type FilesStore } from "./files-store.js";
-import { designPaths, scratchDir, type DesignPaths } from "./paths.js";
+import { designPaths, type DesignPaths } from "./paths.js";
 import { sendSelection } from "./send-to-agent.js";
 import type { TokenFile } from "./tokens.js";
 import { designTools } from "./agent-tools.js";
@@ -154,7 +154,6 @@ export function createDesignService(given: DesignDeps): DesignService {
     };
   }
 
-  const bridgeScratch = join(paths.scratchRoot, "_bridges");
   const childEnv = Object.fromEntries(
     Object.entries(deps.env).flatMap(([key, value]) =>
       key === "FIGCRAFT_SERVER_KEY" || value === undefined ? [] : [[key, value]],
@@ -163,10 +162,10 @@ export function createDesignService(given: DesignDeps): DesignService {
 
   async function session(name: string): Promise<FigcraftSession> {
     mkdirSync(paths.runDir, { recursive: true });
-    mkdirSync(bridgeScratch, { recursive: true });
+    // No automation roots: FigCraft 0.18.1 turns live sessions off in a confined process.
     return FigcraftSession.start({
       command: cli.command,
-      args: [...cli.argsBefore, "mcp", "--automation-write-root", bridgeScratch],
+      args: [...cli.argsBefore, "mcp"],
       env: childEnv,
       runDir: paths.runDir,
       name,
@@ -470,10 +469,7 @@ export function createDesignService(given: DesignDeps): DesignService {
       if (request.purpose !== "interactive" || request.background || !request.workspaceId) {
         return null;
       }
-      const { projectKey, directory } = await workspace(request.workspaceId);
-      const writeRoot = scratchDir(paths, projectKey);
-      mkdirSync(writeRoot, { recursive: true });
-      const designDir = directory ? join(directory, "design") : null;
+      // Unconfined, as the bridge: the agent's own tools reach the same files anyway.
       const args = [
         deps.guardPath,
         "--server",
@@ -484,9 +480,6 @@ export function createDesignService(given: DesignDeps): DesignService {
         cli.command,
         ...cli.argsBefore,
         "mcp",
-        "--automation-write-root",
-        writeRoot,
-        ...(designDir && existsSync(designDir) ? ["--automation-read-root", designDir] : []),
       ];
       return {
         ...request,
