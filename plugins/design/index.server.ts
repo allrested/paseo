@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { readDesignConfig } from "./shared/config.js";
@@ -17,18 +18,30 @@ import { createDesignService } from "./server/design.js";
 
 const TICK_MS = 10_000;
 
-export default function contribute(server: PluginServerContext): () => Promise<void> {
+/** What the daemon passes a built-in beside the server context (as in plugins/default-skills). */
+interface BuiltinPluginInfo {
+  directory: string;
+}
+
+export default function contribute(
+  server: PluginServerContext,
+  builtin?: BuiltinPluginInfo,
+): () => Promise<void> {
   const log = (line: string) => console.error(line);
   let paseo: PaseoApi | null = null;
   const remember = (context: { paseo: PaseoApi }) => {
     paseo = context.paseo;
   };
   // Built-ins run in the daemon process, so process.env is the daemon's env.
-  const config = readDesignConfig(process.env);
+  // The guard ships in bin/ beside this code; a bundle has no usable import.meta.url.
+  const config = builtin
+    ? readDesignConfig(process.env)
+    : { disabled: "Design mode runs only as Paseo's built-in plugin" };
   const service = createDesignService({
     config,
     env: process.env,
     home: homedir(),
+    guardPath: builtin ? join(builtin.directory, "bin", "figcraft-guard.mjs") : "",
     paseo: () => {
       if (paseo === null) throw new Error("Design mode is not ready yet");
       return paseo;

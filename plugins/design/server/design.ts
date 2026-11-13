@@ -38,12 +38,13 @@ function agentLabel(request: { title: string | null; provider: string }): string
   if (title) return title.slice(0, 40);
   return request.provider.charAt(0).toUpperCase() + request.provider.slice(1);
 }
-const GUARD = new URL("../bin/figcraft-guard.mjs", import.meta.url).pathname;
 
 export interface DesignDeps {
   config: DesignConfig | { disabled: string };
   env: NodeJS.ProcessEnv;
   home: string;
+  /** bin/figcraft-guard.mjs in the plugin's own directory (the daemon gives built-ins theirs). */
+  guardPath: string;
   /** How to start figcraft-cli: the CLI itself, or node + the fake in tests. */
   cliCommand?: { command: string; argsBefore: string[] };
   paseo(): PaseoApi;
@@ -474,7 +475,7 @@ export function createDesignService(given: DesignDeps): DesignService {
       mkdirSync(writeRoot, { recursive: true });
       const designDir = directory ? join(directory, "design") : null;
       const args = [
-        GUARD,
+        deps.guardPath,
         "--server",
         config.serverUrl,
         "--name",

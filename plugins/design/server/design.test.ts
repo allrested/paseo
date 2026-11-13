@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createDesignService } from "./design.js";
 
 const FAKE = new URL("../test/fake-figcraft.mjs", import.meta.url).pathname;
+const GUARD = new URL("../bin/figcraft-guard.mjs", import.meta.url).pathname;
 
 function fakePaseo(dir: string) {
   const sent: { agentId: string; text: string; options: unknown }[] = [];
@@ -62,6 +63,7 @@ function setup(env: Record<string, string> = {}, viewPollMs = 3000) {
     },
     env: { PASEO_HOME: home, ...env },
     home,
+    guardPath: GUARD,
     cliCommand: { command: process.execPath, argsBefore: [FAKE] },
     paseo: () => paseo as never,
     log: (line) => lines.push(line),
@@ -122,6 +124,7 @@ describe("design service", () => {
       type: "stdio",
       command: process.execPath,
       args: expect.arrayContaining([
+        GUARD,
         "--server",
         "wss://figcraft.example/",
         "--name",
