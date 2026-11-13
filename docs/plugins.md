@@ -390,6 +390,19 @@ off in a process that has them. `test/figcraft-contract.real.test.ts` pins that 
 the FigCraft contract, and CI runs it against the pinned release. Design:
 [the spec](superpowers/specs/2026-11-13-design-mode-figcraft-design.md).
 
+The `android` built-in gives agents an Android device over `adb`. It does nothing unless
+`PASEO_ANDROID_ADB` names a device (`host:port` or a serial) and `adb` is on the daemon's `PATH`;
+see [docker.md](docker.md) for the device in the stack. Interactive agent sessions get nine tools,
+`android_snapshot`, `android_tap`, `android_type`, `android_key`, `android_swipe`,
+`android_screenshot`, `android_install`, `android_launch` and `android_logs`, unless the host's
+`agentTools` setting is off when the session opens. A snapshot lists up to 200 screen elements with
+refs such as `@a3`; `android_tap` takes a ref from that agent's own latest snapshot, or a point. Every call
+is `adb -s <serial> ...` with an argument list and a timeout, and everything sent to the device's
+shell is single-quoted. `android_install` takes only a `.apk` inside the agent's workspace or the
+home folder; `android_screenshot` saves a PNG under `<workspace>/.paseo/android/` and answers its
+path. When the device does not answer, every tool says "The Android device is unreachable" and the
+next call tries again. The built-in has no client entry yet.
+
 `scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
 and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
 run that starts the real built-ins the same environment. Otherwise `default-skills` copies its
