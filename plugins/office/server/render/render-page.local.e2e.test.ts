@@ -154,6 +154,22 @@ describe.skipIf(!CDP_URL)("render page against a real Chromium", () => {
     );
   }, 60_000);
 
+  test("an office with agents at work gives at least eight pictures a second", async () => {
+    // The page's window is not on screen, where the browser's own frame clock runs about four
+    // times a second: the scene has to be drawn from a timer to be smooth.
+    await page.state({ type: "snapshot", state: fakeOffice() });
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    let pictures = 0;
+    const until = Date.now() + 4000;
+    while (Date.now() < until) {
+      const started = Date.now();
+      if ((await page.take()).picture !== null) pictures += 1;
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 60 - (Date.now() - started))));
+    }
+
+    expect(pictures / 4).toBeGreaterThanOrEqual(8);
+  }, 60_000);
+
   test("a session gives its viewer ready, then a picture, and closes its page when the viewer leaves", async () => {
     const sessions = createRenderSessions({
       host,

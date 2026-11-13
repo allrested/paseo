@@ -8,6 +8,11 @@ export const THREE_GLOBAL = "__officeThree";
 /** The page's one global, an `OfficeRenderGlobal`. */
 export const RENDER_GLOBAL = "__officeRender";
 export const PICTURE_QUALITY = 0.6;
+/**
+ * The render page draws a frame at most this often, from a timer. It is the scene's own pace for
+ * a robot that types (TYPING_FRAME_MS).
+ */
+export const PAGE_FRAME_MS = 50;
 /** A pointer that moved less than this between down and up is a tap. */
 export const TAP_SLOP_PX = 8;
 

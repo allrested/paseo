@@ -20,9 +20,10 @@ import {
 } from "./page-host.js";
 
 export const MAX_RENDER_SESSIONS = 2;
-export const TAKE_INTERVAL_MS = 125;
+/** About twelve pictures a second: what the page can give while it also draws. */
+export const TAKE_INTERVAL_MS = 80;
 /** Pictures sent that the viewer has not confirmed; more wait, and only the newest is kept. */
-export const MAX_UNCONFIRMED = 2;
+export const MAX_UNCONFIRMED = 4;
 /** A viewer that says nothing for this long is gone: a locked phone, a dropped link. */
 export const SILENCE_LIMIT_MS = 30_000;
 export const MAX_PICTURE_SIDE = 1280;
