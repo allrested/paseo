@@ -60,8 +60,11 @@ class Mcp {
     });
   }
 
-  static async start(cli: string, home: string, name: string): Promise<Mcp> {
-    const child = spawn(cli, ["mcp"], { env: { ...process.env, HOME: home }, stdio: "pipe" });
+  static async start(cli: string, home: string, name: string, args: string[] = []): Promise<Mcp> {
+    const child = spawn(cli, ["mcp", ...args], {
+      env: { ...process.env, HOME: home },
+      stdio: "pipe",
+    });
     const mcp = new Mcp(child);
     await mcp.request("initialize", {
       protocolVersion: "2025-06-18",
@@ -289,5 +292,23 @@ describe.skipIf(!CLI || !SERVER_BIN)("FigCraft v0.18.1 contract", () => {
       "codeconnect.json",
       await a.tool("run_command", { command: "codeConnect.export", params: {} }),
     );
+  }, 60_000);
+
+  it("turns live sessions off in a session with automation roots, so Paseo passes none", async () => {
+    const root = mkdtempSync(join(tmpdir(), "figcraft-root-"));
+    const confined = await Mcp.start(CLI as string, root, "contract-c", [
+      "--automation-write-root",
+      root,
+    ]);
+    try {
+      const answer = await confined.tool("run_command", {
+        command: "collab.join",
+        params: { link: editLink },
+      });
+      expect(answer.isError).toBe(true);
+      expect(answer.text).toContain("automation roots are set");
+    } finally {
+      confined.stop();
+    }
   }, 60_000);
 });
