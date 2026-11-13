@@ -506,6 +506,35 @@ export class ScheduleService {
     await this.store.delete(id);
   }
 
+  /**
+   * Points every not-completed schedule aimed at `fromAgentId` at `toAgentId` and returns their
+   * ids. A session move calls this before it archives the agent it leaves, so the archive finds
+   * nothing to complete. With `only`, just those ids change, which is how a failed move undoes it.
+   */
+  async retargetAgent(
+    fromAgentId: string,
+    toAgentId: string,
+    only?: readonly string[],
+  ): Promise<string[]> {
+    const updatedAt = this.now().toISOString();
+    const retargeted: string[] = [];
+    for (const candidate of await this.store.list()) {
+      if (only && !only.includes(candidate.id)) continue;
+      await this.store.update(candidate.id, (schedule) => {
+        if (
+          schedule.target.type !== "agent" ||
+          schedule.target.agentId !== fromAgentId ||
+          schedule.status === "completed"
+        ) {
+          return schedule;
+        }
+        retargeted.push(schedule.id);
+        return { ...schedule, target: { ...schedule.target, agentId: toAgentId }, updatedAt };
+      });
+    }
+    return retargeted;
+  }
+
   async completeForAgent(agentId: string): Promise<number> {
     const now = this.now();
     const schedules = await this.store.list();
