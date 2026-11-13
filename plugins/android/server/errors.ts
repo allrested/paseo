@@ -1,5 +1,7 @@
 export const UNREACHABLE = "The Android device is unreachable";
 
+export const TIMED_OUT = "The device did not answer in time";
+
 export class DeviceUnreachableError extends Error {
   constructor() {
     super(UNREACHABLE);

@@ -225,7 +225,7 @@ function DeviceView({ styles }: DeviceViewProps) {
       <AgentToolsSwitch styles={styles} />
       <View style={styles.stage} onLayout={onLayout}>
         {streamShown(size, appState) ? (
-          <Stream key={attempt} size={size} styles={styles} onRetry={retry} />
+          <Stream key={attempt} styles={styles} onRetry={retry} />
         ) : (
           <Text style={styles.status}>Connecting to the Android device...</Text>
         )}
@@ -235,18 +235,23 @@ function DeviceView({ styles }: DeviceViewProps) {
 }
 
 interface StreamProps {
-  size: Size;
   styles: AndroidStyles;
   onRetry(): void;
 }
 
-function Stream({ size, styles, onRetry }: StreamProps) {
+function Stream({ styles, onRetry }: StreamProps) {
   const [state, dispatch] = useReducer(streamReducer, INITIAL_STREAM);
   const [lost, setLost] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const send = useRpc(androidInputRpc);
   const outbox = useMemo(
-    () => createStreamOutbox({ send, onLost: setLost, onRefused: setRefused }),
+    () =>
+      createStreamOutbox({
+        send,
+        onLost: setLost,
+        onRefused: setRefused,
+        onAccepted: () => setRefused(null),
+      }),
     [send],
   );
   useEffect(() => () => outbox.stop(), [outbox]);
@@ -254,8 +259,12 @@ function Stream({ size, styles, onRetry }: StreamProps) {
   const onEvent = useCallback(
     (event: AndroidStreamEvent) => {
       dispatch(event);
-      if (event.type === "ready") outbox.ready(event.streamId);
-      else if (event.type === "picture") outbox.shown(event.seq);
+      if (event.type === "ready") {
+        // A new stream starts over: what went wrong on the one before is not this one's.
+        setLost(null);
+        setRefused(null);
+        outbox.ready(event.streamId);
+      } else if (event.type === "picture") outbox.shown(event.seq);
     },
     [outbox],
   );
@@ -271,17 +280,23 @@ function Stream({ size, styles, onRetry }: StreamProps) {
     return () => clearInterval(timer);
   }, [outbox]);
 
+  // Touches are read against the view that takes them, not the stage around the keys and the text row.
+  const [area, setArea] = useState<Size | null>(null);
+  const onAreaLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setArea((previous) => sizeAfterLayout(previous, width, height));
+  }, []);
   const gesture = useMemo(() => createStreamGesture(), []);
   const { device } = state;
   const touch = useCallback(
     (type: "start" | "move" | "end" | "cancel", event: GestureResponderEvent) => {
       const { locationX, locationY } = event.nativeEvent;
       const action = gesture.touch({ type, x: locationX, y: locationY, at: Date.now() });
-      if (action === null || device === null) return;
-      const input = gestureToDevice(action, size, device);
+      if (action === null || device === null || area === null) return;
+      const input = gestureToDevice(action, area, device);
       if (input !== null) outbox.input(input);
     },
-    [gesture, outbox, size, device],
+    [gesture, outbox, area, device],
   );
   const responder = useMemo(
     () => ({
@@ -318,6 +333,7 @@ function Stream({ size, styles, onRetry }: StreamProps) {
         style={styles.touch}
         accessibilityRole="image"
         accessibilityLabel="Android device"
+        onLayout={onAreaLayout}
         {...responder}
       >
         {source === null ? (
