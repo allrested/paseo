@@ -2316,6 +2316,9 @@ export const AgentMoveTargetSchema = z.object({
   // Fork delta (usage heads-up): the tightest window's projected run-out and label.
   runsOutAt: z.string().nullable().optional(),
   windowLabel: z.string().nullable().optional(),
+  // Fork delta (session move): the target's own CLI says nobody is signed in. Such a target is
+  // also not `available`, which is all an older app reads.
+  signedOut: z.boolean().optional(),
 });
 
 export const AgentMoveTargetsRequestMessageSchema = z.object({

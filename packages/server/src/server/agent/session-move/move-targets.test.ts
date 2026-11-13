@@ -208,3 +208,33 @@ describe("createUsageLookup", () => {
     expect(await lookup("claude", async () => "ok")).toBe("ok");
   });
 });
+
+test("a signed-out target is not available and says why", () => {
+  const target = toMoveTarget({
+    info,
+    status: "ready",
+    currentProvider: "claude",
+    now: NOW,
+    windows: null,
+    login: "signed_out",
+  });
+
+  expect(target.available).toBe(false);
+  expect(target.signedOut).toBe(true);
+});
+
+test("a signed-in or unknown login leaves the target as it was", () => {
+  for (const login of ["signed_in", "unknown", undefined] as const) {
+    const target = toMoveTarget({
+      info,
+      status: "ready",
+      currentProvider: "claude",
+      now: NOW,
+      windows: null,
+      login,
+    });
+
+    expect(target.available).toBe(true);
+    expect("signedOut" in target).toBe(false);
+  }
+});

@@ -2055,6 +2055,7 @@ export async function createPaseoDaemon(
                     listUsageReportsForScope: (scope) =>
                       pluginRuntime.listUsageReportsForScope(scope),
                     usageLookup: sharedMoveTargetUsage,
+                    loginOf: targetLogin,
                     logger: usageWatchLogger,
                     now: Date.now(),
                   }),
