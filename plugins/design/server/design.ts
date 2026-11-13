@@ -8,7 +8,7 @@ import type {
   PluginHookAgent,
   PluginSessionOpenRequest,
 } from "@getpaseo/plugin/server";
-import type { DesignConfig } from "../shared/config.js";
+import type { DesignConfig } from "./config.js";
 import type { FileRow, PublicFile, ViewEvent } from "../shared/contracts.js";
 import { BRIDGE_AUTHOR, Bridge, type TokensPort } from "./bridge.js";
 import { createBridges, type Bridges } from "./bridges.js";
