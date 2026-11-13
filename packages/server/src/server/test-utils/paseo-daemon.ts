@@ -110,6 +110,8 @@ export async function createTestPaseoDaemon(
     const logger = options.logger ?? pino({ level: "silent" });
     const daemon = await createPaseoDaemon(config, logger, {
       builtinPlugins: options.builtinPlugins ?? new BuiltinPluginLoader(undefined, []),
+      // No test daemon runs a real CLI to ask about a login: every login is unknown.
+      runLoginStatusCommand: async () => ({ exitCode: null, stdout: "", stderr: "" }),
       serverFeatureOverrides: {
         daemonStatusRpc: options.daemonStatusRpcCapability,
         relayConfig: options.relayConfigCapability,
