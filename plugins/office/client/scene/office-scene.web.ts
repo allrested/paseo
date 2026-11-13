@@ -102,6 +102,13 @@ export interface OfficeSceneOptions {
    * has the same column count; for another count the rooms stand elsewhere and it is dropped.
    */
   camera?: KeptCamera | null;
+  /**
+   * Keeps the drawn frame readable after it is shown. Off for a scene on screen; on for the
+   * render page, which reads each frame back as a picture.
+   */
+  preserveDrawingBuffer?: boolean;
+  /** Called after each frame that was drawn. */
+  onFrame?(): void;
   onSelectAgent(agentId: string): void;
   /** A tap on a room's whiteboard or on one of its notes on a desk. */
   onSelectBoard(roomId: string): void;
@@ -829,6 +836,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     antialias: true,
     alpha: false,
     powerPreference: "low-power",
+    preserveDrawingBuffer: options.preserveDrawingBuffer === true,
   });
   container.appendChild(canvas);
   renderer.outputColorSpace = three.SRGBColorSpace;
@@ -1160,6 +1168,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     const flying = writePlanes(now);
     const fading = stepFades(now);
     renderer.render(scene, camera);
+    options.onFrame?.();
     if (flying || fading) return { easing: moving, need: "smooth" };
     const need = animationNeed(plan.robots, enteredAt, now, options.reducedMotion, posedAt);
     return { easing: moving, need };
