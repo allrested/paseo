@@ -172,7 +172,13 @@ describe.skipIf(!CDP_URL)("render page against a real Chromium", () => {
     const events: RenderEvent[] = [];
     const viewer = new AbortController();
     const done = sessions.attach(
-      { ...VIEWPORT, pixelRatio: 3, colors: LIGHT_THEME_COLORS, coarsePointer: true },
+      {
+        width: 390.4,
+        height: 699.6,
+        pixelRatio: 3,
+        colors: LIGHT_THEME_COLORS,
+        coarsePointer: true,
+      },
       { signal: viewer.signal, push: async (event) => void events.push(event) },
     );
     const deadline = Date.now() + 20_000;

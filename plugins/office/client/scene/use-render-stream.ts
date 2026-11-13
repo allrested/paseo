@@ -23,7 +23,9 @@ export const INITIAL_STREAM: StreamState = { streamId: null, picture: null, prob
 
 /** What the view keeps of the host's events. Selections pass through to the surface, not here. */
 export function streamReducer(state: StreamState, event: RenderEvent): StreamState {
-  if (event.type === "ready") return { ...state, streamId: event.streamId };
+  // A new stream starts over, also on the same view: after a reconnect the host opens a new page
+  // whose pictures count from 1 again, and the old picture is not what that page shows.
+  if (event.type === "ready") return { streamId: event.streamId, picture: null, problem: null };
   if (event.type === "problem") return { ...state, problem: event.message };
   if (event.type !== "picture") return state;
   if (state.picture !== null && event.seq <= state.picture.seq) return state;
