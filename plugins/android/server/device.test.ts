@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { AdbRunner } from "./adb.js";
 import { createAndroidDevice, quoteForDevice } from "./device.js";
-import { DeviceUnreachableError, UNREACHABLE } from "./errors.js";
+import { DeviceUnreachableError, TIMED_OUT, UNREACHABLE } from "./errors.js";
 
 const SERIAL = "dev:5555";
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.from("rest")]);
@@ -126,6 +126,60 @@ test("any other failure keeps adb's words and is not unreachable", async () => {
   const error = await device.tap(1, 2).catch((e: unknown) => e);
   expect(error).not.toBeInstanceOf(DeviceUnreachableError);
   expect((error as Error).message).toBe("Exception occurred while executing");
+});
+
+test.each([
+  [
+    "an install",
+    (device: ReturnType<typeof setup>["device"]) => device.install("/tmp/a.apk"),
+    "install",
+  ],
+  [
+    "a screen dump",
+    (device: ReturnType<typeof setup>["device"]) => device.dump(),
+    "exec-out uiautomator",
+  ],
+  ["a tap", (device: ReturnType<typeof setup>["device"]) => device.tap(1, 2), "shell"],
+] as const)(
+  "%s that times out on a connected device is a slow command, not an unreachable one",
+  async (_name, run, prefix) => {
+    const { fake, device } = setup();
+    await device.ensure();
+    fake.answer(prefix, new Error("adb timed out after 120000 ms"));
+    const before = fake.calls.length;
+
+    const error = await run(device).catch((e: unknown) => e);
+
+    expect(error).not.toBeInstanceOf(DeviceUnreachableError);
+    expect((error as Error).message).toBe(TIMED_OUT);
+    // The device is still connected: the next call does not connect again.
+    fake.answer(prefix, "");
+    await device.tap(1, 2);
+    expect(argvOf(fake, before).some((argv) => argv[0] === "connect")).toBe(false);
+  },
+);
+
+test.each([
+  "Failure [INSTALL_FAILED_INTERNAL_ERROR]: the installer timed out, the device went offline",
+  "E/Foo: connection reset while closed",
+])("a failing command's own output is not read as a lost link: %s", async (said) => {
+  const { fake, device } = setup();
+  fake.answer("shell", new Error(said));
+  const error = await device.tap(1, 2).catch((e: unknown) => e);
+  expect(error).not.toBeInstanceOf(DeviceUnreachableError);
+  expect((error as Error).message).toBe(said);
+});
+
+test.each([
+  "error: closed",
+  "error: device 'dev:5555' not found",
+  "error: no devices/emulators found",
+  "adb: unable to connect for shell",
+])("adb's own connection error is unreachable: %s", async (said) => {
+  const { fake, device } = setup();
+  await device.ensure();
+  fake.answer("shell", new Error(said));
+  await expect(device.tap(1, 2)).rejects.toBeInstanceOf(DeviceUnreachableError);
 });
 
 test("shell quotes each argument for the device's shell", async () => {
