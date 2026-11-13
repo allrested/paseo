@@ -14,10 +14,11 @@ function fakePaseo(dir: string) {
     sent,
     paseo: {
       workspaces: {
-        ref: () => ({
+        // w9 is a workspace of another project.
+        ref: (id: string) => ({
           refresh: async () => ({
-            id: "w1",
-            projectId: "p1",
+            id,
+            projectId: id === "w9" ? "p9" : "p1",
             projectRootPath: "/elsewhere",
             workspaceDirectory: dir,
           }),
@@ -44,7 +45,31 @@ function fakePaseo(dir: string) {
   };
 }
 
-function setup(env: Record<string, string> = {}, viewPollMs = 3000) {
+/** Timers the test runs by hand: the bridges' 5-minute idle stop. */
+function manualClock() {
+  const timers = new Set<{ fn: () => void }>();
+  return {
+    setTimeout(fn: () => void) {
+      const timer = { fn };
+      timers.add(timer);
+      return timer;
+    },
+    clearTimeout(timer: unknown) {
+      timers.delete(timer as { fn: () => void });
+    },
+    runAll() {
+      const due = [...timers];
+      timers.clear();
+      for (const timer of due) timer.fn();
+    },
+  };
+}
+
+function setup(
+  env: Record<string, string> = {},
+  viewPollMs = 3000,
+  clock?: ReturnType<typeof manualClock>,
+) {
   const home = mkdtempSync(join(tmpdir(), "design-home-"));
   const work = mkdtempSync(join(tmpdir(), "design-work-"));
   mkdirSync(join(work, "design"));
@@ -69,6 +94,7 @@ function setup(env: Record<string, string> = {}, viewPollMs = 3000) {
     paseo: () => paseo as never,
     log: (line) => lines.push(line),
     viewPollMs,
+    clock,
   });
   return { service, work, home, sent, lines };
 }
@@ -94,6 +120,31 @@ describe("design service", () => {
       ok: true,
       url: expect.stringMatching(/^https:\/\/figcraft\.example\/app\/#join=/),
     });
+    expect(await service.editorLink(created.file.id, "w9")).toEqual({
+      ok: false,
+      error: "This design is no longer listed",
+    });
+  });
+  it("stops the bridge once the editor tab is closed: the link holds nothing, the view did", async () => {
+    const clock = manualClock();
+    const { service } = setup({}, 3000, clock);
+    const created = await service.create("w1", "Login");
+    if (!created.ok) throw new Error(created.error);
+    // The editor tab, as on desktop: a view without pictures, and the join link.
+    const controller = new AbortController();
+    const view = service.view(
+      { fileId: created.file.id, workspaceId: "w1", pictures: false },
+      async (event) => {
+        if (event.type === "threads") controller.abort();
+      },
+      controller.signal,
+    );
+    expect(await service.editorLink(created.file.id, "w1")).toMatchObject({ ok: true });
+    await view;
+    expect(await service.files("w1")).toMatchObject({ files: [{ status: "running" }] });
+    clock.runAll();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await service.files("w1")).toMatchObject({ files: [{ status: "stopped" }] });
   });
   it("design_join returns the edit link to the agent, records it as the file's agent and holds the bridge", async () => {
     const { service } = setup();
@@ -210,7 +261,10 @@ describe("design service", () => {
     const { service, work } = setup();
     const created = await service.create("w1", "Login");
     if (!created.ok) throw new Error(created.error);
-    await service.editorLink(created.file.id, "w1");
+    // An agent holds the file open, as design_join does.
+    await service.join({ id: "a1", workspaceId: "w1", cwd: "/x" } as never, {
+      file: created.file.id,
+    });
     await service.debugImportVariables(created.file.id, {
       meta: {
         variableCollections: {
