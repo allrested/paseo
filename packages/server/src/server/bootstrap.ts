@@ -13,6 +13,7 @@ import {
   isWatchedAgent,
   startUsageWatch,
 } from "./agent/session-move/usage-watch.js";
+import { startUsageLimitFallback } from "./agent/session-move/usage-limit-fallback.js";
 import {
   createFinishSubscriptions,
   createFinishObservation,
@@ -795,6 +796,7 @@ export async function createPaseoDaemon(
   let wsServer: VoiceAssistantWebSocketServer | null = null;
   // Fork delta (usage heads-up): stops the usage watch.
   let stopUsageWatch: (() => void) | null = null;
+  let stopUsageLimitFallback: (() => void) | null = null;
   let serviceProxyListenTarget: ListenTarget | null = null;
   const scriptHealthMonitor = new ScriptHealthMonitor({
     serviceProxy,
@@ -2001,6 +2003,17 @@ export async function createPaseoDaemon(
               }),
               logger: usageWatchLogger,
             });
+            // Fork delta (session move): a failed turn the limit matcher does not know still
+            // offers the move when the agent's account is at 100%. The read is forced, because
+            // a cached report from before the limit was hit would say there is room.
+            stopUsageLimitFallback = startUsageLimitFallback({
+              agentManager,
+              usageEnabled: isUsageEnabled,
+              listAgentUsage: (agentId) =>
+                pluginRuntime.listUsageReports({ agentId, forceRefresh: true }),
+              now: () => new Date(),
+              logger: logger.child({ module: "usage-limit-fallback" }),
+            });
             const relaySecurityLogger = logger.child({ module: "relay-security" });
             relayRuntime = createRelayRuntime({
               config: {
@@ -2060,6 +2073,8 @@ export async function createPaseoDaemon(
       // Fork delta (usage heads-up): a start that fails after the usage watch began stops it.
       stopUsageWatch?.();
       stopUsageWatch = null;
+      stopUsageLimitFallback?.();
+      stopUsageLimitFallback = null;
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
       unsubscribePluginProviders();
@@ -2099,6 +2114,8 @@ export async function createPaseoDaemon(
     // Fork delta (usage heads-up): the usage watch stops with the daemon.
     stopUsageWatch?.();
     stopUsageWatch = null;
+    stopUsageLimitFallback?.();
+    stopUsageLimitFallback = null;
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
     await finishSubscriptions.close();
