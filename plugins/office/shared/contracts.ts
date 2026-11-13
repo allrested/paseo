@@ -1,10 +1,8 @@
 import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
 
-/** The host-wide board. Every other board id is a workspace id. */
-export const LOBBY = "lobby";
-/** The author of a post the user made in the office. */
-export const USER_AUTHOR = "user";
+// In their own file, so code that needs only a name does not load the schemas (the render page).
+export { LOBBY, USER_AUTHOR } from "./names.js";
 export const POST_TEXT_MAX = 2000;
 export const BOARD_POST_MAX = 200;
 export const DONE_TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -88,6 +86,8 @@ export const OfficeSnapshotSchema = z.object({
   activity: z.record(z.string(), z.string()),
   boards: z.record(z.string(), z.array(PostSchema)),
   wake: WakeStateSchema,
+  /** Whether the host can draw the 3D view for a device that cannot (office.render). */
+  render: z.object({ available: z.boolean() }).optional(),
 });
 export type OfficeSnapshot = z.output<typeof OfficeSnapshotSchema>;
 
@@ -156,3 +156,85 @@ export const assetRpc = defineRpc({
   input: z.object({}),
   output: z.instanceof(Uint8Array),
 });
+
+/** The viewer's theme, as PluginTheme["colors"]: the host draws the 3D view in it. */
+export const ThemeColorsSchema = z.object({
+  surface0: z.string(),
+  surface1: z.string(),
+  surface2: z.string(),
+  border: z.string(),
+  foreground: z.string(),
+  foregroundMuted: z.string(),
+  accent: z.string(),
+  accentForeground: z.string(),
+  statusSuccess: z.string(),
+  statusWarning: z.string(),
+  statusDanger: z.string(),
+});
+
+/** One step of a touch on the streamed view, in CSS pixels from its top left. */
+export const PointerStepSchema = z.object({
+  type: z.enum(["down", "move", "up", "cancel"]),
+  x: z.number(),
+  y: z.number(),
+});
+export type PointerStep = z.output<typeof PointerStepSchema>;
+
+export const RenderSizeSchema = z.object({
+  /** CSS pixels. */
+  width: z.number().positive(),
+  height: z.number().positive(),
+  pixelRatio: z.number().positive(),
+});
+export type RenderSize = z.output<typeof RenderSizeSchema>;
+
+export const RenderFocusSchema = z.union([
+  z.object({ roomId: z.string() }),
+  z.object({ agentId: z.string() }),
+]);
+
+export const RenderEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ready"), streamId: z.string() }),
+  z.object({
+    type: z.literal("picture"),
+    seq: z.number().int().positive(),
+    /** Base64 JPEG, without the data URI prefix. */
+    jpeg: z.string(),
+    /** Device pixels. */
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+  }),
+  z.object({ type: z.literal("select"), target: z.enum(["agent", "board"]), id: z.string() }),
+  /** The stream ends after it. */
+  z.object({ type: z.literal("problem"), message: z.string() }),
+]);
+export type RenderEvent = z.output<typeof RenderEventSchema>;
+
+/** The 3D view drawn on the host, for a device that cannot draw it: pictures, then selections. */
+export const renderSubscription = defineSubscription({
+  name: "office.render",
+  input: RenderSizeSchema.extend({
+    colors: ThemeColorsSchema,
+    coarsePointer: z.boolean(),
+    /** The workspace tab's room; the camera starts on it. */
+    focusRoomId: z.string().optional(),
+  }),
+  event: RenderEventSchema,
+});
+export type RenderInput = z.output<typeof renderSubscription.input>;
+
+/** What the viewer of one stream did. An empty call says the viewer is still there. */
+export const renderInputRpc = defineRpc({
+  name: "office.render.input.request",
+  input: z.object({
+    streamId: z.string(),
+    /** The seq of the last picture the viewer has shown. */
+    shown: z.number().int().positive().optional(),
+    steps: z.array(PointerStepSchema).max(64).optional(),
+    focus: RenderFocusSchema.optional(),
+    resize: RenderSizeSchema.optional(),
+  }),
+  /** False when the host no longer has the stream. */
+  output: z.object({ ok: z.boolean() }),
+});
+export type RenderInputMessage = z.output<typeof renderInputRpc.input>;

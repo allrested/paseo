@@ -1,4 +1,5 @@
-import { LOBBY, type OfficeAgent, type OfficeSnapshot, type Post } from "../shared/contracts.js";
+import type { OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
+import { LOBBY } from "../shared/names.js";
 
 export const LOBBY_NAME = "Lobby";
 
