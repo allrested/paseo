@@ -17,6 +17,9 @@ const env = process.env;
 const log = env.FAKE_FIGCRAFT_LOG;
 const crashAfter = Number(env.FAKE_FIGCRAFT_CRASH_AFTER ?? "0");
 const empty = env.FAKE_FIGCRAFT_EMPTY === "1";
+// As FigCraft 0.18.1: a session confined with automation roots has no network.
+const confined = process.argv.some((arg) => arg.startsWith("--automation-"));
+const NETWORK = new Set(["collab.publish", "collab.join", "collab.share", "collab.host"]);
 if (env.FAKE_FIGCRAFT_ENV_LOG) {
   appendFileSync(
     env.FAKE_FIGCRAFT_ENV_LOG,
@@ -138,6 +141,11 @@ const failure = (message) => ({ content: [{ type: "text", text: message }], isEr
 function tool(name, args) {
   switch (name) {
     case "run_command":
+      if (confined && NETWORK.has(args.command)) {
+        return failure(
+          `command \`${args.command}\` is not available right now: automation roots are set: commands don't reach the network (publishing, live sessions, team libraries and plugin directories are off)`,
+        );
+      }
       return text(command(args.command, args.params ?? {}));
     case "screenshot":
       if (empty) return failure("the current page is empty: nothing to render");
