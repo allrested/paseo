@@ -48,8 +48,10 @@ class Observation implements FinishObservation {
 }
 class Delivery implements AgentMessageDelivery {
   prompts: string[] = [];
+  recipients: string[] = [];
   acknowledgments: Array<ReturnType<typeof deferred<"steered">>> = [];
   enqueue(message: Parameters<AgentMessageDelivery["enqueue"]>[0]) {
+    this.recipients.push(message.recipientId);
     this.prompts.push(String(message.prompt));
     const acknowledgment = deferred<"steered">();
     this.acknowledgments.push(acknowledgment);
@@ -85,11 +87,12 @@ async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 
   const observation = new Observation();
   const delivery = new Delivery();
   let active = true;
+  let successor: string | null = null;
   const service = createFinishSubscriptions({
     store,
     messages: () => delivery,
     open: observation.open.bind(observation),
-    callerIsActive: async () => active,
+    resolveCaller: async (agentId) => successor ?? (active ? agentId : null),
     serverId: "origin",
     logger: createTestLogger(),
     retryDelayMs,
@@ -104,6 +107,10 @@ async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 
     service,
     archive: () => {
       active = false;
+    },
+    moveCallerTo: (agentId: string) => {
+      active = false;
+      successor = agentId;
     },
   };
 }
@@ -227,6 +234,61 @@ test("archived parent suppresses delivery and removes obsolete intent", async ()
   await until(() => state.observation.waits.length === 1);
   state.archive();
   state.observation.waits[0]!.result.resolve(outcome());
+  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  expect(state.delivery.prompts).toHaveLength(0);
+});
+
+test("a watcher that moved gets the notification at its successor, and the record names it", async () => {
+  const state = await scenario();
+  await state.service.register(intent);
+  await until(() => state.observation.waits.length === 1);
+  state.moveCallerTo("parent-2");
+  state.observation.waits[0]!.result.resolve(outcome());
+  await until(() => state.delivery.prompts.length === 1);
+  expect(state.delivery.recipients).toEqual(["parent-2"]);
+  expect((await state.store.list()).map((record) => record.callerAgentId)).toEqual(["parent-2"]);
+  expect(state.service.hasPendingForCaller("parent-2")).toBe(true);
+  expect(state.service.hasPendingForCaller("parent")).toBe(false);
+  state.delivery.acknowledgments[0]!.resolve("steered");
+  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+});
+
+test("a restart after the watcher moved resumes with the successor", async () => {
+  const first = await scenario();
+  await first.service.register(intent);
+  await until(() => first.observation.waits.length === 1);
+  first.moveCallerTo("parent-2");
+  first.observation.waits[0]!.result.resolve(outcome());
+  await until(() => first.delivery.prompts.length === 1);
+  await first.service.close();
+
+  const restarted = await scenario(first.home);
+  await until(() => restarted.observation.waits.length === 1);
+  restarted.observation.waits[0]!.result.resolve(outcome());
+  await until(() => restarted.delivery.prompts.length === 1);
+  expect(restarted.delivery.recipients).toEqual(["parent-2"]);
+});
+
+test("a creation subscription still reports to a watcher that moved", async () => {
+  const state = await scenario();
+  await state.service.register({ ...intent, requireParentOwnership: true });
+  await until(() => state.observation.waits.length === 1);
+  state.moveCallerTo("parent-2");
+  const reparented = outcome();
+  reparented.final!.labels = { "paseo.parent-agent-id": "parent-2" };
+  state.observation.waits[0]!.result.resolve(reparented);
+  await until(() => state.delivery.prompts.length === 1);
+  expect(state.delivery.recipients).toEqual(["parent-2"]);
+});
+
+test("a creation subscription for a detached child stops for a watcher that moved too", async () => {
+  const state = await scenario();
+  await state.service.register({ ...intent, requireParentOwnership: true });
+  await until(() => state.observation.waits.length === 1);
+  state.moveCallerTo("parent-2");
+  const detached = outcome();
+  detached.final!.labels = {};
+  state.observation.waits[0]!.result.resolve(detached);
   await expect.poll(async () => (await state.store.list()).length).toBe(0);
   expect(state.delivery.prompts).toHaveLength(0);
 });
