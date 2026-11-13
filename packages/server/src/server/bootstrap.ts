@@ -14,6 +14,7 @@ import {
   startUsageWatch,
 } from "./agent/session-move/usage-watch.js";
 import { startUsageLimitFallback } from "./agent/session-move/usage-limit-fallback.js";
+import { movedAgentLookup, resolveMovedAgent } from "./agent/session-move/move-agent.js";
 import {
   createFinishSubscriptions,
   createFinishObservation,
@@ -1578,10 +1579,8 @@ export async function createPaseoDaemon(
       if (!wsServer) throw new Error("Daemon is not accepting agent messages");
       return wsServer.agentMessages;
     },
-    callerIsActive: async (agentId) => {
-      const record = await agentStorage.get(agentId);
-      return record ? !record.archivedAt : Boolean(agentManager.getAgent(agentId));
-    },
+    resolveCaller: (agentId) =>
+      resolveMovedAgent(agentId, movedAgentLookup({ agentManager, agentStorage })),
     ...createFinishObservation({
       agentManager,
       agentStorage,

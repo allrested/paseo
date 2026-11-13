@@ -36,7 +36,11 @@ export interface FinishObservation {
 interface Dependencies extends FinishObservation {
   store: FinishSubscriptionStore;
   messages(): AgentMessageDelivery;
-  callerIsActive(agentId: string): Promise<boolean>;
+  /**
+   * Who to tell for this caller: itself while it is active, the agent its session moved to, or
+   * null when neither exists.
+   */
+  resolveCaller(agentId: string): Promise<string | null>;
   serverId: string;
   logger: Logger;
   retryDelayMs?: number;
@@ -146,17 +150,25 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       await Promise.all(pending.map((watch) => watch.decision));
     }
   }
-  async function suppressed(
-    record: FinishSubscription,
-    result?: WaitForFinishResult,
-  ): Promise<boolean> {
-    if (!(await deps.callerIsActive(record.callerAgentId))) return true;
-    if (!record.requireParentOwnership || !result?.final) return false;
+  /** A creation subscription stops reporting once the child no longer belongs to the caller. */
+  function detached(record: FinishSubscription, result: WaitForFinishResult): boolean {
+    if (!record.requireParentOwnership || !result.final) return false;
     const parent = getParentAddressFromLabels(
       result.final.labels,
       record.serverId ?? deps.serverId,
     );
     return parent?.agentId !== record.callerAgentId || parent.serverId !== deps.serverId;
+  }
+  /** Files a watch whose records changed pair under its new key and returns that group. */
+  function refile(watch: Watch, group: Set<Watch>, records: FinishSubscription[]): Set<Watch> {
+    group.delete(watch);
+    if (!group.size && watches.get(key(watch.records[0]!)) === group)
+      watches.delete(key(watch.records[0]!));
+    watch.records = records;
+    const next = watches.get(key(records[0]!)) ?? new Set<Watch>();
+    next.add(watch);
+    watches.set(key(records[0]!), next);
+    return next;
   }
   function reasonFor(result: FinishObservationResult): FinishNotificationReason {
     if (result.reason === "host unreachable" || result.reason === "host removed")
@@ -214,15 +226,27 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     if (reason !== "needs permission") return true;
     return false;
   }
-  async function run(watch: Watch, group: Set<Watch>): Promise<void> {
+  async function run(watch: Watch, initialGroup: Set<Watch>): Promise<void> {
     const signal = watch.controller.signal;
     if (!(await watch.decision) || signal.aborted) return;
-    const record = {
+    let group = initialGroup;
+    let record = {
       ...watch.records[0]!,
       requireParentOwnership: watch.records.every(
         (intent) => intent.requireParentOwnership === true,
       ),
     };
+    /** False when nobody is left to tell. A caller that moved is replaced by its successor. */
+    async function followCaller(): Promise<boolean> {
+      const caller = await deps.resolveCaller(record.callerAgentId);
+      if (caller === null) return false;
+      if (caller === record.callerAgentId) return true;
+      const records = watch.records.map((intent) => ({ ...intent, callerAgentId: caller }));
+      for (const intent of records) await deps.store.put(intent);
+      group = refile(watch, group, records);
+      record = { ...record, callerAgentId: caller };
+      return true;
+    }
     const permissions = new Set<string>();
     let observation: FinishObservationSession | undefined;
     let pending: FinishObservationResult | undefined;
@@ -256,7 +280,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     try {
       while (!signal.aborted) {
         try {
-          if (await suppressed(record)) {
+          if (!(await followCaller())) {
             await remove(watch);
             stop(watch, group);
             return;
@@ -269,7 +293,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
           if (signal.aborted) return;
           await decisions(group);
           if (signal.aborted) return;
-          if (await suppressed(record, pending)) {
+          if (!(await followCaller()) || detached(record, pending)) {
             await remove(watch);
             stop(watch, group);
             return;

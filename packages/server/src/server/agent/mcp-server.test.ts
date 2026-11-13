@@ -893,7 +893,7 @@ async function createAgentMcpServer(
       },
     },
     messages: () => messages,
-    callerIsActive: async (id) => !(await options.agentStorage.get(id))?.archivedAt,
+    resolveCaller: async (id) => ((await options.agentStorage.get(id))?.archivedAt ? null : id),
     serverId: options.serverId ?? "self",
     logger: options.logger,
     ...createFinishObservation({
