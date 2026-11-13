@@ -1841,7 +1841,9 @@ test("the Android device is privileged, publishes no port and joins no shared ne
   assert.match(android, /profiles: \["android"\]/);
   assert.match(android, /mem_limit: 4g/);
   assert.doesNotMatch(android, /\n\s+ports:/);
-  assert.match(android, /networks:\n\s+- default\n(?!\s+- )/);
+  // Its own network, shared with paseo alone. On the stack's `default` network the browser
+  // container, which renders arbitrary pages, could open the device's adb.
+  assert.match(android, /networks:\n\s+- device\n(?!\s+- )/);
   assert.match(android, /- [^\n]+:\/data\n/);
   for (const argument of [
     "androidboot.redroid_width=720",
@@ -1867,6 +1869,19 @@ test("adb reaches the paseo container's loopback through a sidecar, and nowhere 
   // Empty unless the instance turns the device on, and then it is the sidecar's address.
   assert.match(paseo, /PASEO_ANDROID_ADB: \$\{PASEO_ANDROID_ADB-\}\n/);
   assert.doesNotMatch(paseo, /5555:5555/);
+  // The sidecar lives in paseo's network namespace, so paseo is on the device's network...
+  assert.match(paseo, /networks:\n(?:\s+(?:#[^\n]*|- [a-z-]+)\n)*?\s+- device\n/);
+  // ...and nothing else is: not the browser, and not the sidecars in its namespace.
+  for (const name of ["browser", "browser-cdp", "postman-cdp"]) {
+    assert.doesNotMatch(
+      composeService(name),
+      /- device\n/,
+      `${name} must not join the device's network`,
+    );
+  }
+  const compose = readFileSync(new URL("docker/docker-compose.yml", repoRoot), "utf8");
+  const networks = compose.slice(compose.lastIndexOf("\nnetworks:\n"));
+  assert.match(networks, /\n {2}device: \{\}\n/);
 });
 
 test("the agent image has adb", () => {
