@@ -2018,6 +2018,7 @@ export const en = {
       empty: "No providers to move to",
       current: "Current",
       unavailable: "Unavailable",
+      notSignedIn: "Not signed in",
       usage: "{{used}}, {{reset}}",
       move: "Move",
       moving: "Moving...",

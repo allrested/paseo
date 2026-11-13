@@ -182,3 +182,33 @@ test("refuses an agent it cannot find", async () => {
     "Agent not found: agent-1",
   );
 });
+
+test("asks each target's login, but not the provider the agent is on", async () => {
+  const asked: string[] = [];
+  const targets = await listAgentMoveTargets(
+    input({
+      loginOf: async (providerId) => {
+        asked.push(providerId);
+        return "signed_out";
+      },
+    }),
+  );
+
+  expect(asked).toEqual(["claude-work"]);
+  expect(targets.map((target) => [target.provider, target.available, target.signedOut])).toEqual([
+    ["claude", true, undefined],
+    ["claude-work", false, true],
+  ]);
+});
+
+test("a login lookup that fails leaves the target available", async () => {
+  const targets = await listAgentMoveTargets(
+    input({
+      loginOf: async () => {
+        throw new Error("probe crashed");
+      },
+    }),
+  );
+
+  expect(targets.map((target) => target.available)).toEqual([true, true]);
+});

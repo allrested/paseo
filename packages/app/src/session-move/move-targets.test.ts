@@ -65,6 +65,15 @@ describe("describeMoveTarget", () => {
     ).toEqual({ label: "Unavailable", variant: "muted" });
   });
 
+  it("says a signed-out target is not signed in", () => {
+    expect(
+      describeMoveTarget(
+        target({ provider: "codex", available: false, signedOut: true, usedPct: 10 }),
+        { now: NOW },
+      ).badge,
+    ).toEqual({ label: "Not signed in", variant: "muted" });
+  });
+
   it("shows no badge while the target's usage is unknown", () => {
     expect(describeMoveTarget(target({ provider: "codex" }), { now: NOW }).badge).toBeNull();
   });

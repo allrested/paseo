@@ -144,6 +144,7 @@ function describeBadge(
 ): MoveTargetBadge | null {
   const { now, locale, t } = options;
   if (target.current) return { label: t("sessionMove.dialog.current"), variant: "muted" };
+  if (target.signedOut) return { label: t("sessionMove.dialog.notSignedIn"), variant: "muted" };
   if (!target.available) return { label: t("sessionMove.dialog.unavailable"), variant: "muted" };
   if (target.usedPct === null) return null;
   const used = formatDisplayPct(target.usedPct, "used", locale, t);

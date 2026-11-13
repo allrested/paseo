@@ -1,6 +1,7 @@
 import { chooseTightestWindow } from "@getpaseo/protocol/usage-heads-up";
 import type { ProviderSnapshotEntry } from "../agent-sdk-types.js";
 import type { ProviderLaunchInfo } from "../provider-snapshot-manager.js";
+import type { TargetLogin } from "./target-login.js";
 
 export interface MoveTarget {
   provider: string;
@@ -13,6 +14,8 @@ export interface MoveTarget {
   /** When the tightest window runs out at its pace, only while that comes before its reset. */
   runsOutAt: string | null;
   windowLabel: string | null;
+  /** Present, and true, only when the target's own CLI says nobody is signed in. */
+  signedOut?: true;
 }
 
 export interface UsageWindowLike {
@@ -31,6 +34,8 @@ export interface MoveTargetInput {
   windows: readonly UsageWindowLike[] | null;
   /** The time each window's heads-up tone is judged at. */
   now: number;
+  /** What the target's CLI says about its login; left out when it was not asked. */
+  login?: TargetLogin;
 }
 
 /**
@@ -47,12 +52,17 @@ export function toMoveTarget(input: MoveTargetInput): MoveTarget {
     label: input.info.label,
     family: input.info.family,
     // A loading target stays selectable: the move waits for it and refuses it if it fails.
-    available: input.info.enabled && input.status !== "unavailable" && input.status !== "error",
+    available:
+      input.info.enabled &&
+      input.status !== "unavailable" &&
+      input.status !== "error" &&
+      input.login !== "signed_out",
     current: input.info.providerId === input.currentProvider,
     usedPct: tightest?.usedPct ?? null,
     resetsAt: tightest?.resetsAt ?? null,
     runsOutAt: tightest?.runsOutAt ?? null,
     windowLabel: tightest?.window.label ?? null,
+    ...(input.login === "signed_out" ? { signedOut: true as const } : {}),
   };
 }
 

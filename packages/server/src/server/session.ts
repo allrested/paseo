@@ -3197,6 +3197,7 @@ export class Session {
       usageEnabled: this.daemonConfigStore.get().usage?.enabled !== false,
       listUsageReportsForScope: listReports ? (scope) => listReports.call(runtime, scope) : null,
       usageLookup: sharedMoveTargetUsage,
+      loginOf: this.agentManager.moveCarry?.targetLogin,
       logger: this.sessionLogger,
       now: Date.now(),
     });
