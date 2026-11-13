@@ -125,6 +125,32 @@ RUN set -eux; \
     jq --version; \
     python3 --version
 
+# FigCraft CLI for design mode (plugins/design): the bridge and agents run `figcraft-cli mcp`.
+# Pinned and checked against the release's SHA256SUMS.txt; keep FIGCRAFT_VERSION in step with
+# Dockerfile.figcraft (docs/docker.md). It links only against libc, libm and libgcc_s.
+ARG FIGCRAFT_VERSION=0.18.1
+RUN set -eux; \
+    case "$TARGETARCH" in \
+      amd64) arch=x86_64 ;; \
+      arm64) arch=aarch64 ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    base="https://github.com/storytold/figcraft/releases/download/v${FIGCRAFT_VERSION}"; \
+    app="figcraft-${FIGCRAFT_VERSION}-linux-${arch}.tar.gz"; \
+    mkdir /tmp/figcraft; \
+    cd /tmp/figcraft; \
+    curl -fsSL -o SHA256SUMS.txt "${base}/SHA256SUMS.txt"; \
+    curl -fsSL -o "${app}" "${base}/${app}"; \
+    grep " ${app}\$" SHA256SUMS.txt > wanted.txt; \
+    test "$(wc -l < wanted.txt)" -eq 1; \
+    sha256sum -c wanted.txt; \
+    tar -xzf "${app}"; \
+    install -m 0755 "figcraft-${FIGCRAFT_VERSION}-linux-${arch}/bin/figcraft-cli" \
+      /usr/local/bin/figcraft-cli; \
+    cd /; \
+    rm -rf /tmp/figcraft; \
+    figcraft-cli --version
+
 # GitHub's SSH host keys, system-wide.
 #
 # Without this, the first `git clone git@github.com:...` in a fresh container
