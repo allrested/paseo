@@ -1,5 +1,5 @@
 import type { AdbRunner } from "./adb.js";
-import { DeviceUnreachableError, errorMessage } from "./errors.js";
+import { DeviceUnreachableError, TIMED_OUT, errorMessage } from "./errors.js";
 
 export interface Point {
   x: number;
@@ -29,8 +29,11 @@ const CONNECT_TIMEOUT_MS = 8_000;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const PACKAGE_NAME = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
 const KEY_NAME = /^[A-Za-z0-9_]+$/;
-const UNREACHABLE_WORDS =
-  /offline|unable to connect|failed to connect|cannot connect|can't connect|no devices|device '.*' not found|timed out|connection refused|connection reset|^error: closed/im;
+// adb's own words for a link that is gone, at the start of a line: a failing command's output
+// that happens to say "offline" or "closed" is not one.
+const LINK_LOST =
+  /^(?:adb: )?error: (?:device offline|device '.*' not found|no devices|closed)|^(?:adb: )?(?:error: )?(?:unable to connect|failed to connect|cannot connect)/im;
+const ADB_TIMEOUT = /^adb timed out after/;
 
 /**
  * adb joins the arguments after `shell` with spaces and the device's shell parses the result, so
@@ -54,13 +57,19 @@ export function createAndroidDevice(input: { serial: string; adb: AdbRunner }): 
   const { serial, adb } = input;
   let connected = false;
 
-  function unreachableOr(error: unknown): Error {
+  /**
+   * `connecting`: the call that opens the link, where no answer in time means no link. On a
+   * connected device a call that timed out is a slow command.
+   */
+  function unreachableOr(error: unknown, connecting = false): Error {
     if (error instanceof DeviceUnreachableError) return error;
-    if (UNREACHABLE_WORDS.test(errorMessage(error))) {
+    const said = errorMessage(error);
+    if (LINK_LOST.test(said) || (connecting && ADB_TIMEOUT.test(said))) {
       connected = false;
       return new DeviceUnreachableError();
     }
-    return error instanceof Error ? error : new Error(errorMessage(error));
+    if (ADB_TIMEOUT.test(said)) return new Error(TIMED_OUT);
+    return error instanceof Error ? error : new Error(said);
   }
 
   async function ensure(): Promise<void> {
@@ -78,7 +87,7 @@ export function createAndroidDevice(input: { serial: string; adb: AdbRunner }): 
       if (state !== "device") throw new DeviceUnreachableError();
       connected = true;
     } catch (error) {
-      throw unreachableOr(error);
+      throw unreachableOr(error, true);
     }
   }
 

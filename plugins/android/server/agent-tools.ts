@@ -58,6 +58,41 @@ const TapInputSchema = z
     { message: "Give either ref, or both x and y" },
   );
 
+const SWIPE_FRACTION = 0.4;
+
+const SwipeInputSchema = z
+  .object({
+    from: PointSchema.optional(),
+    to: PointSchema.optional(),
+    direction: z.enum(["up", "down", "left", "right"]).optional(),
+    durationMs: z.number().int().min(50).max(3000).default(300),
+  })
+  .refine(
+    (input) =>
+      input.direction !== undefined
+        ? input.from === undefined && input.to === undefined
+        : input.from !== undefined && input.to !== undefined,
+    { message: "Give either from and to, or a direction" },
+  );
+
+/** From the middle of the screen, 40% of the screen along the axis, the way the finger moves. */
+function swipeByDirection(
+  direction: "up" | "down" | "left" | "right",
+  width: number,
+  height: number,
+) {
+  const from = { x: Math.round(width / 2), y: Math.round(height / 2) };
+  const dx = Math.round(width * SWIPE_FRACTION);
+  const dy = Math.round(height * SWIPE_FRACTION);
+  const to = {
+    up: { x: from.x, y: from.y - dy },
+    down: { x: from.x, y: from.y + dy },
+    left: { x: from.x - dx, y: from.y },
+    right: { x: from.x + dx, y: from.y },
+  }[direction];
+  return { from, to };
+}
+
 function isInside(root: string, target: string): boolean {
   const path = relative(root, target);
   return path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
@@ -184,17 +219,20 @@ export function createAndroidTools(ports: AndroidToolPorts): AgentToolDefinition
     }),
     tool({
       name: "android_swipe",
-      description: "Swipe from one point to another, in device pixels. Use it to scroll.",
-      input: z.object({
-        from: PointSchema,
-        to: PointSchema,
-        durationMs: z.number().int().min(50).max(3000).default(300),
-      }),
+      description:
+        "Swipe between two points (from, to) or in a direction (up, down, left, right) from the middle of the screen, in device pixels. Use it to scroll.",
+      input: SwipeInputSchema,
       async run(input) {
-        await device.swipe(input.from, input.to, input.durationMs);
-        return {
-          text: `Swiped from ${input.from.x},${input.from.y} to ${input.to.x},${input.to.y}.`,
-        };
+        const durationMs = input.durationMs;
+        if (input.direction !== undefined) {
+          const { width, height } = await device.size();
+          const { from, to } = swipeByDirection(input.direction, width, height);
+          await device.swipe(from, to, durationMs);
+          return { text: `Swiped ${input.direction} from ${from.x},${from.y} to ${to.x},${to.y}.` };
+        }
+        const { from, to } = input;
+        await device.swipe(from!, to!, durationMs);
+        return { text: `Swiped from ${from!.x},${from!.y} to ${to!.x},${to!.y}.` };
       },
     }),
     tool({
@@ -232,9 +270,17 @@ export function createAndroidTools(ports: AndroidToolPorts): AgentToolDefinition
     }),
     tool({
       name: "android_launch",
-      description: "Open an installed app by its package name, such as com.example.app.",
-      input: z.object({ package: z.string().min(1).max(200) }),
+      description:
+        'Open an installed app by its package name, such as com.example.app; action "stop" force-stops it instead.',
+      input: z.object({
+        package: z.string().min(1).max(200),
+        action: z.enum(["start", "stop"]).default("start"),
+      }),
       async run(input) {
+        if (input.action === "stop") {
+          await device.stop(input.package);
+          return { text: `Stopped ${input.package}.` };
+        }
         await device.launch(input.package);
         return { text: `Launched ${input.package}.` };
       },
