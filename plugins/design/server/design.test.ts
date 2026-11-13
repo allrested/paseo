@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createDesignService } from "./design.js";
+import { BRIDGE_AUTHOR } from "./bridge.js";
 
 const FAKE = new URL("../test/fake-figcraft.mjs", import.meta.url).pathname;
 const GUARD = new URL("../bin/figcraft-guard.mjs", import.meta.url).pathname;
@@ -266,7 +267,11 @@ describe("design service", () => {
     expect(tokens).toEqual({ status: "imported", warnings: [] });
   });
   it("lists comments and pictures to a viewer, with null for an empty page", async () => {
-    const { service } = setup({ FAKE_FIGCRAFT_EMPTY: "1" });
+    const comments = JSON.stringify([
+      { id: 1, resolved: false, author: "Guest 3", agent: false, text: "rounder" },
+      { id: 4, resolved: false, author: BRIDGE_AUTHOR, agent: true, text: "from the phone" },
+    ]);
+    const { service } = setup({ FAKE_FIGCRAFT_EMPTY: "1", FAKE_FIGCRAFT_COMMENTS: comments });
     const created = await service.create("w1", "Login");
     if (!created.ok) throw new Error(created.error);
     const events: { type: string; uri?: string | null }[] = [];
@@ -284,6 +289,13 @@ describe("design service", () => {
     expect(types).toContain("status");
     expect(types.filter((type) => type !== "status")).toEqual(["tokens", "threads", "picture"]);
     expect(events.at(-1)).toMatchObject({ type: "picture", seq: 1, uri: null });
+    // A comment made from the phone goes through the bridge; it is the user's, not an agent's.
+    expect(events.find((event) => event.type === "threads")).toMatchObject({
+      threads: [
+        { id: "1", author: "Guest 3", preview: "rounder" },
+        { id: "4", author: "You", preview: "from the phone" },
+      ],
+    });
   });
   it("ends a view with the error once the bridge failed twice, without starting a third", async () => {
     const { service } = setup({ FAKE_FIGCRAFT_CRASH_AFTER: "5" }, 20);
