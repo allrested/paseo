@@ -273,6 +273,23 @@ Differences from the text above, found while building:
 - The snapshot's `render` field is present only when the hub is told whether the host can draw,
   which the plugin entry always does.
 
+## Smoothness (2026-11-14)
+
+The user saw the stream in the installed app: it worked, but it was not smooth and the robots did
+not seem to move. Measured on this instance's Chromium: with the scene running, the page drew 4.3
+frames a second, the same for 5 robots and for 33, and at both picture sizes. The page's window is
+not on screen, and there the browser's frame clock (`requestAnimationFrame`) comes about every
+250 ms once a page draws. Drawn from a timer instead, the same page gave 14 to 15 pictures a
+second.
+
+So the scene takes its frame clock as an option, and the render page gives it a 50 ms timer (the
+scene's own pace for a typing robot). The session asks for a picture every 80 ms, not 125, and
+keeps four pictures unconfirmed, not two. Above, "at most 8 a second", "every 125 ms" and "at most
+two unconfirmed" are the numbers before this change.
+
+A picture is about 39 KB at a phone's size, so an office with agents at work now sends up to
+about 450 KB a second to each viewer; a still office still sends nothing.
+
 ## Left to the builder
 
 - File and function names inside the folders named above.

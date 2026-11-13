@@ -92,6 +92,17 @@ export interface KeptCamera {
   columns: number;
 }
 
+/** A frame clock: `request` calls back once with the time, `cancel` takes what it returned. */
+export interface SceneFrames {
+  request(callback: (now: number) => void): number;
+  cancel(handle: number): void;
+}
+
+const BROWSER_FRAMES: SceneFrames = {
+  request: (callback) => requestAnimationFrame(callback),
+  cancel: (handle) => cancelAnimationFrame(handle),
+};
+
 export interface OfficeSceneOptions {
   three: ThreeModule;
   container: HTMLElement;
@@ -109,6 +120,12 @@ export interface OfficeSceneOptions {
   preserveDrawingBuffer?: boolean;
   /** Called after each frame that was drawn. */
   onFrame?(): void;
+  /**
+   * What calls the next frame. The browser's own frame clock when left out. The render page
+   * gives a timer: its window is not on screen, and there the browser's clock runs about four
+   * times a second once a page draws.
+   */
+  frames?: SceneFrames;
   onSelectAgent(agentId: string): void;
   /** A tap on a room's whiteboard or on one of its notes on a desk. */
   onSelectBoard(roomId: string): void;
@@ -820,6 +837,7 @@ function dealtAgain(before: ScenePlan, after: ScenePlan): boolean {
 
 export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   const { three, container } = options;
+  const frameClock = options.frames ?? BROWSER_FRAMES;
   const canvas = document.createElement("canvas");
   canvas.style.position = "absolute";
   canvas.style.inset = "0";
@@ -903,7 +921,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   let typingTimer: ReturnType<typeof setTimeout> | null = null;
 
   function cancelFrames(): void {
-    if (frameRequest !== null) cancelAnimationFrame(frameRequest);
+    if (frameRequest !== null) frameClock.cancel(frameRequest);
     frameRequest = null;
     if (typingTimer !== null) clearTimeout(typingTimer);
     typingTimer = null;
@@ -911,7 +929,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
 
   function invalidate(): void {
     if (stopped || !visible || viewport.width === 0 || frameRequest !== null) return;
-    frameRequest = requestAnimationFrame(frame);
+    frameRequest = frameClock.request(frame);
   }
 
   function setView(next: CameraView): void {

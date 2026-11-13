@@ -307,20 +307,31 @@ test("pushes a picture only when take() has one, with rising seq", async () => {
   });
 });
 
-test("holds pictures while two are unconfirmed, and sends the newest once one is confirmed", async () => {
+test("holds pictures while four are unconfirmed, and sends the newest once one is confirmed", async () => {
   const { sessions, pages, tick } = setup();
   const viewer = await attach(sessions);
-  pages[0]!.takes.push(picture("a"), picture("b"), picture("c"), picture("d"));
+  pages[0]!.takes.push(
+    picture("a"),
+    picture("b"),
+    picture("c"),
+    picture("d"),
+    picture("e"),
+    picture("f"),
+  );
 
-  await tick(4);
-  expect(MAX_UNCONFIRMED).toBe(2);
-  expect(picturesOf(viewer)).toEqual(["1:a", "2:b"]);
+  await tick(6);
+  expect(MAX_UNCONFIRMED).toBe(4);
+  expect(picturesOf(viewer)).toEqual(["1:a", "2:b", "3:c", "4:d"]);
 
   expect(await sessions.input({ streamId: "stream-1", shown: 1 })).toEqual({ ok: true });
   await settle();
 
-  // "c" was replaced by "d" while it waited.
-  expect(picturesOf(viewer)).toEqual(["1:a", "2:b", "3:d"]);
+  // "e" was replaced by "f" while it waited.
+  expect(picturesOf(viewer)).toEqual(["1:a", "2:b", "3:c", "4:d", "5:f"]);
+});
+
+test("asks the page for a picture about twelve times a second", () => {
+  expect(TAKE_INTERVAL_MS).toBe(80);
 });
 
 test("does not start a take() while the last one is still running", async () => {
