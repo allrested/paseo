@@ -1749,3 +1749,19 @@ test("Postman's sign-in callback has a handler that receives the URL", () => {
   assert.match(launcher, /^BIN=\/opt\/Postman\/app\/postman$/m);
   assert.match(launcher, /^exec \$\{BIN\}[\s\S]*?"\$@"/m);
 });
+
+// Fork delta (office stream): the daemon's own pages need a window that keeps drawing when it is
+// covered, and WebGL on the container's software GL driver.
+test("both compose files start Chromium with the flags the daemon's pages need", () => {
+  for (const file of ["docker/docker-compose.yml", "docker/docker-compose.vpn.yml"]) {
+    const compose = readFileSync(new URL(file, repoRoot), "utf8");
+    const cli = /CHROME_CLI: "([^"]+)"/.exec(compose)?.[1] ?? "";
+    for (const flag of [
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--ignore-gpu-blocklist",
+    ]) {
+      assert.ok(cli.split(" ").includes(flag), `${file} is missing ${flag}`);
+    }
+  }
+});
