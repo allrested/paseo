@@ -336,7 +336,7 @@ export function EditorView(
         ) : null}
       </View>
       {banner ? (
-        <View style={styles.banner}>
+        <View style={web ? styles.editorBanner : styles.banner}>
           <Text style={styles.bannerText[banner.tone]}>{banner.text}</Text>
         </View>
       ) : null}
