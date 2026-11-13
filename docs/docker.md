@@ -310,8 +310,9 @@ It is off by default. To turn it on:
    `paseo-android-adb` sidecar; the second tells the daemon where the sidecar puts the device's
    adb.
 
-The device's adb has no authentication, so the compose file gives it no published port and no
-shared network: it is reachable only on the paseo container's loopback. Do not add a `ports`
+The device's adb has no authentication, so the compose file gives it no published port and its own
+network, `device`, which only the paseo container shares. The browser container is not on it.
+Agents and the daemon reach adb on the paseo container's loopback. Do not add a `ports`
 entry to it. The container is privileged, which redroid needs; a privileged container can reach
 the host.
 
@@ -320,7 +321,8 @@ Android device is unreachable". The VPN stack and a stack that borrows another s
 have no device.
 
 The agent image carries `adb` and the Maestro CLI, so an agent runs a repo's flows with
-`maestro --device 127.0.0.1:5555 test <flow>`.
+`maestro --device 127.0.0.1:5555 test <flow>`. Run `adb connect 127.0.0.1:5555` first in a
+shell that has not used the device yet.
 
 Nothing builds an APK in the stack: Android's build tools do not support an arm64 Linux host.
 Agents download the APK your CI built. The device has no Google Play services.
