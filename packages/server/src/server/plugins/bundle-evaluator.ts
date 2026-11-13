@@ -1,3 +1,4 @@
+import type { OffscreenPages } from "../browser-tools/cdp/offscreen-pages.js";
 import { createRequire } from "node:module";
 import * as pluginSharedRuntime from "@getpaseo/plugin";
 import * as pluginProviderRuntime from "@getpaseo/plugin/server/provider";
@@ -30,7 +31,17 @@ function runtimeRequire(name: string): unknown {
 export interface BuiltinPluginInfo {
   /** The built-in's own directory, for files it ships beside its code. */
   directory: string;
+  /**
+   * Fork delta (office stream): pages in the daemon's Chromium that no pane or agent sees.
+   * Absent when the daemon has no Chromium.
+   */
+  offscreenPages?: OffscreenPages;
+  /** Fork delta (office stream): builds one self-contained browser script from an entry file. */
+  bundleBrowserScript?: (entryPath: string) => Promise<string>;
 }
+
+/** What the daemon adds to a built-in's own directory. */
+export type BuiltinPluginExtras = Omit<BuiltinPluginInfo, "directory">;
 
 export type EvaluatedContribution = (
   server: PluginServerContext,

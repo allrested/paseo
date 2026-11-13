@@ -40,7 +40,7 @@ import {
 } from "./runtime-subscription.js";
 import { PluginSessionSocket } from "./session-socket.js";
 import { InternalPluginChild } from "./internal-child.js";
-import { evaluateBundle } from "./bundle-evaluator.js";
+import { evaluateBundle, type BuiltinPluginExtras } from "./bundle-evaluator.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const TOOL_CALL_TIMEOUT_MS = 10 * 60_000;
@@ -131,6 +131,8 @@ interface RemoteProviderConnection {
 }
 
 interface PluginRuntimeDependencies {
+  /** Fork delta (office stream): what every built-in receives beside its directory. */
+  builtinExtras?: BuiltinPluginExtras;
   settingsDirectory?: string;
   onSettingsChanged?: (pluginId: string, settingsId: string) => void;
   spawnChild?: () => PluginChild;
@@ -358,7 +360,9 @@ export class PluginRuntime {
       pluginId: input.id,
       pluginDirectory: directory,
       requirements: manifest.requirements,
-      child: new InternalPluginChild((server) => contribute(server, { directory })),
+      child: new InternalPluginChild((server) =>
+        contribute(server, { directory, ...this.dependencies.builtinExtras }),
+      ),
       bundle: "",
       clientBundle: bundles.clientBundle ?? "",
     });
