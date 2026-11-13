@@ -20,6 +20,7 @@ import { sendPromptToAgent } from "../agent-prompt.js";
 import type { AgentStorage, StoredAgentRecord } from "../agent-storage.js";
 import type { AgentTimelineRow } from "../agent-timeline-store-types.js";
 import { claudeProjectDir } from "../providers/claude/project-dir.js";
+import { ScheduleStore } from "../../schedule/store.js";
 import { moveAgent, moveAgentBack, type MoveAgentDeps } from "./move-agent.js";
 
 const SOURCE_PROMPT = "Reply with MOVE_SOURCE_OK. Do not use tools.";
@@ -125,6 +126,31 @@ describe("moveAgent", () => {
 
   async function lastSeq(agentId: string): Promise<number | undefined> {
     return (await requireCtx().daemon.daemon.agentManager.getTimelineRows(agentId)).at(-1)?.seq;
+  }
+
+  /** A yearly schedule aimed at `agentId`; it never comes due during a test. */
+  async function createHeartbeat(agentId: string): Promise<string> {
+    const created = await requireCtx().client.scheduleCreate({
+      name: "watch-the-build",
+      prompt: "check the build",
+      cadence: { type: "cron", expression: "0 0 1 1 *" },
+      target: { type: "agent", agentId },
+      runOnCreate: false,
+    });
+    if (!created.schedule) throw new Error(created.error ?? "schedule not created");
+    return created.schedule.id;
+  }
+
+  async function scheduleState(id: string): Promise<{ agentId: string | null; status: string }> {
+    const { paseoHome, logger } = requireCtx().daemon;
+    const stored = (await new ScheduleStore(join(paseoHome, "schedules"), logger).list()).find(
+      (schedule) => schedule.id === id,
+    );
+    if (!stored) throw new Error(`schedule ${id} is gone`);
+    return {
+      agentId: stored.target.type === "agent" ? stored.target.agentId : null,
+      status: stored.status,
+    };
   }
 
   /** Moves a Claude agent with a home transcript to "claude-work", which shares the session. */
@@ -705,6 +731,122 @@ describe("moveAgent", () => {
       expect(a?.moveHistory ?? null).toBeNull();
       expect(a?.pendingMoveContext ?? null).toBeNull();
       expect((await storage.get(b.agentId))?.archivedAt ?? null).toBeNull();
+    });
+  });
+
+  describe("what was aimed at the agent being left", () => {
+    /** Turn prompts that are finish notifications, with the agent that received each. */
+    let notices: Array<{ cwd: string; prompt: string }> = [];
+
+    async function waitForOneNotice(): Promise<void> {
+      await vi.waitFor(() => expect(notices).toHaveLength(1), { timeout: 10_000 });
+    }
+
+    beforeEach(async () => {
+      notices = [];
+      ctx = await createDaemonTestContext({
+        agentClients: createTestAgentClients({
+          onStartTurn: (prompt, config) => {
+            const text = typeof prompt === "string" ? prompt : JSON.stringify(prompt);
+            if (text.includes('kind="agent-notification"')) {
+              notices.push({ cwd: config.cwd, prompt: text });
+            }
+          },
+        }),
+      });
+    });
+
+    it("a heartbeat is aimed at the successor and stays active", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const heartbeat = await createHeartbeat(sourceId);
+
+      const moved = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+
+      expect(await scheduleState(heartbeat)).toEqual({ agentId: moved.agentId, status: "active" });
+    });
+
+    it("move back returns the heartbeat to the original", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const heartbeat = await createHeartbeat(sourceId);
+      const moved = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+
+      await moveAgentBack(deps(), { agentId: moved.agentId, continueWork: false });
+
+      expect(await scheduleState(heartbeat)).toEqual({ agentId: sourceId, status: "active" });
+    });
+
+    it("a move that fails while archiving leaves the heartbeat with the original", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const heartbeat = await createHeartbeat(sourceId);
+      const real = deps();
+      // The archive is the step after the schedules are re-pointed.
+      const agentManager = new Proxy(real.agentManager, {
+        get(target, property) {
+          if (property === "archiveAgent") {
+            return async (agentId: string) => {
+              if (agentId === sourceId) throw new Error("archive failed");
+              return target.archiveAgent(agentId);
+            };
+          }
+          const value: unknown = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      await expect(
+        moveAgent(
+          { ...real, agentManager },
+          { agentId: sourceId, target: { provider: "codex" }, continueWork: false },
+        ),
+      ).rejects.toMatchObject({ code: "failed" });
+
+      expect(await scheduleState(heartbeat)).toEqual({ agentId: sourceId, status: "active" });
+    });
+
+    it("a sub-agent moved with continue on reports its successor's finish to the parent, once", async () => {
+      const parentId = await createRanClaudeAgent();
+      const child = await requireCtx().client.createAgent({
+        config: { provider: "claude", cwd, modeId: "bypassPermissions" },
+        labels: { [PARENT_AGENT_ID_LABEL]: parentId },
+      });
+      await runTurn(child.id, SOURCE_PROMPT);
+
+      const moved = await moveAgent(deps(), {
+        agentId: child.id,
+        target: { provider: "codex" },
+        continueWork: true,
+      });
+      await requireCtx().daemon.daemon.agentManager.waitForAgentEvent(moved.agentId);
+
+      await waitForOneNotice();
+      expect(notices[0]!.prompt).toContain(`Agent ${moved.agentId} (`);
+      expect(notices[0]!.prompt).not.toContain(`Agent ${child.id} (`);
+    });
+
+    it("with continue off the parent is told nothing", async () => {
+      const parentId = await createRanClaudeAgent();
+      const child = await requireCtx().client.createAgent({
+        config: { provider: "claude", cwd, modeId: "bypassPermissions" },
+        labels: { [PARENT_AGENT_ID_LABEL]: parentId },
+      });
+      await runTurn(child.id, SOURCE_PROMPT);
+
+      await moveAgent(deps(), {
+        agentId: child.id,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      expect(notices).toHaveLength(0);
     });
   });
 
