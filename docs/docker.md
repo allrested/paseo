@@ -284,6 +284,44 @@ FigCraft is alpha, so one release is pinned. To upgrade, change `FIGCRAFT_VERSIO
 `Dockerfile.figcraft`, `Dockerfile.agents` and `plugins/design/test/install-figcraft.sh` together,
 then run the real FigCraft test in `plugins/design/test/` against the new release.
 
+## Android device
+
+`docker-compose.yml` can run an Android 14 device beside the browser, for testing Android apps:
+agents install an APK, read the screen and tap through it, and you watch and take over in Paseo's
+Android panel. It is Android in a container (redroid), not an emulator, so it needs no
+virtualization, and it runs at native speed on an arm64 host. Idle it uses about 0.6 GB of memory
+and almost no CPU; it draws its screen in software, so a busy app takes a core.
+
+It is off by default. To turn it on:
+
+1. Load the binder kernel module on the host, now and at every boot:
+
+   ```bash
+   echo binder_linux | sudo tee /etc/modules-load.d/redroid.conf
+   echo 'options binder_linux devices=binder,hwbinder,vndbinder' | sudo tee /etc/modprobe.d/redroid.conf
+   sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+   ```
+
+   The module ships with Ubuntu's kernel packages (`linux-modules-extra`). A host without it
+   cannot run the device: the container exits at boot and restarts.
+
+2. Set `COMPOSE_PROFILES=android` and `PASEO_ANDROID_ADB=127.0.0.1:5555` in the stack's
+   environment and bring the stack up. The first starts the `android` service and its
+   `paseo-android-adb` sidecar; the second tells the daemon where the sidecar puts the device's
+   adb.
+
+The device's adb has no authentication, so the compose file gives it no published port and no
+shared network: it is reachable only on the paseo container's loopback. Do not add a `ports`
+entry to it. The container is privileged, which redroid needs; a privileged container can reach
+the host.
+
+With `PASEO_ANDROID_ADB` set and the device down, the Android panel and the agent tools say "The
+Android device is unreachable". The VPN stack and a stack that borrows another stack's browser
+have no device.
+
+Nothing builds an APK in the stack: Android's build tools do not support an arm64 Linux host.
+Agents download the APK your CI built. The device has no Google Play services.
+
 ## Security
 
 - Set `PASEO_PASSWORD` for any published port or network-reachable deployment.
