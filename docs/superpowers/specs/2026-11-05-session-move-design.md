@@ -75,7 +75,7 @@ A limit is reported when a turn fails with a limit error. It only drives the ban
 
 One matcher (`limit-matcher.ts`) reads the failed turn's error text for every provider and recognises "usage limit", "5-hour limit", "weekly limit", "rate limit", "429" and "quota". A match sets `limitReached: { at, message }` on the agent's state. A completed turn clears it, and so does a move back to the agent. It is stored on the agent's record and survives loading the agent again after a daemon restart.
 
-Usage at 100% is not a signal. Follow-up: when the matcher misses on a failed turn, read `UsageSourceRegistry.listReports({ agentId })` and set the flag when a window is at 100%, which also catches limit messages the matcher does not know.
+When the matcher misses on a failed turn, `usage-limit-fallback.ts` reads `UsageSourceRegistry.listReports({ agentId, forceRefresh: true })` and sets the flag when a window is at 100%, which catches limit messages the matcher does not know. The read is forced because a cached report from before the limit was hit still shows room. Usage at 100% with no failed turn is not a signal; the usage heads-up covers that case.
 
 The move dialog shows each target's usage. Targets have no agent yet, so the registry's `listReportsForScope({ provider, env })` runs the private `discover({ kind: "session", ... })`, keyed by CLI family and the profile's env. Each target's lookup is cached for a minute and gives up after five seconds with unknown usage, so the dialog stays fast. With Check usage off, no usage is read.
 
@@ -143,11 +143,11 @@ All additions are optional fields or new messages, per `docs/protocol-compatibil
 - Cross-provider moves lose tool-level fidelity. The target sees a text history, not the source's native session.
 - A handoff to another CLI starts in the target's default mode. Mode and feature values carry over only within one CLI family.
 - Paseo cannot tell whether a target login is signed in. A signed-out target passes every check and fails on its first turn.
-- The limit notice appears only after a turn fails on the limit. An account at 100% is not noticed before then.
+- The limit notice appears only after a turn fails. An account at 100% is not noticed before then; the usage heads-up warns earlier.
 - The pending history is delivered at most once: it is taken when the turn starts and never restored, because a turn that fails after dispatch may already be stored by the provider. The work is not lost, since `moveHistory` keeps it and the next move carries it.
 - Move back replaces the target's older `paseo.moved-from-agent-id`, which takes that agent out of move-back reach. It stays archived, and its work stays in `moveHistory`.
 - Schedules and heartbeats aimed at the moved agent are completed when the move archives it, and finish notifications addressed to it stop. Move back restores none of them. Retargeting them to the new agent is a follow-up.
 - A rewind into the turns before `sinceSeq` breaks the cut, so a later handoff can drop or resend turns around it.
 - If Claude Code ever rewrites earlier transcript lines, a native move back finds a diverged copy and falls back to a handoff. It loses no turns.
-- On a client that was offline during the move, a moved subagent's tab closes: the archive prune runs before the chain resolves, and a subagent successor does not open a tab on its own.
+- On a client that was offline during two or more moves of one session, a moved subagent's tab closes: the client knows only the live agent's `paseo.moved-from-agent-id`, which names the last agent left, and a subagent successor does not open a tab on its own. One move while offline keeps the tab.
 - With continue off, the first prompt carries the history as a block array, and Codex handles slash commands only in a string prompt, so a first `/compact` runs as a model turn.

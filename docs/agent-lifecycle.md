@@ -326,7 +326,9 @@ received.
 another provider or account without calling the agent's own model, so a session whose account ran
 out of quota can continue elsewhere. The code is in `packages/server/src/server/agent/session-move/`.
 Paseo never moves an agent by itself. A turn that fails with a usage-limit error sets `limitReached`
-on the agent, which offers a move in the app until a later turn completes. Before an account runs
+on the agent, which offers a move in the app until a later turn completes. A turn that fails on any
+other error sets it too when a fresh usage read shows a window of the agent's account at 100%
+(`usage-limit-fallback.ts`), because the matcher reads English error text. Before an account runs
 out, the move banner shows a heads-up from 80% of a window or a projected run-out within three
 hours, with a one-click move when another account has room. The daemon sends one notification per
 account window at 80% and again at 95% while an agent on that account is running; background agents
@@ -352,7 +354,9 @@ archives the original:
 - The successor copies the original's other labels, including its own parent and open-tab labels,
   so a moved subagent stays in its parent's track. The app moves the tab to the successor on
   `agent.moved`, and a tab restored onto an archived agent follows `paseo.moved-to-agent-id` to the
-  live end of the chain.
+  live end of the chain. A client that was away during the move holds no record of the archived
+  agent, so it finds the successor through the live agent's `paseo.moved-from-agent-id`. That
+  covers one move: after two moves while away, the tab closes.
 - The original's live subagents are re-parented to the successor before the archive, so they follow
   the session.
 
