@@ -1,0 +1,45 @@
+# FigCraft's own browser-and-server block (the release's Caddyfile), on plain port 8080: Dokploy's
+# Traefik in front does TLS. The browser build is at /app/, the host's root is the WSS endpoint.
+{
+	auto_https off
+	admin off
+	servers {
+		# Traefik reaches Caddy from the Docker network. Strict reads X-Forwarded-For right to
+		# left, so a client cannot name another address by sending the header itself.
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+	}
+}
+
+:8080 {
+	encode gzip
+
+	redir /app /app/?{query} 308
+
+	@entry path /app/ /app/index.html
+	header @entry Cache-Control "no-cache"
+
+	@release_assets path /app/figcraft-web-*.js /app/figcraft-web-*_bg.wasm
+	# Defer so a missing asset does not receive the one-year cache header.
+	header @release_assets Cache-Control "public, max-age=31536000, immutable" {
+		defer
+	}
+
+	# No root favicon: do not forward its implicit request to the WS server.
+	handle /favicon.ico {
+		respond 204
+	}
+
+	handle_path /app/* {
+		root * /srv/figcraft-web
+		file_server
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:47900 {
+			# figcraft-server counts the last X-Forwarded-For address. Appending would make
+			# that Traefik's, so every client would share one address's limits.
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+}

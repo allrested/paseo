@@ -1,0 +1,40 @@
+# The FigCraft design stack for design mode: figcraft-server and FigCraft's browser editor
+# behind Caddy. One per host; every Paseo instance on it uses this one. See docs/docker.md.
+#
+# Dokploy: a Compose service from this file, with its domain (figcraft.dev.mtapp.dev) on port
+# 8080. Traefik does TLS; the container speaks plain HTTP and WebSocket.
+#
+#   FIGCRAFT_PUBLIC_URL=wss://figcraft.dev.mtapp.dev/        how links name the server
+#   FIGCRAFT_WEB_URL=https://figcraft.dev.mtapp.dev/app/     where the browser editor is served
+#
+# The server key is made on first start and kept in the volume. Read it with
+#   docker exec figcraft figcraft-server --config /tmp/server.toml key
+# and put it in each Paseo instance's FIGCRAFT_SERVER_KEY. Never in git.
+services:
+  figcraft:
+    # Pulled, never built: .github/workflows/docker.yml publishes it.
+    image: ${FIGCRAFT_IMAGE:-ghcr.io/allrested/paseo-figcraft:latest}
+    pull_policy: always
+    container_name: figcraft
+    restart: unless-stopped
+    mem_limit: ${FIGCRAFT_MEM_LIMIT:-512m}
+    environment:
+      FIGCRAFT_PUBLIC_URL: ${FIGCRAFT_PUBLIC_URL:-wss://figcraft.dev.mtapp.dev/}
+      FIGCRAFT_WEB_URL: ${FIGCRAFT_WEB_URL:-https://figcraft.dev.mtapp.dev/app/}
+    volumes:
+      # Published files, the server key and Caddy's state.
+      - figcraft-data:/data
+    expose:
+      - "8080"
+    networks:
+      # Dokploy's Traefik reaches the container by name over this network.
+      - dokploy-network
+
+volumes:
+  figcraft-data:
+
+networks:
+  # Created by the proxy's own stack, so external here. On a host without it:
+  #   docker network create dokploy-network
+  dokploy-network:
+    external: true
