@@ -8,6 +8,8 @@ export const THREE_GLOBAL = "__officeThree";
 /** The page's one global, an `OfficeRenderGlobal`. */
 export const RENDER_GLOBAL = "__officeRender";
 export const PICTURE_QUALITY = 0.6;
+/** A pointer that moved less than this between down and up is a tap. */
+export const TAP_SLOP_PX = 8;
 
 export type RenderPageEvent =
   | { type: "agent"; agentId: string }
