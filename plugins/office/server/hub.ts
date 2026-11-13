@@ -39,6 +39,8 @@ export interface HubPorts {
   ): () => void;
   timers: Timers;
   log(message: string): void;
+  /** Whether the host can draw the 3D view for a device that cannot. Unset leaves it unsaid. */
+  renderAvailable?(): boolean;
 }
 
 export interface Hub {
@@ -88,6 +90,7 @@ export function createHub(ports: HubPorts): Hub {
       activity: { ...activity },
       boards: copy,
       wake: { paused: wake.paused, queued: { ...wake.queued } },
+      ...(ports.renderAvailable ? { render: { available: ports.renderAvailable() } } : {}),
     };
   }
 

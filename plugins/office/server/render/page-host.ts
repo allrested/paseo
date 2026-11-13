@@ -2,7 +2,7 @@
 // three.js and the page script get into the page.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { TAP_SLOP_PX } from "../../client/scene/camera.js";
-import type { OfficeEvent } from "../../shared/contracts.js";
+import type { OfficeEvent, PointerStep } from "../../shared/contracts.js";
 import {
   RENDER_GLOBAL,
   THREE_GLOBAL,
@@ -18,13 +18,6 @@ export interface RenderViewport {
   width: number;
   height: number;
   deviceScaleFactor: number;
-}
-
-export interface PointerStep {
-  type: "down" | "move" | "up" | "cancel";
-  /** CSS pixels from the view's top left. */
-  x: number;
-  y: number;
 }
 
 /** A page of the daemon's Chromium, as the daemon hands it to built-ins (OffscreenPage). */

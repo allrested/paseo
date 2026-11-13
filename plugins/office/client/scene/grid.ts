@@ -1,4 +1,4 @@
-import { LOBBY } from "../../shared/contracts.js";
+import { LOBBY } from "../../shared/names.js";
 import {
   EMPTY_LAYOUT_MEMORY,
   ROOM_WIDTH,
