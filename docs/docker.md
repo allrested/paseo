@@ -243,6 +243,38 @@ use.
 
 The profile is shared: a tab the daemon opens has your logins.
 
+## FigCraft (design mode)
+
+The design plugin keeps design files on a self-hosted FigCraft server (see
+[plugins.md](plugins.md)). `docker-compose.figcraft.yml` runs it: `figcraft-server` and
+FigCraft's browser editor behind Caddy in one container, image `paseo-figcraft` from
+`Dockerfile.figcraft`. Run one per host; every Paseo instance on it shares it.
+
+In Dokploy, add it as a Compose service and give it the domain `figcraft.dev.mtapp.dev` on port 8080. Traefik does TLS. Two variables name the deploy:
+
+| Variable              | Value                                 |
+| --------------------- | ------------------------------------- |
+| `FIGCRAFT_PUBLIC_URL` | `wss://figcraft.dev.mtapp.dev/`       |
+| `FIGCRAFT_WEB_URL`    | `https://figcraft.dev.mtapp.dev/app/` |
+
+The editor is at `/app/`; the root of the domain is the WebSocket endpoint.
+
+The server makes its key on first start and keeps it in the `figcraft-data` volume. Read it with
+`docker exec figcraft figcraft-server --config /tmp/server.toml key` and put it in each Paseo
+instance's `FIGCRAFT_SERVER_KEY`. The key publishes and manages files, so it stays in the
+instances' environment, never in git or a page: the domain is public and FigCraft has no
+accounts.
+
+Removing a design in Paseo only stops listing it. The file stays on the server until you run
+`docker exec figcraft figcraft-server --config /tmp/server.toml files remove <id>`.
+
+Caddy hands `figcraft-server` the client's address from Traefik's `X-Forwarded-For`, so the
+server's per-address limits count people, not the proxy.
+
+FigCraft is alpha, so one release is pinned. To upgrade, change `FIGCRAFT_VERSION` in
+`Dockerfile.figcraft`, `Dockerfile.agents` and `plugins/design/test/install-figcraft.sh` together,
+then run the real FigCraft test in `plugins/design/test/` against the new release.
+
 ## Security
 
 - Set `PASEO_PASSWORD` for any published port or network-reachable deployment.
