@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import {
   Image,
   Pressable,
@@ -20,7 +20,7 @@ import {
 } from "../shared/contracts.js";
 import { ActionButton } from "./action-button.js";
 import { Chip, IconButton } from "./controls.js";
-import { LayerSheet, type Editing } from "./layer-sheet.js";
+import { LayerInspector, type Editing } from "./layer-inspector.js";
 import { tokensBanner, type Tokens } from "./model.js";
 import { SendSheet } from "./send-sheet.js";
 import type { DesignStyles } from "./styles.js";
@@ -40,6 +40,8 @@ const MODES: { id: Mode; label: string }[] = [
   { id: "edit", label: "Edit" },
 ];
 const NOTHING_HERE = "Nothing to edit there. Tap a layer";
+/** The outline's width: a light line each side of the accent one. */
+const OUTLINE = 4;
 
 const IMAGE_SOURCE_CACHE = new Map<string, { uri: string }>();
 
@@ -133,10 +135,28 @@ function Outline(props: {
   styles: DesignStyles;
 }) {
   const { box, frame, picture, styles } = props;
-  const placed = useMemo(() => pictureToFrame(box, frame, picture), [box, frame, picture]);
-  const style = useMemo(() => [styles.outline, placed], [styles.outline, placed]);
-  if (placed === null) return null;
-  return <View testID="layer-outline" pointerEvents="none" style={style} />;
+  const style = useMemo(() => {
+    const placed = pictureToFrame(box, frame, picture);
+    if (placed === null) return null;
+    // Around the layer, not over its edge.
+    return [
+      styles.outline,
+      {
+        left: placed.left - OUTLINE,
+        top: placed.top - OUTLINE,
+        width: placed.width + OUTLINE * 2,
+        height: placed.height + OUTLINE * 2,
+      },
+    ];
+  }, [box, frame, picture, styles.outline]);
+  if (style === null) return null;
+  return (
+    <View testID="layer-outline" pointerEvents="none" style={style}>
+      <View style={styles.outlineRing}>
+        <View style={styles.outlineInner} />
+      </View>
+    </View>
+  );
 }
 
 /** The phone's view: the bridge's picture of the page, a tap comments or picks a layer to edit. */
@@ -145,13 +165,15 @@ function PhoneView(props: {
   picture: Picture;
   threads: Thread[];
   mode: Mode;
-  /** The picked layer's box while its sheet is open. */
+  /** The picked layer's box while its tools are open. */
   outline: Box | null;
   problem: string | null;
   styles: DesignStyles;
   onMode(mode: Mode): void;
   onTap(point: Point): void;
   onSend(text: string): void;
+  /** The picked layer's tools, in place of the hint and the open comments. */
+  children?: ReactNode;
 }) {
   const { picture, styles, onTap, onMode, mode } = props;
   const [frame, setFrame] = useState({ width: 0, height: 0 });
@@ -203,7 +225,7 @@ function PhoneView(props: {
             : `${props.name}. Tap a spot to comment on it`
         }
         accessibilityHint={
-          editing ? "Opens the layer's edit sheet" : "Opens a comment at that spot"
+          editing ? "Shows the layer's tools below" : "Opens a comment at that spot"
         }
         onLayout={measure}
         onPress={tap}
@@ -213,24 +235,28 @@ function PhoneView(props: {
           <Outline box={props.outline} frame={frame} picture={drawn} styles={styles} />
         ) : null}
       </Pressable>
-      {props.problem === null ? (
-        <Text style={styles.pictureHint}>
-          {editing ? "Tap a layer to edit it" : "Tap the design to comment"}
-        </Text>
-      ) : (
-        <Text accessibilityRole="alert" style={styles.pictureProblem}>
-          {props.problem}
-        </Text>
+      {props.children ?? (
+        <>
+          {props.problem === null ? (
+            <Text style={styles.pictureHint}>
+              {editing ? "Tap a layer to edit it" : "Tap the design to comment"}
+            </Text>
+          ) : (
+            <Text accessibilityRole="alert" style={styles.pictureProblem}>
+              {props.problem}
+            </Text>
+          )}
+          <Text style={styles.sectionLabel} accessibilityRole="header">
+            Open comments
+          </Text>
+          <ScrollView style={styles.threads}>
+            {props.threads.length === 0 ? <Text style={styles.threadsEmpty}>None</Text> : null}
+            {props.threads.map((thread) => (
+              <ThreadRow key={thread.id} thread={thread} styles={styles} onSend={props.onSend} />
+            ))}
+          </ScrollView>
+        </>
       )}
-      <Text style={styles.sectionLabel} accessibilityRole="header">
-        Open comments
-      </Text>
-      <ScrollView style={styles.threads}>
-        {props.threads.length === 0 ? <Text style={styles.threadsEmpty}>None</Text> : null}
-        {props.threads.map((thread) => (
-          <ThreadRow key={thread.id} thread={thread} styles={styles} onSend={props.onSend} />
-        ))}
-      </ScrollView>
     </>
   );
 }
@@ -350,6 +376,7 @@ export function EditorView(
   const changeMode = useCallback((next: Mode) => {
     setMode(next);
     setPickProblem(null);
+    setEditing(null);
   }, []);
   const tapped = useCallback(
     (point: Point) => {
@@ -361,8 +388,11 @@ export function EditorView(
       void edit({ fileId: file.id, action: { type: "pick", ...point } }).then(
         (result) => {
           if (!result.ok) setPickProblem(result.error);
-          else if (result.layer === null) setPickProblem(NOTHING_HERE);
-          else {
+          else if (result.layer === null) {
+            // A tap on nothing puts the picked layer down, as in any editor.
+            setEditing(null);
+            setPickProblem(NOTHING_HERE);
+          } else {
             const { layer, here, colors } = result;
             setEditing({ id: layer.id, layer, here, colors });
           }
@@ -406,7 +436,19 @@ export function EditorView(
         onMode={changeMode}
         onTap={tapped}
         onSend={setSendNote}
-      />
+      >
+        {editing === null ? null : (
+          <LayerInspector
+            fileId={file.id}
+            editing={editing}
+            edited={edited}
+            styles={styles}
+            onUpdate={setEditing}
+            onEdited={markEdited}
+            onClose={closeEdit}
+          />
+        )}
+      </PhoneView>
     );
   }
 
@@ -441,15 +483,6 @@ export function EditorView(
       ) : null}
       {body}
       <CommentSheet fileId={file.id} point={draft} styles={styles} onClose={closeComment} />
-      <LayerSheet
-        fileId={file.id}
-        editing={editing}
-        edited={edited}
-        styles={styles}
-        onUpdate={setEditing}
-        onEdited={markEdited}
-        onClose={closeEdit}
-      />
       <SendSheet
         note={sendNote}
         onClose={closeSend}
