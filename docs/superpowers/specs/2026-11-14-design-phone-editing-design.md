@@ -13,18 +13,22 @@ one of the project's colour tokens, its place and size, or duplicates or deletes
 
 - A Comment / Edit switch above the picture. Comment works as before: a tap opens a comment there.
 - In Edit, a tap asks the bridge for the layers under that spot. The front-most one is picked, the
-  picture outlines it, and the Edit layer sheet opens.
-- The sheet shows the layer's name, type and size, and lists the other layers under the spot to
-  pick a deeper one. It edits:
-  - Text, for a text layer: a field and Apply.
-  - Fill: the token it is bound to, or its colour, then the project's `color/*` tokens; a tap binds
-    the fill to that token.
-  - Move (four arrows) and Size (W−, W+, H−, H+), by 1 or 10 px.
-  - Duplicate and Delete.
-  - Undo and Redo, on once the view has made an edit.
-- After an edit, the sheet shows the layer as it now is, and the picture is redrawn without
-  waiting for the 3 s poll.
+  picture outlines it, and its tools show under the picture in place of the open comments. A tap on
+  nothing, the tools' close button, or the switch back to Comment puts the layer down.
+- The tools are a block of four rows that keeps its height, so the picture never moves while you
+  work:
+  - the layers under the tap as chips, to pick a deeper one, with Undo, Redo and Close;
+  - the layer's type, size and fill, or the last edit's error;
+  - the tools: Text (text layers only), Fill, Move, Size, Layer;
+  - the chosen tool's controls: a field and Apply; the project's `color/*` tokens, a tap binds the
+    fill to one; four arrows, or W −, W +, H −, H +, by 1 or 10 px; Duplicate and Delete.
+- Undo and Redo turn on once the view has made an edit.
+- After an edit, the tools show the layer as it now is, and the picture is redrawn without waiting
+  for the 3 s poll.
 - Not included: adding layers, picking several, dragging, fonts and text styles, auto layout.
+
+The first build opened the tools as a sheet. In the app at phone width the sheet covered the
+picture and the outline, so a move could not be seen, and Move and Size were below the fold.
 
 ## The bridge
 
