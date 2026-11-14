@@ -123,10 +123,15 @@ function pointerSender(page: PagePort) {
   };
 }
 
-export function createRenderPageHost(deps: RenderPageHostDeps): RenderPageHost {
+/**
+ * Opens pages that have three.js and the page script in them. Both are read and built once; a
+ * failure is not kept, so the next viewer tries again.
+ */
+export function scriptedPages(
+  deps: RenderPageHostDeps,
+): (viewport: RenderViewport) => Promise<PagePort> {
   let sources: Promise<{ three: string; script: string }> | null = null;
 
-  /** Read and built once; a failure is not kept, so the next viewer tries again. */
   function loadSources(): Promise<{ three: string; script: string }> {
     sources ??= (async () => {
       const [three, script] = await Promise.all([deps.readThree(), deps.bundle(deps.pageEntry)]);
@@ -138,17 +143,31 @@ export function createRenderPageHost(deps: RenderPageHostDeps): RenderPageHost {
     return sources;
   }
 
+  return async (viewport) => {
+    const { three, script } = await loadSources();
+    const page = await deps.pages.open(viewport);
+    try {
+      const webgl = await page.evaluate<boolean>(
+        `!!document.createElement("canvas").getContext("webgl2")`,
+      );
+      if (!webgl) throw new Error(NO_WEBGL);
+      await page.evaluate(loadThree(three));
+      await page.evaluate(script);
+    } catch (error) {
+      await page.close();
+      throw error;
+    }
+    return page;
+  };
+}
+
+export function createRenderPageHost(deps: RenderPageHostDeps): RenderPageHost {
+  const openPage = scriptedPages(deps);
+
   return {
     async open({ viewport, colors, coarsePointer }) {
-      const { three, script } = await loadSources();
-      const page = await deps.pages.open(viewport);
+      const page = await openPage(viewport);
       try {
-        const webgl = await page.evaluate<boolean>(
-          `!!document.createElement("canvas").getContext("webgl2")`,
-        );
-        if (!webgl) throw new Error(NO_WEBGL);
-        await page.evaluate(loadThree(three));
-        await page.evaluate(script);
         const start: RenderStart = { colors, coarsePointer };
         await page.evaluate(call("start", start));
       } catch (error) {

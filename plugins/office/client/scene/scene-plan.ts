@@ -2,6 +2,8 @@ import type { OfficeAgent, Post } from "../../shared/contracts.js";
 import { orderBoardPosts } from "../board-text.js";
 import {
   CELL_COLUMNS,
+  ROOM_WIDTH,
+  WALL_HEIGHT,
   seatPosition,
   type Bounds,
   type OfficeLayout,
@@ -46,9 +48,18 @@ export const PLANE_MS = 1400;
  * flight to another room goes high. From the camera's side a high arc on a short hop reads as a
  * plane that hangs in place.
  */
-const PLANE_Y = 1.4;
+export const PLANE_Y = 1.4;
 const PLANE_ARC = 2;
 const PLANE_RISE = 1 / 3;
+
+export const WALL_THICKNESS = 0.12;
+/**
+ * A note on a desk is drawn at this share of its size on the whiteboard: the desk's front then
+ * shows around it, as the whiteboard does, and it reads as a slip stuck there and not as a panel.
+ */
+export const DESK_NOTE_SCALE = 0.75;
+/** A name plate's middle stands this far above the top of its room's back wall. */
+const PLATE_RISE = 0.45;
 
 export interface RobotPlan {
   agentId: string;
@@ -153,7 +164,7 @@ const ARM_UP = Math.PI;
 /** How far a robot that stands up rises on its stand. */
 const STAND_LIFT = 0.32;
 /** Each seat starts its typing stroke this much later in the cycle (radians). */
-const SEAT_PHASE = 2.4;
+export const SEAT_PHASE = 2.4;
 /** A typing robot looks down at its desk by this much, and its head sways by `HEAD_SWAY`. */
 const NOD_TYPING = 0.2;
 const HEAD_SWAY = 0.07;
@@ -509,4 +520,28 @@ export function animationNeed(
   });
   if (walking || waving) return "smooth";
   return robots.some((robot) => robot.pose === "typing") ? "typing" : "none";
+}
+
+/**
+ * Where a room's name plate hangs: over the back left corner, the first point of the room on
+ * screen. The plates of a column start on one line, each above the room it names.
+ */
+export function labelAnchor(room: RoomPlan): { x: number; y: number; z: number } {
+  return {
+    x: room.center.x - ROOM_WIDTH / 2,
+    y: WALL_HEIGHT + PLATE_RISE,
+    z: room.center.z - room.depth / 2,
+  };
+}
+
+/** The ground a room's slab covers. */
+export function roomFootprint(room: RoomPlan): Bounds {
+  const halfWidth = (ROOM_WIDTH + WALL_THICKNESS) / 2;
+  const halfDepth = (room.depth + WALL_THICKNESS) / 2;
+  return {
+    minX: room.center.x - halfWidth,
+    maxX: room.center.x + halfWidth,
+    minZ: room.center.z - halfDepth,
+    maxZ: room.center.z + halfDepth,
+  };
 }

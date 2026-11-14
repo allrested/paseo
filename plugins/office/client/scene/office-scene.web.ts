@@ -1,5 +1,5 @@
 // Web only: created by scene-view.tsx after three.js loaded. Nothing here runs at import time.
-import { DOOR_WIDTH, ROOM_WIDTH, VIEW_TURN, WALL_HEIGHT, type Bounds } from "../layout.js";
+import { DOOR_WIDTH, ROOM_WIDTH, VIEW_TURN, WALL_HEIGHT } from "../layout.js";
 import {
   CAMERA_EASE_MS,
   FIRST_MARGINS,
@@ -53,16 +53,21 @@ import {
 import {
   BOARD_CENTER_Y,
   BOARD_SIZE,
+  DESK_NOTE_SCALE,
   DESK_SIZE,
   NOTE_SIZE,
   TYPING_FRAME_MS,
+  WALL_THICKNESS,
   animationNeed,
   deskPlans,
+  labelAnchor,
   noteFade,
   overflowTail,
   planeFrame,
   robotFrame,
+  roomFootprint,
   type AnimationNeed,
+  type DeskPlan,
   type LampState,
   type MentionPlan,
   type NotePlan,
@@ -141,9 +146,8 @@ export interface OfficeScene {
   dispose(): void;
 }
 
-const WHITE = "#ffffff";
+export const WHITE = "#ffffff";
 const INITIAL_CAPACITY = 32;
-const WALL_THICKNESS = 0.12;
 /** A room is a tile this thick standing on the page; its top is the floor, at height 0. */
 const SLAB_HEIGHT = 0.3;
 /** The frame on top of each glass wall. */
@@ -170,14 +174,9 @@ const DESK_SHADOW = { width: 1.9, depth: 1.5 };
  * shows them. `shadow` is the side of the soft patch under it on the floor: the gap between
  * the two is how high it flies.
  */
-const PLANE = { length: 1, span: 0.6, flat: 0.35, shadow: 0.8 };
-/**
- * A note on a desk is drawn at this share of its size on the whiteboard: the desk's front then
- * shows around it, as the whiteboard does, and it reads as a slip stuck there and not as a panel.
- */
-const DESK_NOTE_SCALE = 0.75;
+export const PLANE = { length: 1, span: 0.6, flat: 0.35, shadow: 0.8 };
 /** Flat layers are stacked this far apart, so a 16-bit depth buffer still tells them apart. */
-const FLAT_STEP = 0.03;
+export const FLAT_STEP = 0.03;
 /**
  * A robot, from the floor up: a stand, the hip the body leans from, the neck the head turns on.
  * Heights from `neck` on are measured from the hip, and the head's parts from the neck.
@@ -229,9 +228,6 @@ const LABEL_FONT_STACK =
   "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 /** How far a raised arm leans out, in radians. */
 const ARM_SPLAY = 0.35;
-/** A name plate's middle stands this far above the top of its room's back wall. */
-const PLATE_RISE = 0.45;
-
 interface Layer {
   mesh: InstancedMeshLike;
   capacity: number;
@@ -255,7 +251,7 @@ type MaterialName =
   | "tinted"
   | "glow"
   | "shadow";
-type Materials = Record<MaterialName, ColorMaterialLike>;
+export type Materials = Record<MaterialName, ColorMaterialLike>;
 
 type LayerName =
   | "floors"
@@ -279,9 +275,9 @@ type LayerName =
   | "deskShadows"
   | "shadows"
   | "glows";
-type Layers = Record<LayerName, Layer>;
+export type Layers = Record<LayerName, Layer>;
 
-interface Rig {
+export interface Rig {
   root: Object3DLike;
   hip: Object3DLike;
   body: Object3DLike;
@@ -296,7 +292,7 @@ interface Rig {
   armRight: Object3DLike;
 }
 
-interface Label {
+export interface Label {
   sprite: SpriteLike;
   texture: TextureLike;
   /** Size on screen, CSS pixels. */
@@ -313,18 +309,18 @@ interface PlateSize {
 }
 
 /** How many lamps of each shape a frame has written so far. */
-interface Lit {
+export interface Lit {
   lamps: number;
   dangers: number;
 }
 
 /** A lamp as one frame draws it: its radius, and how far above the antenna's foot it sits. */
-interface LampSize {
+export interface LampSize {
   radius: number;
   y: number;
 }
 
-interface Placement {
+export interface Placement {
   x: number;
   y: number;
   z: number;
@@ -337,7 +333,7 @@ interface Placement {
   sz?: number;
 }
 
-interface Stage {
+export interface Stage {
   three: ThreeModule;
   world: Object3DLike;
   layers: Layers;
@@ -357,7 +353,7 @@ function softness(t: number): number {
  * A round patch that fades out to its edge. Stretched and coloured by its material, it is the
  * shadow under anything and the pool of light on a lit desk.
  */
-function createSoftTexture(three: ThreeModule): TextureLike {
+export function createSoftTexture(three: ThreeModule): TextureLike {
   const size = 64;
   const patch = document.createElement("canvas");
   patch.width = size;
@@ -375,7 +371,7 @@ function createSoftTexture(three: ThreeModule): TextureLike {
   return new three.CanvasTexture(patch);
 }
 
-function createMaterials(three: ThreeModule, soft: TextureLike): Materials {
+export function createMaterials(three: ThreeModule, soft: TextureLike): Materials {
   const lit = () => new three.MeshLambertMaterial({ color: WHITE });
   const patch = (color: string) =>
     new three.MeshBasicMaterial({ color, map: soft, transparent: true, depthWrite: false });
@@ -398,7 +394,7 @@ function createMaterials(three: ThreeModule, soft: TextureLike): Materials {
   };
 }
 
-function applyPalette(materials: Materials, palette: ScenePalette): void {
+export function applyPalette(materials: Materials, palette: ScenePalette): void {
   materials.roomFloor.color.set(palette.roomFloor);
   materials.wall.color.set(palette.wall);
   materials.wall.opacity = palette.wallOpacity;
@@ -436,7 +432,7 @@ function createLayer(
 }
 
 /** Grows a layer by replacing its mesh; geometry and material are shared and kept. */
-function ensureCapacity(stage: Stage, layer: Layer, count: number): void {
+export function ensureCapacity(stage: Stage, layer: Layer, count: number): void {
   if (count <= layer.capacity) return;
   stage.world.remove(layer.mesh);
   layer.mesh.dispose();
@@ -445,13 +441,13 @@ function ensureCapacity(stage: Stage, layer: Layer, count: number): void {
   stage.world.add(layer.mesh);
 }
 
-function finishLayer(layer: Layer, count: number): void {
+export function finishLayer(layer: Layer, count: number): void {
   layer.mesh.count = count;
   layer.mesh.instanceMatrix.needsUpdate = true;
   if (layer.mesh.instanceColor) layer.mesh.instanceColor.needsUpdate = true;
 }
 
-function place(dummy: Object3DLike, at: Placement): Object3DLike {
+export function place(dummy: Object3DLike, at: Placement): Object3DLike {
   dummy.position.set(at.x, at.y, at.z);
   dummy.rotation.set(at.rx ?? 0, at.ry ?? 0, 0);
   dummy.scale.set(at.sx ?? 1, at.sy ?? 1, at.sz ?? 1);
@@ -459,7 +455,11 @@ function place(dummy: Object3DLike, at: Placement): Object3DLike {
   return dummy;
 }
 
-function createLayers(three: ThreeModule, parent: Object3DLike, materials: Materials): Layers {
+export function createLayers(
+  three: ThreeModule,
+  parent: Object3DLike,
+  materials: Materials,
+): Layers {
   const flat = new three.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const unitBox = new three.BoxGeometry(1, 1, 1);
   const { stand, body, head, visor, eye, arm, antenna } = ROBOT;
@@ -536,7 +536,7 @@ function createLayers(three: ThreeModule, parent: Object3DLike, materials: Mater
   };
 }
 
-function createRig(three: ThreeModule): Rig {
+export function createRig(three: ThreeModule): Rig {
   const part = (x: number, y: number, z: number) => {
     const object = new three.Object3D();
     object.position.set(x, y, z);
@@ -614,7 +614,7 @@ function boardFrame(room: RoomPlan): Placement[] {
   ];
 }
 
-function writeAll(stage: Stage, layer: Layer, at: readonly Placement[]): void {
+export function writeAll(stage: Stage, layer: Layer, at: readonly Placement[]): void {
   ensureCapacity(stage, layer, at.length);
   at.forEach((placement, index) => {
     layer.mesh.setMatrixAt(index, place(stage.dummy, placement).matrixWorld);
@@ -622,7 +622,15 @@ function writeAll(stage: Stage, layer: Layer, at: readonly Placement[]): void {
   finishLayer(layer, at.length);
 }
 
-function writeRooms(stage: Stage, rooms: readonly RoomPlan[]): void {
+/** Which glass a draw takes: `far` is each room's back and left wall, `near` its right and front. */
+export type WallPart = "all" | "far" | "near";
+
+function wallPart(segments: Placement[], part: WallPart): Placement[] {
+  if (part === "all") return segments;
+  return part === "far" ? segments.slice(0, 2) : segments.slice(2);
+}
+
+export function writeRooms(stage: Stage, rooms: readonly RoomPlan[], part: WallPart = "all"): void {
   const { floors, walls, rails, boards } = stage.layers;
   const rim = WALL_THICKNESS;
   writeAll(
@@ -645,11 +653,12 @@ function writeRooms(stage: Stage, rooms: readonly RoomPlan[]): void {
   writeAll(
     stage,
     walls,
-    rooms.flatMap((room) => wallSegments(room, WALL_HEIGHT / 2, WALL_HEIGHT)),
+    rooms.flatMap((room) => wallPart(wallSegments(room, WALL_HEIGHT / 2, WALL_HEIGHT), part)),
   );
   const frames = rooms.flatMap((room) => [
-    ...wallSegments(room, WALL_HEIGHT + RAIL_HEIGHT / 2, RAIL_HEIGHT),
-    ...boardFrame(room),
+    ...wallPart(wallSegments(room, WALL_HEIGHT + RAIL_HEIGHT / 2, RAIL_HEIGHT), part),
+    // The board stands at the back wall: its frame goes with the far glass.
+    ...(part === "near" ? [] : boardFrame(room)),
   ]);
   writeAll(stage, rails, frames);
 }
@@ -658,7 +667,7 @@ function noteScale(note: NotePlan): number {
   return note.onDesk ? DESK_NOTE_SCALE : 1;
 }
 
-function writeNotes(stage: Stage, notes: readonly NotePlan[]): void {
+export function writeNotes(stage: Stage, notes: readonly NotePlan[]): void {
   const layer = stage.layers.notes;
   ensureCapacity(stage, layer, notes.length);
   notes.forEach((note, index) => {
@@ -670,9 +679,8 @@ function writeNotes(stage: Stage, notes: readonly NotePlan[]): void {
   finishLayer(layer, notes.length);
 }
 
-function writeDesks(stage: Stage, plan: ScenePlan, colors: ScenePalette): void {
+export function writeDesks(stage: Stage, all: readonly DeskPlan[], colors: ScenePalette): void {
   const { desks, screens, deskShadows, glows } = stage.layers;
-  const all = deskPlans(plan);
   const top = DESK_SIZE.height + SCREEN_SIZE.height;
   writeAll(
     stage,
@@ -778,35 +786,11 @@ function drawLabel(
 }
 
 /**
- * Where a room's name plate hangs: over the back left corner, the first point of the room on
- * screen. The plates of a column start on one line, each above the room it names.
- */
-function labelAnchor(room: RoomPlan): WorldPoint {
-  return {
-    x: room.center.x - ROOM_WIDTH / 2,
-    y: WALL_HEIGHT + PLATE_RISE,
-    z: room.center.z - room.depth / 2,
-  };
-}
-
-/** The ground a room's slab covers. */
-function roomFootprint(room: RoomPlan): Bounds {
-  const halfWidth = (ROOM_WIDTH + WALL_THICKNESS) / 2;
-  const halfDepth = (room.depth + WALL_THICKNESS) / 2;
-  return {
-    minX: room.center.x - halfWidth,
-    maxX: room.center.x + halfWidth,
-    minZ: room.center.z - halfDepth,
-    maxZ: room.center.z + halfDepth,
-  };
-}
-
-/**
  * Each lamp as a frame draws it. A lamp grows to stay findable from far away. A round one then
  * rises, so that its lower edge stays where it was on screen, on the antenna. The diamond stands
  * on its lower point.
  */
-function lampSizes(perUnit: number): Record<LampState, LampSize> {
+export function lampSizes(perUnit: number): Record<LampState, LampSize> {
   const sized = (lamp: LampState): LampSize => {
     const base = LAMP_RADIUS[lamp];
     const radius = base * Math.max(1, LAMP_MIN_PX[lamp] / (base * perUnit));
@@ -833,6 +817,148 @@ function armSplay(angle: number): number {
  */
 function dealtAgain(before: ScenePlan, after: ScenePlan): boolean {
   return before.rooms.length > 0 && after.rooms.length > 0 && before.columns !== after.columns;
+}
+
+/** Surfaces that face up come out at their palette colour, the ones facing the camera darker. */
+export function lightScene(three: ThreeModule, scene: Object3DLike): void {
+  const hemisphere = new three.HemisphereLight(WHITE, "#808080", 2.2);
+  const sun = new three.DirectionalLight(WHITE, 1.2);
+  sun.position.set(8, 20, 12);
+  scene.add(hemisphere, sun);
+}
+
+/** Puts the one rig in a robot's pose; its parts' matrices are then read off into the layers. */
+function poseRig(rig: Rig, robot: RobotPlan, motion: RobotFrame, lamp: LampSize): void {
+  const eyes = EYES[robot.pose];
+  rig.root.position.set(motion.x, motion.lift, motion.z);
+  rig.root.rotation.set(0, motion.heading, 0);
+  rig.hip.rotation.set(motion.lean, 0, 0);
+  rig.neck.rotation.set(motion.nod, 0, motion.tilt);
+  rig.antenna.rotation.set(-motion.lean - motion.nod, 0, -motion.tilt);
+  rig.lamp.position.set(0, lamp.y, 0);
+  // The antenna is upright; this leaves the lamp facing the camera whichever way the robot walks.
+  rig.lamp.rotation.set(0, -motion.heading, 0);
+  rig.lamp.scale.set(lamp.radius, lamp.radius, lamp.radius);
+  rig.eyeLeft.scale.set(eyes.wide, eyes.tall, 1);
+  rig.eyeLeft.rotation.set(0, 0, eyes.turn);
+  rig.eyeRight.scale.set(eyes.wide, eyes.tall, 1);
+  rig.eyeRight.rotation.set(0, 0, -eyes.turn);
+  rig.armLeft.rotation.set(motion.armLeft, 0, -armSplay(motion.armLeft));
+  rig.armRight.rotation.set(motion.armRight, 0, armSplay(motion.armRight) + motion.armSway);
+  rig.root.updateMatrixWorld(true);
+}
+
+function writeRobotFrame(
+  stage: Stage,
+  rig: Rig,
+  robot: RobotPlan,
+  motion: RobotFrame,
+  index: number,
+  sizes: Record<LampState, LampSize>,
+  lit: Lit,
+): void {
+  const { stands, bodies, heads, visors, eyes, arms, antennas, lamps, dangers, shadows } =
+    stage.layers;
+  poseRig(rig, robot, motion, sizes[robot.lamp]);
+  bodies.mesh.setMatrixAt(index, rig.body.matrixWorld);
+  heads.mesh.setMatrixAt(index, rig.head.matrixWorld);
+  visors.mesh.setMatrixAt(index, rig.visor.matrixWorld);
+  visors.mesh.setColorAt(index, stage.tint.set(robot.visor));
+  antennas.mesh.setMatrixAt(index, rig.antenna.matrixWorld);
+  eyes.mesh.setMatrixAt(index * 2, rig.eyeLeft.matrixWorld);
+  eyes.mesh.setMatrixAt(index * 2 + 1, rig.eyeRight.matrixWorld);
+  arms.mesh.setMatrixAt(index * 2, rig.armLeft.matrixWorld);
+  arms.mesh.setMatrixAt(index * 2 + 1, rig.armRight.matrixWorld);
+  // The stand stays on the floor and reaches up to the hip: a robot that stands up rises on it.
+  const stand = { x: motion.x, y: 0, z: motion.z, sy: ROBOT.hip + motion.lift };
+  stands.mesh.setMatrixAt(index, place(stage.dummy, stand).matrixWorld);
+  const shadow = {
+    x: motion.x,
+    y: FLAT_STEP * 2,
+    z: motion.z,
+    sx: ROBOT_SHADOW.width,
+    sz: ROBOT_SHADOW.depth,
+  };
+  shadows.mesh.setMatrixAt(index, place(stage.dummy, shadow).matrixWorld);
+  const danger = robot.lamp === "danger";
+  const layer = danger ? dangers : lamps;
+  const slot = danger ? lit.dangers : lit.lamps;
+  layer.mesh.setMatrixAt(slot, rig.lamp.matrixWorld);
+  layer.mesh.setColorAt(slot, stage.tint.set(robot.lampColor));
+  if (danger) lit.dangers += 1;
+  else lit.lamps += 1;
+}
+
+/** Writes these robots, each as its `motion` has it, and nothing of any other. */
+export function writeRobotFrames(
+  stage: Stage,
+  rig: Rig,
+  robots: readonly { robot: RobotPlan; motion: RobotFrame }[],
+  perUnit: number,
+): void {
+  const { stands, bodies, heads, visors, eyes, arms, antennas, lamps, dangers, shadows } =
+    stage.layers;
+  const count = robots.length;
+  for (const layer of [stands, bodies, heads, visors, antennas, lamps, dangers, shadows]) {
+    ensureCapacity(stage, layer, count);
+  }
+  for (const layer of [eyes, arms]) ensureCapacity(stage, layer, count * 2);
+  const sizes = lampSizes(perUnit);
+  const lit: Lit = { lamps: 0, dangers: 0 };
+  robots.forEach(({ robot, motion }, index) =>
+    writeRobotFrame(stage, rig, robot, motion, index, sizes, lit),
+  );
+  for (const layer of [stands, bodies, heads, visors, antennas, shadows]) {
+    finishLayer(layer, count);
+  }
+  for (const layer of [eyes, arms]) finishLayer(layer, count * 2);
+  finishLayer(lamps, lit.lamps);
+  finishLayer(dangers, lit.dangers);
+}
+
+/** A plate drawn at the size it has on screen, so its text stays sharp. Not yet in a scene. */
+export function makeLabel(
+  three: ThreeModule,
+  room: RoomPlan,
+  palette: ScenePalette,
+  ratio: number,
+  drawn: string,
+): Label {
+  const plate = document.createElement("canvas");
+  const size = drawLabel(plate, room, palette, ratio);
+  const texture = new three.CanvasTexture(plate);
+  texture.colorSpace = three.SRGBColorSpace;
+  const material = new three.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+  });
+  const sprite = new three.Sprite(material);
+  sprite.center.set(0, 0.5);
+  sprite.renderOrder = 2;
+  return { sprite, texture, ...size, anchor: labelAnchor(room), drawn };
+}
+
+/**
+ * A plate keeps its size in CSS pixels at every zoom, and is moved by a fraction of a pixel onto
+ * whole device pixels: each texel then covers one pixel and the text stays sharp.
+ */
+export function placeLabel(
+  label: Label,
+  view: CameraView,
+  viewport: Viewport,
+  ratio: number,
+): void {
+  const perUnit = pixelsPerUnit(view, viewport);
+  const { anchor } = label;
+  const at = screenPoint(view, viewport, anchor);
+  const top = at.y - label.height / 2;
+  const dx = Math.round(at.x * ratio) / ratio - at.x;
+  const dy = Math.round(top * ratio) / ratio - top;
+  const snapped = shiftOnScreen(view, viewport, anchor, dx, dy);
+  label.sprite.position.set(snapped.x, snapped.y, snapped.z);
+  label.sprite.scale.set(label.width / perUnit, label.height / perUnit, 1);
 }
 
 export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
@@ -864,11 +990,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   // A negative near plane is legal for an orthographic camera; with a small positive one the
   // front rows of a large office fall behind it.
   const camera: CameraLike = new three.OrthographicCamera(-1, 1, 1, -1, -200, 400);
-  // Surfaces that face up come out at their palette colour, the ones facing the camera darker.
-  const hemisphere = new three.HemisphereLight(WHITE, "#808080", 2.2);
-  const sun = new three.DirectionalLight(WHITE, 1.2);
-  sun.position.set(8, 20, 12);
-  scene.add(hemisphere, sun);
+  lightScene(three, scene);
 
   const softTexture = createSoftTexture(three);
   const materials = createMaterials(three, softTexture);
@@ -967,27 +1089,13 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     label.texture.dispose();
   }
 
-  /** A plate is drawn at the size it has on screen, so its text stays sharp. */
   function drawnLabel(room: RoomPlan, palette: ScenePalette): Label {
     const key = `${room.label}|${palette.label}|${palette.labelText}|${ratio}`;
     const current = labels.get(room.roomId);
     if (current && current.drawn === key) return current;
     if (current) disposeLabel(current);
-    const plate = document.createElement("canvas");
-    const size = drawLabel(plate, room, palette, ratio);
-    const texture = new three.CanvasTexture(plate);
-    texture.colorSpace = three.SRGBColorSpace;
-    const material = new three.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthWrite: false,
-      depthTest: false,
-    });
-    const sprite = new three.Sprite(material);
-    sprite.center.set(0, 0.5);
-    sprite.renderOrder = 2;
-    world.add(sprite);
-    const label = { sprite, texture, ...size, anchor: labelAnchor(room), drawn: key };
+    const label = makeLabel(three, room, palette, ratio, key);
+    world.add(label.sprite);
     labels.set(room.roomId, label);
     return label;
   }
@@ -1005,102 +1113,17 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     }
   }
 
-  /**
-   * Plates keep their size in CSS pixels at every zoom, and are moved by a fraction of a pixel
-   * onto whole device pixels: each texel then covers one pixel and the text stays sharp.
-   */
   function placeLabels(): void {
-    const perUnit = pixelsPerUnit(view, viewport);
-    for (const label of labels.values()) {
-      const { anchor } = label;
-      const at = screenPoint(view, viewport, anchor);
-      const top = at.y - label.height / 2;
-      const dx = Math.round(at.x * ratio) / ratio - at.x;
-      const dy = Math.round(top * ratio) / ratio - top;
-      const snapped = shiftOnScreen(view, viewport, anchor, dx, dy);
-      label.sprite.position.set(snapped.x, snapped.y, snapped.z);
-      label.sprite.scale.set(label.width / perUnit, label.height / perUnit, 1);
-    }
-  }
-
-  /** Puts the one rig in a robot's pose; its parts' matrices are then read off into the layers. */
-  function poseRig(robot: RobotPlan, motion: RobotFrame, lamp: LampSize): void {
-    const eyes = EYES[robot.pose];
-    rig.root.position.set(motion.x, motion.lift, motion.z);
-    rig.root.rotation.set(0, motion.heading, 0);
-    rig.hip.rotation.set(motion.lean, 0, 0);
-    rig.neck.rotation.set(motion.nod, 0, motion.tilt);
-    rig.antenna.rotation.set(-motion.lean - motion.nod, 0, -motion.tilt);
-    rig.lamp.position.set(0, lamp.y, 0);
-    // The antenna is upright; this leaves the lamp facing the camera whichever way the robot walks.
-    rig.lamp.rotation.set(0, -motion.heading, 0);
-    rig.lamp.scale.set(lamp.radius, lamp.radius, lamp.radius);
-    rig.eyeLeft.scale.set(eyes.wide, eyes.tall, 1);
-    rig.eyeLeft.rotation.set(0, 0, eyes.turn);
-    rig.eyeRight.scale.set(eyes.wide, eyes.tall, 1);
-    rig.eyeRight.rotation.set(0, 0, -eyes.turn);
-    rig.armLeft.rotation.set(motion.armLeft, 0, -armSplay(motion.armLeft));
-    rig.armRight.rotation.set(motion.armRight, 0, armSplay(motion.armRight) + motion.armSway);
-    rig.root.updateMatrixWorld(true);
-  }
-
-  function writeRobot(
-    robot: RobotPlan,
-    index: number,
-    now: number,
-    sizes: Record<LampState, LampSize>,
-    lit: Lit,
-  ): void {
-    const { stands, bodies, heads, visors, eyes, arms, antennas, lamps, dangers, shadows } = layers;
-    const entered = enteredAt.get(robot.agentId) ?? now;
-    const posed = posedAt.get(robot.agentId) ?? now;
-    const motion = robotFrame(robot, entered, now, options.reducedMotion, posed);
-    poseRig(robot, motion, sizes[robot.lamp]);
-    bodies.mesh.setMatrixAt(index, rig.body.matrixWorld);
-    heads.mesh.setMatrixAt(index, rig.head.matrixWorld);
-    visors.mesh.setMatrixAt(index, rig.visor.matrixWorld);
-    visors.mesh.setColorAt(index, stage.tint.set(robot.visor));
-    antennas.mesh.setMatrixAt(index, rig.antenna.matrixWorld);
-    eyes.mesh.setMatrixAt(index * 2, rig.eyeLeft.matrixWorld);
-    eyes.mesh.setMatrixAt(index * 2 + 1, rig.eyeRight.matrixWorld);
-    arms.mesh.setMatrixAt(index * 2, rig.armLeft.matrixWorld);
-    arms.mesh.setMatrixAt(index * 2 + 1, rig.armRight.matrixWorld);
-    // The stand stays on the floor and reaches up to the hip: a robot that stands up rises on it.
-    const stand = { x: motion.x, y: 0, z: motion.z, sy: ROBOT.hip + motion.lift };
-    stands.mesh.setMatrixAt(index, place(stage.dummy, stand).matrixWorld);
-    const shadow = {
-      x: motion.x,
-      y: FLAT_STEP * 2,
-      z: motion.z,
-      sx: ROBOT_SHADOW.width,
-      sz: ROBOT_SHADOW.depth,
-    };
-    shadows.mesh.setMatrixAt(index, place(stage.dummy, shadow).matrixWorld);
-    const danger = robot.lamp === "danger";
-    const layer = danger ? dangers : lamps;
-    const slot = danger ? lit.dangers : lit.lamps;
-    layer.mesh.setMatrixAt(slot, rig.lamp.matrixWorld);
-    layer.mesh.setColorAt(slot, stage.tint.set(robot.lampColor));
-    if (danger) lit.dangers += 1;
-    else lit.lamps += 1;
+    for (const label of labels.values()) placeLabel(label, view, viewport, ratio);
   }
 
   function writeRobots(now: number): void {
-    const { stands, bodies, heads, visors, eyes, arms, antennas, lamps, dangers, shadows } = layers;
-    const count = plan.robots.length;
-    for (const layer of [stands, bodies, heads, visors, antennas, lamps, dangers, shadows]) {
-      ensureCapacity(stage, layer, count);
-    }
-    for (const layer of [eyes, arms]) ensureCapacity(stage, layer, count * 2);
-    const sizes = lampSizes(pixelsPerUnit(view, viewport));
-    const lit: Lit = { lamps: 0, dangers: 0 };
-    plan.robots.forEach((robot, index) => writeRobot(robot, index, now, sizes, lit));
-    for (const layer of [stands, bodies, heads, visors, antennas, shadows]) {
-      finishLayer(layer, count);
-    }
-    for (const layer of [eyes, arms]) finishLayer(layer, count * 2);
-    finishLayer(lamps, lit.lamps);
-    finishLayer(dangers, lit.dangers);
+    const frames = plan.robots.map((robot) => {
+      const entered = enteredAt.get(robot.agentId) ?? now;
+      const posed = posedAt.get(robot.agentId) ?? now;
+      return { robot, motion: robotFrame(robot, entered, now, options.reducedMotion, posed) };
+    });
+    writeRobotFrames(stage, rig, frames, pixelsPerUnit(view, viewport));
   }
 
   /** A note that left the plan fades where it was. With reduced motion it is gone at once. */
@@ -1483,7 +1506,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       applyPalette(materials, nextPalette);
       background.set(nextPalette.background);
       writeRooms(stage, nextPlan.rooms);
-      writeDesks(stage, nextPlan, nextPalette);
+      writeDesks(stage, deskPlans(nextPlan), nextPalette);
       writeNotes(stage, nextPlan.notes);
       startFlights(nextPlan.mentions);
       writeLabels(nextPalette);
