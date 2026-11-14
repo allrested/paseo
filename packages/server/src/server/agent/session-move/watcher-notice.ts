@@ -7,8 +7,6 @@ export interface WatcherNoticeInput {
   fromAgentId: string;
   /** The labels of the agent handed to, which name its parent. */
   labels: Record<string, string>;
-  /** The last prompt the agent being left was given; who was told before it no longer waits. */
-  since: Date | null;
 }
 
 export interface WatcherNoticeDeps {
@@ -18,9 +16,9 @@ export interface WatcherNoticeDeps {
 
 /**
  * Registers a finish notification from the agent a move hands to, for everyone who waited on
- * the agent it leaves: the parent, and any other agent on this host that was told about its
- * last turn. Their own notifications were spent by the turn that failed or that the move
- * cancelled. Held until `accept()`; undefined when there is nobody to tell.
+ * the agent it leaves: the parent, and any other agent on this host that still waits on it or
+ * was told its turn failed or was cancelled. Their own notifications are spent while the work is
+ * not done. Held until `accept()`; undefined when there is nobody to tell.
  */
 export async function registerWatcherNotice(
   deps: WatcherNoticeDeps,
@@ -31,7 +29,7 @@ export async function registerWatcherNotice(
   const callers = new Map<string, boolean>();
   const parent = getParentAddressFromLabels(input.labels, deps.serverId);
   if (parent && parent.serverId === deps.serverId) callers.set(parent.agentId, true);
-  for (const caller of deps.subscriptions.watchersOf(input.fromAgentId, input.since)) {
+  for (const caller of deps.subscriptions.watchersOf(input.fromAgentId)) {
     // An agent does not wait on itself, and the agent being left is about to be archived.
     if (caller === input.agentId || caller === input.fromAgentId) continue;
     if (!callers.has(caller)) callers.set(caller, false);

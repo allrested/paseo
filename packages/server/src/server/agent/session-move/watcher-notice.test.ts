@@ -12,12 +12,12 @@ interface Registered {
 
 function subscriptions(told: string[], options: { failOn?: string } = {}) {
   const registered: Registered[] = [];
-  const asked: Array<{ childAgentId: string; since: Date | null }> = [];
+  const asked: string[] = [];
   const deps: WatcherNoticeDeps = {
     serverId: "here",
     subscriptions: {
-      watchersOf: (childAgentId, since) => {
-        asked.push({ childAgentId, since });
+      watchersOf: (childAgentId) => {
+        asked.push(childAgentId);
         return told;
       },
       register: async (input, pendingDispatch) => {
@@ -38,20 +38,17 @@ function subscriptions(told: string[], options: { failOn?: string } = {}) {
   return { deps, registered, asked };
 }
 
-const MOVE = { agentId: "successor", fromAgentId: "left", labels: {}, since: null };
+const MOVE = { agentId: "successor", fromAgentId: "left", labels: {} };
 
 describe("registerWatcherNotice", () => {
   test("holds a notification for the parent and for everyone told about the agent being left", async () => {
     const { deps, registered, asked } = subscriptions(["watcher", "parent"]);
-    const since = new Date("2026-11-14T10:00:00.000Z");
-
     const notice = await registerWatcherNotice(deps, {
       ...MOVE,
       labels: { [PARENT_AGENT_ID_LABEL]: "parent" },
-      since,
     });
 
-    expect(asked).toEqual([{ childAgentId: "left", since }]);
+    expect(asked).toEqual(["left"]);
     expect(registered).toEqual([
       {
         childAgentId: "successor",
