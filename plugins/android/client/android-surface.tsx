@@ -1,7 +1,16 @@
 // The Android device in a panel: its screen as pictures sent by the host, and touches, keys and
 // text sent back. Everything here is a React Native primitive: the store app evaluates this
 // bundle as it is.
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AppState,
   Image,
@@ -10,7 +19,6 @@ import {
   View,
   type GestureResponderEvent,
   type LayoutChangeEvent,
-  type PressableStateCallbackType,
 } from "react-native";
 import {
   useRpc,
@@ -32,6 +40,8 @@ import { androidHostSettings } from "../shared/settings.js";
 import { createStreamGesture, gestureToDevice, type Size } from "./stream-gesture.js";
 import { createStreamOutbox } from "./stream-outbox.js";
 import { INITIAL_STREAM, streamReducer } from "./stream-state.js";
+import { Button } from "./button.js";
+import { MaestroFlows } from "./maestro-flows.js";
 import { useAndroidStyles, type AndroidStyles } from "./styles.js";
 
 export type AndroidSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
@@ -39,6 +49,7 @@ export type AndroidSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
 /** The host closes a stream that hears nothing for 30 seconds. */
 export const KEEP_ALIVE_MS = 10_000;
 export const NO_DEVICE = "No Android device on this host";
+export const NO_WORKSPACE = "Open Android from a workspace to run its flows";
 const HOST_CLOSED = "The Android view was closed by the host";
 
 /**
@@ -62,40 +73,15 @@ export function streamShown(size: Size | null, appState: string): size is Size {
  * device"; any other failure is a failure.
  */
 export function stateOutcome(
-  answer: { ok: true; available: boolean } | { ok: false; error: unknown },
-): { kind: "device" } | { kind: "none" } | { kind: "failed"; message: string } {
-  if (answer.ok) return answer.available ? { kind: "device" } : { kind: "none" };
+  answer: { ok: true; available: boolean; maestro?: boolean } | { ok: false; error: unknown },
+): { kind: "device"; maestro: boolean } | { kind: "none" } | { kind: "failed"; message: string } {
+  if (answer.ok) {
+    return answer.available
+      ? { kind: "device", maestro: answer.maestro === true }
+      : { kind: "none" };
+  }
   const message = answer.error instanceof Error ? answer.error.message : String(answer.error);
   return message.startsWith("Unknown RPC method") ? { kind: "none" } : { kind: "failed", message };
-}
-
-interface ButtonProps {
-  label: string;
-  onPress(): void;
-  styles: AndroidStyles;
-  slot?: boolean;
-}
-
-function Button({ label, onPress, styles, slot = false }: ButtonProps) {
-  const style = useCallback(
-    ({ pressed }: PressableStateCallbackType) => (pressed ? styles.buttonPressed : styles.button),
-    [styles],
-  );
-  return (
-    <View style={slot ? styles.keyButton : undefined}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        onPress={onPress}
-        style={style}
-      >
-        <View style={styles.buttonFill} />
-        <Text style={styles.buttonText} numberOfLines={1}>
-          {label}
-        </Text>
-      </Pressable>
-    </View>
-  );
 }
 
 interface KeyButtonProps {
@@ -203,10 +189,12 @@ function AgentToolsSwitch({ styles }: AgentToolsSwitchProps) {
 
 interface DeviceViewProps {
   styles: AndroidStyles;
+  /** Under the device: the workspace's Maestro flows. */
+  footer?: ReactNode;
 }
 
 /** The stream and its controls for as long as the view has a size and the app is in front. */
-function DeviceView({ styles }: DeviceViewProps) {
+function DeviceView({ styles, footer }: DeviceViewProps) {
   const [size, setSize] = useState<Size | null>(null);
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -230,6 +218,7 @@ function DeviceView({ styles }: DeviceViewProps) {
           <Text style={styles.status}>Connecting to the Android device...</Text>
         )}
       </View>
+      {footer}
     </View>
   );
 }
@@ -377,7 +366,9 @@ function Stream({ styles, onRetry }: StreamProps) {
 const EMPTY_INPUT = {};
 
 /** One surface for both places: the sidebar screen and a workspace tab. */
-export function AndroidSurface({ theme, layout }: AndroidSurfaceProps) {
+export function AndroidSurface(props: AndroidSurfaceProps) {
+  const { theme, layout } = props;
+  const workspaceId = "workspaceId" in props ? props.workspaceId : null;
   const styles = useAndroidStyles(theme, layout.compact);
   const askState = useRpc(androidStateRpc);
   type Outcome = ReturnType<typeof stateOutcome> | { kind: "loading" };
@@ -387,7 +378,9 @@ export function AndroidSurface({ theme, layout }: AndroidSurfaceProps) {
     let active = true;
     setOutcome({ kind: "loading" });
     askState({}).then(
-      (state) => active && setOutcome(stateOutcome({ ok: true, available: state.available })),
+      (state) =>
+        active &&
+        setOutcome(stateOutcome({ ok: true, available: state.available, maestro: state.maestro })),
       (error: unknown) => active && setOutcome(stateOutcome({ ok: false, error })),
     );
     return () => {
@@ -396,7 +389,15 @@ export function AndroidSurface({ theme, layout }: AndroidSurfaceProps) {
   }, [askState, attempt]);
   const retry = useCallback(() => setAttempt((count) => count + 1), []);
 
-  if (outcome.kind === "device") return <DeviceView styles={styles} />;
+  if (outcome.kind === "device") {
+    let footer: ReactNode = null;
+    if (outcome.maestro && workspaceId !== null) {
+      footer = <MaestroFlows workspaceId={workspaceId} styles={styles} />;
+    } else if (outcome.maestro) {
+      footer = <Text style={styles.status}>{NO_WORKSPACE}</Text>;
+    }
+    return <DeviceView styles={styles} footer={footer} />;
+  }
   return (
     <View style={styles.screen}>
       {outcome.kind === "loading" ? <Text style={styles.status}>Loading...</Text> : null}
