@@ -11,6 +11,7 @@ import { createTestLogger } from "../../../test-utils/test-logger.js";
 import {
   createFinishSubscriptions,
   createJsonFinishSubscriptionStore,
+  createJsonFinishWatcherStore,
   type FinishObservation,
   type FinishSubscriptions,
 } from "./index.js";
@@ -88,11 +89,14 @@ async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 
   const delivery = new Delivery();
   let active = true;
   let successor: string | null = null;
+  const clock = { now: new Date("2026-11-14T10:00:00.000Z") };
   const service = createFinishSubscriptions({
     store,
     messages: () => delivery,
     open: observation.open.bind(observation),
     resolveCaller: async (agentId) => successor ?? (active ? agentId : null),
+    watchers: createJsonFinishWatcherStore(home),
+    now: () => clock.now,
     serverId: "origin",
     logger: createTestLogger(),
     retryDelayMs,
@@ -105,6 +109,7 @@ async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 
     observation,
     delivery,
     service,
+    clock,
     archive: () => {
       active = false;
     },
@@ -597,4 +602,77 @@ test("an undispatched follow-up does not block the running child's permission no
   expect(state.delivery.prompts[0]).toContain("needs permission");
   expect(state.delivery.prompts[0]).toContain("approval");
   expect(await state.store.list()).toHaveLength(2);
+});
+
+test("names who was told about an agent's turn, for a move to tell them about its successor", async () => {
+  const state = await scenario();
+  await state.service.register(intent);
+  await until(() => state.observation.waits.length === 1);
+  expect(state.service.watchersOf("child", null)).toEqual(["parent"]);
+
+  state.observation.waits[0]!.result.resolve(outcome("error"));
+  await until(() => state.delivery.prompts.length === 1);
+  state.delivery.acknowledgments[0]!.resolve("steered");
+  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+
+  expect(state.service.watchersOf("child", null)).toEqual(["parent"]);
+  expect(state.service.watchersOf("someone-else", null)).toEqual([]);
+});
+
+test("forgets who was told once the agent has had a newer prompt", async () => {
+  const state = await scenario();
+  await state.service.register(intent);
+  await until(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(outcome("error"));
+  await until(() => state.delivery.prompts.length === 1);
+  state.delivery.acknowledgments[0]!.resolve("steered");
+  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+
+  expect(state.service.watchersOf("child", new Date("2026-11-14T09:59:00.000Z"))).toEqual([
+    "parent",
+  ]);
+  expect(state.service.watchersOf("child", new Date("2026-11-14T10:00:01.000Z"))).toEqual([]);
+});
+
+test("still names who was told after a daemon restart", async () => {
+  const first = await scenario();
+  await first.service.register(intent);
+  await until(() => first.observation.waits.length === 1);
+  first.observation.waits[0]!.result.resolve(outcome("error"));
+  await until(() => first.delivery.prompts.length === 1);
+  first.delivery.acknowledgments[0]!.resolve("steered");
+  await expect.poll(async () => (await first.store.list()).length).toBe(0);
+  await first.service.close();
+
+  const restarted = await scenario(first.home);
+
+  expect(restarted.service.watchersOf("child", null)).toEqual(["parent"]);
+});
+
+test("a watcher waiting on a permission is named as a live watch, and one on another host is not", async () => {
+  const state = await scenario();
+  await state.service.register(intent);
+  await state.service.register({ ...intent, callerAgentId: "far", serverId: "remote" });
+  await until(() => state.observation.waits.length === 2);
+
+  expect(state.service.watchersOf("child", null)).toEqual(["parent"]);
+});
+
+test("drops what it remembers after a week", async () => {
+  const state = await scenario();
+  await state.service.register(intent);
+  await until(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(outcome("error"));
+  await until(() => state.delivery.prompts.length === 1);
+  state.delivery.acknowledgments[0]!.resolve("steered");
+  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+
+  state.clock.now = new Date("2026-11-22T10:00:00.000Z");
+  await state.service.register({ callerAgentId: "other-parent", childAgentId: "other-child" });
+  await until(() => state.observation.waits.length === 2);
+  state.observation.waits[1]!.result.resolve(outcome("error"));
+  await until(() => state.delivery.prompts.length === 2);
+
+  expect(state.service.watchersOf("child", null)).toEqual([]);
+  expect(state.service.watchersOf("other-child", null)).toEqual(["other-parent"]);
 });
