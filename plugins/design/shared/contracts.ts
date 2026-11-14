@@ -25,6 +25,7 @@ export type FileRow = z.output<typeof FileRowSchema>;
 export const TokensStateSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("none") }),
   z.object({ status: z.literal("imported"), warnings: z.array(z.string()) }),
+  z.object({ status: z.literal("default") }),
   z.object({ status: z.literal("refused"), reason: z.string() }),
   z.object({ status: z.literal("written-back") }),
 ]);

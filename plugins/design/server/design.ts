@@ -48,6 +48,8 @@ export interface DesignDeps {
   home: string;
   /** bin/figcraft-guard.mjs in the plugin's own directory (the daemon gives built-ins theirs). */
   guardPath: string;
+  /** server/paseo-tokens.json in the plugin's directory: the tokens for a repo without its own. */
+  defaultTokensPath?: string;
   /** How to start figcraft-cli: the CLI itself, or node + the fake in tests. */
   cliCommand?: { command: string; argsBefore: string[] };
   paseo(): PaseoApi;
@@ -190,6 +192,10 @@ export function createDesignService(given: DesignDeps): DesignService {
         await writeFile(path, `${JSON.stringify(next, null, 2)}\n`);
         for (const push of viewers.get(fileId) ?? [])
           await push({ type: "tokens-written" }).catch(() => undefined);
+      },
+      async defaults() {
+        if (!deps.defaultTokensPath) return null;
+        return JSON.parse(await readFile(deps.defaultTokensPath, "utf8")) as unknown;
       },
     };
   }
@@ -455,11 +461,13 @@ export function createDesignService(given: DesignDeps): DesignService {
           };
         }
         file ??= await publishNew(projectKey, input.name?.trim() || "Design");
-        await holdFor(file.id, agent.workspaceId, { kind: "agent", id: agent.id });
+        const bridge = await holdFor(file.id, agent.workspaceId, { kind: "agent", id: agent.id });
         await store.update(file.id, { lastAgentId: agent.id });
         return {
           text: [
-            `Design "${file.name}" (file ${file.id}) is open; its tokens are imported as FigCraft variables (collection Tokens).`,
+            bridge.tokens.status === "default"
+              ? `Design "${file.name}" (file ${file.id}) is open. This repo has no design/tokens.json, so the FigCraft variables (collection Tokens) hold Paseo's design system, one mode per Paseo theme; edits to them stay in this file.`
+              : `Design "${file.name}" (file ${file.id}) is open; its tokens are imported as FigCraft variables (collection Tokens).`,
             `Join it with FigCraft: run_command collab.join {"link": "${file.secrets.editLink}"}, then poll collab.peers until status is "live".`,
             "Use the Tokens variables for colours, sizes and type. Do not share, publish or host files: Paseo does that.",
             "Do not repeat this link in chat.",

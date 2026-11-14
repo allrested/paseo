@@ -44,6 +44,7 @@ export default function contribute(
     env: process.env,
     home: homedir(),
     guardPath: builtin ? join(builtin.directory, "bin", "figcraft-guard.mjs") : "",
+    defaultTokensPath: builtin ? join(builtin.directory, "server", "paseo-tokens.json") : undefined,
     paseo: () => {
       if (paseo === null) throw new Error("Design mode is not ready yet");
       return paseo;

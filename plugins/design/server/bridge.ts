@@ -7,11 +7,15 @@ export interface TokensPort {
   /** The workspace's design/tokens.json, or null when the repo has none. Throws on bad JSON. */
   read(): Promise<TokenFile | null>;
   write(file: TokenFile): Promise<void>;
+  /** Paseo's design system as FigCraft variables, for a repo without tokens; null when not shipped. */
+  defaults(): Promise<unknown | null>;
 }
 
 export type TokensState =
   | { status: "none" }
   | { status: "imported"; warnings: string[] }
+  /** The repo has no tokens file: the Tokens collection holds Paseo's, edited only in FigCraft. */
+  | { status: "default" }
   | { status: "refused"; reason: string }
   | { status: "written-back" };
 
@@ -24,6 +28,14 @@ const BRIDGE_NAME = "Paseo (agent)";
 export const BRIDGE_AUTHOR = `${CLIENT_NAME} (agent)`;
 const AGENT_NAME = / \(agent\)$/;
 const MAX_CODE_LAYERS = 3;
+
+function hasTokensCollection(exported: unknown): boolean {
+  const collections = (exported as { meta?: { variableCollections?: object } }).meta
+    ?.variableCollections;
+  return Object.values(collections ?? {}).some(
+    (collection) => (collection as { name?: unknown }).name === "Tokens",
+  );
+}
 
 export class Bridge {
   tokens: TokensState = { status: "none" };
@@ -63,7 +75,10 @@ export class Bridge {
       this.refuse(`design/tokens.json is not valid JSON (${(error as Error).message})`);
       return;
     }
-    if (file === null) return;
+    if (file === null) {
+      await this.importDefaults();
+      return;
+    }
     try {
       const { variables, warnings } = toVariables(file);
       const answer = await this.session.importVariables(variables);
@@ -75,6 +90,20 @@ export class Bridge {
           ? error.message
           : `FigCraft refused the tokens: ${(error as Error).message}`,
       );
+    }
+  }
+
+  /** Paseo's tokens, unless the file already has a Tokens collection: edits to it live only there. */
+  private async importDefaults(): Promise<void> {
+    try {
+      const defaults = await this.port.defaults();
+      if (defaults === null) return;
+      if (!hasTokensCollection(await this.session.exportVariables())) {
+        await this.session.importVariables(defaults);
+      }
+      this.tokens = { status: "default" };
+    } catch (error) {
+      this.refuse(`FigCraft refused Paseo's tokens: ${(error as Error).message}`);
     }
   }
 
