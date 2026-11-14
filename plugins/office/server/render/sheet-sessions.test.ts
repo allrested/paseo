@@ -111,7 +111,13 @@ interface Setup {
 }
 
 function setup(
-  options: { host?: "none" | "fails"; openError?: string; firstTakes?: SheetTake[] } = {},
+  options: {
+    host?: "none" | "fails";
+    openError?: string;
+    firstTakes?: SheetTake[];
+    /** The host's open() waits for it. */
+    openGate?: Promise<void>;
+  } = {},
 ): Setup {
   const clock = createFakeClock(1_000_000);
   const pages: FakePage[] = [];
@@ -119,6 +125,7 @@ function setup(
   const host: SheetPageHost = {
     async open() {
       if (options.host === "fails") throw new Error(options.openError ?? "Chromium is down");
+      await options.openGate;
       const page = fakePage();
       page.takes.push(...(options.firstTakes ?? []));
       pages.push(page);
@@ -357,4 +364,22 @@ test("stop closes every page", async () => {
 
   expect(pages.map((page) => page.closed)).toEqual([true, true]);
   expect([first.ended, second.ended]).toEqual([true, true]);
+});
+
+test("a page that finishes opening after stop is closed and never fed", async () => {
+  let open!: () => void;
+  const openGate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  const { sessions, pages, hubSubscribers } = setup({ openGate });
+  const viewer = await attach(sessions);
+
+  await sessions.stop();
+  open();
+  await settle();
+
+  expect(pages.map((page) => page.closed)).toEqual([true]);
+  expect(hubSubscribers).toHaveLength(0);
+  expect(viewer.events).toEqual([]);
+  expect(viewer.ended).toBe(true);
 });

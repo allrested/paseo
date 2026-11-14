@@ -15,7 +15,7 @@ import { fakeOffice } from "../../client/scene/fake-office.js";
 import { LIGHT_THEME_COLORS } from "../../client/scene/fake-theme.js";
 import { readThreeAsset } from "../asset.js";
 import { scriptedPages, type PagePort } from "./page-host.js";
-import { PREVIEW_GLOBAL, type PreviewResult } from "./sheet-preview.fixture.js";
+import { PREVIEW_GLOBAL, type PreviewResult } from "../../render/sheet-preview.fixture.js";
 
 const CDP_URL = process.env.PASEO_TEST_CDP_URL;
 const OFFICE_DIR = fileURLToPath(new URL("../../", import.meta.url));
@@ -37,9 +37,7 @@ describe.skipIf(!CDP_URL)("sheet page against a real Chromium", () => {
     });
     page = await open({ width: 64, height: 64, deviceScaleFactor: 1 });
     await page.evaluate(
-      await bundleBrowserScript(
-        path.join(OFFICE_DIR, "server", "render", "sheet-preview.fixture.ts"),
-      ),
+      await bundleBrowserScript(path.join(OFFICE_DIR, "render", "sheet-preview.fixture.ts")),
     );
   }, 60_000);
 
@@ -81,7 +79,8 @@ describe.skipIf(!CDP_URL)("sheet page against a real Chromium", () => {
     };
     await writeFile(path.join(out, "office-sheet-numbers.json"), JSON.stringify(numbers, null, 1));
     expect(result.sheet.robots.length).toBeGreaterThan(20);
-    // Soft edges laid half a pixel off, and JPEG: a thin share of the picture.
-    expect(share).toBeLessThan(0.01);
+    // Soft edges laid half a pixel off, and JPEG: 0.3% of this picture. One robot left out or
+    // out of place is about as much again.
+    expect(share).toBeLessThan(0.005);
   }, 120_000);
 });

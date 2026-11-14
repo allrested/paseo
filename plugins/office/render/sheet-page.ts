@@ -19,14 +19,12 @@ import {
   picturePixels,
   pictureScale,
   sheetFrame,
-  spriteBox,
-  spriteColumns,
   spriteFrame,
+  spriteGrid,
   spriteLook,
   stillSignature,
   tileRects,
   type SheetFrame,
-  type SpriteBox,
 } from "../client/scene/sheet-plan.js";
 import { isThreeModule } from "../client/scene/three-types.js";
 import { THREE_GLOBAL } from "../shared/render.js";
@@ -70,7 +68,13 @@ let running: Running | null = null;
 let plan: ScenePlan | null = null;
 let viewer: SheetSize | null = null;
 /** The backdrop that was drawn last, and what it showed. */
-let drawn: { signature: string; version: number; tiles: number } | null = null;
+let drawn: {
+  signature: string;
+  version: number;
+  tiles: number;
+  /** Each room's name plate as it was drawn: the sheet says where a tap finds it. */
+  plates: Map<string, { width: number; height: number }>;
+} | null = null;
 let changed = false;
 /** Each robot's pose and when it took it, by this page's clock. */
 const posed = new Map<string, { pose: RobotPose; at: number }>();
@@ -172,10 +176,7 @@ function take(): SheetTake {
   if (drawn === null || drawn.signature !== signature) {
     const version = (drawn?.version ?? 0) + 1;
     tiles = drawTiles(run, plan, frame, version);
-    drawn = { signature, version, tiles: tiles.length };
-  } else {
-    // The plates are asked of the stills below: they must be this office's.
-    run.stills.set(plan, run.palette, frame);
+    drawn = { signature, version, tiles: tiles.length, plates: run.stills.plates() };
   }
   const sheet = buildSheet({
     plan,
@@ -183,7 +184,7 @@ function take(): SheetTake {
     version: drawn.version,
     tiles: drawn.tiles,
     fresh: freshNow(),
-    plates: run.stills.plates(),
+    plates: drawn.plates,
   });
   return { tiles, sheet, problem: null };
 }
@@ -191,12 +192,13 @@ function take(): SheetTake {
 /** The frames of one sprite, each drawn by `frameAt`, in a grid. */
 function gridOf(
   run: Running,
-  box: SpriteBox,
   clip: { frames: number; frameMs: number; loop: boolean },
-  scale: number,
+  frame: SheetFrame,
   frameAt: (index: number) => void,
 ): SpritePicture {
-  const columns = spriteColumns(clip.frames, box.width);
+  const scale = pictureScale(frame);
+  const { columns, box, scale: drawnScale } = spriteGrid(clip.frames, scale);
+  run.stills.set(NOTHING, run.palette, spriteFrame(box, drawnScale, frame.ratio));
   const grid = document.createElement("canvas");
   grid.width = columns * box.width;
   grid.height = Math.ceil(clip.frames / columns) * box.height;
@@ -220,17 +222,14 @@ function gridOf(
 }
 
 function drawSprite(run: Running, key: string, frame: SheetFrame): SpritePicture | null {
-  const scale = pictureScale(frame);
-  const box = spriteBox(scale);
-  run.stills.set(NOTHING, run.palette, spriteFrame(box, scale, frame.ratio));
   if (key === PLANE_KEY) {
     const still = { frames: 1, frameMs: 0, loop: false };
     // Where a robot's chest is in a frame: the app lays that point on the plane's path.
-    return gridOf(run, box, still, scale, () => run.stills.plane({ x: 0, z: 0 }, CHEST_Y));
+    return gridOf(run, still, frame, () => run.stills.plane({ x: 0, z: 0 }, CHEST_Y));
   }
   const look = spriteLook(key);
   if (look === null) return null;
-  return gridOf(run, box, SPRITE_CLIPS[look.pose], scale, (index) =>
+  return gridOf(run, SPRITE_CLIPS[look.pose], frame, (index) =>
     run.stills.robot(look, clipMotion(look, index)),
   );
 }

@@ -1,21 +1,21 @@
 // Hand-run only, by sheet-page.local.e2e.test.ts: a page script that drives the sheet page already
 // in the window, lays its pictures over each other as the app does, and draws the same office in
 // one pass beside it.
-import { groundSpan } from "../../client/scene/camera.js";
-import { createOfficeStills } from "../../client/scene/office-stills.web.js";
-import { scenePalette } from "../../client/scene/palette.js";
-import { roomFootprint, type RobotPlan } from "../../client/scene/scene-plan.js";
+import { groundSpan } from "../client/scene/camera.js";
+import { createOfficeStills } from "../client/scene/office-stills.web.js";
+import { scenePalette } from "../client/scene/palette.js";
+import { roomFootprint, type RobotPlan } from "../client/scene/scene-plan.js";
 import {
   clipMotion,
   picturePixels,
   sheetFrame,
   spriteKey,
   spriteLook,
-} from "../../client/scene/sheet-plan.js";
-import { isThreeModule } from "../../client/scene/three-types.js";
-import { createRenderPipeline } from "../../render/pipeline.js";
-import type { OfficeEvent } from "../../shared/contracts.js";
-import { THREE_GLOBAL } from "../../shared/render.js";
+} from "../client/scene/sheet-plan.js";
+import { isThreeModule } from "../client/scene/three-types.js";
+import { createRenderPipeline } from "./pipeline.js";
+import type { OfficeEvent } from "../shared/contracts.js";
+import { THREE_GLOBAL } from "../shared/render.js";
 import {
   SHEET_GLOBAL,
   type OfficeSheetGlobal,
@@ -23,7 +23,7 @@ import {
   type SheetSize,
   type SheetTile,
   type SpritePicture,
-} from "../../shared/sheet.js";
+} from "../shared/sheet.js";
 
 export const PREVIEW_GLOBAL = "__officeSheetPreview";
 /** Two pixels this far apart in any channel differ: more than JPEG and soft edges explain. */

@@ -3,7 +3,8 @@
 import { VIEW_TURN, WALL_HEIGHT } from "../layout.js";
 import {
   MAX_BACKDROP_PIXELS,
-  MAX_SPRITE_WIDTH,
+  MAX_SPRITE_SIDE,
+  MOST_BACKDROP_PIXELS,
   TILE_SIDE,
   type Sheet,
   type SheetPoint,
@@ -109,8 +110,11 @@ export function sheetFrame(span: GroundSpan, viewer: Viewport, pixelRatio: numbe
   const bottom = screenPoint(view, first, { x: nearEdge.x, y: 0, z: nearEdge.z }).y;
   const height = Math.max(first.height, Math.ceil(bottom + FIRST_MARGINS.bottom));
   const sharp = Math.min(MAX_RATIO, Math.max(1, pixelRatio));
-  const fits = Math.sqrt(MAX_BACKDROP_PIXELS / (first.width * height));
-  const ratio = Math.max(1, Math.min(sharp, fits));
+  const points = first.width * height;
+  const fits = Math.sqrt(MAX_BACKDROP_PIXELS / points);
+  // One pixel per point at least, but for an office so deep that it would pass the hard limit.
+  const least = Math.min(1, Math.sqrt(MOST_BACKDROP_PIXELS / points));
+  const ratio = Math.max(least, Math.min(sharp, fits));
   // Whole picture pixels, and one scale both ways: the size in points gives way by a fraction.
   const viewport = {
     width: whole(first.width * ratio) / ratio,
@@ -262,9 +266,41 @@ export function typingPhase(seatIndex: number): number {
   return ((Math.round(seatIndex * SEAT_PHASE * perRadian) % frames) + frames) % frames;
 }
 
-/** Columns of a sprite's grid of frames: as many as fit `MAX_SPRITE_WIDTH`. */
-export function spriteColumns(frames: number, frameWidth: number): number {
-  return Math.max(1, Math.min(frames, Math.floor(MAX_SPRITE_WIDTH / frameWidth)));
+export interface SpriteGrid {
+  columns: number;
+  /** The scale to draw the frames at: the sheet's, or less when no grid of them would fit. */
+  scale: number;
+  box: SpriteBox;
+}
+
+/** The columns that keep the grid's longer side shortest, or 0 when no grid fits. */
+function fittingColumns(frames: number, box: SpriteBox): number {
+  let best = 0;
+  let bestSide = Infinity;
+  for (let columns = 1; columns <= frames; columns += 1) {
+    const side = Math.max(columns * box.width, Math.ceil(frames / columns) * box.height);
+    if (side <= MAX_SPRITE_SIDE && side < bestSide) {
+      best = columns;
+      bestSide = side;
+    }
+  }
+  return best;
+}
+
+/**
+ * How a sprite's frames lie in one picture with no side over `MAX_SPRITE_SIDE`: Android shrinks
+ * a larger picture, and every frame would then be cut at the wrong place. When the frames are too
+ * large for any grid they are drawn smaller, and the view stretches them back.
+ */
+export function spriteGrid(frames: number, scale: number): SpriteGrid {
+  let drawn = scale;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const box = spriteBox(drawn);
+    const columns = fittingColumns(frames, box);
+    if (columns > 0) return { columns, scale: drawn, box };
+    drawn *= 0.8;
+  }
+  return { columns: 1, scale: drawn, box: spriteBox(drawn) };
 }
 
 /** Tiles of at most `TILE_SIDE` that cover a picture, row by row. */

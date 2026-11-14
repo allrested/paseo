@@ -1,6 +1,14 @@
 import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
-import { TILE_SIDE, type Sheet, type SheetTile, type SpritePicture } from "./sheet.js";
+import {
+  MAX_VIEWER_RATIO,
+  MAX_VIEWER_SIDE,
+  TILE_SIDE,
+  type Sheet,
+  type SheetSize,
+  type SheetTile,
+  type SpritePicture,
+} from "./sheet.js";
 
 // In their own file, so code that needs only a name does not load the schemas (the render page).
 export { LOBBY, USER_AUTHOR } from "./names.js";
@@ -314,9 +322,17 @@ export type SheetEvent = z.output<typeof SheetEventSchema>;
  * The office as pictures and positions, for a device that cannot draw it: the installed app and
  * a browser without WebGL2 lay the pictures out and move them themselves.
  */
+/** A sheet viewer's size. Bounded: the host draws a picture as large as it says. */
+export const SheetSizeSchema = z.object({
+  /** Screen points. */
+  width: z.number().positive().max(MAX_VIEWER_SIDE),
+  height: z.number().positive().max(MAX_VIEWER_SIDE),
+  pixelRatio: z.number().positive().max(MAX_VIEWER_RATIO),
+}) satisfies z.ZodType<SheetSize>;
+
 export const sheetSubscription = defineSubscription({
   name: "office.sheet",
-  input: RenderSizeSchema.extend({ colors: ThemeColorsSchema }),
+  input: SheetSizeSchema.extend({ colors: ThemeColorsSchema }),
   event: SheetEventSchema,
 });
 export type SheetInput = z.output<typeof sheetSubscription.input>;
@@ -324,7 +340,7 @@ export type SheetInput = z.output<typeof sheetSubscription.input>;
 /** What the viewer of one sheet did. An empty call says the viewer is still there. */
 export const sheetInputRpc = defineRpc({
   name: "office.sheet.input.request",
-  input: z.object({ sheetId: z.string(), resize: RenderSizeSchema.optional() }),
+  input: z.object({ sheetId: z.string(), resize: SheetSizeSchema.optional() }),
   /** False when the host no longer has the sheet. */
   output: z.object({ ok: z.boolean() }),
 });
