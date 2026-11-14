@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MOVED_FROM_AGENT_ID_LABEL,
+  MOVED_FROM_AGENT_IDS_LABEL,
   MOVED_TO_AGENT_ID_LABEL,
   PARENT_AGENT_ID_LABEL,
 } from "@getpaseo/protocol/agent-labels";
@@ -615,6 +616,77 @@ describe("moveAgent", () => {
 
       const original = await requireCtx().daemon.daemon.agentStorage.get(sourceId);
       expect(original?.archivedAt ?? null).toBeNull();
+    });
+  });
+
+  describe("the agents a session was moved from", () => {
+    beforeEach(async () => {
+      ctx = await createDaemonTestContext();
+    });
+
+    async function chainOf(agentId: string): Promise<string | undefined> {
+      const record = await requireCtx().daemon.daemon.agentStorage.get(agentId);
+      return record?.labels[MOVED_FROM_AGENT_IDS_LABEL];
+    }
+
+    it("are all named on the live agent after two moves, nearest first", async () => {
+      const aId = await createRanClaudeAgent();
+      const b = await moveAgent(deps(), {
+        agentId: aId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      expect(await chainOf(b.agentId)).toBe(aId);
+
+      const c = await moveAgent(deps(), {
+        agentId: b.agentId,
+        target: { provider: "opencode" },
+        continueWork: false,
+      });
+
+      expect(await chainOf(c.agentId)).toBe(`${b.agentId},${aId}`);
+    });
+
+    it("name the agents left behind, and never the agent itself, after a move back", async () => {
+      const aId = await createRanClaudeAgent();
+      const b = await moveAgent(deps(), {
+        agentId: aId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+
+      await moveAgentBack(deps(), { agentId: b.agentId, continueWork: false });
+
+      expect(await chainOf(aId)).toBe(b.agentId);
+    });
+
+    it("are put back as they were when a move back fails", async () => {
+      const aId = await createRanClaudeAgent();
+      const b = await moveAgent(deps(), {
+        agentId: aId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      const real = deps();
+      const agentManager = new Proxy(real.agentManager, {
+        get(target, property) {
+          if (property === "archiveAgent") {
+            return async (agentId: string) => {
+              if (agentId === b.agentId) throw new Error("archive failed");
+              return target.archiveAgent(agentId);
+            };
+          }
+          const value: unknown = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      await expect(
+        moveAgentBack({ ...real, agentManager }, { agentId: b.agentId, continueWork: false }),
+      ).rejects.toMatchObject({ code: "failed" });
+
+      expect(await chainOf(aId)).toBeUndefined();
+      expect(await chainOf(b.agentId)).toBe(aId);
     });
   });
 

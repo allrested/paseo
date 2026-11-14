@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { Logger } from "pino";
 import {
   MOVED_FROM_AGENT_ID_LABEL,
+  MOVED_FROM_AGENT_IDS_LABEL,
   MOVED_TO_AGENT_ID_LABEL,
   PARENT_AGENT_ID_LABEL,
   getMovedFromAgentId,
@@ -268,8 +269,11 @@ async function storedTitle(deps: MoveAgentDeps, agent: ManagedAgent): Promise<st
 /** What the move's last steps changed so far, so a failed move can undo exactly that. */
 interface FinishProgress {
   reparentedChildIds: string[];
-  /** The moved-from link `finish` replaced on the agent it hands to; value null means none. */
-  previousMovedFrom: { agentId: string; value: string | null } | null;
+  /**
+   * The moved-from link, and the list of every agent moved from, that `finish` replaced on the
+   * agent it hands to; null means it had none.
+   */
+  previousMovedFrom: { agentId: string; value: string | null; all: string | null } | null;
   linked: boolean;
   /** The agent `finish` began pointing schedules at. Set before the first one changes. */
   schedulesMovedTo: string | null;
@@ -360,10 +364,18 @@ async function finish(
     progress.reparentedChildIds.push(childId);
   }
   // `to` is stale after a native reload, so the labels come from the live agent.
-  const movedFrom = getMovedFromAgentId(deps.agentManager.getAgent(to.id)?.labels) ?? null;
+  const toLabels = deps.agentManager.getAgent(to.id)?.labels;
+  const movedFrom = getMovedFromAgentId(toLabels) ?? null;
   if (movedFrom !== from.id) {
-    progress.previousMovedFrom = { agentId: to.id, value: movedFrom };
-    await deps.agentManager.setLabels(to.id, { [MOVED_FROM_AGENT_ID_LABEL]: from.id });
+    progress.previousMovedFrom = {
+      agentId: to.id,
+      value: movedFrom,
+      all: toLabels?.[MOVED_FROM_AGENT_IDS_LABEL] ?? null,
+    };
+    await deps.agentManager.setLabels(to.id, {
+      [MOVED_FROM_AGENT_ID_LABEL]: from.id,
+      [MOVED_FROM_AGENT_IDS_LABEL]: await movedFromAgentIds(deps, from.id, to.id),
+    });
   }
   progress.linked = true;
   await deps.agentManager.setLabels(from.id, { [MOVED_TO_AGENT_ID_LABEL]: to.id });
@@ -392,7 +404,10 @@ async function undoFinish(
   const previous = progress.previousMovedFrom;
   if (previous) {
     await deps.agentManager
-      .setLabels(previous.agentId, { [MOVED_FROM_AGENT_ID_LABEL]: previous.value })
+      .setLabels(previous.agentId, {
+        [MOVED_FROM_AGENT_ID_LABEL]: previous.value,
+        [MOVED_FROM_AGENT_IDS_LABEL]: previous.all,
+      })
       .catch((error: unknown) => {
         deps.logger.error(
           { err: error, agentId: previous.agentId },
@@ -540,6 +555,7 @@ async function moveForward(
   const labels: Record<string, string> = {
     ...source.labels,
     [MOVED_FROM_AGENT_ID_LABEL]: source.id,
+    [MOVED_FROM_AGENT_IDS_LABEL]: await movedFromAgentIds(deps, source.id, null),
   };
   delete labels[MOVED_TO_AGENT_ID_LABEL];
 
@@ -702,6 +718,20 @@ export function movedAgentLookup(
     const live = deps.agentManager.getAgent(agentId);
     return live ? { archived: false, labels: live.labels } : null;
   };
+}
+
+/**
+ * The value of the label that names every agent a session was moved from: `fromId`, then the
+ * agents before it. `selfId` is the agent that will carry the label, left out after a move back
+ * to an agent that is in its own chain.
+ */
+async function movedFromAgentIds(
+  deps: MoveAgentDeps,
+  fromId: string,
+  selfId: string | null,
+): Promise<string> {
+  const earlier = await resolveMoveBackChain(fromId, labelsLookup(deps));
+  return [fromId, ...earlier].filter((id) => id !== selfId).join(",");
 }
 
 function labelsLookup(deps: MoveAgentDeps): LabelsLookup {

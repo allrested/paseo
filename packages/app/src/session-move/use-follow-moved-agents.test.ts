@@ -138,6 +138,55 @@ describe("retargetStaleAgentTabs", () => {
     expect(agentTabTargets()).toEqual(["new"]);
   });
 
+  it("follows an agent the session never loaded through two moves, from the live agent's chain", () => {
+    // Offline for both moves: old -> middle -> new. Neither archived agent is in the session.
+    useSessionStore.getState().setAgents(
+      serverId,
+      new Map([
+        ["parent", makeAgent({ id: "parent" })],
+        [
+          "new",
+          makeAgent({
+            id: "new",
+            parentAgentId: "parent",
+            labels: {
+              "paseo.moved-from-agent-id": "middle",
+              "paseo.moved-from-agent-ids": "middle,old",
+            },
+          }),
+        ],
+      ]),
+    );
+    openAgentTab("old");
+
+    retargetStaleAgentTabs(serverId, workspaceKey);
+
+    expect(agentTabTargets()).toEqual(["new"]);
+  });
+
+  it("leaves a tab on an agent no live agent's chain names", () => {
+    useSessionStore.getState().setAgents(
+      serverId,
+      new Map([
+        [
+          "new",
+          makeAgent({
+            id: "new",
+            labels: {
+              "paseo.moved-from-agent-id": "middle",
+              "paseo.moved-from-agent-ids": "middle,old",
+            },
+          }),
+        ],
+      ]),
+    );
+    openAgentTab("someone-else");
+
+    retargetStaleAgentTabs(serverId, workspaceKey);
+
+    expect(agentTabTargets()).toEqual(["someone-else"]);
+  });
+
   it("leaves a tab on a live agent that another live agent was moved from", () => {
     useSessionStore.getState().setAgents(
       serverId,

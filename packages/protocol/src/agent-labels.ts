@@ -54,6 +54,12 @@ export function parentAddressLabels(parent: AgentAddress): Record<string, string
 
 export const MOVED_FROM_AGENT_ID_LABEL = "paseo.moved-from-agent-id";
 export const MOVED_TO_AGENT_ID_LABEL = "paseo.moved-to-agent-id";
+/**
+ * Fork delta (session move): every agent the session was moved from, nearest first, comma
+ * separated. The moved-from label names only the last one, and a client that was away for two
+ * moves holds no record of the agents in between.
+ */
+export const MOVED_FROM_AGENT_IDS_LABEL = "paseo.moved-from-agent-ids";
 
 function readLabel(labels: Record<string, unknown> | null | undefined, key: string): string | null {
   const value = labels?.[key];
@@ -62,6 +68,15 @@ function readLabel(labels: Record<string, unknown> | null | undefined, key: stri
 
 export function getMovedFromAgentId(labels: Record<string, unknown> | null | undefined) {
   return readLabel(labels, MOVED_FROM_AGENT_ID_LABEL);
+}
+
+export function getMovedFromAgentIds(labels: Record<string, unknown> | null | undefined): string[] {
+  const value = readLabel(labels, MOVED_FROM_AGENT_IDS_LABEL);
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
 }
 
 export function getMovedToAgentId(labels: Record<string, unknown> | null | undefined) {
