@@ -33,10 +33,12 @@ const STATUS_ICONS: Record<CardStatus, string> = {
 
 interface MeterViewProps {
   meter: Meter;
+  /** False in a card of plain readings, where an empty track would read as 0%. */
+  track: boolean;
   styles: ScreenStyles;
 }
 
-function MeterView({ meter, styles }: MeterViewProps) {
+function MeterView({ meter, track, styles }: MeterViewProps) {
   const { fraction, level } = meter;
   const fill = useMemo(
     (): ViewStyle[] => [
@@ -53,8 +55,10 @@ function MeterView({ meter, styles }: MeterViewProps) {
       <Text numberOfLines={1} style={styles.meterValue}>
         {meter.value}
       </Text>
-      {/* The track stays without a reading, so the three columns keep one baseline. */}
-      <View style={styles.meterTrack}>{fraction === null ? null : <View style={fill} />}</View>
+      {/* Among bars, the track stays without a reading, so the columns keep one baseline. */}
+      {track ? (
+        <View style={styles.meterTrack}>{fraction === null ? null : <View style={fill} />}</View>
+      ) : null}
     </View>
   );
 }
@@ -94,6 +98,7 @@ export function ResourceCard({
   const press = useCallback(() => onToggle(id), [id, onToggle]);
   const state = useMemo(() => ({ expanded: open }), [open]);
   const shown = expandable && open;
+  const bars = summary !== null && summary.meters.some((meter) => meter.fraction !== null);
   return (
     <SettingsCard>
       <Pressable
@@ -146,7 +151,7 @@ export function ResourceCard({
         {summary === null || summary.meters.length === 0 ? null : (
           <View style={styles.meters}>
             {summary.meters.map((meter) => (
-              <MeterView key={meter.key} meter={meter} styles={styles} />
+              <MeterView key={meter.key} meter={meter} track={bars} styles={styles} />
             ))}
           </View>
         )}
