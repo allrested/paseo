@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDesignService } from "./design.js";
 import { BRIDGE_AUTHOR } from "./bridge.js";
 
@@ -303,6 +303,36 @@ describe("design service", () => {
     expect(JSON.parse(readFileSync(join(work, "design", "tokens.json"), "utf8"))).toEqual({
       color: { $type: "color", accent: { $value: "#ff0000" } },
     });
+  });
+  it("takes a repo edit of design/tokens.json into FigCraft on a tick, tells the editor, and leaves the file as written", async () => {
+    const { service, work } = setup();
+    const created = await service.create("w1", "Login");
+    if (!created.ok) throw new Error(created.error);
+    await service.join({ id: "a1", workspaceId: "w1", cwd: "/x" } as never, {
+      file: created.file.id,
+    });
+    const tokens: unknown[] = [];
+    const controller = new AbortController();
+    const viewing = service.view(
+      { fileId: created.file.id, workspaceId: "w1", pictures: false },
+      async (event) => {
+        if (event.type === "tokens") tokens.push(event.tokens);
+      },
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(tokens).toHaveLength(1));
+    const green = { color: { $type: "color", accent: { $value: "#00ff00" } } };
+    writeFileSync(join(work, "design", "tokens.json"), JSON.stringify(green));
+    await service.tick();
+    expect(tokens).toEqual([
+      { status: "imported", warnings: [] },
+      { status: "imported", warnings: [] },
+    ]);
+    await service.tick();
+    expect(tokens).toHaveLength(2);
+    expect(JSON.parse(readFileSync(join(work, "design", "tokens.json"), "utf8"))).toEqual(green);
+    controller.abort();
+    await viewing;
   });
   it("reads tokens from the workspace's own directory, not the project root", async () => {
     const { service } = setup();
