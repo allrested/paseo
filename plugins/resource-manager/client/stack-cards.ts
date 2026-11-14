@@ -16,12 +16,17 @@ function meter(key: string, label: string, value: string): Meter {
   return { key, label, value, fraction: null, level: "ok" };
 }
 
-function summary(status: CardStatus, note: string | null, meters: Meter[]): CardSummary {
-  return { status, label: LABELS[status], note, meters };
+function summary(
+  status: CardStatus,
+  note: string | null,
+  meters: Meter[],
+  label = LABELS[status],
+): CardSummary {
+  return { status, label, note, meters };
 }
 
-function off(what: string): CardSummary {
-  return summary("waiting", `${what} is not set on this host`, []);
+function off(variable: string, what: string): CardSummary {
+  return summary("waiting", `Set ${variable} on this host to ${what}`, []);
 }
 
 function probeText(probe: Probe): string {
@@ -52,7 +57,7 @@ export function paseoSummary(reading: StackReading): CardSummary {
 
 export function figcraftSummary(reading: StackReading): CardSummary {
   const { figcraft } = reading;
-  if (figcraft.status === "off") return off("FIGCRAFT_URL");
+  if (figcraft.status === "off") return off("FIGCRAFT_URL", "check FigCraft");
   const meters = [
     meter("server", "Server", probeText(figcraft.server)),
     meter("web", "Web app", figcraft.web === null ? "Not set" : probeText(figcraft.web)),
@@ -84,7 +89,7 @@ export function figcraftSummary(reading: StackReading): CardSummary {
 
 export function androidSummary(reading: StackReading): CardSummary {
   const { android } = reading;
-  if (android.status === "off") return off("PASEO_ANDROID_ADB");
+  if (android.status === "off") return off("PASEO_ANDROID_ADB", "check the device");
   const meters = [
     meter("state", "State", android.state ?? "No answer"),
     meter("version", "Android", android.androidVersion ?? "Not available"),
@@ -119,20 +124,23 @@ function runText(value: string | null, none: string): string {
 
 export function deploySummary(reading: StackReading): CardSummary {
   const { deploy } = reading;
-  if (deploy.status === "off") return off("PASEO_DEPLOY_REPO");
+  if (deploy.status === "off") return off("PASEO_DEPLOY_REPO", "follow its releases");
   if (deploy.error !== null) return summary("error", deploy.error, []);
+  const going = [deploy.docker, deploy.deployJob].some(
+    (value) => value === "in_progress" || value === "queued" || value === "waiting",
+  );
   const meters = [
     meter("tag", "Tag", deploy.tag ?? "None"),
     meter("docker", "Docker", runText(deploy.docker, "None")),
-    meter("deploy", "Deploy", runText(deploy.deployJob, "Skipped")),
+    // The deploy job is listed only once the images are built.
+    meter("deploy", "Deploy", runText(deploy.deployJob, going ? "Not started" : "Skipped")),
   ];
   const failed = [deploy.docker, deploy.deployJob].some(
     (value) => value === "failure" || value === "cancelled" || value === "timed_out",
   );
   if (failed) return summary("critical", `The ${deploy.tag} release did not finish`, meters);
-  const going = [deploy.docker, deploy.deployJob].some(
-    (value) => value === "in_progress" || value === "queued" || value === "waiting",
-  );
-  if (going) return summary("warning", `The ${deploy.tag} release is still running`, meters);
+  if (going) {
+    return summary("warning", `The ${deploy.tag} release is still running`, meters, "Running");
+  }
   return summary("ok", null, meters);
 }

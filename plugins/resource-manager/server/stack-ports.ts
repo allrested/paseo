@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { accessSync, constants } from "node:fs";
+import { connect } from "node:net";
 import { readFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import type { StackPorts } from "./stack.js";
@@ -41,6 +42,16 @@ export function nodeStackPorts(
       await response.body?.cancel();
       return response.status;
     },
+    connect: (host, port, timeoutMs) =>
+      new Promise((resolve, reject) => {
+        const socket = connect({ host, port });
+        socket.setTimeout(timeoutMs, () => socket.destroy(new Error("timed out")));
+        socket.once("connect", () => {
+          socket.destroy();
+          resolve();
+        });
+        socket.once("error", reject);
+      }),
     run: (command, args, timeoutMs) =>
       new Promise((resolve, reject) => {
         execFile(
