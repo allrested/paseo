@@ -8,10 +8,15 @@ import type { OfficeEvent } from "./contracts.js";
 export const SHEET_GLOBAL = "__officeSheet";
 /** A tile's longest side. Android's image loader shrinks a picture over 2048 pixels. */
 export const TILE_SIDE = 1024;
-/** A backdrop is drawn less sharp to stay under this, but never under one pixel per point. */
+/** A backdrop is drawn less sharp to stay under this, but not under one pixel per point. */
 export const MAX_BACKDROP_PIXELS = 4_000_000;
-/** The widest grid of sprite frames. */
-export const MAX_SPRITE_WIDTH = 1024;
+/** No backdrop is larger than this: an office past it is drawn under one pixel per point. */
+export const MOST_BACKDROP_PIXELS = 12_000_000;
+/** The longest side of a grid of sprite frames, under Android's 2048 with room to spare. */
+export const MAX_SPRITE_SIDE = 2000;
+/** The largest viewer the host draws for, in screen points a side, and its sharpest pixel ratio. */
+export const MAX_VIEWER_SIDE = 4096;
+export const MAX_VIEWER_RATIO = 8;
 /** Sprites a page keeps; the oldest goes first. */
 export const MAX_SPRITES = 200;
 /** The sprite key of the paper plane. */
@@ -93,7 +98,11 @@ export interface SheetTile extends SheetRect {
 }
 
 export interface SpritePicture {
-  /** Base64 PNG: `frames` frames in rows of `columns`, each `frameWidth` x `frameHeight`. */
+  /**
+   * Base64 PNG: `frames` frames in rows of `columns`, each `frameWidth` x `frameHeight`. A
+   * frame is the sheet's frame, or smaller when the grid would be too large: the view lays every
+   * picture out by the sheet's frame.
+   */
   png: string;
   frames: number;
   columns: number;

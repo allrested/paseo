@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { createRenderPipeline } from "../../render/pipeline.js";
-import { MAX_BACKDROP_PIXELS, TILE_SIDE } from "../../shared/sheet.js";
+import {
+  MAX_BACKDROP_PIXELS,
+  MAX_SPRITE_SIDE,
+  MOST_BACKDROP_PIXELS,
+  TILE_SIDE,
+} from "../../shared/sheet.js";
 import { FIRST_MARGINS, firstView, groundSpan, screenPoint } from "./camera.js";
 import { fakeOffice } from "./fake-office.js";
 import { LIGHT_THEME_COLORS } from "./fake-theme.js";
@@ -16,6 +21,7 @@ import {
   sheetFrame,
   spriteBox,
   spriteFrame,
+  spriteGrid,
   spriteKey,
   spriteLook,
   stillSignature,
@@ -96,6 +102,15 @@ describe("sheetFrame", () => {
     expect(sheetFrame(spanOf(plan), PHONE, 1.5).ratio).toBeCloseTo(1.5, 6);
     expect(sheetFrame(spanOf(plan), PHONE, 0.5).ratio).toBe(1);
     expect(sheetFrame(spanOf(plan), PHONE, 3).ratio).toBe(2);
+  });
+
+  test("no backdrop passes the hard limit, whatever the viewer says", () => {
+    const viewer = { width: 4096, height: 4096 };
+    const plan = planFor(viewer);
+    const frame = sheetFrame(spanOf(plan), viewer, 8);
+    const { width, height } = picturePixels(frame);
+    expect(width * height).toBeLessThanOrEqual(MOST_BACKDROP_PIXELS * 1.001);
+    expect(frame.ratio).toBeLessThan(1);
   });
 
   test("an office without rooms is an empty picture of the viewer's size", () => {
@@ -269,6 +284,30 @@ describe("sprites", () => {
   test("a robot that arrives is drawn at its seat", () => {
     const look = spriteLook("walking|#fff|off|#aaa|0|0|0")!;
     expect(clipMotion(look, 0)).toMatchObject({ x: 0, z: 0, heading: 0, lift: 0 });
+  });
+});
+
+describe("spriteGrid", () => {
+  test("keeps both sides of a grid under Android's limit, as square as it can", () => {
+    // A phone: 24 frames of 155 x 204 lie 6 across, not 12 across or 4 across.
+    const phone = spriteGrid(24, 47.4);
+    expect(phone.scale).toBe(47.4);
+    expect(phone.box).toEqual(spriteBox(47.4));
+    expect(phone.columns).toBe(6);
+    // A tablet at the first view's largest scale: frames about 278 x 370.
+    const tablet = spriteGrid(24, 88);
+    expect(tablet.scale).toBe(88);
+    expect(tablet.columns * tablet.box.width).toBeLessThanOrEqual(MAX_SPRITE_SIDE);
+    expect(Math.ceil(24 / tablet.columns) * tablet.box.height).toBeLessThanOrEqual(MAX_SPRITE_SIDE);
+    expect(spriteGrid(1, 88).columns).toBe(1);
+  });
+
+  test("draws the frames smaller when no grid of them fits", () => {
+    const grid = spriteGrid(24, 200);
+    expect(grid.scale).toBeLessThan(200);
+    expect(grid.box).toEqual(spriteBox(grid.scale));
+    expect(grid.columns * grid.box.width).toBeLessThanOrEqual(MAX_SPRITE_SIDE);
+    expect(Math.ceil(24 / grid.columns) * grid.box.height).toBeLessThanOrEqual(MAX_SPRITE_SIDE);
   });
 });
 

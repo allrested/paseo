@@ -89,7 +89,9 @@ of a robot serves every seat.
     carried on downwards until the whole office is in it. A deep office is taller than the screen
     and the user pans it.
   - Sharpness: the viewer's pixel ratio, 2 at most, lowered until the picture has at most 4
-    million pixels, and never below 1 picture pixel per screen point.
+    million pixels, but not below 1 picture pixel per screen point; an office so deep that it
+    would then pass 12 million pixels is drawn below that. A viewer is at most 4096 points a
+    side.
   - Sent as tiles of at most 1024 pixels a side. Android's image loader shrinks a picture over
     2048 pixels, which would blur it and move every robot off its desk.
   - A new backdrop and overlay are made when the rooms, their sizes or arrangement, a label, a
@@ -106,7 +108,8 @@ of a robot serves every seat.
   look: pose, visor colour, lamp state and colour, lit screen, a side desk (`side`, drawn with
   its own desk shadow, since the backdrop has no side desks), and for `idle` the side its head
   lies to. Real offices need a few dozen; the page keeps at most 200 and drops the oldest.
-  - Frames lie in a grid at most 1024 pixels wide, row by row.
+  - Frames lie in a grid, row by row, with no side over 2000 pixels. Frames too large for any
+    such grid are drawn smaller, and the app stretches every picture to the sheet's frame.
   - `typing`: 24 frames, 86 ms each, looping: three strokes of the arms and one sway of the
     head, so the loop has no jump. Each robot starts at its own frame (`phase`), as on the web.
   - `raised`: 20 frames, 70 ms each: the wave, ending on the raised hand; played once and held.
