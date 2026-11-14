@@ -199,6 +199,11 @@ describe("buildSheet", () => {
     expect(room.board.x).toBeGreaterThan(0);
     expect(room.board.x + room.board.width).toBeLessThan(sheet.width);
     expect(sheet.rooms[1]!.plate.width).toBe(0);
+    // The room's area holds its board, and is nearly as wide as the picture on a phone.
+    expect(room.area.x).toBeLessThan(room.board.x);
+    expect(room.area.y + room.area.height).toBeGreaterThan(room.board.y + room.board.height);
+    expect(room.area.width).toBeGreaterThan(sheet.width * 0.8);
+    expect(room.area.width).toBeLessThanOrEqual(sheet.width);
     expect(sheet.notes).toHaveLength(plan.notes.filter((note) => note.onDesk).length);
     expect(sheet.mentions).toHaveLength(plan.mentions.length);
   });
