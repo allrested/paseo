@@ -382,10 +382,13 @@ most one per turn.
 
 On open, the bridge imports `design/tokens.json` (W3C design tokens) into one FigCraft variable
 collection, `Tokens`, with one mode; composite types such as shadows stay in the file only, and
-the repo wins. Token edits made in FigCraft are written back to the file, uncommitted, within one
-10 s tick. A repo without the file gets Paseo's own tokens instead, `server/paseo-tokens.json`:
-one mode per app theme, imported only into a file with no `Tokens` collection yet, so edits stay
-in FigCraft and nothing is written to the repo. `packages/app/src/styles/design-tokens.test.ts`
+the repo wins. While a file is open, each 10 s tick first takes edits made to `design/tokens.json`
+(the repo wins again, also over a FigCraft edit in the same tick; a file that does not parse is
+skipped), then writes FigCraft's token edits back to it, uncommitted. A repo without the file gets
+Paseo's own tokens instead, `server/paseo-tokens.json`: one mode per app theme, imported only into
+a file with no `Tokens` collection yet, so edits stay in FigCraft and nothing is written to the
+repo. When the repo gains a tokens file, Paseo's collection is deleted before the repo's goes in,
+so none of it is written back; layers bound to it keep their values. `packages/app/src/styles/design-tokens.test.ts`
 fails when the copy drifts from `theme.ts`; `UPDATE_DESIGN_TOKENS=1` rewrites it. Interactive agent sessions in a workspace get the `design_join` tool and a `figcraft`
 MCP server behind `bin/figcraft-guard.mjs`. The guard refuses sharing, publishing, hosting, plugin
 directories and anything that names another server, and joins only links to ours. Neither the

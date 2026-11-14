@@ -36,8 +36,12 @@ async function open(
     name: "b",
   });
   let written: TokenFile | null = null;
+  let repo: TokenFile | null | Error = tokens;
   const port: TokensPort = {
-    read: async () => tokens,
+    read: async () => {
+      if (repo instanceof Error) throw repo;
+      return repo;
+    },
     defaults: async () => defaults,
     write: async (file) => {
       written = file;
@@ -55,7 +59,11 @@ async function open(
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l) as { name: string; arguments: Record<string, unknown> });
-  return { bridge, session, calls, written: () => written, lines };
+  /** Changes design/tokens.json as an agent or the user would; an Error is a file that does not parse. */
+  const setRepo = (next: TokenFile | null | Error) => {
+    repo = next;
+  };
+  return { bridge, session, calls, written: () => written, lines, setRepo };
 }
 
 const TOKENS = { color: { $type: "color", accent: { $value: "#3366cc" } } };
@@ -103,6 +111,30 @@ const EDITED = {
     },
   },
 };
+const GREEN = { color: { $type: "color", accent: { $value: "#00ff00" } } };
+/** color/accent turned red in FigCraft, with FigCraft's own ids. */
+const RED_IN_FIGCRAFT = {
+  meta: {
+    variableCollections: {
+      "VariableCollectionId:1": {
+        id: "VariableCollectionId:1",
+        name: "Tokens",
+        modes: [{ modeId: "VariableCollectionId:1/mode1", name: "Default" }],
+        defaultModeId: "VariableCollectionId:1/mode1",
+        variableIds: ["VariableID:2"],
+      },
+    },
+    variables: {
+      "VariableID:2": {
+        id: "VariableID:2",
+        name: "color/accent",
+        variableCollectionId: "VariableCollectionId:1",
+        resolvedType: "COLOR",
+        valuesByMode: { "VariableCollectionId:1/mode1": { r: 1, g: 0, b: 0, a: 1 } },
+      },
+    },
+  },
+};
 const commandOf = (call: { arguments: Record<string, unknown> }) => call.arguments.command;
 
 describe("Bridge", () => {
@@ -143,6 +175,79 @@ describe("Bridge", () => {
     );
     expect(calls().map(commandOf)).not.toContain("variable.import");
     expect(bridge.tokens).toEqual({ status: "default" });
+    await bridge.close();
+  });
+  it("picks up a repo edit on the next tick, and writes nothing back for it", async () => {
+    const { bridge, calls, written, setRepo } = await open(TOKENS);
+    expect(await bridge.syncTokensFromRepo()).toBe(false);
+    setRepo(GREEN);
+    expect(await bridge.syncTokensFromRepo()).toBe(true);
+    expect(calls().filter((call) => commandOf(call) === "variable.import")).toHaveLength(2);
+    expect(bridge.tokens).toEqual({ status: "imported", warnings: [] });
+    expect(await bridge.syncTokensBack()).toBe(false);
+    expect(await bridge.syncTokensFromRepo()).toBe(false);
+    expect(written()).toBeNull();
+    await bridge.close();
+  });
+  it("lets the repo win when the repo and FigCraft change in the same tick", async () => {
+    const { bridge, session, written, setRepo } = await open(TOKENS);
+    await session.importVariables(RED_IN_FIGCRAFT);
+    setRepo(GREEN);
+    expect(await bridge.syncTokensFromRepo()).toBe(true);
+    expect(await bridge.syncTokensBack()).toBe(false);
+    expect(written()).toBeNull();
+    await bridge.close();
+  });
+  it("skips a file that does not parse, then takes it once it does", async () => {
+    const { bridge, calls, setRepo, lines } = await open(TOKENS);
+    setRepo(new Error("Unexpected end of JSON input"));
+    expect(await bridge.syncTokensFromRepo()).toBe(true);
+    expect(bridge.tokens).toEqual({
+      status: "refused",
+      reason: "design/tokens.json is not valid JSON (Unexpected end of JSON input)",
+    });
+    expect(await bridge.syncTokensFromRepo()).toBe(false);
+    expect(lines.filter((line) => line.includes("not valid JSON"))).toHaveLength(1);
+    setRepo(GREEN);
+    expect(await bridge.syncTokensFromRepo()).toBe(true);
+    expect(bridge.tokens).toEqual({ status: "imported", warnings: [] });
+    expect(calls().filter((call) => commandOf(call) === "variable.import")).toHaveLength(2);
+    await bridge.close();
+  });
+  it("stops writing back once the repo's file is deleted, and keeps FigCraft's variables", async () => {
+    const { bridge, session, calls, written, setRepo } = await open(TOKENS);
+    setRepo(null);
+    expect(await bridge.syncTokensFromRepo()).toBe(true);
+    expect(bridge.tokens).toEqual({ status: "none" });
+    await session.importVariables(RED_IN_FIGCRAFT);
+    expect(await bridge.syncTokensBack()).toBe(false);
+    expect(written()).toBeNull();
+    expect(calls().map(commandOf)).not.toContain("variable.deleteCollection");
+    await bridge.close();
+  });
+  it("replaces Paseo's tokens with the repo's when the file appears while open", async () => {
+    const { bridge, session, calls, written, setRepo } = await open(null, {}, PASEO);
+    setRepo(TOKENS);
+    expect(await bridge.syncTokensFromRepo()).toBe(true);
+    expect(calls().map(commandOf).slice(-3)).toEqual([
+      "variable.export",
+      "variable.deleteCollection",
+      "variable.import",
+    ]);
+    expect(bridge.tokens).toEqual({ status: "imported", warnings: [] });
+    const names = JSON.stringify(await session.exportVariables());
+    expect(names).not.toContain("spacing/4");
+    expect(await bridge.syncTokensBack()).toBe(false);
+    expect(written()).toBeNull();
+    await bridge.close();
+  });
+  it("replaces Paseo's tokens with the repo's on open", async () => {
+    const { bridge, calls } = await open(TOKENS, {
+      FAKE_FIGCRAFT_VARIABLES: JSON.stringify(PASEO),
+    });
+    expect(calls().map(commandOf)).toContain("variable.deleteCollection");
+    expect(bridge.tokens).toEqual({ status: "imported", warnings: [] });
+    expect(await bridge.syncTokensBack()).toBe(false);
     await bridge.close();
   });
   it("opens without tokens when the repo has none", async () => {

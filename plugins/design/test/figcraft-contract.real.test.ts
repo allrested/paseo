@@ -285,6 +285,24 @@ describe.skipIf(!CLI || !SERVER_BIN)("FigCraft v0.18.1 contract", () => {
         "Pure Black",
       ]);
       expect(collection.defaultModeId).toBe(collection.modes[0].modeId);
+      // Replacing them with a repo's tokens deletes the collection: a bound layer keeps its colour.
+      const made = await c.json("create_node", {
+        type: "FRAME",
+        name: "Card",
+        width: 100,
+        height: 50,
+        props: { fill: { $var: "color/accent" } },
+      });
+      const card = made.id as number;
+      const fills = async () =>
+        ((await c.json("get_node", { id: card })) as { fills: unknown }).fills;
+      const before = await fills();
+      expect(before).toEqual([expect.objectContaining({ type: "solid" })]);
+      const [collectionId] = Object.keys(inner.meta.variableCollections);
+      expect(await c.command("variable.deleteCollection", { collection: collectionId })).toEqual({
+        deletedVariables: Object.keys(shipped.meta.variables).length,
+      });
+      expect(await fills()).toEqual(before);
     } finally {
       c.stop();
     }

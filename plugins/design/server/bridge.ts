@@ -29,17 +29,31 @@ export const BRIDGE_AUTHOR = `${CLIENT_NAME} (agent)`;
 const AGENT_NAME = / \(agent\)$/;
 const MAX_CODE_LAYERS = 3;
 
-function hasTokensCollection(exported: unknown): boolean {
+type RepoRead = { kind: "same" } | { kind: "bad" } | { kind: "file"; file: TokenFile | null };
+
+interface ExportedCollection {
+  id: string;
+  name: string;
+  modes: { name: string }[];
+}
+
+function tokensCollections(exported: unknown): ExportedCollection[] {
   const collections = (exported as { meta?: { variableCollections?: object } }).meta
     ?.variableCollections;
-  return Object.values(collections ?? {}).some(
-    (collection) => (collection as { name?: unknown }).name === "Tokens",
+  return (Object.values(collections ?? {}) as ExportedCollection[]).filter(
+    (collection) => collection.name === "Tokens",
   );
+}
+
+function hasTokensCollection(exported: unknown): boolean {
+  return tokensCollections(exported).length > 0;
 }
 
 export class Bridge {
   tokens: TokensState = { status: "none" };
   private repoTokens: TokenFile | null = null;
+  /** The repo file as last read (JSON), null for no file, or the reason it did not parse. */
+  private lastSeen: string | null = null;
 
   private constructor(
     private readonly session: FigcraftSession,
@@ -68,19 +82,57 @@ export class Bridge {
   }
 
   private async importTokens(): Promise<void> {
-    let file: TokenFile | null;
-    try {
-      file = await this.port.read();
-    } catch (error) {
-      this.refuse(`design/tokens.json is not valid JSON (${(error as Error).message})`);
-      return;
-    }
+    const read = await this.readRepo();
+    if (read.kind !== "file") return;
+    const { file } = read;
     if (file === null) {
       await this.importDefaults();
       return;
     }
+    await this.importRepo(file);
+  }
+
+  /**
+   * Takes an edit of the repo's design/tokens.json made since the last read or write-back: the
+   * repo wins, as on open. True when the tokens state changed, so viewers need it again.
+   */
+  async syncTokensFromRepo(): Promise<boolean> {
+    const read = await this.readRepo();
+    if (read.kind === "same") return false;
+    if (read.kind === "bad") return true;
+    if (read.file === null) {
+      if (this.repoTokens === null) return false;
+      // Deleted: FigCraft keeps the variables and nothing is written back any more.
+      this.repoTokens = null;
+      this.tokens = { status: "none" };
+      return true;
+    }
+    await this.importRepo(read.file);
+    return true;
+  }
+
+  /** The repo's file (null: it has none), unless it is as last seen or does not parse. */
+  private async readRepo(): Promise<RepoRead> {
+    let file: TokenFile | null;
+    try {
+      file = await this.port.read();
+    } catch (error) {
+      const reason = `design/tokens.json is not valid JSON (${(error as Error).message})`;
+      if (this.lastSeen === reason) return { kind: "same" };
+      this.lastSeen = reason;
+      this.refuse(reason);
+      return { kind: "bad" };
+    }
+    const seen = file === null ? null : JSON.stringify(file);
+    if (seen !== null && seen === this.lastSeen) return { kind: "same" };
+    this.lastSeen = seen;
+    return { kind: "file", file };
+  }
+
+  private async importRepo(file: TokenFile): Promise<void> {
     try {
       const { variables, warnings } = toVariables(file);
+      await this.dropPaseoTokens();
       const answer = await this.session.importVariables(variables);
       this.repoTokens = file;
       this.tokens = { status: "imported", warnings: [...warnings, ...answer.warnings] };
@@ -91,6 +143,14 @@ export class Bridge {
           : `FigCraft refused the tokens: ${(error as Error).message}`,
       );
     }
+  }
+
+  /** Deletes Paseo's Tokens collection before the repo's own tokens go in: none of it may reach the repo. */
+  private async dropPaseoTokens(): Promise<void> {
+    const paseo = tokensCollections(await this.session.exportVariables()).filter(
+      (collection) => collection.modes?.length > 1 && collection.modes[0]?.name === "Paseo",
+    );
+    for (const collection of paseo) await this.session.deleteCollection(collection.id);
   }
 
   /** Paseo's tokens, unless the file already has a Tokens collection: edits to it live only there. */
@@ -141,6 +201,7 @@ export class Bridge {
     const next = fromVariables(exported, this.repoTokens);
     await this.port.write(next);
     this.repoTokens = next;
+    this.lastSeen = JSON.stringify(next);
     this.tokens = { status: "written-back" };
     return true;
   }

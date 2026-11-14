@@ -92,6 +92,14 @@ function command(name, params) {
         variables: Object.keys(variables.meta.variables).length,
         warnings: [],
       };
+    case "variable.deleteCollection": {
+      const gone = Object.values(variables.meta.variables).filter(
+        (variable) => variable.variableCollectionId === params.collection,
+      );
+      delete variables.meta.variableCollections[params.collection];
+      for (const variable of gone) delete variables.meta.variables[variable.id];
+      return { deletedVariables: gone.length };
+    }
     case "variable.export":
       return { text: JSON.stringify({ error: false, meta: variables.meta, status: 200 }) };
     case "comment.add": {

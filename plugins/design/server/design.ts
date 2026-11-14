@@ -510,7 +510,13 @@ export function createDesignService(given: DesignDeps): DesignService {
         if (bridge === null) continue; // Still starting.
         try {
           await comments.poll(fileId);
-          await (await bridge).syncTokensBack();
+          const open = await bridge;
+          // The repo first: an edit there wins over a FigCraft edit made in the same tick.
+          if (await open.syncTokensFromRepo()) {
+            for (const push of viewers.get(fileId) ?? [])
+              await push({ type: "tokens", tokens: open.tokens }).catch(() => undefined);
+          }
+          await open.syncTokensBack();
         } catch (error) {
           deps.log(`[design] ${fileId}: tick failed: ${messageOf(error)}`);
         }
