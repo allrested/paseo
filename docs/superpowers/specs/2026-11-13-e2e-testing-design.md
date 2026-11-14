@@ -142,17 +142,18 @@ docker run -d --rm --privileged --memory 4g -p 127.0.0.1:5555:5555 \
   Interactive sessions only, as with the office: nine tool definitions are not added to helper
   agents. The switch is in the panel, for a host that would rather not spend the tokens:
 
-| Tool                 | Does                                                                   |
-| -------------------- | ---------------------------------------------------------------------- |
-| `android_snapshot`   | The current app and activity, and the screen's elements with refs.     |
-| `android_tap`        | Taps an element by ref, or a point.                                    |
-| `android_type`       | Types text into the focused field.                                     |
-| `android_key`        | Back, home, enter, recents, or a keycode.                              |
-| `android_swipe`      | Swipes between two points, or up, down, left or right from the middle. |
-| `android_screenshot` | Saves a PNG under the workspace and returns its path.                  |
-| `android_install`    | Installs an APK file from the workspace or the home folder.            |
-| `android_launch`     | Starts an installed package, or stops it.                              |
-| `android_logs`       | The last lines of logcat, for one package when named.                  |
+| Tool                                           | Does                                                                   |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| `android_snapshot`                             | The current app and activity, and the screen's elements with refs.     |
+| `android_tap`                                  | Taps an element by ref, or a point.                                    |
+| `android_type`                                 | Types text into the focused field.                                     |
+| `android_key`                                  | Back, home, enter, recents, or a keycode.                              |
+| `android_swipe`                                | Swipes between two points, or up, down, left or right from the middle. |
+| `android_screenshot`                           | Saves a PNG under the workspace and returns its path.                  |
+| `android_record_start` / `android_record_stop` | Records the screen as an MP4 (added 2026-11-14).                       |
+| `android_install`                              | Installs an APK file from the workspace or the home folder.            |
+| `android_launch`                               | Starts an installed package, or stops it.                              |
+| `android_logs`                                 | The last lines of logcat, for one package when named.                  |
 
 A ref is good until the next snapshot. A tap on a stale ref is refused with "take a new
 snapshot".
@@ -192,7 +193,8 @@ user can also run a workspace's flows from the Android panel:
 Goals: an agent tests an Android app end to end without a phone; the user watches and can take
 over; the Flutter app's Maestro flows run.
 
-Non-goals: iOS; more than one device; Google Play services; video; building the APK in the stack;
+Non-goals: iOS; more than one device; Google Play services; video (reversed on 2026-11-14: the
+agent record tools); building the APK in the stack;
 pinch and multi-touch; resetting the device between tests (an agent clears an app's data with adb).
 
 Anti-goals: adb reachable from another stack or the internet; a device that keeps a core busy
