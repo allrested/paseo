@@ -41,12 +41,17 @@ export function retargetAgentTabs(
  * host older than that list sends only the last link.
  */
 function findLiveSuccessor(agents: Map<string, Agent>, agentId: string): string | null {
+  // The agent moved straight from it wins over one that only lists it further back, which is
+  // what tells two live agents of one chain apart after one of them was unarchived by hand.
+  let listedBy: string | null = null;
   for (const agent of agents.values()) {
     if (agent.archivedAt) continue;
     if (getMovedFromAgentId(agent.labels) === agentId) return agent.id;
-    if (getMovedFromAgentIds(agent.labels).includes(agentId)) return agent.id;
+    if (listedBy === null && getMovedFromAgentIds(agent.labels).includes(agentId)) {
+      listedBy = agent.id;
+    }
   }
-  return null;
+  return listedBy;
 }
 
 /**
