@@ -74,6 +74,8 @@ export function createSheetSessions(deps: SheetSessionsDeps): SheetSessions {
   const sessions = new Map<string, Session>();
   /** Viewers whose page is still opening hold a slot too. */
   let opening = 0;
+  /** Set by stop(): a page that finishes opening after it is closed at once. */
+  let halted = false;
 
   async function run(input: SheetInput, subscriber: SheetSubscriber): Promise<void> {
     const push = async (event: SheetEvent): Promise<void> => {
@@ -108,7 +110,7 @@ export function createSheetSessions(deps: SheetSessionsDeps): SheetSessions {
     } finally {
       opening -= 1;
     }
-    if (subscriber.signal.aborted) {
+    if (subscriber.signal.aborted || halted) {
       await page.close().catch(() => undefined);
       return;
     }
@@ -246,6 +248,7 @@ export function createSheetSessions(deps: SheetSessionsDeps): SheetSessions {
       }
     },
     async stop() {
+      halted = true;
       const open = [...sessions.values()];
       for (const session of open) session.end(null);
       await Promise.all(open.map((session) => session.done));
