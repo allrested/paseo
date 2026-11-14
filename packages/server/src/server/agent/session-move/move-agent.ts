@@ -7,6 +7,7 @@ import {
   MOVED_TO_AGENT_ID_LABEL,
   PARENT_AGENT_ID_LABEL,
   getMovedFromAgentId,
+  getMovedFromAgentIds,
   getMovedToAgentId,
   getParentAgentIdFromLabels,
 } from "@getpaseo/protocol/agent-labels";
@@ -730,8 +731,13 @@ async function movedFromAgentIds(
   fromId: string,
   selfId: string | null,
 ): Promise<string> {
-  const earlier = await resolveMoveBackChain(fromId, labelsLookup(deps));
-  return [fromId, ...earlier].filter((id) => id !== selfId).join(",");
+  const getLabels = labelsLookup(deps);
+  const earlier = await resolveMoveBackChain(fromId, getLabels);
+  // The links alone lose an agent after a move back: it repoints the moved-from link of the agent
+  // returned to, so the walk from there no longer reaches what came before. The list that agent
+  // already carries still names it.
+  const listed = getMovedFromAgentIds(await getLabels(fromId));
+  return [...new Set([fromId, ...earlier, ...listed])].filter((id) => id !== selfId).join(",");
 }
 
 function labelsLookup(deps: MoveAgentDeps): LabelsLookup {
