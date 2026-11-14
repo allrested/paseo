@@ -5,7 +5,9 @@ import type {
   Picture,
   RawLayer,
 } from "./figcraft-session.js";
+import type { Change, EditAction, EditResult, Layer } from "../shared/contracts.js";
 import type { DesignFile } from "./files-store.js";
+import { colorTokens, frontFirst, layerView } from "./layer-edit.js";
 import { CLIENT_NAME } from "./mcp-stdio-client.js";
 import { fromVariables, sameTokens, toVariables, TokensError, type TokenFile } from "./tokens.js";
 
@@ -39,6 +41,7 @@ const MAX_FACT_LAYERS = 10;
 const COMPARE_GAP = 40;
 /** How deep under a selected layer to look for bound variables. */
 const FACT_DEPTH = 8;
+const GONE = "This layer is gone. Tap it again";
 
 export interface SelectionFacts {
   layers: { id: string; name: string; width: number; height: number }[];
@@ -278,6 +281,77 @@ export class Bridge {
       }
     }
     return { layers, tokens: [...tokens].sort() };
+  }
+
+  /** The phone's edits: one FigCraft command each, on the file as the others last left it. */
+  async edit(action: EditAction): Promise<EditResult> {
+    // A headless member takes in the other members' edits only when it reads collab.peers.
+    await this.session.peers();
+    if (action.type === "pick") return this.pick(action.x, action.y);
+    let show: string | null;
+    if (action.type === "layer") {
+      show = action.id;
+    } else if (action.type === "change") {
+      show = await this.change(action.id, action.change);
+    } else {
+      await (action.type === "undo" ? this.session.undo() : this.session.redo());
+      show = action.id;
+    }
+    const layer = show === null ? null : await this.view(show);
+    if (layer === null && action.type === "layer") throw new Error(GONE);
+    return { ok: true, layer, here: [], colors: [] };
+  }
+
+  /** The layers under a spot given as 0..1 of the picture, which is the page's top-level box. */
+  private async pick(x: number, y: number): Promise<EditResult> {
+    const page = await this.session.pageBounds();
+    if (page === null) return { ok: true, layer: null, here: [], colors: [] };
+    const here = frontFirst(
+      await this.session.layersAt(page.x + x * page.width, page.y + y * page.height),
+    );
+    const exported = await this.session.exportVariables();
+    const layer = here[0] ? await this.view(here[0].id, exported) : null;
+    return { ok: true, layer, here, colors: colorTokens(exported) };
+  }
+
+  /** The layer to show afterwards: the copy after a duplicate, none after a delete. */
+  private async change(id: string, change: Change): Promise<string | null> {
+    if ((await this.find(id)) === null) throw new Error(GONE);
+    switch (change.kind) {
+      case "text":
+        await this.session.setProperties(id, { characters: change.text });
+        return id;
+      case "fill":
+        await this.session.setProperties(id, { fill: { $var: change.token } });
+        return id;
+      case "move":
+        await this.session.nudge(id, change.dx, change.dy);
+        return id;
+      case "resize":
+        await this.session.nudgeSize(id, change.dw, change.dh);
+        return id;
+      case "duplicate":
+        return this.session.duplicate(id);
+      case "delete":
+        await this.session.remove(id);
+        return null;
+    }
+  }
+
+  private async find(id: string): Promise<RawLayer | null> {
+    try {
+      return await this.session.node(id);
+    } catch (error) {
+      if (/no such node/i.test((error as Error).message)) return null;
+      throw error;
+    }
+  }
+
+  private async view(id: string, exported?: unknown): Promise<Layer | null> {
+    const raw = await this.find(id);
+    if (raw === null) return null;
+    const names = variableNames(exported ?? (await this.session.exportVariables()));
+    return layerView(id, raw, await this.session.pageBounds(), names);
   }
 
   /** Places a picture of the running app right of a frame, at the frame's width. */

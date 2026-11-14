@@ -401,7 +401,10 @@ server. Opening a file starts a bridge, a `figcraft-cli mcp` child that joins th
 and stops 5 minutes after the last viewer or agent leaves; at most 3 run at once. On desktop the
 panel frames FigCraft's editor, and FigCraft asks you to confirm the join once. A phone, in the app
 or a compact browser, gets the bridge's picture of the page instead: tap a spot to comment, and send
-an open thread to an agent. New comments reach the agent that last joined the file as one prompt, at
+an open thread to an agent. Its Edit switch makes a tap pick the layer there for a sheet that
+changes its text, binds its fill to a colour token, nudges its place and size, duplicates or
+deletes it, and undoes; the bridge makes those edits as its own member, so its Undo leaves other
+members' edits alone ([design](superpowers/specs/2026-11-14-design-phone-editing-design.md)). New comments reach the agent that last joined the file as one prompt, at
 most one per turn.
 
 On open, the bridge imports `design/tokens.json` (W3C design tokens) into one FigCraft variable
