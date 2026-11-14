@@ -334,17 +334,29 @@ view loads the plugin's vendored three.js r170 (`plugins/office/vendor`) through
 draws only while something moves.
 
 A client that cannot draw, which is the installed app (plugin code there has React Native views
-only) and a browser without WebGL2, gets the same 3D view as pictures from the host when the
-daemon has a Chromium (`PASEO_BROWSER_CDP_URL`, with WebGL on: see [docker.md](docker.md)). The
-office opens a page there that no pane and no agent sees, runs the same scene in it as a headless
-office client fed the `office.state` events (`plugins/office/render/page.ts`), and asks it for a
-JPEG every 80 ms; a still office sends nothing. The page draws from a timer, not the browser's
-frame clock: its window is not on screen, where that clock runs about four times a second. The client shows the latest picture and sends
-taps and drags back over `office.render.input.request`, which the host replays as mouse events.
-The daemon hands built-ins the two things this needs beside their directory: `offscreenPages` and
-`bundleBrowserScript` (`BuiltinPluginInfo`); directory plugins get neither. Two viewers at most
-per host, and a viewer that says nothing for 30 seconds is closed. Without a Chromium or without
-WebGL in it, with 3D off, and after a lost graphics context or a stream that ended, the client
+only) and a browser without WebGL2, composes the same office itself from pictures the host draws
+once, when the daemon has a Chromium (`PASEO_BROWSER_CDP_URL`, with WebGL on: see
+[docker.md](docker.md)). The office opens a page there that no pane and no agent sees
+(`plugins/office/render/sheet-page.ts`), feeds it the `office.state` events, and relays what it
+draws over `office.sheet`:
+
+- A backdrop of the still parts, as JPEG tiles of at most 1024 pixels a side. Android's image
+  loader shrinks a picture over 2048 pixels, which would move every robot off its desk.
+- An overlay of what stands in front of robots (each room's right and front wall, notes on desks,
+  name plates), as PNG tiles.
+- A sheet of positions in backdrop pixels after every office change: robots far to near, boards,
+  name plates, notes, mentions.
+
+Each robot look (pose, colours, lit screen, side desk) is one PNG grid of frames, asked for once
+through `office.sheet.sprite.request`. The camera is orthographic, so one picture serves every
+seat. The client lays tiles and sprites out as `Image`s, steps a robot through its frames on the
+native driver, and pans, zooms and picks on the device: nothing is sent per frame, and a robot's
+change never draws a new backdrop. `plugins/office/server/render/sheet-page.local.e2e.test.ts`
+is the hand-run check that the pictures add up to the scene; run it after a change to what the
+scene draws. The daemon hands built-ins the two things this needs beside their directory:
+`offscreenPages` and `bundleBrowserScript` (`BuiltinPluginInfo`); directory plugins get neither.
+Two viewers at most per host, and a viewer that says nothing for 30 seconds is closed. Without a
+Chromium or without WebGL in it, with 3D off, and after the host ended the view, the client
 shows the list.
 
 Server code of a plugin cannot import from its `client/` folder (the compiler refuses it), and

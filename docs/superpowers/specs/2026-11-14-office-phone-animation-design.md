@@ -110,8 +110,9 @@ of a robot serves every seat.
   - `typing`: 24 frames, 86 ms each, looping: three strokes of the arms and one sway of the
     head, so the loop has no jump. Each robot starts at its own frame (`phase`), as on the web.
   - `raised`: 20 frames, 70 ms each: the wave, ending on the raised hand; played once and held.
-  - `idle`, `slumped`: 1 frame. The scene's `walking` pose is not drawn: the sheet gives such
-    a robot its `idle` picture and marks it `joining`, which the app shows as a fade in.
+  - `idle`, `slumped`: 1 frame. The walk from the door is not drawn: a `walking` robot is 1
+    frame, seated upright at its desk, and the sheet marks it `joining`, which the app shows as
+    a fade in.
 - **Plane.** One small picture of a paper plane, key `plane`, for mentions.
 - **Sheet.** Plain data in backdrop pixels, made by the render page from the plan it draws, so
   the two cannot disagree: the picture's size and its pixels per screen point; the sprite frame's
