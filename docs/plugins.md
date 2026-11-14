@@ -330,6 +330,21 @@ a pin, follow
 out or edited and why; the next daemon start replaces the plugin's copies whose content changed.
 `oxlint` and `oxfmt` skip the vendored files, so they stay as reviewed.
 
+The `saved-prompts` built-in keeps prompts the user writes often. The list is the plugin's host
+settings, so the web app and the phone on one host share it: up to 100 prompts, each a name of at
+most 40 characters, unique whatever its case, and a text of at most 20,000. The composer's Prompts
+control reads the list each time it opens and puts the picked prompt at the cursor; it never sends.
+Typing a name nothing has yet, with text in the composer, offers to save that text under the name.
+`/prompt <name>` in an agent's composer takes a whole name or the start of exactly one and replaces
+the composer's text, which Paseo has just cleared; no match, or several, shows the saved names
+instead. There is one command for every prompt because the app reads a plugin's slash commands
+when the plugin loads, so a command per prompt would not follow the list. The "Saved prompts"
+Command Center item opens the settings screen, which adds, edits and deletes prompts. It finds an
+open prompt by the name it had when opened, so a save from another device cannot land it on a
+neighbour. The control and the command read and write through `settingsRpc`, the calls
+`useSettings` makes, since neither has a settings screen's state to hold. The plugin needs an app
+with composer items, 0.16.0 or later.
+
 The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which
 lists that workspace's room first. Each workspace is a room, and the lobby holds agents without a
