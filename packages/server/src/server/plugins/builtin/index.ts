@@ -6,6 +6,7 @@ export const builtinPlugins = [
   "android",
   "antigravity-provider",
   "bddevlab-usage-source",
+  "chat-search",
   "claude-accounts",
   "claude-usage-source",
   "claude-workflows",
