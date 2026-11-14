@@ -55,10 +55,15 @@ import {
   layerStyleValues,
   panned,
   pinched,
+  keptSprites,
   planePath,
-  playsOnce,
+  pivotedRotation,
+  shouldAsk,
   stepRanges,
   targetAt,
+  wavesOwed,
+  zoomLimits,
+  type Asked,
   type Fingers,
   type Transform,
   type Viewer,
@@ -78,10 +83,8 @@ const PLANE_STEPS = 8;
 
 const CLIP = { overflow: "hidden" } as const;
 
-/** The picture of a sprite, by `scale|key`: undefined while asked for, null when there is none. */
-type Sprites = Record<string, SpritePicture | null>;
-
-const spriteId = (scale: number, key: string) => `${scale}|${key}`;
+/** The pictures the host has given, by key. A key with none yet, or a failure, is absent. */
+type Pictures = Record<string, SpritePicture>;
 
 /** A clock that runs while a sprite that needs it is shown, and is shared by all of that kind. */
 function createClocks() {
@@ -244,40 +247,40 @@ function Session({
     tell({ sheetId, resize: { ...next, pixelRatio: input.pixelRatio } });
   }, [sheetId, width, height, input, tell]);
 
-  // Sprites: asked for once per scale and key for as long as this page lives.
-  const [sprites, setSprites] = useState<Sprites>({});
+  // Sprites are kept by key. One for another scale stays in use until its replacement is here,
+  // so a robot never vanishes while the host is asked.
+  const [pictures, setPictures] = useState<Pictures>({});
+  const picturesNow = useRef(pictures);
+  picturesNow.current = pictures;
   const seenPosts = useRef<Set<string> | null>(null);
-  const asked = useRef(new Set<string>());
+  const asked = useRef(new Map<string, Asked>());
   const scale = shown?.sheet.scale ?? null;
   useEffect(() => {
     asked.current.clear();
-    setSprites({});
+    setPictures({});
     seenPosts.current = null;
   }, [sheetId]);
-  useEffect(() => {
-    if (scale === null) return;
-    const prefix = `${scale}|`;
-    const own = (id: string) => id.startsWith(prefix);
-    for (const id of asked.current) if (!own(id)) asked.current.delete(id);
-    setSprites((previous) =>
-      Object.keys(previous).every(own)
-        ? previous
-        : Object.fromEntries(Object.entries(previous).filter(([id]) => own(id))),
-    );
-  }, [scale]);
   const want = useCallback(
     (key: string) => {
-      const id = spriteId(scale ?? 0, key);
       const page = sheetIdRef.current;
-      if (scale === null || page === null || asked.current.has(id)) return;
-      asked.current.add(id);
-      const keep = (picture: SpritePicture | null) => {
-        // An answer for a page that is gone, or a scale no longer shown, is not for this view.
-        if (sheetIdRef.current !== page || !asked.current.has(id)) return;
-        setSprites((previous) => ({ ...previous, [id]: picture }));
-      };
-      // A failed question is remembered as no picture: asking again in a loop helps nobody.
-      requestSprite({ sheetId: page, key }).then(keep, () => keep(null));
+      if (scale === null || page === null) return;
+      const now = Date.now();
+      if (!shouldAsk(asked.current.get(key), picturesNow.current[key], scale, now)) return;
+      const record = { askedScale: scale, askedAt: now, pending: true };
+      asked.current.set(key, record);
+      void (async () => {
+        let picture: SpritePicture | null = null;
+        // A failed question is asked again later, by a later sheet, but not in a loop.
+        try {
+          picture = await requestSprite({ sheetId: page, key });
+        } catch {
+          picture = null;
+        }
+        // An answer for a page that is gone is not for this view.
+        if (sheetIdRef.current !== page) return;
+        asked.current.set(key, { ...record, pending: false });
+        if (picture !== null) setPictures((previous) => ({ ...previous, [key]: picture }));
+      })();
     },
     [requestSprite, scale],
   );
@@ -288,14 +291,26 @@ function Session({
     if (robots === undefined) return;
     for (const robot of robots) want(robot.key);
   }, [robots, want]);
+  // Few pictures are kept; past a limit those no shown robot uses go.
+  useEffect(() => {
+    if (robots === undefined) return;
+    const keys = Object.keys(pictures);
+    const keep = keptSprites(keys, new Set([PLANE_KEY, ...robots.map((robot) => robot.key)]));
+    if (keep.length === keys.length) return;
+    for (const key of keys) if (!keep.includes(key)) asked.current.delete(key);
+    setPictures(Object.fromEntries(keep.map((key) => [key, pictures[key]!])));
+  }, [pictures, robots]);
 
   // The sheet shown before this one: what a robot's key and presence are compared with.
   const history = useRef<{ sheet: Sheet | null; previous: Sheet | null }>({
     sheet: null,
     previous: null,
   });
+  // A wave is owed when the sheet says so, not when a sprite arrives: the sprite may come late.
+  const owed = useRef(new Set<string>());
   if (history.current.sheet !== sheet) {
     history.current = { sheet, previous: history.current.sheet };
+    if (sheet !== null) owed.current = wavesOwed(owed.current, history.current.previous, sheet);
   }
   const { previous } = history.current;
   const previousRobots = useMemo(
@@ -323,10 +338,7 @@ function Session({
       ...fresh.map(({ from, to }) => ({ id: (planeId.current += 1), from, to })),
     ]);
   }, [mentions, want]);
-  const planePicture = scale === null ? undefined : sprites[spriteId(scale, PLANE_KEY)];
-  useEffect(() => {
-    if (planePicture === null) setPlanes([]);
-  }, [planePicture]);
+  const planePicture = pictures[PLANE_KEY];
   const removePlane = useCallback(
     (id: number) => setPlanes((current) => current.filter((plane) => plane.id !== id)),
     [],
@@ -397,14 +409,32 @@ function Session({
   useEffect(() => () => glide.current?.stop(), []);
 
   // A request that was already there when this view appeared was made for the structure view.
+  // One that comes before the first sheet waits for it.
   const handledNonce = useRef(focusRequest?.nonce ?? 0);
+  const waitingFocus = useRef<string | null>(null);
+  const focusAgent = useCallback(
+    (agentId: string) => {
+      const current = sheetNow.current;
+      if (current === null || transform.current === null) {
+        waitingFocus.current = agentId;
+        return;
+      }
+      glideTo(focusOn(current, { agentId }, viewer.current, transform.current));
+    },
+    [glideTo],
+  );
   useEffect(() => {
     if (focusRequest === null || focusRequest.nonce === handledNonce.current) return;
     handledNonce.current = focusRequest.nonce;
-    const current = sheetNow.current;
-    if (current === null || transform.current === null) return;
-    glideTo(focusOn(current, { agentId: focusRequest.agentId }, viewer.current, transform.current));
-  }, [focusRequest, glideTo]);
+    focusAgent(focusRequest.agentId);
+  }, [focusRequest, focusAgent]);
+  const hasSheet = sheet !== null;
+  useEffect(() => {
+    if (!hasSheet || waitingFocus.current === null) return;
+    const agentId = waitingFocus.current;
+    waitingFocus.current = null;
+    focusAgent(agentId);
+  }, [hasSheet, focusAgent]);
 
   // Touches are read against this view, so the content never takes them (`pointerEvents` below).
   const hold = useRef<{
@@ -459,7 +489,10 @@ function Session({
         if (second !== undefined) {
           const now = spread(first, second);
           current.joined = true;
-          if (current.fingers !== null) apply(pinched(transform.current, current.fingers, now));
+          if (current.fingers !== null && sheetNow.current !== null) {
+            const limits = zoomLimits(sheetNow.current, viewer.current);
+            apply(pinched(transform.current, current.fingers, now, limits));
+          }
           current.fingers = now;
           return;
         }
@@ -522,9 +555,9 @@ function Session({
               key={robot.agentId}
               sheet={sheet}
               robot={robot}
-              previous={previousRobots.get(robot.agentId)}
               fadesIn={previous !== null && !previousRobots.has(robot.agentId)}
-              picture={sprites[spriteId(sheet.scale, robot.key)]}
+              pictures={pictures}
+              owed={owed}
               clocks={clocks}
             />
           ))}
@@ -577,29 +610,52 @@ function tileLayers(tiles: SheetTile[]) {
 interface RobotSpriteProps {
   sheet: Sheet;
   robot: SheetRobot;
-  /** The robot in the sheet shown before this one. */
-  previous: SheetRobot | undefined;
   fadesIn: boolean;
+  /** Agents owed a once-only wave; the robot takes its own when its picture is shown. */
+  owed: { current: Set<string> };
   clocks: Clocks;
 }
 
-/** A robot is not drawn until its picture is here: undefined while the host is still asked. */
+/**
+ * A robot shows the picture of its key, or until that is here the last one it showed. It is not
+ * drawn before it has had any.
+ */
 const RobotSprite = memo(function RobotSprite({
-  picture,
+  pictures,
   ...rest
-}: RobotSpriteProps & { picture: SpritePicture | null | undefined }) {
-  return picture == null ? null : <ShownRobot picture={picture} {...rest} />;
+}: RobotSpriteProps & { pictures: Pictures }) {
+  const lastKey = useRef<string | null>(null);
+  const own = pictures[rest.robot.key];
+  if (own !== undefined) lastKey.current = rest.robot.key;
+  const picture = own ?? (lastKey.current === null ? undefined : pictures[lastKey.current]);
+  return picture === undefined ? null : (
+    <ShownRobot picture={picture} current={own !== undefined} {...rest} />
+  );
 });
+
+/** Every sprite is laid out by the sheet's frame: a picture of another size is stretched to it. */
+function gridSize(picture: SpritePicture, frame: { width: number; height: number }) {
+  return {
+    width: picture.columns * frame.width,
+    height: Math.ceil(picture.frames / picture.columns) * frame.height,
+  };
+}
 
 function ShownRobot({
   sheet,
   robot,
-  previous,
   fadesIn,
   picture,
+  current,
+  owed,
   clocks,
-}: RobotSpriteProps & { picture: SpritePicture }) {
+}: RobotSpriteProps & { picture: SpritePicture; current: boolean }) {
   const { frames, frameMs } = picture;
+  const { width: frameWidth, height: frameHeight } = sheet.frame;
+  const frame = useMemo(
+    () => ({ width: frameWidth, height: frameHeight }),
+    [frameWidth, frameHeight],
+  );
   const fade = useRef(new Animated.Value(fadesIn ? 0 : 1)).current;
   useEffect(() => {
     if (!fadesIn) return;
@@ -614,24 +670,33 @@ function ShownRobot({
 
   const loops = picture.loop && frames > 1;
   const once = !picture.loop && frames > 1;
-  const plays = playsOnce(previous, robot, picture.loop);
-  // A once-only sprite sits on its last frame unless it plays now.
-  const onceValue = useRef(new Animated.Value(plays ? 0 : frames)).current;
+  // A once-only sprite sits on its last frame unless the robot is owed its wave.
+  const [onceValue] = useState(
+    () => new Animated.Value(once && current && owed.current.has(robot.agentId) ? 0 : frames),
+  );
   const wave = useRef<Animated.CompositeAnimation | null>(null);
   useEffect(() => {
-    if (!once || !plays) return;
+    if (!once) return;
+    if (!current || !owed.current.has(robot.agentId)) {
+      if (wave.current === null) onceValue.setValue(frames);
+      return;
+    }
+    owed.current.delete(robot.agentId);
     wave.current?.stop();
     onceValue.setValue(0);
-    wave.current = Animated.timing(onceValue, {
+    const playing = Animated.timing(onceValue, {
       toValue: frames,
       duration: frames * frameMs,
       easing: Easing.linear,
       useNativeDriver: NATIVE,
     });
-    wave.current.start();
-    // A sheet that repeats the key gives `plays` false and leaves a running wave alone.
+    wave.current = playing;
+    playing.start(() => {
+      if (wave.current === playing) wave.current = null;
+    });
+    // Only a new picture, or its becoming the robot's own, can start a wave.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [robot, once]);
+  }, [picture, once, current]);
   useEffect(() => () => wave.current?.stop(), []);
   useEffect(
     () => (loops ? clocks.use(frames, frameMs) : undefined),
@@ -641,24 +706,18 @@ function ShownRobot({
   const source = useMemo(() => ({ uri: `${PNG_URI}${picture.png}` }), [picture]);
   const step = useMemo(() => {
     if (!loops && !once) return null;
-    const ranges = stepRanges(picture);
+    const ranges = stepRanges(picture, frame);
     const position = loops
       ? Animated.modulo(Animated.add(clocks.value(frames, frameMs), robot.phase), frames)
       : onceValue;
     const along = (output: number[]) =>
       position.interpolate({ inputRange: ranges.input, outputRange: output, extrapolate: "clamp" });
     return { x: along(ranges.x), y: along(ranges.y) };
-  }, [picture, loops, once, clocks, frames, frameMs, robot.phase, onceValue]);
+  }, [picture, frame, loops, once, clocks, frames, frameMs, robot.phase, onceValue]);
 
   const grid = useMemo(
-    () => ({
-      position: "absolute" as const,
-      left: 0,
-      top: 0,
-      width: picture.columns * picture.frameWidth,
-      height: Math.ceil(frames / picture.columns) * picture.frameHeight,
-    }),
-    [picture, frames],
+    () => ({ position: "absolute" as const, left: 0, top: 0, ...gridSize(picture, frame) }),
+    [picture, frame],
   );
   const stepStyle = useMemo(
     () =>
@@ -672,12 +731,12 @@ function ShownRobot({
       position: "absolute" as const,
       left: robot.x,
       top: robot.y,
-      width: sheet.frame.width,
-      height: sheet.frame.height,
+      width: frameWidth,
+      height: frameHeight,
       overflow: "hidden" as const,
       opacity: fade,
     }),
-    [robot.x, robot.y, sheet.frame.width, sheet.frame.height, fade],
+    [robot.x, robot.y, frameWidth, frameHeight, fade],
   );
   return (
     <Animated.View style={clipStyle}>
@@ -751,7 +810,11 @@ function Plane({
             outputRange: steps.map((t) => at(t, "y") - lift(t)),
           }),
         },
-        { rotate: `${path.angle}deg` },
+        ...pivotedRotation(
+          { x: chestX, y: chestY },
+          { width: frameWidth, height: frameHeight },
+          path.angle,
+        ),
       ],
     };
   }, [progress, from, to, frameWidth, frameHeight, chestX, chestY, scale]);
@@ -760,10 +823,9 @@ function Plane({
       position: "absolute" as const,
       left: 0,
       top: 0,
-      width: picture.columns * picture.frameWidth,
-      height: Math.ceil(picture.frames / picture.columns) * picture.frameHeight,
+      ...gridSize(picture, { width: frameWidth, height: frameHeight }),
     }),
-    [picture],
+    [picture, frameWidth, frameHeight],
   );
   return (
     <Animated.View style={flightStyle}>
