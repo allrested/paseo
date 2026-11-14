@@ -16,6 +16,8 @@ import {
   type RenderPageHost,
 } from "./server/render/page-host.js";
 import { createRenderSessions } from "./server/render/sessions.js";
+import { createSheetPageHost, type SheetPageHost } from "./server/render/sheet-page-host.js";
+import { createSheetSessions } from "./server/render/sheet-sessions.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
   assetRpc,
@@ -25,6 +27,9 @@ import {
   renderInputRpc,
   renderSubscription,
   setWakesPausedRpc,
+  sheetInputRpc,
+  sheetSpriteRpc,
+  sheetSubscription,
   updateRpc,
 } from "./shared/contracts.js";
 import { officeHostSettings } from "./shared/settings.js";
@@ -47,6 +52,8 @@ export interface OfficePluginDeps {
   vendorDirectory: string | null;
   /** Draws the 3D view on the host for a device that cannot; null when the host has no browser. */
   render: RenderPageHost | null;
+  /** Draws the office as pictures and positions on the host; null when the host has no browser. */
+  sheet: SheetPageHost | null;
 }
 
 // Runs inside the daemon process: every handler, hook and timer catches its own errors.
@@ -65,6 +72,13 @@ export function createOfficePlugin(
     hub,
     clock: deps.clock,
     newStreamId: randomUUID,
+    log,
+  });
+  const sheetSessions = createSheetSessions({
+    host: deps.sheet,
+    hub,
+    clock: deps.clock,
+    newSheetId: randomUUID,
     log,
   });
   const office = createOffice({
@@ -100,6 +114,13 @@ export function createOfficePlugin(
     return renderSessions.attach(input, context);
   });
   server.handle(renderInputRpc, (input) => renderSessions.input(input));
+  // Same as the stream: resolves when the sheet ends, and says why in a problem event first.
+  server.handle(sheetSubscription, (input, context) => {
+    holder.remember(context.paseo);
+    return sheetSessions.attach(input, context);
+  });
+  server.handle(sheetInputRpc, (input) => sheetSessions.input(input));
+  server.handle(sheetSpriteRpc, (input) => sheetSessions.sprite(input));
   server.handle(postRpc, (input, context) => {
     holder.remember(context.paseo);
     return guarded("post", () => office.post(input));
@@ -172,6 +193,7 @@ export function createOfficePlugin(
   return async () => {
     for (const remove of removeHooks) remove();
     await renderSessions.stop();
+    await sheetSessions.stop();
     office.stop();
     await hub.stop();
   };
@@ -200,6 +222,15 @@ export default function contribute(
             bundle: builtin.bundleBrowserScript,
             readThree: () => readThreeAsset(vendorDirectory),
             pageEntry: join(builtin.directory, "render", "page.ts"),
+          })
+        : null,
+    sheet:
+      builtin?.offscreenPages && builtin.bundleBrowserScript
+        ? createSheetPageHost({
+            pages: builtin.offscreenPages,
+            bundle: builtin.bundleBrowserScript,
+            readThree: () => readThreeAsset(vendorDirectory),
+            pageEntry: join(builtin.directory, "render", "sheet-page.ts"),
           })
         : null,
   });
