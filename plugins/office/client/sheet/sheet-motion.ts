@@ -53,10 +53,24 @@ function placed(offset: number, size: number, room: number): number {
   return size <= room ? (room - size) / 2 : clamp(offset, room - size, 0);
 }
 
+export interface ZoomLimits {
+  min: number;
+  max: number;
+}
+
+/** Zoom out stops when the whole picture fits (but at 1 at most); zoom in stops at 2. */
+export function zoomLimits(sheet: Sheet, viewer: Viewer): ZoomLimits {
+  const picture = pictureSize(sheet);
+  return {
+    min: Math.min(1, viewer.width / picture.width, viewer.height / picture.height),
+    max: MAX_ZOOM,
+  };
+}
+
 export function fitted(transform: Transform, sheet: Sheet, viewer: Viewer): Transform {
   const picture = pictureSize(sheet);
-  const wholePicture = Math.min(1, viewer.width / picture.width, viewer.height / picture.height);
-  const zoom = clamp(transform.zoom, wholePicture, MAX_ZOOM);
+  const limits = zoomLimits(sheet, viewer);
+  const zoom = clamp(transform.zoom, limits.min, limits.max);
   return {
     zoom,
     x: placed(transform.x, picture.width * zoom, viewer.width),
@@ -69,9 +83,15 @@ export function panned(transform: Transform, dx: number, dy: number): Transform 
 }
 
 /** Zoom about the fingers' middle; the picture point under the old middle follows the new one. */
-export function pinched(transform: Transform, before: Fingers, after: Fingers): Transform {
+export function pinched(
+  transform: Transform,
+  before: Fingers,
+  after: Fingers,
+  limits: ZoomLimits,
+): Transform {
   const factor = before.spread > 0 && after.spread > 0 ? after.spread / before.spread : 1;
-  const zoom = transform.zoom * factor;
+  // Clamped here, so the point between the fingers stays put by the zoom that is applied.
+  const zoom = clamp(transform.zoom * factor, limits.min, limits.max);
   const under = {
     x: (before.middle.x - transform.x) / transform.zoom,
     y: (before.middle.y - transform.y) / transform.zoom,
@@ -198,16 +218,20 @@ export function layerStyleValues(transform: Transform, sheet: Sheet) {
 
 /**
  * What `Animated.interpolate` needs to step a grid of frames: frame n for every value from n to
- * just under n + 1, then a short slide to the next, so the value steps and never glides.
+ * just under n + 1, then a short slide to the next, so the value steps and never glides. `frame`
+ * is the sheet's frame size: a picture drawn at another resolution is stretched to fit it.
  */
-export function stepRanges(picture: SpritePicture): { input: number[]; x: number[]; y: number[] } {
+export function stepRanges(
+  picture: SpritePicture,
+  frame: { width: number; height: number },
+): { input: number[]; x: number[]; y: number[] } {
   const input: number[] = [];
   const x: number[] = [];
   const y: number[] = [];
-  for (let frame = 0; frame < picture.frames; frame += 1) {
-    const offsetX = -(frame % picture.columns) * picture.frameWidth;
-    const offsetY = -Math.floor(frame / picture.columns) * picture.frameHeight;
-    input.push(frame, frame + 1 - STEP_GAP);
+  for (let n = 0; n < picture.frames; n += 1) {
+    const offsetX = -(n % picture.columns) * frame.width;
+    const offsetY = -Math.floor(n / picture.columns) * frame.height;
+    input.push(n, n + 1 - STEP_GAP);
     x.push(offsetX, offsetX);
     y.push(offsetY, offsetY);
   }
@@ -232,4 +256,78 @@ export function planePath(from: SheetPoint, to: SheetPoint, scale: number) {
     angle: (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI,
     arc: Math.min(distance / 3, PLANE_ARC_UNITS * scale),
   };
+}
+
+/** A sprite whose request failed or answered null is not asked for again within this time. */
+export const RETRY_MS = 5000;
+/** Sprites kept; past it, those no robot of the shown sheet uses are dropped. */
+export const MAX_KEPT_SPRITES = 60;
+
+/** What the view remembers of its last question about a key. */
+export interface Asked {
+  askedScale: number;
+  askedAt: number;
+  pending: boolean;
+}
+
+/**
+ * Whether to ask the host for a sprite now: when there is no record, or the picture is for another
+ * scale (it stays in use meanwhile), or the last answer failed and it was a while ago.
+ */
+export function shouldAsk(
+  asked: Asked | undefined,
+  picture: SpritePicture | undefined,
+  scale: number,
+  now: number,
+): boolean {
+  if (asked === undefined) return true;
+  if (asked.pending) return false;
+  if (picture !== undefined && picture.scale === scale) return false;
+  return asked.askedScale !== scale || now - asked.askedAt >= RETRY_MS;
+}
+
+/** The keys to keep: all while there are few, then only those a shown robot uses. */
+export function keptSprites(keys: string[], used: ReadonlySet<string>): string[] {
+  return keys.length <= MAX_KEPT_SPRITES ? keys : keys.filter((key) => used.has(key));
+}
+
+/**
+ * The agents owed a once-only wave after a sheet. Whether a picture is once-only is not known
+ * before it arrives, so a wave is owed on "key changed, or new and fresh", and the robot takes it
+ * only if its picture turns out to be once-only. It is dropped when the key changes again or the
+ * robot leaves.
+ */
+export function wavesOwed(
+  owed: ReadonlySet<string>,
+  previous: Sheet | null,
+  next: Sheet,
+): Set<string> {
+  const before = new Map((previous?.robots ?? []).map((robot) => [robot.agentId, robot]));
+  const result = new Set<string>();
+  for (const robot of next.robots) {
+    const was = before.get(robot.agentId);
+    if (playsOnce(was, robot, false)) result.add(robot.agentId);
+    else if (owed.has(robot.agentId) && was?.key === robot.key) result.add(robot.agentId);
+  }
+  return result;
+}
+
+/**
+ * A rotation about the chest point, as transforms: React Native turns about the middle of the
+ * box, so carry the chest to the middle, turn, and carry it back.
+ */
+export function pivotedRotation(
+  chest: SheetPoint,
+  frame: { width: number; height: number },
+  angle: number,
+) {
+  const dx = chest.x - frame.width / 2;
+  const dy = chest.y - frame.height / 2;
+  return [
+    { translateX: dx },
+    { translateY: dy },
+    { rotate: `${angle}deg` },
+    { translateX: -dx },
+    { translateY: -dy },
+  ];
 }
