@@ -168,6 +168,24 @@ function tool(name, args) {
           },
         ],
       };
+    case "get_node":
+      // The fixture's Card with a child, both bound to color/accent as toVariables names it.
+      return text({
+        id: args.id,
+        name: "Card",
+        width: 320,
+        height: 200,
+        boundVariables: { fill: "v:color/accent" },
+        children: [
+          {
+            id: 2,
+            name: "Label",
+            width: 100,
+            height: 20,
+            boundVariables: { strokes: [{ color: "v:color/accent" }] },
+          },
+        ],
+      });
     case "inspect_document": {
       const doc = fixture("inspect-document.json");
       if (empty) doc.pages[0].children = [];
@@ -194,9 +212,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (message.method === "tools/list") {
     return reply(message.id, {
-      tools: ["run_command", "screenshot", "inspect_document", "create_node", "select"].map(
-        (name) => ({ name, inputSchema: { type: "object" } }),
-      ),
+      tools: [
+        "run_command",
+        "screenshot",
+        "inspect_document",
+        "get_node",
+        "create_node",
+        "select",
+      ].map((name) => ({ name, inputSchema: { type: "object" } })),
     });
   }
   if (message.method !== "tools/call") {

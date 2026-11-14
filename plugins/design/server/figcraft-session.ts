@@ -69,6 +69,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms).unref());
 }
 
+export interface RawLayer {
+  name?: unknown;
+  width?: unknown;
+  height?: unknown;
+  boundVariables?: unknown;
+  children?: RawLayer[];
+}
+
 export class FigcraftSession {
   private constructor(private readonly client: McpStdioClient) {}
 
@@ -212,6 +220,15 @@ export class FigcraftSession {
       language: "tailwind",
     })) as { code?: unknown };
     return String(answer.code ?? "");
+  }
+
+  /** One layer and its children to `depth`: name, size and bound variables only. */
+  async layer(id: string, depth: number): Promise<RawLayer> {
+    return (await this.tool("get_node", {
+      id: figcraftId(id),
+      depth,
+      fields: ["name", "width", "height", "boundVariables"],
+    })) as RawLayer;
   }
 
   /** The layers, or the current page; null when the page has nothing to render. */

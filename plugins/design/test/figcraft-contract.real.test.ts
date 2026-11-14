@@ -271,6 +271,7 @@ describe.skipIf(!CLI || !SERVER_BIN)("FigCraft v0.18.1 contract", () => {
             string,
             { name: string; defaultModeId: string; modes: { modeId: string; name: string }[] }
           >;
+          variables: Record<string, { id: string; name: string }>;
         };
       };
       const [collection] = Object.values(inner.meta.variableCollections);
@@ -296,6 +297,21 @@ describe.skipIf(!CLI || !SERVER_BIN)("FigCraft v0.18.1 contract", () => {
       const card = made.id as number;
       const fills = async () =>
         ((await c.json("get_node", { id: card })) as { fills: unknown }).fills;
+      // Send to agent reads a layer's size and bindings with these fields.
+      const accent = Object.values(inner.meta.variables).find((v) => v.name === "color/accent");
+      expect(accent?.id).toMatch(/^VariableID:/);
+      expect(
+        await c.json("get_node", {
+          id: card,
+          depth: 8,
+          fields: ["name", "width", "height", "boundVariables"],
+        }),
+      ).toMatchObject({
+        name: "Card",
+        width: 100,
+        height: 50,
+        boundVariables: { fill: accent?.id },
+      });
       const before = await fills();
       expect(before).toEqual([expect.objectContaining({ type: "solid" })]);
       const [collectionId] = Object.keys(inner.meta.variableCollections);

@@ -325,6 +325,14 @@ describe("Bridge", () => {
     expect(code).toContain("// 2 more layers not exported");
     await bridge.close();
   });
+  it("gives each selected layer's size and the tokens bound in it and its children", async () => {
+    const { bridge } = await open(TOKENS);
+    expect(await bridge.facts(["4294967297"])).toEqual({
+      layers: [{ id: "4294967297", name: "Card", width: 320, height: 200 }],
+      tokens: ["color/accent"],
+    });
+    await bridge.close();
+  });
   it("never logs the edit link", async () => {
     const { bridge, lines } = await open({ x: { $value: "#fff" } });
     expect(lines.length).toBeGreaterThan(0);

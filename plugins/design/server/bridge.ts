@@ -1,4 +1,10 @@
-import type { Bounds, CommentThread, FigcraftSession, Picture } from "./figcraft-session.js";
+import type {
+  Bounds,
+  CommentThread,
+  FigcraftSession,
+  Picture,
+  RawLayer,
+} from "./figcraft-session.js";
 import type { DesignFile } from "./files-store.js";
 import { CLIENT_NAME } from "./mcp-stdio-client.js";
 import { fromVariables, sameTokens, toVariables, TokensError, type TokenFile } from "./tokens.js";
@@ -28,6 +34,34 @@ const BRIDGE_NAME = "Paseo (agent)";
 export const BRIDGE_AUTHOR = `${CLIENT_NAME} (agent)`;
 const AGENT_NAME = / \(agent\)$/;
 const MAX_CODE_LAYERS = 3;
+const MAX_FACT_LAYERS = 10;
+/** How deep under a selected layer to look for bound variables. */
+const FACT_DEPTH = 8;
+
+export interface SelectionFacts {
+  layers: { id: string; name: string; width: number; height: number }[];
+  tokens: string[];
+}
+
+function variableNames(exported: unknown): Map<string, string> {
+  const variables = (exported as { meta?: { variables?: object } }).meta?.variables ?? {};
+  return new Map(
+    (Object.values(variables) as { id: string; name: string }[]).map((v) => [v.id, v.name]),
+  );
+}
+
+/** Every variable id a layer or its children are bound to, wherever the binding sits. */
+function boundIds(layer: RawLayer): string[] {
+  const ids: string[] = [];
+  const collect = (value: unknown): void => {
+    if (typeof value === "string") ids.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === "object") Object.values(value).forEach(collect);
+  };
+  collect(layer.boundVariables);
+  for (const child of layer.children ?? []) ids.push(...boundIds(child));
+  return ids;
+}
 
 type RepoRead = { kind: "same" } | { kind: "bad" } | { kind: "file"; file: TokenFile | null };
 
@@ -219,6 +253,27 @@ export class Bridge {
 
   async addComment(x: number, y: number, text: string): Promise<void> {
     await this.session.addComment(x, y, text);
+  }
+
+  /** Each layer's size and the tokens bound in the layers and their children, by name. */
+  async facts(ids: string[]): Promise<SelectionFacts> {
+    const names = variableNames(await this.session.exportVariables());
+    const layers: SelectionFacts["layers"] = [];
+    const tokens = new Set<string>();
+    for (const id of ids.slice(0, MAX_FACT_LAYERS)) {
+      const layer = await this.session.layer(id, FACT_DEPTH);
+      layers.push({
+        id,
+        name: String(layer.name ?? ""),
+        width: Number(layer.width ?? 0),
+        height: Number(layer.height ?? 0),
+      });
+      for (const variableId of boundIds(layer)) {
+        const name = names.get(variableId);
+        if (name) tokens.add(name);
+      }
+    }
+    return { layers, tokens: [...tokens].sort() };
   }
 
   async code(ids: string[]): Promise<string> {

@@ -10,12 +10,21 @@ describe("Send to agent", () => {
         ids: ["n1", "n2"],
         code: "<div/>",
         note: "build this",
+        facts: {
+          layers: [
+            { id: "n1", name: "Card", width: 320, height: 200 },
+            { id: "n2", name: "Badge", width: 48.5, height: 20 },
+          ],
+          tokens: ["color/accent", "spacing/4"],
+        },
       }),
     ).toBe(
       [
         "build this",
         "",
         'From the design "Login" (design_join {"file":"f1"} opens it), layers n1, n2.',
+        'Sizes: "Card" 320 x 200 (n1), "Badge" 48.5 x 20 (n2).',
+        "Tokens they use: color/accent, spacing/4. Use this project's tokens of the same names.",
         "FigCraft's code export for them, as a reference only: write the code in this project's own stack and components.",
         "",
         "```tsx",
@@ -24,11 +33,24 @@ describe("Send to agent", () => {
       ].join("\n"),
     );
   });
+  it("says when the layers use no tokens", () => {
+    expect(
+      buildSendPrompt({
+        fileName: "Login",
+        fileId: "f1",
+        ids: ["n1"],
+        code: "<div/>",
+        note: "",
+        facts: { layers: [{ id: "n1", name: "Card", width: 320, height: 200 }], tokens: [] },
+      }),
+    ).toContain("No tokens are bound in these layers.");
+  });
   it("sends the prompt and a picture of the selection", async () => {
     const calls: unknown[] = [];
     const bridge = {
       userSelection: async () => ["n1"],
       code: async () => "<div/>",
+      facts: async () => ({ layers: [], tokens: [] }),
       picture: async (ids?: string[]) => ({ mimeType: "image/png", data: `png:${ids?.join(",")}` }),
     };
     const result = await sendSelection({
@@ -67,6 +89,7 @@ describe("Send to agent", () => {
     const withPicture = {
       userSelection: async () => ["4294967297"],
       code: async () => "<div/>",
+      facts: async () => ({ layers: [], tokens: [] }),
       picture: async () => ({ mimeType: "image/png", data: "png", width: 320, height: 200 }),
     };
     const file = { id: "f1", name: 'The "Login"' } as never;
