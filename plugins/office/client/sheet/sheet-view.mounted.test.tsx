@@ -5,6 +5,7 @@
 // host is asked for a sprite. jsdom lays nothing out, so a test gives the view its size and says
 // the size changed.
 import { act } from "react";
+import { Animated } from "react-native";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
@@ -65,11 +66,19 @@ const SPRITE: SpritePicture = {
   scale: 40,
 };
 
+/** What the host answers for a sprite key; a test replaces it to hold an answer back. */
+let spriteAnswer: (key: string) => Promise<SpritePicture | null>;
+let inputCalls: number;
+
+const stillOf = (key: string): SpritePicture => ({ ...SPRITE, png: key.toUpperCase() });
+
 async function invoke(method: string, input: unknown): Promise<unknown> {
   if (method === "office.sheet.sprite.request") {
-    spriteCalls.push(input as { sheetId: string; key: string });
-    return SPRITE;
+    const asked = input as { sheetId: string; key: string };
+    spriteCalls.push(asked);
+    return spriteAnswer(asked.key);
   }
+  inputCalls += 1;
   return { ok: true };
 }
 
@@ -169,33 +178,36 @@ beforeEach(async () => {
   spriteCalls = [];
   selected = [];
   problems = [];
+  inputCalls = 0;
+  spriteAnswer = async (key) => stillOf(key);
   container = document.createElement("div");
   document.body.appendChild(container);
+  await mount();
+});
+
+async function mount(): Promise<void> {
+  opened = [];
   root = createRoot(container);
   await act(async () => root.render(<Mounted />));
   await layout(200, 400);
   await hostSays({ type: "ready", sheetId: "s1" });
-});
+}
 
 afterEach(() => {
+  vi.restoreAllMocks();
   act(() => root.unmount());
   container.remove();
 });
 
-test("a tap at a robot's chest selects the agent", async () => {
-  await shown(1);
-  // The chest is at (130, 340) picture pixels: (65, 170) points.
-  await tapAt(65, 170);
-
-  expect(selected).toEqual(["a"]);
-});
-
-test("a tap far from every robot selects nothing", async () => {
+test("a tap at a robot's chest selects the agent, and one far from it does not", async () => {
   await shown(1);
 
   await tapAt(190, 20);
-
   expect(selected).toEqual([]);
+
+  // The chest is at (130, 340) picture pixels: (65, 170) points.
+  await tapAt(65, 170);
+  expect(selected).toEqual(["a"]);
 });
 
 test("a problem from the host reaches the surface", async () => {
@@ -210,4 +222,84 @@ test("the host is asked for a sprite once per key across two sheets", async () =
   await shown(2);
 
   expect(spriteCalls).toEqual([{ sheetId: "s1", key: "typing" }]);
+});
+
+const spriteSources = () =>
+  [...container.querySelectorAll("img")]
+    .map((image) => image.getAttribute("src") ?? "")
+    .filter((source) => source.startsWith("data:image/png"));
+
+test("a robot keeps its picture while the sprite of its new key is fetched", async () => {
+  await shown(1);
+  expect(spriteSources()).toEqual(["data:image/png;base64,TYPING"]);
+
+  let answer: (picture: SpritePicture) => void = () => {};
+  spriteAnswer = () => new Promise((done) => (answer = done));
+  await hostSays({
+    type: "sheet",
+    sheet: sheet(1, {
+      robots: [
+        { agentId: "a", key: "raised", x: 100, y: 300, phase: 0, joining: false, fresh: false },
+      ],
+    }),
+  });
+  expect(spriteSources()).toEqual(["data:image/png;base64,TYPING"]);
+
+  await act(async () => answer(stillOf("raised")));
+  await settle();
+  expect(spriteSources()).toEqual(["data:image/png;base64,RAISED"]);
+});
+
+test("a sprite that failed is asked for again later, not in a loop", async () => {
+  spriteAnswer = async () => null;
+  await shown(1);
+  await hostSays({ type: "sheet", sheet: sheet(1) });
+  await hostSays({ type: "sheet", sheet: sheet(1) });
+
+  expect(spriteCalls).toHaveLength(1);
+});
+
+test("a view that is gone sends nothing more and stops its loop", async () => {
+  const stops: ReturnType<typeof vi.fn>[] = [];
+  const loop = Animated.loop;
+  vi.spyOn(Animated, "loop").mockImplementation((animation, config) => {
+    const made = loop(animation, config);
+    const stop = vi.spyOn(made, "stop");
+    stops.push(stop);
+    return made;
+  });
+  const intervals: unknown[] = [];
+  const cleared: unknown[] = [];
+  const setter = globalThis.setInterval;
+  const clearer = globalThis.clearInterval;
+  vi.spyOn(globalThis, "setInterval").mockImplementation(((
+    ...args: Parameters<typeof setInterval>
+  ) => {
+    const id = setter(...args);
+    if (args[1] === 10_000) intervals.push(id);
+    return id;
+  }) as typeof setInterval);
+  vi.spyOn(globalThis, "clearInterval").mockImplementation(((
+    id: Parameters<typeof clearInterval>[0],
+  ) => {
+    cleared.push(id);
+    clearer(id);
+  }) as typeof clearInterval);
+
+  await act(async () => root.unmount());
+  await mount();
+  spriteAnswer = async (key) => ({ ...stillOf(key), frames: 24, columns: 6, frameMs: 86 });
+  await shown(1);
+  expect(intervals).toHaveLength(1);
+  expect(stops).toHaveLength(1);
+
+  await act(async () => root.unmount());
+
+  expect(cleared).toContain(intervals[0]);
+  expect(stops[0]).toHaveBeenCalled();
+  const calls = inputCalls;
+  await settle();
+  expect(inputCalls).toBe(calls);
+  // The afterEach unmounts a root; this one is already gone.
+  root = createRoot(container);
 });

@@ -9,7 +9,13 @@ import {
   pinched,
   planePath,
   playsOnce,
+  RETRY_MS,
+  keptSprites,
+  pivotedRotation,
+  shouldAsk,
   stepRanges,
+  wavesOwed,
+  zoomLimits,
   targetAt,
 } from "./sheet-motion.js";
 
@@ -46,15 +52,17 @@ const SHEET: Sheet = {
   mentions: [],
 };
 const PHONE = { width: 200, height: 300 };
+const LIMITS = zoomLimits(SHEET, PHONE);
 
 test("stepped ranges show frame n for every value in [n, n + 1) and the last frame at the end", () => {
+  // The picture was drawn at another resolution: it steps by the sheet's frame, not its own.
   const picture = {
     frames: 5,
     columns: 2,
-    frameWidth: 60,
-    frameHeight: 80,
+    frameWidth: 30,
+    frameHeight: 40,
   } as SpritePicture;
-  const { input, x, y } = stepRanges(picture);
+  const { input, x, y } = stepRanges(picture, { width: 60, height: 80 });
   const at = (value: number, output: number[]) => {
     if (value <= input[0]!) return output[0]!;
     if (value >= input.at(-1)!) return output.at(-1)!;
@@ -109,7 +117,7 @@ test("zoom stops at the whole picture and at 2", () => {
 test("a pinch keeps the point between the fingers in place", () => {
   const start = { x: -40, y: -60, zoom: 1 };
   const middle = { x: 100, y: 150 };
-  const result = pinched(start, { spread: 50, middle }, { spread: 75, middle });
+  const result = pinched(start, { spread: 50, middle }, { spread: 75, middle }, LIMITS);
   expect(result.zoom).toBeCloseTo(1.5);
   const under = (transform: typeof start) => ({
     x: (middle.x - transform.x) / transform.zoom,
@@ -119,7 +127,12 @@ test("a pinch keeps the point between the fingers in place", () => {
   expect(under(result).y).toBeCloseTo(under(start).y);
 
   // The point moves with the fingers' middle.
-  const moved = pinched(start, { spread: 50, middle }, { spread: 50, middle: { x: 130, y: 140 } });
+  const moved = pinched(
+    start,
+    { spread: 50, middle },
+    { spread: 50, middle: { x: 130, y: 140 } },
+    LIMITS,
+  );
   expect(moved).toEqual({ zoom: 1, x: -10, y: -70 });
 });
 
@@ -184,4 +197,109 @@ test("a plane flies at a third of its distance, at most 2 world units high", () 
     angle: 90,
     arc: 80,
   });
+});
+
+test("zoom limits are the whole picture and 2", () => {
+  expect(zoomLimits(SHEET, PHONE)).toEqual({ min: 0.75, max: 2 });
+  expect(zoomLimits(SHEET, { width: 600, height: 1000 })).toEqual({ min: 1, max: 2 });
+});
+
+test("a pinch past a zoom limit keeps the fingers' point where it is", () => {
+  const middle = { x: 200, y: 100 };
+  const atMax = { x: -100, y: -50, zoom: 2 };
+  const out = pinched(atMax, { spread: 100, middle }, { spread: 110, middle }, LIMITS);
+  expect(out).toEqual(atMax);
+
+  const atMin = { x: 0, y: 0, zoom: 0.75 };
+  const inward = pinched(atMin, { spread: 100, middle }, { spread: 60, middle }, LIMITS);
+  expect(inward).toEqual(atMin);
+
+  // Reaching the limit part-way keeps the point too.
+  const near = { x: -100, y: -50, zoom: 1.9 };
+  const reached = pinched(near, { spread: 100, middle }, { spread: 150, middle }, LIMITS);
+  expect(reached.zoom).toBe(2);
+  const under = (t: typeof near) => (middle.x - t.x) / t.zoom;
+  expect(under(reached)).toBeCloseTo(under(near));
+});
+
+test("a sprite is asked for when there is none or it is for another scale, and a failure only after a while", () => {
+  const picture = { scale: 40 } as SpritePicture;
+  const asked = (askedScale: number, askedAt: number, pending = false) => ({
+    askedScale,
+    askedAt,
+    pending,
+  });
+  expect(shouldAsk(undefined, undefined, 40, 0)).toBe(true);
+  expect(shouldAsk(asked(40, 0, true), undefined, 40, 99_999)).toBe(false);
+  expect(shouldAsk(asked(40, 0), picture, 40, 99_999)).toBe(false);
+  // A picture for another scale stays in use and is asked for again at once, once.
+  expect(shouldAsk(asked(40, 1000), picture, 50, 1001)).toBe(true);
+  expect(shouldAsk(asked(50, 1000), picture, 50, 1001)).toBe(false);
+  // A failed or null answer is asked again, but not within RETRY_MS.
+  expect(shouldAsk(asked(40, 1000), undefined, 40, 1000 + RETRY_MS - 1)).toBe(false);
+  expect(shouldAsk(asked(40, 1000), undefined, 40, 1000 + RETRY_MS)).toBe(true);
+});
+
+test("sprites are kept up to 60, then only those a robot of the shown sheet uses stay", () => {
+  const keys = Array.from({ length: 61 }, (_, index) => `k${index}`);
+  expect(keptSprites(keys.slice(0, 60), new Set(["k1"]))).toEqual(keys.slice(0, 60));
+  expect(keptSprites(keys, new Set(["k1", "k2"]))).toEqual(["k1", "k2"]);
+});
+
+test("a wave is owed to a robot whose key changed or that is new and fresh, until its key changes again or it leaves", () => {
+  const before = { ...SHEET, robots: [robot("a", 0, 0), robot("b", 0, 0, { key: "idle" })] };
+  const next = {
+    ...SHEET,
+    robots: [
+      robot("a", 0, 0, { key: "raised" }),
+      robot("b", 0, 0, { key: "idle" }),
+      robot("c", 0, 0, { fresh: true }),
+      robot("d", 0, 0),
+    ],
+  };
+  const owed = wavesOwed(new Set(), before, next);
+  expect([...owed].sort()).toEqual(["a", "c"]);
+
+  // The same sheet again (the sprite is still on its way) owes the same.
+  const again = { ...next, robots: next.robots.map((entry) => ({ ...entry })) };
+  expect([...wavesOwed(owed, next, again)].sort()).toEqual(["a", "c"]);
+
+  // Its key changes again, or it leaves.
+  const later = {
+    ...SHEET,
+    robots: [robot("a", 0, 0, { key: "typing" }), robot("d", 0, 0)],
+  };
+  expect([...wavesOwed(owed, next, later)].sort()).toEqual(["a"]);
+  const gone = { ...SHEET, robots: [robot("d", 0, 0)] };
+  expect([...wavesOwed(owed, next, gone)]).toEqual([]);
+
+  // The first sheet owes a wave to a fresh robot only.
+  expect([...wavesOwed(new Set(), null, next)].sort()).toEqual(["c"]);
+});
+
+test("a plane turns about its chest point", () => {
+  const frame = { width: 60, height: 80 };
+  const chest = { x: 30, y: 60 };
+  const steps = pivotedRotation(chest, frame, 90);
+  // React Native turns about the middle of the box; carry a point through the steps, last first.
+  const through = (point: { x: number; y: number }) => {
+    let p = { x: point.x - frame.width / 2, y: point.y - frame.height / 2 };
+    for (const step of steps.toReversed()) {
+      if ("translateX" in step) p = { x: p.x + step.translateX, y: p.y };
+      else if ("translateY" in step) p = { x: p.x, y: p.y + step.translateY };
+      else {
+        const angle = (Number.parseFloat(step.rotate) * Math.PI) / 180;
+        p = {
+          x: p.x * Math.cos(angle) - p.y * Math.sin(angle),
+          y: p.x * Math.sin(angle) + p.y * Math.cos(angle),
+        };
+      }
+    }
+    return { x: p.x + frame.width / 2, y: p.y + frame.height / 2 };
+  };
+  expect(through(chest).x).toBeCloseTo(chest.x);
+  expect(through(chest).y).toBeCloseTo(chest.y);
+  // A point to the right of the chest ends below it after a quarter turn.
+  expect(through({ x: 50, y: 60 }).x).toBeCloseTo(30);
+  expect(through({ x: 50, y: 60 }).y).toBeCloseTo(80);
 });
