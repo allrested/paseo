@@ -114,6 +114,7 @@ export interface RendererLike extends DisposableLike {
   outputColorSpace: string;
   setPixelRatio(ratio: number): void;
   setSize(width: number, height: number, updateStyle?: boolean): void;
+  setClearColor(color: string, alpha: number): void;
   render(scene: SceneLike, camera: CameraLike): void;
   forceContextLoss(): void;
 }
