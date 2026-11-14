@@ -51,11 +51,15 @@ describe("Stack cards", () => {
     expect(figcraftSummary(none)).toEqual({
       status: "waiting",
       label: "Off",
-      note: "FIGCRAFT_URL is not set on this host",
+      note: "Set FIGCRAFT_URL on this host to check FigCraft",
       meters: [],
     });
-    expect(androidSummary(none).note).toBe("PASEO_ANDROID_ADB is not set on this host");
-    expect(deploySummary(none).note).toBe("PASEO_DEPLOY_REPO is not set on this host");
+    expect(androidSummary(none).note).toBe(
+      "Set PASEO_ANDROID_ADB on this host to check the device",
+    );
+    expect(deploySummary(none).note).toBe(
+      "Set PASEO_DEPLOY_REPO on this host to follow its releases",
+    );
     expect(paseoSummary(none).status).toBe("ok");
   });
 
@@ -108,9 +112,23 @@ describe("Stack cards", () => {
       status: "critical",
       note: "The v0.16.0-beta.5 release did not finish",
     });
-    expect(deploySummary(reading({ deploy: { ...base, docker: "in_progress" } })).status).toBe(
-      "warning",
+    // While the images build, the run has no deploy job yet: that is not a skipped deploy.
+    const building = deploySummary(
+      reading({ deploy: { ...base, docker: "in_progress", deployJob: null } }),
     );
+    expect(building).toMatchObject({
+      status: "warning",
+      label: "Running",
+      note: "The v0.16.0-beta.5 release is still running",
+    });
+    expect(building.meters.map((m) => m.value)).toEqual([
+      "v0.16.0-beta.5",
+      "Running",
+      "Not started",
+    ]);
+    expect(
+      deploySummary(reading({ deploy: { ...base, deployJob: null } })).meters.at(-1)?.value,
+    ).toBe("Skipped");
     expect(deploySummary(reading({ deploy: { ...base, error: "gh is not on PATH" } }))).toEqual({
       status: "error",
       label: "Error",

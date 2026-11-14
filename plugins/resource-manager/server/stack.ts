@@ -11,6 +11,8 @@ export interface StackPorts {
   readText(path: string): Promise<string>;
   /** The HTTP status a GET gets; rejects when nothing answers in time. */
   httpStatus(url: string, timeoutMs: number): Promise<number>;
+  /** Opens and closes a TCP connection; rejects when nothing takes it in time. */
+  connect(host: string, port: number, timeoutMs: number): Promise<void>;
   /** A command's stdout; rejects on a non-zero exit or a timeout. */
   run(command: string, args: readonly string[], timeoutMs: number): Promise<string>;
   which(name: string): string | null;
@@ -38,6 +40,19 @@ async function probe(
   }
 }
 
+/** Whether anything takes a connection where the URL points. */
+async function connectProbe(ports: StackPorts, url: string): Promise<Probe> {
+  const started = ports.now();
+  try {
+    const { hostname, port, protocol } = new URL(url);
+    const fallback = protocol === "https:" ? 443 : 80;
+    await ports.connect(hostname, port === "" ? fallback : Number(port), PROBE_MS);
+    return { ok: true, ms: ports.now() - started, error: null };
+  } catch (error) {
+    return { ok: false, ms: null, error: message(error) };
+  }
+}
+
 async function paseo(ports: StackPorts): Promise<StackReading["paseo"]> {
   let version: string | null = null;
   if (ports.packageJson !== null) {
@@ -57,8 +72,12 @@ async function paseo(ports: StackPorts): Promise<StackReading["paseo"]> {
 async function figcraft(ports: StackPorts): Promise<StackReading["figcraft"]> {
   const serverUrl = ports.env.FIGCRAFT_URL;
   if (!serverUrl) return { status: "off" };
-  // A WebSocket server answers a plain GET with some HTTP status: any answer means it is up.
-  const server = await probe(ports, serverUrl.replace(/^ws/, "http"), () => true);
+  // Behind a reverse proxy a plain GET gets some HTTP status; a 5xx is the proxy saying the
+  // server behind it is gone. A bare figcraft-server speaks WebSocket only and answers no GET,
+  // so when nothing answers HTTP, taking the connection counts as up.
+  const httpUrl = serverUrl.replace(/^ws/, "http");
+  let server = await probe(ports, httpUrl, (status) => status < 500);
+  if (server.ms === null) server = await connectProbe(ports, httpUrl);
   const webUrl = ports.env.FIGCRAFT_WEB_URL;
   const web = webUrl ? await probe(ports, webUrl, (status) => status < 400) : null;
   let cliVersion: string | null = null;

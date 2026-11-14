@@ -27,6 +27,9 @@ function ports(
       if (url.includes("broken")) return 502;
       return url.startsWith("http://fig:") ? 426 : 200;
     },
+    connect: async (host, port) => {
+      if (host !== "bare") throw new Error(`connect ECONNREFUSED ${host}:${port}`);
+    },
     run: async (command, args) => {
       ran.push([command, ...args].join(" "));
       if (command === "/bin/figcraft-cli") return "figcraft-cli 0.18.1\n";
@@ -105,7 +108,7 @@ describe("Stack readings", () => {
       ports({ FIGCRAFT_URL: "wss://down/", FIGCRAFT_SERVER_KEY_FILE: "/keys/empty" }).ports,
     );
     expect(down.figcraft).toMatchObject({
-      server: { ok: false, ms: null, error: "connect ECONNREFUSED" },
+      server: { ok: false, ms: null, error: "connect ECONNREFUSED down:443" },
       web: null,
       keyFile: "empty",
     });
@@ -113,6 +116,14 @@ describe("Stack readings", () => {
       ports({ FIGCRAFT_URL: "ws://fig:1/", FIGCRAFT_SERVER_KEY_FILE: "/keys/gone" }).ports,
     );
     expect(missing.figcraft).toMatchObject({ keyFile: "missing" });
+  });
+
+  test("FigCraft: a bare server that answers no GET is up when it takes the connection; a proxy's 5xx is down", async () => {
+    // "down" in the URL makes the fake's GET fail, as figcraft-server's own port does.
+    const bare = await readStack(ports({ FIGCRAFT_URL: "ws://bare:47900/down" }).ports);
+    expect(bare.figcraft).toMatchObject({ server: { ok: true, ms: 5, error: null } });
+    const gone = await readStack(ports({ FIGCRAFT_URL: "wss://fig.broken/" }).ports);
+    expect(gone.figcraft).toMatchObject({ server: { ok: false, ms: 5, error: "HTTP 502" } });
   });
 
   test("Android: connects a host:port serial, reads its state and version, and whether maestro is there", async () => {
