@@ -22,9 +22,16 @@ export interface AndroidDevice {
   stop(packageName: string): Promise<void>;
   logs(input: { packageName?: string; lines: number }): Promise<string>;
   size(): Promise<{ width: number; height: number }>;
+  /** Runs screenrecord into a device file; `done` settles when it stops: a signal, its limit, or a failure. */
+  record(remotePath: string, seconds: number): Promise<{ done: Promise<void> }>;
+  /** Copies a device file to the host. */
+  pull(remotePath: string, localPath: string): Promise<void>;
 }
 
 const INSTALL_TIMEOUT_MS = 120_000;
+const PULL_TIMEOUT_MS = 60_000;
+/** How long past its own limit a screenrecord may take to write its file and exit. */
+const RECORD_GRACE_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 8_000;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const PACKAGE_NAME = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
@@ -154,6 +161,16 @@ export function createAndroidDevice(input: { serial: string; adb: AdbRunner }): 
         throw new Error("Only printable ASCII can be typed; use android_key for Enter");
       }
       await shell(["input", "text", value.replace(/ /g, "%s")]);
+    },
+    async record(remotePath, seconds) {
+      await ensure();
+      const done = call(["shell", "screenrecord", "--time-limit", String(seconds), remotePath], {
+        timeoutMs: seconds * 1000 + RECORD_GRACE_MS,
+      }).then(() => undefined);
+      return { done };
+    },
+    async pull(remotePath, localPath) {
+      await call(["pull", remotePath, localPath], { timeoutMs: PULL_TIMEOUT_MS });
     },
     async install(apkPath) {
       const out = (
