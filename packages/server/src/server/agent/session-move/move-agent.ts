@@ -304,12 +304,13 @@ async function continueAgent(
   progress: FinishProgress,
 ): Promise<void> {
   const labels = deps.agentManager.getAgent(agentId)?.labels ?? {};
-  const notice = await deps.agentManager.moveCarry?.notifyWatchersOnFinish({
-    agentId,
-    fromAgentId: from.id,
-    labels,
-    since: from.lastUserMessageAt ?? null,
-  });
+  // Telling watchers is an extra: a notice that cannot be registered never stops the move.
+  const notice = await deps.agentManager.moveCarry
+    ?.notifyWatchersOnFinish({ agentId, fromAgentId: from.id, labels })
+    .catch((error: unknown) => {
+      deps.logger.warn({ err: error, agentId }, "move: failed to register watcher notice");
+      return undefined;
+    });
   try {
     const { disposition } = await sendPromptToAgent({
       agentManager: deps.agentManager,
