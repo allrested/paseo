@@ -1626,6 +1626,16 @@ export async function createPaseoDaemon(
     notifyWatchersOnFinish: (input) =>
       registerWatcherNotice({ serverId, subscriptions: finishSubscriptions }, input),
   });
+  // An agent that completes a turn has done its work: whoever was told about an earlier failure
+  // of it is not told again when it is moved later.
+  const stopForgettingWatchers = agentManager.subscribe(
+    (event) => {
+      if (event.type === "agent_stream" && event.event.type === "turn_completed") {
+        finishSubscriptions.forgetWatchers(event.agentId);
+      }
+    },
+    { replayState: false },
+  );
 
   const idleRuntimeCleanup = createIdleRuntimeCleanup({
     enabled: daemonConfigStore.get().idleRuntimeCleanup !== false,
@@ -2192,6 +2202,7 @@ export async function createPaseoDaemon(
     stopUsageLimitFallback = null;
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
+    stopForgettingWatchers();
     await finishSubscriptions.close();
     await wsServer?.agentMessages.close();
     agentManager.prepareForShutdown();

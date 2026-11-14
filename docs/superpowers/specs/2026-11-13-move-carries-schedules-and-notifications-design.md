@@ -172,10 +172,10 @@ The parent may itself have moved since; delivery follows its moved-to link as ab
 
 - Schedules completed by a move before this ships stay completed.
 - A parent or other watcher on another host is not told when a moved agent's successor finishes:
-  its notifications live on its own host. On this host
-  the parent is told, and so is any agent that waits on the agent being left or was told about a
-  turn of it that ended since its last prompt; the daemon remembers who was told for a week
-  (`finish-watchers.json`).
+  its notifications live on its own host. On this host the parent is told, and so is any agent
+  that still waits on the agent being left, or was told that a turn of it failed, was cancelled
+  or was closed. The daemon remembers that for a week (`finish-watchers.json`) and forgets it
+  when the agent completes a turn. A watcher told that the turn finished is not told again.
 - The parent still gets the notification the old agent's turn produced: "errored" for a limit,
   "finished" for a turn the move cancelled.
 - A finish that arrives while the watcher's move is in progress, before the old agent is
