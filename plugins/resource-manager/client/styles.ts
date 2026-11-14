@@ -53,6 +53,13 @@ export interface ScreenStyles {
   trendBar: ViewStyle;
   trendRange: TextStyle;
   chevronColor: string;
+  /** The ports under an agent's or a group's row, on the row's 16px rails. */
+  ports: ViewStyle;
+  portsTitle: TextStyle;
+  portChips: ViewStyle;
+  portChip: ViewStyle;
+  portNumber: TextStyle;
+  portReach: TextStyle;
 }
 
 /** Styles for the Resources screen, from the host theme. Typed, so no `as const` is needed. */
@@ -137,6 +144,21 @@ export function useScreenStyles(theme: PluginTheme): ScreenStyles {
       trendBar: { width: 3, borderRadius: 1, backgroundColor: colors.foregroundMuted },
       trendRange: { flex: 1, textAlign: "right", color: colors.foregroundMuted, fontSize: 12 },
       chevronColor: colors.foregroundMuted,
+      ports: { paddingHorizontal: 16, paddingBottom: 12, gap: 6 },
+      portsTitle: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "500" },
+      portChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+      // 32px tall with 8px between: hitSlop makes up the rest of a thumb's 44 on a phone.
+      portChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+        backgroundColor: colors.surface2,
+      },
+      portNumber: { color: colors.foreground, fontSize: 12, lineHeight: 16, fontWeight: "500" },
+      portReach: { color: colors.foregroundMuted, fontSize: 12, lineHeight: 16 },
     };
   }, [theme]);
 }

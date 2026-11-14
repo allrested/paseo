@@ -71,6 +71,7 @@ const AGENT: AgentUsage = {
   cpuPercent: 0,
   idleSince: "2026-11-06T08:50:00.000Z",
   processCount: 2,
+  ports: [],
 };
 
 describe("thresholds", () => {
@@ -461,8 +462,8 @@ describe("agent and group summaries", () => {
 
   it("sums the groups", () => {
     const groups: GroupUsage[] = [
-      { kind: "daemon", rssBytes: GIB, cpuPercent: 0, processCount: 3 },
-      { kind: "other", rssBytes: GIB, cpuPercent: null, processCount: 1 },
+      { kind: "daemon", rssBytes: GIB, cpuPercent: 0, processCount: 3, ports: [] },
+      { kind: "other", rssBytes: GIB, cpuPercent: null, processCount: 1, ports: [] },
     ];
 
     expect(groupsSummary(groups)).toBe("4 processes, 2.0 GB");

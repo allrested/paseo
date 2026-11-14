@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { SettingsAction, SettingsRow } from "@getpaseo/plugin/client/ui";
@@ -16,6 +16,7 @@ import {
   type TrendPoint,
 } from "./cards.js";
 import { agentLabel, describeAgent, describeGroup, groupLabel } from "./format.js";
+import { PortsLine } from "./ports-line.js";
 import type { ScreenStyles } from "./styles.js";
 
 const POLL_MS = 5_000;
@@ -161,7 +162,10 @@ export function InstanceTab({ hostId, cards, styles }: InstanceTabProps) {
         styles={styles}
       >
         {data.agents.map((agent) => (
-          <AgentRow key={agent.agentId} agent={agent} now={now} hostId={hostId} />
+          <Fragment key={agent.agentId}>
+            <AgentRow agent={agent} now={now} hostId={hostId} />
+            <PortsLine ports={agent.ports} who={agentLabel(agent)} styles={styles} />
+          </Fragment>
         ))}
       </ResourceCard>
       <ResourceCard
@@ -175,11 +179,10 @@ export function InstanceTab({ hostId, cards, styles }: InstanceTabProps) {
         styles={styles}
       >
         {data.groups.map((group) => (
-          <SettingsRow
-            key={group.kind}
-            label={groupLabel(group.kind)}
-            hint={describeGroup(group)}
-          />
+          <Fragment key={group.kind}>
+            <SettingsRow label={groupLabel(group.kind)} hint={describeGroup(group)} />
+            <PortsLine ports={group.ports} who={groupLabel(group.kind)} styles={styles} />
+          </Fragment>
         ))}
       </ResourceCard>
     </View>
