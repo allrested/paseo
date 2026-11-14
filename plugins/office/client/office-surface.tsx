@@ -30,8 +30,8 @@ import {
 } from "./model.js";
 import { NO_LAYOUT, type SceneLayout, type SceneLayoutKeeper } from "./scene/scene-layout.js";
 import { SceneView, type FocusRequest, type SceneCameraKeeper } from "./scene/scene-view.js";
-import { StreamView } from "./scene/stream-view.js";
 import { hasWebGL2 } from "./scene/web-env.web.js";
+import { SheetView } from "./sheet/sheet-view.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
@@ -441,7 +441,7 @@ function SurfaceBody({
   if (sceneModel !== null && sceneMode === "stream") {
     // The host draws from its own copy of the office, so this view takes no model.
     return (
-      <StreamView
+      <SheetView
         theme={theme}
         styles={styles}
         coarsePointer={touchScreen}
