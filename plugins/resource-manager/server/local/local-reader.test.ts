@@ -5,7 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentUsage, GroupUsage, HostSummary } from "../../shared/rpc.js";
 import type { LiveAgent } from "../paseo-ports.js";
 import type { PidRecord } from "../pid-files.js";
-import { writeFakeProc, type FakePidSpace, type FakeProcess } from "./fake-proc.js";
+import {
+  V4_ANY,
+  V4_LOOPBACK,
+  V6_LOOPBACK,
+  writeFakeProc,
+  writeFakeTcp,
+  type FakePidSpace,
+  type FakeProcess,
+} from "./fake-proc.js";
 import { LocalReader } from "./local-reader.js";
 
 const SPACE: FakePidSpace = { pidNamespace: "pid:[4026531836]", bootId: "boot-1" };
@@ -186,6 +194,7 @@ describe("LocalReader", () => {
         cpuPercent: 200,
         idleSince: "2026-11-06T08:50:00.000Z",
         processCount: 3,
+        ports: [],
       },
       {
         agentId: "agent-c",
@@ -196,13 +205,32 @@ describe("LocalReader", () => {
         cpuPercent: 0,
         idleSince: null,
         processCount: 1,
+        ports: [],
       },
     ];
     const groups: GroupUsage[] = [
-      { kind: "daemon", rssBytes: (47316 + 286020 + 4096) * KIB, cpuPercent: 0, processCount: 3 },
-      { kind: "sharedMcp", rssBytes: (102400 + 51200) * KIB, cpuPercent: 0, processCount: 2 },
-      { kind: "heavyGate", rssBytes: (1048576 + 20480) * KIB, cpuPercent: 100, processCount: 2 },
-      { kind: "other", rssBytes: (512 + 10240) * KIB, cpuPercent: 0, processCount: 3 },
+      {
+        kind: "daemon",
+        rssBytes: (47316 + 286020 + 4096) * KIB,
+        cpuPercent: 0,
+        processCount: 3,
+        ports: [],
+      },
+      {
+        kind: "sharedMcp",
+        rssBytes: (102400 + 51200) * KIB,
+        cpuPercent: 0,
+        processCount: 2,
+        ports: [],
+      },
+      {
+        kind: "heavyGate",
+        rssBytes: (1048576 + 20480) * KIB,
+        cpuPercent: 100,
+        processCount: 2,
+        ports: [],
+      },
+      { kind: "other", rssBytes: (512 + 10240) * KIB, cpuPercent: 0, processCount: 3, ports: [] },
     ];
     expect(reading).toEqual({
       readAt: "2026-11-06T09:00:01.000Z",
@@ -252,6 +280,86 @@ describe("LocalReader", () => {
 
     expect(a).toBe(b);
     expect(agents.calls()).toBe(1);
+  });
+
+  it("gives each listening port to the agent or group whose process holds its socket", async () => {
+    const { reader } = harness();
+    writeFakeProc(procRoot, [
+      {
+        pid: 164,
+        ppid: 6,
+        startTime: 200,
+        rssKb: 286020,
+        cmdline: ["Paseo Daemon"],
+        sockets: [9001],
+      },
+      {
+        pid: 301,
+        ppid: 300,
+        startTime: 3010,
+        rssKb: 204800,
+        utime: 500,
+        env: { PASEO_AGENT_ID: "agent-a" },
+        sockets: [9004, 9002, 9003],
+      },
+      {
+        pid: 310,
+        ppid: 309,
+        startTime: 3100,
+        rssKb: 1048576,
+        utime: 2000,
+        env: { PASEO_AGENT_ID: "agent-a", PASEO_HEAVY_GATE_HELD: "1" },
+        sockets: [9006],
+      },
+      { pid: 401, ppid: 400, pgrp: 401, startTime: 4001, rssKb: 51200, sockets: [9005] },
+      {
+        pid: 500,
+        ppid: 164,
+        startTime: 5000,
+        rssKb: 10240,
+        env: { PASEO_AGENT_ID: "agent-gone" },
+        sockets: [9007],
+      },
+    ]);
+    writeFakeTcp(
+      procRoot,
+      [
+        { address: V4_LOOPBACK, port: 6767, inode: 9001 },
+        { address: V4_ANY, port: 3000, inode: 9002 },
+        { address: V4_LOOPBACK, port: 9229, inode: 9004 },
+        { address: V4_LOOPBACK, port: 8090, inode: 9005 },
+        { address: V4_ANY, port: 5173, inode: 9006 },
+        { address: V4_LOOPBACK, port: 4000, inode: 9007 },
+        // Held by no process this user can read.
+        { address: V4_ANY, port: 22, inode: 9008 },
+      ],
+      [{ address: V6_LOOPBACK, port: 3000, inode: 9003 }],
+    );
+
+    const reading = await reader.read(() => Promise.resolve(AGENTS));
+
+    expect(reading.agents.map((agent) => [agent.agentId, agent.ports])).toEqual([
+      [
+        "agent-a",
+        [
+          { port: 3000, reach: "all" },
+          { port: 9229, reach: "local" },
+        ],
+      ],
+      ["agent-c", []],
+    ]);
+    expect(reading.groups.map((group) => [group.kind, group.ports])).toEqual([
+      ["daemon", [{ port: 6767, reach: "local" }]],
+      ["sharedMcp", [{ port: 8090, reach: "local" }]],
+      ["heavyGate", [{ port: 5173, reach: "all" }]],
+      [
+        "other",
+        [
+          { port: 22, reach: "all" },
+          { port: 4000, reach: "local" },
+        ],
+      ],
+    ]);
   });
 
   it("reports a failed agent list and counts agent processes under 'other'", async () => {

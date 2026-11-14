@@ -11,6 +11,9 @@ import {
   agentLabel,
   describeAgent,
   describeGroup,
+  portAddress,
+  portLabel,
+  reachText,
   formatBytes,
   formatClock,
   formatCpu,
@@ -37,6 +40,7 @@ const AGENT: AgentUsage = {
   cpuPercent: 200,
   idleSince: "2026-11-06T08:50:00.000Z",
   processCount: 2,
+  ports: [],
 };
 
 const HOST: HostSummary = {
@@ -127,12 +131,25 @@ describe("agent and group text", () => {
     ).toBe("claude, 1 process, 500 MB, 200.0% CPU, running");
   });
 
+  it("says how far a port can be reached, and gives its address on the host", () => {
+    expect((["local", "one", "all"] as const).map(reachText)).toEqual([
+      "local only",
+      "one interface",
+      "all interfaces",
+    ]);
+    expect(portAddress({ port: 3000, reach: "all" })).toBe("http://localhost:3000");
+    expect(portLabel({ port: 9229, reach: "local" })).toBe(
+      "Copy http://localhost:9229, port 9229, local only",
+    );
+  });
+
   it("describes a group", () => {
     const group: GroupUsage = {
       kind: "daemon",
       rssBytes: 285872 * KIB,
       cpuPercent: 0,
       processCount: 3,
+      ports: [],
     };
 
     expect(describeGroup(group)).toBe("3 processes, 279 MB, 0.0% CPU");
