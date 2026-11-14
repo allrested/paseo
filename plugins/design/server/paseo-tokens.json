@@ -1,0 +1,3181 @@
+{
+  "meta": {
+    "variableCollections": {
+      "c:tokens": {
+        "id": "c:tokens",
+        "name": "Tokens",
+        "modes": [
+          {
+            "modeId": "m:paseo",
+            "name": "Paseo"
+          },
+          {
+            "modeId": "m:light",
+            "name": "Light"
+          },
+          {
+            "modeId": "m:zinc",
+            "name": "Zinc"
+          },
+          {
+            "modeId": "m:midnight",
+            "name": "Midnight"
+          },
+          {
+            "modeId": "m:claude",
+            "name": "Claude"
+          },
+          {
+            "modeId": "m:ghostty",
+            "name": "Ghostty"
+          },
+          {
+            "modeId": "m:pure-black",
+            "name": "Pure Black"
+          }
+        ],
+        "defaultModeId": "m:paseo",
+        "variableIds": [
+          "v:color/surface0",
+          "v:color/surface1",
+          "v:color/surface2",
+          "v:color/surface3",
+          "v:color/surface4",
+          "v:color/surfaceDiffEmpty",
+          "v:color/surfaceSidebar",
+          "v:color/surfaceSidebarHover",
+          "v:color/surfaceSidebarSelected",
+          "v:color/surfaceWorkspace",
+          "v:color/interactionHighlight",
+          "v:color/foreground",
+          "v:color/foregroundMuted",
+          "v:color/foregroundExtraMuted",
+          "v:color/border",
+          "v:color/borderAccent",
+          "v:color/accent",
+          "v:color/accentBright",
+          "v:color/accentForeground",
+          "v:color/destructive",
+          "v:color/destructiveForeground",
+          "v:color/success",
+          "v:color/successForeground",
+          "v:color/background",
+          "v:color/popover",
+          "v:color/popoverForeground",
+          "v:color/primary",
+          "v:color/primaryForeground",
+          "v:color/secondary",
+          "v:color/secondaryForeground",
+          "v:color/muted",
+          "v:color/mutedForeground",
+          "v:color/accentBorder",
+          "v:color/input",
+          "v:color/ring",
+          "v:color/diffAddition",
+          "v:color/diffDeletion",
+          "v:color/statusSuccess",
+          "v:color/statusDanger",
+          "v:color/statusWarning",
+          "v:color/statusMerged",
+          "v:color/statusSuccessTint",
+          "v:color/statusDangerTint",
+          "v:color/statusWarningTint",
+          "v:color/statusDotSuccess",
+          "v:color/statusDotDanger",
+          "v:color/statusDotWarning",
+          "v:color/statusDotRunning",
+          "v:spacing/0",
+          "v:spacing/1",
+          "v:spacing/2",
+          "v:spacing/3",
+          "v:spacing/4",
+          "v:spacing/6",
+          "v:spacing/7",
+          "v:spacing/8",
+          "v:spacing/12",
+          "v:spacing/16",
+          "v:spacing/20",
+          "v:spacing/24",
+          "v:spacing/32",
+          "v:spacing/0_5",
+          "v:spacing/1_5",
+          "v:spacing/3_5",
+          "v:font-size/code",
+          "v:font-size/content",
+          "v:font-size/sm",
+          "v:font-size/base",
+          "v:font-size/lg",
+          "v:font-size/xl",
+          "v:font-size/2xl",
+          "v:font-size/3xl",
+          "v:font-size/4xl",
+          "v:icon-size/xs",
+          "v:icon-size/sm",
+          "v:icon-size/md",
+          "v:icon-size/lg",
+          "v:radius/none",
+          "v:radius/sm",
+          "v:radius/base",
+          "v:radius/md",
+          "v:radius/lg",
+          "v:radius/xl",
+          "v:radius/2xl",
+          "v:radius/full",
+          "v:border-width/0",
+          "v:border-width/1",
+          "v:border-width/2",
+          "v:opacity/0",
+          "v:opacity/50",
+          "v:opacity/100"
+        ]
+      }
+    },
+    "variables": {
+      "v:color/surface0": {
+        "id": "v:color/surface0",
+        "name": "color/surface0",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.094,
+            "g": 0.106,
+            "b": 0.102,
+            "a": 1
+          },
+          "m:light": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.094,
+            "g": 0.094,
+            "b": 0.106,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.086,
+            "g": 0.094,
+            "b": 0.125,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.122,
+            "g": 0.122,
+            "b": 0.118,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.157,
+            "g": 0.173,
+            "b": 0.204,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surface1": {
+        "id": "v:color/surface1",
+        "name": "color/surface1",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.118,
+            "g": 0.129,
+            "b": 0.125,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.122,
+            "g": 0.122,
+            "b": 0.133,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.11,
+            "g": 0.118,
+            "b": 0.153,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.149,
+            "g": 0.145,
+            "b": 0.137,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.184,
+            "g": 0.2,
+            "b": 0.239,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.039,
+            "g": 0.039,
+            "b": 0.039,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surface2": {
+        "id": "v:color/surface2",
+        "name": "color/surface2",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.153,
+            "g": 0.165,
+            "b": 0.161,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.957,
+            "g": 0.957,
+            "b": 0.961,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.153,
+            "g": 0.153,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.145,
+            "g": 0.153,
+            "b": 0.192,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.184,
+            "g": 0.176,
+            "b": 0.169,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.22,
+            "g": 0.235,
+            "b": 0.282,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.067,
+            "g": 0.067,
+            "b": 0.067,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surface3": {
+        "id": "v:color/surface3",
+        "name": "color/surface3",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.263,
+            "g": 0.275,
+            "b": 0.271,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.894,
+            "g": 0.894,
+            "b": 0.906,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.247,
+            "g": 0.247,
+            "b": 0.275,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.235,
+            "g": 0.243,
+            "b": 0.298,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.29,
+            "g": 0.278,
+            "b": 0.271,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.29,
+            "g": 0.31,
+            "b": 0.369,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.125,
+            "g": 0.125,
+            "b": 0.125,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surface4": {
+        "id": "v:color/surface4",
+        "name": "color/surface4",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.349,
+            "g": 0.357,
+            "b": 0.357,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.322,
+            "g": 0.322,
+            "b": 0.357,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.325,
+            "g": 0.333,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.376,
+            "g": 0.365,
+            "b": 0.357,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.357,
+            "g": 0.38,
+            "b": 0.459,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.176,
+            "g": 0.176,
+            "b": 0.176,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surfaceDiffEmpty": {
+        "id": "v:color/surfaceDiffEmpty",
+        "name": "color/surfaceDiffEmpty",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.145,
+            "g": 0.157,
+            "b": 0.153,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.965,
+            "g": 0.965,
+            "b": 0.965,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.141,
+            "g": 0.141,
+            "b": 0.153,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.133,
+            "g": 0.141,
+            "b": 0.188,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.165,
+            "g": 0.157,
+            "b": 0.149,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.196,
+            "g": 0.212,
+            "b": 0.263,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.047,
+            "g": 0.047,
+            "b": 0.047,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surfaceSidebar": {
+        "id": "v:color/surfaceSidebar",
+        "name": "color/surfaceSidebar",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.078,
+            "g": 0.09,
+            "b": 0.086,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.957,
+            "g": 0.957,
+            "b": 0.961,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.075,
+            "g": 0.075,
+            "b": 0.086,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.071,
+            "g": 0.078,
+            "b": 0.125,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.102,
+            "g": 0.098,
+            "b": 0.094,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.129,
+            "g": 0.145,
+            "b": 0.176,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surfaceSidebarHover": {
+        "id": "v:color/surfaceSidebarHover",
+        "name": "color/surfaceSidebarHover",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.118,
+            "g": 0.129,
+            "b": 0.125,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.894,
+            "g": 0.894,
+            "b": 0.906,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.122,
+            "g": 0.122,
+            "b": 0.133,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.11,
+            "g": 0.118,
+            "b": 0.153,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.149,
+            "g": 0.145,
+            "b": 0.137,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.184,
+            "g": 0.2,
+            "b": 0.239,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.039,
+            "g": 0.039,
+            "b": 0.039,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surfaceSidebarSelected": {
+        "id": "v:color/surfaceSidebarSelected",
+        "name": "color/surfaceSidebarSelected",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.153,
+            "g": 0.165,
+            "b": 0.161,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.153,
+            "g": 0.153,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.145,
+            "g": 0.153,
+            "b": 0.192,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.184,
+            "g": 0.176,
+            "b": 0.169,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.22,
+            "g": 0.235,
+            "b": 0.282,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.067,
+            "g": 0.067,
+            "b": 0.067,
+            "a": 1
+          }
+        }
+      },
+      "v:color/surfaceWorkspace": {
+        "id": "v:color/surfaceWorkspace",
+        "name": "color/surfaceWorkspace",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.118,
+            "g": 0.129,
+            "b": 0.125,
+            "a": 1
+          },
+          "m:light": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.122,
+            "g": 0.122,
+            "b": 0.133,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.11,
+            "g": 0.118,
+            "b": 0.153,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.149,
+            "g": 0.145,
+            "b": 0.137,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.184,
+            "g": 0.2,
+            "b": 0.239,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.039,
+            "g": 0.039,
+            "b": 0.039,
+            "a": 1
+          }
+        }
+      },
+      "v:color/interactionHighlight": {
+        "id": "v:color/interactionHighlight",
+        "name": "color/interactionHighlight",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 0.08
+          },
+          "m:light": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.06
+          },
+          "m:zinc": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 0.08
+          },
+          "m:midnight": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 0.08
+          },
+          "m:claude": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 0.08
+          },
+          "m:ghostty": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 0.08
+          },
+          "m:pure-black": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 0.08
+          }
+        }
+      },
+      "v:color/foreground": {
+        "id": "v:color/foreground",
+        "name": "color/foreground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.102,
+            "g": 0.102,
+            "b": 0.118,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          }
+        }
+      },
+      "v:color/foregroundMuted": {
+        "id": "v:color/foregroundMuted",
+        "name": "color/foregroundMuted",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.631,
+            "g": 0.647,
+            "b": 0.643,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.443,
+            "g": 0.443,
+            "b": 0.478,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.631,
+            "g": 0.631,
+            "b": 0.667,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.604,
+            "g": 0.616,
+            "b": 0.69,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.678,
+            "g": 0.663,
+            "b": 0.647,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.784,
+            "g": 0.8,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.631,
+            "g": 0.631,
+            "b": 0.667,
+            "a": 1
+          }
+        }
+      },
+      "v:color/foregroundExtraMuted": {
+        "id": "v:color/foregroundExtraMuted",
+        "name": "color/foregroundExtraMuted",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.443,
+            "g": 0.459,
+            "b": 0.455,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.631,
+            "g": 0.631,
+            "b": 0.667,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.443,
+            "g": 0.443,
+            "b": 0.478,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.42,
+            "g": 0.431,
+            "b": 0.51,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.471,
+            "g": 0.455,
+            "b": 0.435,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.627,
+            "g": 0.643,
+            "b": 0.698,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.443,
+            "g": 0.443,
+            "b": 0.478,
+            "a": 1
+          }
+        }
+      },
+      "v:color/border": {
+        "id": "v:color/border",
+        "name": "color/border",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.145,
+            "g": 0.169,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.894,
+            "g": 0.894,
+            "b": 0.906,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.153,
+            "g": 0.153,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.141,
+            "g": 0.149,
+            "b": 0.212,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.173,
+            "g": 0.165,
+            "b": 0.153,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.208,
+            "g": 0.227,
+            "b": 0.278,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.11,
+            "g": 0.11,
+            "b": 0.11,
+            "a": 1
+          }
+        }
+      },
+      "v:color/borderAccent": {
+        "id": "v:color/borderAccent",
+        "name": "color/borderAccent",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.184,
+            "g": 0.208,
+            "b": 0.204,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.925,
+            "g": 0.925,
+            "b": 0.945,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.188,
+            "g": 0.188,
+            "b": 0.212,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.18,
+            "g": 0.188,
+            "b": 0.251,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.212,
+            "g": 0.2,
+            "b": 0.184,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.247,
+            "g": 0.267,
+            "b": 0.329,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.141,
+            "g": 0.141,
+            "b": 0.141,
+            "a": 1
+          }
+        }
+      },
+      "v:color/accent": {
+        "id": "v:color/accent",
+        "name": "color/accent",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.125,
+            "g": 0.455,
+            "b": 0.29,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.125,
+            "g": 0.455,
+            "b": 0.29,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.894,
+            "g": 0.894,
+            "b": 0.906,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.231,
+            "g": 0.435,
+            "b": 0.812,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.851,
+            "g": 0.467,
+            "b": 0.341,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.208,
+            "g": 0.439,
+            "b": 0.878,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.125,
+            "g": 0.455,
+            "b": 0.29,
+            "a": 1
+          }
+        }
+      },
+      "v:color/accentBright": {
+        "id": "v:color/accentBright",
+        "name": "color/accentBright",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.486,
+            "g": 0.796,
+            "b": 0.627,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.137,
+            "g": 0.6,
+            "b": 0.337,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.494,
+            "g": 0.667,
+            "b": 0.922,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.91,
+            "g": 0.604,
+            "b": 0.498,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.706,
+            "g": 0.816,
+            "b": 0.988,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.486,
+            "g": 0.796,
+            "b": 0.627,
+            "a": 1
+          }
+        }
+      },
+      "v:color/accentForeground": {
+        "id": "v:color/accentForeground",
+        "name": "color/accentForeground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:light": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.094,
+            "g": 0.094,
+            "b": 0.106,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          }
+        }
+      },
+      "v:color/destructive": {
+        "id": "v:color/destructive",
+        "name": "color/destructive",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.776,
+            "g": 0.31,
+            "b": 0.263,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.69,
+            "g": 0.255,
+            "b": 0.22,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.769,
+            "g": 0.29,
+            "b": 0.29,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.769,
+            "g": 0.29,
+            "b": 0.322,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.812,
+            "g": 0.318,
+            "b": 0.243,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.769,
+            "g": 0.29,
+            "b": 0.333,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.769,
+            "g": 0.29,
+            "b": 0.29,
+            "a": 1
+          }
+        }
+      },
+      "v:color/destructiveForeground": {
+        "id": "v:color/destructiveForeground",
+        "name": "color/destructiveForeground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:light": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          }
+        }
+      },
+      "v:color/success": {
+        "id": "v:color/success",
+        "name": "color/success",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.125,
+            "g": 0.455,
+            "b": 0.29,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.125,
+            "g": 0.455,
+            "b": 0.29,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.894,
+            "g": 0.894,
+            "b": 0.906,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.231,
+            "g": 0.435,
+            "b": 0.812,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.851,
+            "g": 0.467,
+            "b": 0.341,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.208,
+            "g": 0.439,
+            "b": 0.878,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.125,
+            "g": 0.455,
+            "b": 0.29,
+            "a": 1
+          }
+        }
+      },
+      "v:color/successForeground": {
+        "id": "v:color/successForeground",
+        "name": "color/successForeground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:light": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          }
+        }
+      },
+      "v:color/background": {
+        "id": "v:color/background",
+        "name": "color/background",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.094,
+            "g": 0.106,
+            "b": 0.102,
+            "a": 1
+          },
+          "m:light": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.094,
+            "g": 0.094,
+            "b": 0.106,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.086,
+            "g": 0.094,
+            "b": 0.125,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.122,
+            "g": 0.122,
+            "b": 0.118,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.157,
+            "g": 0.173,
+            "b": 0.204,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 1
+          }
+        }
+      },
+      "v:color/popover": {
+        "id": "v:color/popover",
+        "name": "color/popover",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.153,
+            "g": 0.165,
+            "b": 0.161,
+            "a": 1
+          },
+          "m:light": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.153,
+            "g": 0.153,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.145,
+            "g": 0.153,
+            "b": 0.192,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.184,
+            "g": 0.176,
+            "b": 0.169,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.22,
+            "g": 0.235,
+            "b": 0.282,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.067,
+            "g": 0.067,
+            "b": 0.067,
+            "a": 1
+          }
+        }
+      },
+      "v:color/popoverForeground": {
+        "id": "v:color/popoverForeground",
+        "name": "color/popoverForeground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.102,
+            "g": 0.102,
+            "b": 0.118,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          }
+        }
+      },
+      "v:color/primary": {
+        "id": "v:color/primary",
+        "name": "color/primary",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.094,
+            "g": 0.094,
+            "b": 0.106,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          }
+        }
+      },
+      "v:color/primaryForeground": {
+        "id": "v:color/primaryForeground",
+        "name": "color/primaryForeground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.094,
+            "g": 0.106,
+            "b": 0.102,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.094,
+            "g": 0.094,
+            "b": 0.106,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.086,
+            "g": 0.094,
+            "b": 0.125,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.122,
+            "g": 0.122,
+            "b": 0.118,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.157,
+            "g": 0.173,
+            "b": 0.204,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 1
+          }
+        }
+      },
+      "v:color/secondary": {
+        "id": "v:color/secondary",
+        "name": "color/secondary",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.153,
+            "g": 0.165,
+            "b": 0.161,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.957,
+            "g": 0.957,
+            "b": 0.961,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.153,
+            "g": 0.153,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.145,
+            "g": 0.153,
+            "b": 0.192,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.184,
+            "g": 0.176,
+            "b": 0.169,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.22,
+            "g": 0.235,
+            "b": 0.282,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.067,
+            "g": 0.067,
+            "b": 0.067,
+            "a": 1
+          }
+        }
+      },
+      "v:color/secondaryForeground": {
+        "id": "v:color/secondaryForeground",
+        "name": "color/secondaryForeground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.102,
+            "g": 0.102,
+            "b": 0.118,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.98,
+            "g": 0.98,
+            "b": 0.98,
+            "a": 1
+          }
+        }
+      },
+      "v:color/muted": {
+        "id": "v:color/muted",
+        "name": "color/muted",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.153,
+            "g": 0.165,
+            "b": 0.161,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.957,
+            "g": 0.957,
+            "b": 0.961,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.153,
+            "g": 0.153,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.145,
+            "g": 0.153,
+            "b": 0.192,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.184,
+            "g": 0.176,
+            "b": 0.169,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.22,
+            "g": 0.235,
+            "b": 0.282,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.067,
+            "g": 0.067,
+            "b": 0.067,
+            "a": 1
+          }
+        }
+      },
+      "v:color/mutedForeground": {
+        "id": "v:color/mutedForeground",
+        "name": "color/mutedForeground",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.631,
+            "g": 0.647,
+            "b": 0.643,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.443,
+            "g": 0.443,
+            "b": 0.478,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.631,
+            "g": 0.631,
+            "b": 0.667,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.604,
+            "g": 0.616,
+            "b": 0.69,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.678,
+            "g": 0.663,
+            "b": 0.647,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.784,
+            "g": 0.8,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.631,
+            "g": 0.631,
+            "b": 0.667,
+            "a": 1
+          }
+        }
+      },
+      "v:color/accentBorder": {
+        "id": "v:color/accentBorder",
+        "name": "color/accentBorder",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.184,
+            "g": 0.208,
+            "b": 0.204,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.925,
+            "g": 0.925,
+            "b": 0.945,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.188,
+            "g": 0.188,
+            "b": 0.212,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.18,
+            "g": 0.188,
+            "b": 0.251,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.212,
+            "g": 0.2,
+            "b": 0.184,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.247,
+            "g": 0.267,
+            "b": 0.329,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.141,
+            "g": 0.141,
+            "b": 0.141,
+            "a": 1
+          }
+        }
+      },
+      "v:color/input": {
+        "id": "v:color/input",
+        "name": "color/input",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.153,
+            "g": 0.165,
+            "b": 0.161,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.957,
+            "g": 0.957,
+            "b": 0.961,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.153,
+            "g": 0.153,
+            "b": 0.165,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.145,
+            "g": 0.153,
+            "b": 0.192,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.184,
+            "g": 0.176,
+            "b": 0.169,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.22,
+            "g": 0.235,
+            "b": 0.282,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.067,
+            "g": 0.067,
+            "b": 0.067,
+            "a": 1
+          }
+        }
+      },
+      "v:color/ring": {
+        "id": "v:color/ring",
+        "name": "color/ring",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.094,
+            "g": 0.094,
+            "b": 0.106,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.831,
+            "g": 0.831,
+            "b": 0.847,
+            "a": 1
+          }
+        }
+      },
+      "v:color/diffAddition": {
+        "id": "v:color/diffAddition",
+        "name": "color/diffAddition",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.29,
+            "g": 0.871,
+            "b": 0.502,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.082,
+            "g": 0.502,
+            "b": 0.239,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.29,
+            "g": 0.871,
+            "b": 0.502,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.29,
+            "g": 0.871,
+            "b": 0.502,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.29,
+            "g": 0.871,
+            "b": 0.502,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.29,
+            "g": 0.871,
+            "b": 0.502,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.29,
+            "g": 0.871,
+            "b": 0.502,
+            "a": 1
+          }
+        }
+      },
+      "v:color/diffDeletion": {
+        "id": "v:color/diffDeletion",
+        "name": "color/diffDeletion",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.937,
+            "g": 0.267,
+            "b": 0.267,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.725,
+            "g": 0.11,
+            "b": 0.11,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.937,
+            "g": 0.267,
+            "b": 0.267,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.937,
+            "g": 0.267,
+            "b": 0.267,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.937,
+            "g": 0.267,
+            "b": 0.267,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.937,
+            "g": 0.267,
+            "b": 0.267,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.937,
+            "g": 0.267,
+            "b": 0.267,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusSuccess": {
+        "id": "v:color/statusSuccess",
+        "name": "color/statusSuccess",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.243,
+            "g": 0.439,
+            "b": 0.29,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusDanger": {
+        "id": "v:color/statusDanger",
+        "name": "color/statusDanger",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.616,
+            "g": 0.263,
+            "b": 0.231,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusWarning": {
+        "id": "v:color/statusWarning",
+        "name": "color/statusWarning",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.482,
+            "g": 0.365,
+            "b": 0.224,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusMerged": {
+        "id": "v:color/statusMerged",
+        "name": "color/statusMerged",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.659,
+            "g": 0.565,
+            "b": 0.835,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.451,
+            "g": 0.278,
+            "b": 0.686,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.659,
+            "g": 0.565,
+            "b": 0.835,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.659,
+            "g": 0.565,
+            "b": 0.835,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.659,
+            "g": 0.565,
+            "b": 0.835,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.659,
+            "g": 0.565,
+            "b": 0.835,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.659,
+            "g": 0.565,
+            "b": 0.835,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusSuccessTint": {
+        "id": "v:color/statusSuccessTint",
+        "name": "color/statusSuccessTint",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:light": {
+            "r": 0.243,
+            "g": 0.439,
+            "b": 0.29,
+            "a": 0.122
+          },
+          "m:zinc": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:midnight": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:claude": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:ghostty": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:pure-black": {
+            "r": 0.424,
+            "g": 0.694,
+            "b": 0.482,
+            "a": 0.161
+          }
+        }
+      },
+      "v:color/statusDangerTint": {
+        "id": "v:color/statusDangerTint",
+        "name": "color/statusDangerTint",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:light": {
+            "r": 0.616,
+            "g": 0.263,
+            "b": 0.231,
+            "a": 0.122
+          },
+          "m:zinc": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:midnight": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:claude": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:ghostty": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 0.161
+          },
+          "m:pure-black": {
+            "r": 0.847,
+            "g": 0.518,
+            "b": 0.482,
+            "a": 0.161
+          }
+        }
+      },
+      "v:color/statusWarningTint": {
+        "id": "v:color/statusWarningTint",
+        "name": "color/statusWarningTint",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 0.161
+          },
+          "m:light": {
+            "r": 0.482,
+            "g": 0.365,
+            "b": 0.224,
+            "a": 0.122
+          },
+          "m:zinc": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 0.161
+          },
+          "m:midnight": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 0.161
+          },
+          "m:claude": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 0.161
+          },
+          "m:ghostty": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 0.161
+          },
+          "m:pure-black": {
+            "r": 0.753,
+            "g": 0.588,
+            "b": 0.392,
+            "a": 0.161
+          }
+        }
+      },
+      "v:color/statusDotSuccess": {
+        "id": "v:color/statusDotSuccess",
+        "name": "color/statusDotSuccess",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.208,
+            "g": 0.761,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.161,
+            "g": 0.624,
+            "b": 0.318,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.208,
+            "g": 0.761,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.208,
+            "g": 0.761,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.208,
+            "g": 0.761,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.208,
+            "g": 0.761,
+            "b": 0.392,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.208,
+            "g": 0.761,
+            "b": 0.392,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusDotDanger": {
+        "id": "v:color/statusDotDanger",
+        "name": "color/statusDotDanger",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.969,
+            "g": 0.475,
+            "b": 0.427,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.945,
+            "g": 0.18,
+            "b": 0.184,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.969,
+            "g": 0.475,
+            "b": 0.427,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.969,
+            "g": 0.475,
+            "b": 0.427,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.969,
+            "g": 0.475,
+            "b": 0.427,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.969,
+            "g": 0.475,
+            "b": 0.427,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.969,
+            "g": 0.475,
+            "b": 0.427,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusDotWarning": {
+        "id": "v:color/statusDotWarning",
+        "name": "color/statusDotWarning",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.859,
+            "g": 0.576,
+            "b": 0.18,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.702,
+            "g": 0.471,
+            "b": 0.141,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.859,
+            "g": 0.576,
+            "b": 0.18,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.859,
+            "g": 0.576,
+            "b": 0.18,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.859,
+            "g": 0.576,
+            "b": 0.18,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.859,
+            "g": 0.576,
+            "b": 0.18,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.859,
+            "g": 0.576,
+            "b": 0.18,
+            "a": 1
+          }
+        }
+      },
+      "v:color/statusDotRunning": {
+        "id": "v:color/statusDotRunning",
+        "name": "color/statusDotRunning",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "COLOR",
+        "valuesByMode": {
+          "m:paseo": {
+            "r": 0.361,
+            "g": 0.667,
+            "b": 0.965,
+            "a": 1
+          },
+          "m:light": {
+            "r": 0.149,
+            "g": 0.541,
+            "b": 0.878,
+            "a": 1
+          },
+          "m:zinc": {
+            "r": 0.361,
+            "g": 0.667,
+            "b": 0.965,
+            "a": 1
+          },
+          "m:midnight": {
+            "r": 0.361,
+            "g": 0.667,
+            "b": 0.965,
+            "a": 1
+          },
+          "m:claude": {
+            "r": 0.361,
+            "g": 0.667,
+            "b": 0.965,
+            "a": 1
+          },
+          "m:ghostty": {
+            "r": 0.361,
+            "g": 0.667,
+            "b": 0.965,
+            "a": 1
+          },
+          "m:pure-black": {
+            "r": 0.361,
+            "g": 0.667,
+            "b": 0.965,
+            "a": 1
+          }
+        }
+      },
+      "v:spacing/0": {
+        "id": "v:spacing/0",
+        "name": "spacing/0",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 0,
+          "m:light": 0,
+          "m:zinc": 0,
+          "m:midnight": 0,
+          "m:claude": 0,
+          "m:ghostty": 0,
+          "m:pure-black": 0
+        }
+      },
+      "v:spacing/1": {
+        "id": "v:spacing/1",
+        "name": "spacing/1",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 4,
+          "m:light": 4,
+          "m:zinc": 4,
+          "m:midnight": 4,
+          "m:claude": 4,
+          "m:ghostty": 4,
+          "m:pure-black": 4
+        }
+      },
+      "v:spacing/2": {
+        "id": "v:spacing/2",
+        "name": "spacing/2",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 8,
+          "m:light": 8,
+          "m:zinc": 8,
+          "m:midnight": 8,
+          "m:claude": 8,
+          "m:ghostty": 8,
+          "m:pure-black": 8
+        }
+      },
+      "v:spacing/3": {
+        "id": "v:spacing/3",
+        "name": "spacing/3",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 12,
+          "m:light": 12,
+          "m:zinc": 12,
+          "m:midnight": 12,
+          "m:claude": 12,
+          "m:ghostty": 12,
+          "m:pure-black": 12
+        }
+      },
+      "v:spacing/4": {
+        "id": "v:spacing/4",
+        "name": "spacing/4",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 16,
+          "m:light": 16,
+          "m:zinc": 16,
+          "m:midnight": 16,
+          "m:claude": 16,
+          "m:ghostty": 16,
+          "m:pure-black": 16
+        }
+      },
+      "v:spacing/6": {
+        "id": "v:spacing/6",
+        "name": "spacing/6",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 24,
+          "m:light": 24,
+          "m:zinc": 24,
+          "m:midnight": 24,
+          "m:claude": 24,
+          "m:ghostty": 24,
+          "m:pure-black": 24
+        }
+      },
+      "v:spacing/7": {
+        "id": "v:spacing/7",
+        "name": "spacing/7",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 28,
+          "m:light": 28,
+          "m:zinc": 28,
+          "m:midnight": 28,
+          "m:claude": 28,
+          "m:ghostty": 28,
+          "m:pure-black": 28
+        }
+      },
+      "v:spacing/8": {
+        "id": "v:spacing/8",
+        "name": "spacing/8",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 32,
+          "m:light": 32,
+          "m:zinc": 32,
+          "m:midnight": 32,
+          "m:claude": 32,
+          "m:ghostty": 32,
+          "m:pure-black": 32
+        }
+      },
+      "v:spacing/12": {
+        "id": "v:spacing/12",
+        "name": "spacing/12",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 48,
+          "m:light": 48,
+          "m:zinc": 48,
+          "m:midnight": 48,
+          "m:claude": 48,
+          "m:ghostty": 48,
+          "m:pure-black": 48
+        }
+      },
+      "v:spacing/16": {
+        "id": "v:spacing/16",
+        "name": "spacing/16",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 64,
+          "m:light": 64,
+          "m:zinc": 64,
+          "m:midnight": 64,
+          "m:claude": 64,
+          "m:ghostty": 64,
+          "m:pure-black": 64
+        }
+      },
+      "v:spacing/20": {
+        "id": "v:spacing/20",
+        "name": "spacing/20",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 80,
+          "m:light": 80,
+          "m:zinc": 80,
+          "m:midnight": 80,
+          "m:claude": 80,
+          "m:ghostty": 80,
+          "m:pure-black": 80
+        }
+      },
+      "v:spacing/24": {
+        "id": "v:spacing/24",
+        "name": "spacing/24",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 96,
+          "m:light": 96,
+          "m:zinc": 96,
+          "m:midnight": 96,
+          "m:claude": 96,
+          "m:ghostty": 96,
+          "m:pure-black": 96
+        }
+      },
+      "v:spacing/32": {
+        "id": "v:spacing/32",
+        "name": "spacing/32",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 128,
+          "m:light": 128,
+          "m:zinc": 128,
+          "m:midnight": 128,
+          "m:claude": 128,
+          "m:ghostty": 128,
+          "m:pure-black": 128
+        }
+      },
+      "v:spacing/0_5": {
+        "id": "v:spacing/0_5",
+        "name": "spacing/0_5",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 2,
+          "m:light": 2,
+          "m:zinc": 2,
+          "m:midnight": 2,
+          "m:claude": 2,
+          "m:ghostty": 2,
+          "m:pure-black": 2
+        }
+      },
+      "v:spacing/1_5": {
+        "id": "v:spacing/1_5",
+        "name": "spacing/1_5",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 6,
+          "m:light": 6,
+          "m:zinc": 6,
+          "m:midnight": 6,
+          "m:claude": 6,
+          "m:ghostty": 6,
+          "m:pure-black": 6
+        }
+      },
+      "v:spacing/3_5": {
+        "id": "v:spacing/3_5",
+        "name": "spacing/3_5",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 14,
+          "m:light": 14,
+          "m:zinc": 14,
+          "m:midnight": 14,
+          "m:claude": 14,
+          "m:ghostty": 14,
+          "m:pure-black": 14
+        }
+      },
+      "v:font-size/code": {
+        "id": "v:font-size/code",
+        "name": "font-size/code",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 12,
+          "m:light": 12,
+          "m:zinc": 12,
+          "m:midnight": 12,
+          "m:claude": 12,
+          "m:ghostty": 12,
+          "m:pure-black": 12
+        }
+      },
+      "v:font-size/content": {
+        "id": "v:font-size/content",
+        "name": "font-size/content",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 15,
+          "m:light": 15,
+          "m:zinc": 15,
+          "m:midnight": 15,
+          "m:claude": 15,
+          "m:ghostty": 15,
+          "m:pure-black": 15
+        }
+      },
+      "v:font-size/sm": {
+        "id": "v:font-size/sm",
+        "name": "font-size/sm",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 12,
+          "m:light": 12,
+          "m:zinc": 12,
+          "m:midnight": 12,
+          "m:claude": 12,
+          "m:ghostty": 12,
+          "m:pure-black": 12
+        }
+      },
+      "v:font-size/base": {
+        "id": "v:font-size/base",
+        "name": "font-size/base",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 14,
+          "m:light": 14,
+          "m:zinc": 14,
+          "m:midnight": 14,
+          "m:claude": 14,
+          "m:ghostty": 14,
+          "m:pure-black": 14
+        }
+      },
+      "v:font-size/lg": {
+        "id": "v:font-size/lg",
+        "name": "font-size/lg",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 16,
+          "m:light": 16,
+          "m:zinc": 16,
+          "m:midnight": 16,
+          "m:claude": 16,
+          "m:ghostty": 16,
+          "m:pure-black": 16
+        }
+      },
+      "v:font-size/xl": {
+        "id": "v:font-size/xl",
+        "name": "font-size/xl",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 18,
+          "m:light": 18,
+          "m:zinc": 18,
+          "m:midnight": 18,
+          "m:claude": 18,
+          "m:ghostty": 18,
+          "m:pure-black": 18
+        }
+      },
+      "v:font-size/2xl": {
+        "id": "v:font-size/2xl",
+        "name": "font-size/2xl",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 20,
+          "m:light": 20,
+          "m:zinc": 20,
+          "m:midnight": 20,
+          "m:claude": 20,
+          "m:ghostty": 20,
+          "m:pure-black": 20
+        }
+      },
+      "v:font-size/3xl": {
+        "id": "v:font-size/3xl",
+        "name": "font-size/3xl",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 22,
+          "m:light": 22,
+          "m:zinc": 22,
+          "m:midnight": 22,
+          "m:claude": 22,
+          "m:ghostty": 22,
+          "m:pure-black": 22
+        }
+      },
+      "v:font-size/4xl": {
+        "id": "v:font-size/4xl",
+        "name": "font-size/4xl",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 26,
+          "m:light": 26,
+          "m:zinc": 26,
+          "m:midnight": 26,
+          "m:claude": 26,
+          "m:ghostty": 26,
+          "m:pure-black": 26
+        }
+      },
+      "v:icon-size/xs": {
+        "id": "v:icon-size/xs",
+        "name": "icon-size/xs",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 12,
+          "m:light": 12,
+          "m:zinc": 12,
+          "m:midnight": 12,
+          "m:claude": 12,
+          "m:ghostty": 12,
+          "m:pure-black": 12
+        }
+      },
+      "v:icon-size/sm": {
+        "id": "v:icon-size/sm",
+        "name": "icon-size/sm",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 14,
+          "m:light": 14,
+          "m:zinc": 14,
+          "m:midnight": 14,
+          "m:claude": 14,
+          "m:ghostty": 14,
+          "m:pure-black": 14
+        }
+      },
+      "v:icon-size/md": {
+        "id": "v:icon-size/md",
+        "name": "icon-size/md",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 16,
+          "m:light": 16,
+          "m:zinc": 16,
+          "m:midnight": 16,
+          "m:claude": 16,
+          "m:ghostty": 16,
+          "m:pure-black": 16
+        }
+      },
+      "v:icon-size/lg": {
+        "id": "v:icon-size/lg",
+        "name": "icon-size/lg",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 20,
+          "m:light": 20,
+          "m:zinc": 20,
+          "m:midnight": 20,
+          "m:claude": 20,
+          "m:ghostty": 20,
+          "m:pure-black": 20
+        }
+      },
+      "v:radius/none": {
+        "id": "v:radius/none",
+        "name": "radius/none",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 0,
+          "m:light": 0,
+          "m:zinc": 0,
+          "m:midnight": 0,
+          "m:claude": 0,
+          "m:ghostty": 0,
+          "m:pure-black": 0
+        }
+      },
+      "v:radius/sm": {
+        "id": "v:radius/sm",
+        "name": "radius/sm",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 2,
+          "m:light": 2,
+          "m:zinc": 2,
+          "m:midnight": 2,
+          "m:claude": 2,
+          "m:ghostty": 2,
+          "m:pure-black": 2
+        }
+      },
+      "v:radius/base": {
+        "id": "v:radius/base",
+        "name": "radius/base",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 4,
+          "m:light": 4,
+          "m:zinc": 4,
+          "m:midnight": 4,
+          "m:claude": 4,
+          "m:ghostty": 4,
+          "m:pure-black": 4
+        }
+      },
+      "v:radius/md": {
+        "id": "v:radius/md",
+        "name": "radius/md",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 6,
+          "m:light": 6,
+          "m:zinc": 6,
+          "m:midnight": 6,
+          "m:claude": 6,
+          "m:ghostty": 6,
+          "m:pure-black": 6
+        }
+      },
+      "v:radius/lg": {
+        "id": "v:radius/lg",
+        "name": "radius/lg",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 8,
+          "m:light": 8,
+          "m:zinc": 8,
+          "m:midnight": 8,
+          "m:claude": 8,
+          "m:ghostty": 8,
+          "m:pure-black": 8
+        }
+      },
+      "v:radius/xl": {
+        "id": "v:radius/xl",
+        "name": "radius/xl",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 12,
+          "m:light": 12,
+          "m:zinc": 12,
+          "m:midnight": 12,
+          "m:claude": 12,
+          "m:ghostty": 12,
+          "m:pure-black": 12
+        }
+      },
+      "v:radius/2xl": {
+        "id": "v:radius/2xl",
+        "name": "radius/2xl",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 16,
+          "m:light": 16,
+          "m:zinc": 16,
+          "m:midnight": 16,
+          "m:claude": 16,
+          "m:ghostty": 16,
+          "m:pure-black": 16
+        }
+      },
+      "v:radius/full": {
+        "id": "v:radius/full",
+        "name": "radius/full",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 9999,
+          "m:light": 9999,
+          "m:zinc": 9999,
+          "m:midnight": 9999,
+          "m:claude": 9999,
+          "m:ghostty": 9999,
+          "m:pure-black": 9999
+        }
+      },
+      "v:border-width/0": {
+        "id": "v:border-width/0",
+        "name": "border-width/0",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 0,
+          "m:light": 0,
+          "m:zinc": 0,
+          "m:midnight": 0,
+          "m:claude": 0,
+          "m:ghostty": 0,
+          "m:pure-black": 0
+        }
+      },
+      "v:border-width/1": {
+        "id": "v:border-width/1",
+        "name": "border-width/1",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 1,
+          "m:light": 1,
+          "m:zinc": 1,
+          "m:midnight": 1,
+          "m:claude": 1,
+          "m:ghostty": 1,
+          "m:pure-black": 1
+        }
+      },
+      "v:border-width/2": {
+        "id": "v:border-width/2",
+        "name": "border-width/2",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 2,
+          "m:light": 2,
+          "m:zinc": 2,
+          "m:midnight": 2,
+          "m:claude": 2,
+          "m:ghostty": 2,
+          "m:pure-black": 2
+        }
+      },
+      "v:opacity/0": {
+        "id": "v:opacity/0",
+        "name": "opacity/0",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 0,
+          "m:light": 0,
+          "m:zinc": 0,
+          "m:midnight": 0,
+          "m:claude": 0,
+          "m:ghostty": 0,
+          "m:pure-black": 0
+        }
+      },
+      "v:opacity/50": {
+        "id": "v:opacity/50",
+        "name": "opacity/50",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 0.5,
+          "m:light": 0.5,
+          "m:zinc": 0.5,
+          "m:midnight": 0.5,
+          "m:claude": 0.5,
+          "m:ghostty": 0.5,
+          "m:pure-black": 0.5
+        }
+      },
+      "v:opacity/100": {
+        "id": "v:opacity/100",
+        "name": "opacity/100",
+        "variableCollectionId": "c:tokens",
+        "resolvedType": "FLOAT",
+        "valuesByMode": {
+          "m:paseo": 1,
+          "m:light": 1,
+          "m:zinc": 1,
+          "m:midnight": 1,
+          "m:claude": 1,
+          "m:ghostty": 1,
+          "m:pure-black": 1
+        }
+      }
+    }
+  }
+}

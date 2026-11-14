@@ -21,7 +21,11 @@ const FILE: DesignFile = {
   },
 };
 
-async function open(tokens: TokenFile | null, env: Record<string, string> = {}) {
+async function open(
+  tokens: TokenFile | null,
+  env: Record<string, string> = {},
+  defaults: unknown = null,
+) {
   const dir = mkdtempSync(join(tmpdir(), "design-bridge-"));
   const logFile = join(dir, "calls.log");
   const session = await FigcraftSession.start({
@@ -34,6 +38,7 @@ async function open(tokens: TokenFile | null, env: Record<string, string> = {}) 
   let written: TokenFile | null = null;
   const port: TokensPort = {
     read: async () => tokens,
+    defaults: async () => defaults,
     write: async (file) => {
       written = file;
     },
@@ -54,6 +59,50 @@ async function open(tokens: TokenFile | null, env: Record<string, string> = {}) 
 }
 
 const TOKENS = { color: { $type: "color", accent: { $value: "#3366cc" } } };
+const PASEO = {
+  meta: {
+    variableCollections: {
+      "c:tokens": {
+        id: "c:tokens",
+        name: "Tokens",
+        modes: [
+          { modeId: "m:paseo", name: "Paseo" },
+          { modeId: "m:light", name: "Light" },
+        ],
+        defaultModeId: "m:paseo",
+        variableIds: ["v:spacing/4"],
+      },
+    },
+    variables: {
+      "v:spacing/4": {
+        id: "v:spacing/4",
+        name: "spacing/4",
+        variableCollectionId: "c:tokens",
+        resolvedType: "FLOAT",
+        valuesByMode: { "m:paseo": 16, "m:light": 16 },
+      },
+    },
+  },
+};
+/** PASEO after an edit in FigCraft, with FigCraft's own ids. */
+const EDITED = {
+  meta: {
+    variableCollections: {
+      "VariableCollectionId:1": {
+        ...PASEO.meta.variableCollections["c:tokens"],
+        id: "VariableCollectionId:1",
+      },
+    },
+    variables: {
+      "VariableID:1": {
+        ...PASEO.meta.variables["v:spacing/4"],
+        id: "VariableID:1",
+        variableCollectionId: "VariableCollectionId:1",
+        valuesByMode: { "m:paseo": 20, "m:light": 20 },
+      },
+    },
+  },
+};
 const commandOf = (call: { arguments: Record<string, unknown> }) => call.arguments.command;
 
 describe("Bridge", () => {
@@ -69,6 +118,31 @@ describe("Bridge", () => {
     });
     expect(calls().map(commandOf)).toContain("variable.import");
     expect(bridge.tokens).toEqual({ status: "imported", warnings: [] });
+    await bridge.close();
+  });
+  it("imports Paseo's tokens when the repo has none, and never writes them back", async () => {
+    const { bridge, session, calls, written } = await open(null, {}, PASEO);
+    expect(calls().filter((call) => commandOf(call) === "variable.import")).toEqual([
+      {
+        name: "run_command",
+        arguments: { command: "variable.import", params: { variables: PASEO } },
+      },
+    ]);
+    expect(bridge.tokens).toEqual({ status: "default" });
+    await session.importVariables(EDITED);
+    expect(await bridge.outOfStep()).toBe(false);
+    expect(await bridge.syncTokensBack()).toBe(false);
+    expect(written()).toBeNull();
+    await bridge.close();
+  });
+  it("keeps the file's own Tokens collection instead of importing Paseo's again", async () => {
+    const { bridge, calls } = await open(
+      null,
+      { FAKE_FIGCRAFT_VARIABLES: JSON.stringify(EDITED) },
+      PASEO,
+    );
+    expect(calls().map(commandOf)).not.toContain("variable.import");
+    expect(bridge.tokens).toEqual({ status: "default" });
     await bridge.close();
   });
   it("opens without tokens when the repo has none", async () => {

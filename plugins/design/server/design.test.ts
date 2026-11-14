@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -90,6 +90,7 @@ function setup(
     env: { PASEO_HOME: home, ...env },
     home,
     guardPath: GUARD,
+    defaultTokensPath: new URL("./paseo-tokens.json", import.meta.url).pathname,
     cliCommand: { command: process.execPath, argsBefore: [FAKE] },
     paseo: () => paseo as never,
     log: (line) => lines.push(line),
@@ -155,6 +156,17 @@ describe("design service", () => {
     expect(await service.files("w1")).toMatchObject({
       files: [{ name: "Card", lastAgentId: "a1", status: "running" }],
     });
+  });
+  it("design_join tells the agent the variables are Paseo's when the repo has no tokens file", async () => {
+    const { service, work } = setup();
+    rmSync(join(work, "design", "tokens.json"));
+    const result = await service.join({ id: "a1", workspaceId: "w1", cwd: "/x" } as never, {
+      name: "Card",
+    });
+    expect(result.text).toContain(
+      "This repo has no design/tokens.json, so the FigCraft variables (collection Tokens) hold Paseo's design system",
+    );
+    expect(readdirSync(join(work, "design"))).toEqual([]);
   });
   it("adds the guarded FigCraft MCP server and the design_join tool to an interactive session", async () => {
     const { service } = setup();

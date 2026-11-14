@@ -44,6 +44,12 @@ describe("tokensBanner", () => {
     expect(tokensBanner({ status: "none" }, false)).toBeNull();
     expect(tokensBanner({ status: "imported", warnings: [] }, false)).toBeNull();
   });
+  it("says when the file uses Paseo's tokens", () => {
+    expect(tokensBanner({ status: "default" }, false)).toEqual({
+      text: "Paseo's tokens: this repo has no design/tokens.json",
+      tone: "muted",
+    });
+  });
   it("names what kept tokens out, and a write-back", () => {
     expect(tokensBanner({ status: "refused", reason: "x: no $type" }, false)).toEqual({
       text: "Tokens not loaded: x: no $type",

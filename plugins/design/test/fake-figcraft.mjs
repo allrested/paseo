@@ -26,7 +26,10 @@ let calls = 0;
 let clientName = "client";
 let myName = null;
 let joined = null; // "published" | "joined" | null
-let variables = { meta: { variableCollections: {}, variables: {} } };
+// FAKE_FIGCRAFT_VARIABLES seeds the file's variables, as if an earlier session left them.
+let variables = env.FAKE_FIGCRAFT_VARIABLES
+  ? JSON.parse(env.FAKE_FIGCRAFT_VARIABLES)
+  : { meta: { variableCollections: {}, variables: {} } };
 const comments = [];
 
 // Real layer ids are numbers; a test's "n1" stays a string so it reads back as given.
