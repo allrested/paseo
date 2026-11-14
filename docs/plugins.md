@@ -220,6 +220,18 @@ are constants in `plugins/resource-manager/client/cards.ts`. An open card draws 
 from the readings the screen has received since it opened, 30 at most; they and the open cards are
 gone when the screen closes.
 
+The Stack tab, next to the first, checks the rest of this instance's stack from the daemon's host
+once a minute while it is open: Paseo's version and uptime, FigCraft, the Android device, and the
+newest deploy. A part shows Off, naming the variable to set, until that variable is there.
+`FIGCRAFT_URL` turns on the FigCraft card, which asks the server and `FIGCRAFT_WEB_URL` for an
+answer and checks that `FIGCRAFT_SERVER_KEY_FILE` is not empty, never reading the key out.
+`PASEO_ANDROID_ADB` turns on the device card, which runs `adb get-state` against it and looks for
+`maestro` on `PATH`. `PASEO_DEPLOY_REPO`, such as `allrested/paseo`, turns on the deploy card, which
+reads the newest `v*` tag's `docker.yml` run and its `deploy` job with `gh`, so `gh` needs a login or
+`GH_TOKEN` for the daemon's user. The Paseo card warns when that tag is not the version it runs. The
+version comes from `@getpaseo/server`'s `package.json`, which the desktop app does not ship, so there
+it reads as not available.
+
 Every stdio MCP entry that runs `ssh-mcp` gets a read-only tab of its own: entries in the user scope
 of `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set), in its local scope
 for each Paseo workspace's folder, and in each workspace's `.mcp.json` when Claude Code trusts that

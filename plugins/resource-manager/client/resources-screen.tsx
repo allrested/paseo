@@ -15,9 +15,11 @@ import {
 } from "./cards.js";
 import { InstanceTab } from "./instance-tab.js";
 import { ServerTab } from "./server-tab.js";
+import { StackTab } from "./stack-tab.js";
 import { useScreenStyles, type ScreenStyles } from "./styles.js";
 
 const INSTANCE_TAB = "instance";
+const STACK_TAB = "stack";
 const NO_SERVERS: readonly ServerEntry[] = [];
 const NO_PROBLEMS: readonly string[] = [];
 const SELECTED = { selected: true };
@@ -59,6 +61,13 @@ function TabBar({ servers, selected, onSelect, styles }: TabBarProps) {
         id={INSTANCE_TAB}
         label="This instance"
         selected={selected === INSTANCE_TAB}
+        onSelect={onSelect}
+        styles={styles}
+      />
+      <TabButton
+        id={STACK_TAB}
+        label="Stack"
+        selected={selected === STACK_TAB}
         onSelect={onSelect}
         styles={styles}
       />
@@ -113,12 +122,11 @@ export function ResourcesScreen({ theme, host }: PluginScreenProps) {
   const servers = list.data?.servers ?? NO_SERVERS;
   const problems = list.data?.problems ?? NO_PROBLEMS;
   const current = servers.find((server) => server.id === selected);
-  const shown = current === undefined ? INSTANCE_TAB : selected;
+  let shown = INSTANCE_TAB;
+  if (current !== undefined || selected === STACK_TAB) shown = selected;
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      {servers.length > 0 ? (
-        <TabBar servers={servers} selected={shown} onSelect={setSelected} styles={styles} />
-      ) : null}
+      <TabBar servers={servers} selected={shown} onSelect={setSelected} styles={styles} />
       {list.isError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           Unable to list ssh-mcp servers: {list.error.message}
@@ -129,9 +137,11 @@ export function ResourcesScreen({ theme, host }: PluginScreenProps) {
           {problem}
         </Text>
       ))}
-      {current === undefined ? (
+      {shown === INSTANCE_TAB ? (
         <InstanceTab hostId={host.id} cards={cards} styles={styles} />
-      ) : (
+      ) : null}
+      {shown === STACK_TAB ? <StackTab hostId={host.id} cards={cards} styles={styles} /> : null}
+      {current === undefined ? null : (
         <ServerTab
           key={current.id}
           server={current}
