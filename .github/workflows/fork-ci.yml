@@ -162,6 +162,9 @@ jobs:
       - name: Run app session-move tests
         working-directory: packages/app
         run: npx vitest run src/session-move src/screens/workspace/workspace-tab-menu.test.ts
+      - name: Check design mode's copy of the Paseo tokens
+        working-directory: packages/app
+        run: npx vitest run src/styles/design-tokens.test.ts
       - name: Run CLI move tests
         working-directory: packages/cli
         run: npx vitest run src/commands/agent/move.test.ts

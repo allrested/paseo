@@ -32,6 +32,9 @@ export function tokensBanner(
   if (written || tokens?.status === "written-back") {
     return { text: "Token edits written to design/tokens.json, not committed", tone: "muted" };
   }
+  if (tokens?.status === "default") {
+    return { text: "Paseo's tokens: this repo has no design/tokens.json", tone: "muted" };
+  }
   if (tokens?.status === "refused") {
     return { text: `Tokens not loaded: ${tokens.reason}`, tone: "warning" };
   }

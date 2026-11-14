@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -246,6 +246,48 @@ describe.skipIf(!CLI || !SERVER_BIN)("FigCraft v0.18.1 contract", () => {
       "color/accent",
       "space/4",
     ]);
+  }, 60_000);
+
+  it("takes Paseo's tokens with one mode per theme, the default mode first", async () => {
+    const shipped = JSON.parse(
+      readFileSync(new URL("../server/paseo-tokens.json", import.meta.url), "utf8"),
+    ) as { meta: { variables: object } };
+    const c = await Mcp.start(
+      CLI as string,
+      mkdtempSync(join(tmpdir(), "figcraft-c-")),
+      "contract-c",
+    );
+    try {
+      const imported = await c.command("variable.import", { variables: shipped });
+      expect(imported).toMatchObject({
+        collections: 1,
+        variables: Object.keys(shipped.meta.variables).length,
+        warnings: [],
+      });
+      const exported = await c.command("variable.export", { format: "json" });
+      const inner = JSON.parse(exported.text as string) as {
+        meta: {
+          variableCollections: Record<
+            string,
+            { name: string; defaultModeId: string; modes: { modeId: string; name: string }[] }
+          >;
+        };
+      };
+      const [collection] = Object.values(inner.meta.variableCollections);
+      expect(collection.name).toBe("Tokens");
+      expect(collection.modes.map((mode) => mode.name)).toEqual([
+        "Paseo",
+        "Light",
+        "Zinc",
+        "Midnight",
+        "Claude",
+        "Ghostty",
+        "Pure Black",
+      ]);
+      expect(collection.defaultModeId).toBe(collection.modes[0].modeId);
+    } finally {
+      c.stop();
+    }
   }, 60_000);
 
   it("comments from an MCP session are flagged agent; resolved is a boolean", async () => {
