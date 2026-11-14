@@ -1092,6 +1092,37 @@ describe("moveAgent", () => {
       expect(await scheduleState(heartbeat)).toEqual({ agentId: child.id, status: "active" });
     });
 
+    it("asks for a notice for whoever waited on the agent being left, only when it continues", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const { agentManager } = requireCtx().daemon.daemon;
+      const carry = agentManager.moveCarry;
+      if (!carry) throw new Error("test daemon has no move carry");
+      const asked: Array<{ agentId: string; fromAgentId: string; since: Date | null }> = [];
+      agentManager.setMoveCarry({
+        ...carry,
+        notifyWatchersOnFinish: async (input) => {
+          asked.push({
+            agentId: input.agentId,
+            fromAgentId: input.fromAgentId,
+            since: input.since,
+          });
+          return undefined;
+        },
+      });
+      const lastPrompt = agentManager.getAgent(sourceId)?.lastUserMessageAt ?? null;
+      expect(lastPrompt).not.toBeNull();
+
+      const moved = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: true,
+      });
+      await agentManager.waitForAgentEvent(moved.agentId);
+      await moveAgentBack(deps(), { agentId: moved.agentId, continueWork: false });
+
+      expect(asked).toEqual([{ agentId: moved.agentId, fromAgentId: sourceId, since: lastPrompt }]);
+    });
+
     it("with continue off the parent is told nothing", async () => {
       const parentId = await createRanClaudeAgent();
       const child = await requireCtx().client.createAgent({
