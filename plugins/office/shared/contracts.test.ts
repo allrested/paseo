@@ -160,6 +160,7 @@ test("a sheet's events parse, and a tile over 1024 pixels is refused", () => {
     rooms: [
       {
         roomId: "lobby",
+        area: { x: 0, y: 0, width: 30, height: 40 },
         board: { x: 1, y: 2, width: 3, height: 4 },
         plate: { x: 1, y: 2, width: 3, height: 4 },
       },

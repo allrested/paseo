@@ -264,7 +264,14 @@ export const SheetSchema = z.object({
       fresh: z.boolean(),
     }),
   ),
-  rooms: z.array(z.object({ roomId: z.string(), board: SheetRectSchema, plate: SheetRectSchema })),
+  rooms: z.array(
+    z.object({
+      roomId: z.string(),
+      area: SheetRectSchema,
+      board: SheetRectSchema,
+      plate: SheetRectSchema,
+    }),
+  ),
   notes: z.array(z.object({ roomId: z.string(), rect: SheetRectSchema })),
   mentions: z.array(z.object({ postId: z.string(), from: SheetPointSchema, to: SheetPointSchema })),
 }) satisfies z.ZodType<Sheet>;
