@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, realpath, writeFile } from "node:fs/promises";
+import { join, resolve as resolvePath, sep } from "node:path";
 import type {
   AgentToolResult,
   PluginHandlerContext,
@@ -78,6 +78,10 @@ export interface DesignService {
     signal: AbortSignal,
   ): Promise<void>;
   join(agent: PluginHookAgent, input: { file?: string; name?: string }): Promise<AgentToolResult>;
+  compare(
+    agent: PluginHookAgent,
+    input: { file: string; frame: string; image: string },
+  ): Promise<AgentToolResult>;
   openSession(request: PluginSessionOpenRequest): Promise<PluginSessionOpenRequest | null>;
   turnEnded(agentId: string): Promise<void>;
   agentGone(agentId: string): void;
@@ -86,6 +90,24 @@ export interface DesignService {
   /** Tests only. */
   debugImportVariables(fileId: string, json: unknown): Promise<void>;
   stop(): Promise<void>;
+}
+
+const IMAGE = /\.(png|jpe?g|webp)$/i;
+
+/** The image's real path, which must be inside the workspace folder. */
+async function workspaceImage(directory: string, image: string): Promise<string> {
+  if (!IMAGE.test(image)) throw new Error("image must be a .png, .jpg or .webp file");
+  const root = await realpath(directory);
+  let path: string;
+  try {
+    path = await realpath(resolvePath(root, image));
+  } catch {
+    throw new Error(`No file ${image} in this workspace`);
+  }
+  if (path !== root && !path.startsWith(`${root}${sep}`)) {
+    throw new Error("image must be inside this workspace");
+  }
+  return path;
 }
 
 function disabledService(reason: string): DesignService {
@@ -103,6 +125,7 @@ function disabledService(reason: string): DesignService {
       await push({ type: "status", status: "failed", error: reason });
     },
     join: async () => ({ isError: true, text: `Design mode is off: ${reason}` }),
+    compare: async () => ({ isError: true, text: `Design mode is off: ${reason}` }),
     openSession: async () => null,
     turnEnded: async () => {},
     agentGone: () => {},
@@ -470,11 +493,35 @@ export function createDesignService(given: DesignDeps): DesignService {
               : `Design "${file.name}" (file ${file.id}) is open; its tokens are imported as FigCraft variables (collection Tokens).`,
             `Join it with FigCraft: run_command collab.join {"link": "${file.secrets.editLink}"}, then poll collab.peers until status is "live".`,
             "Use the Tokens variables for colours, sizes and type. Do not share, publish or host files: Paseo does that.",
+            "To check what you built against a frame, save a screenshot of the running app in the workspace (android_screenshot, or a Playwright screenshot) and call design_compare.",
             "Do not repeat this link in chat.",
           ].join("\n"),
         };
       } catch (error) {
         return { isError: true, text: `design_join failed: ${messageOf(error)}` };
+      }
+    },
+    async compare(agent, input) {
+      if (!agent.workspaceId)
+        return { isError: true, text: "design_compare needs an agent in a workspace" };
+      try {
+        const { projectKey, directory } = await workspace(agent.workspaceId);
+        const file = await store.get(input.file);
+        if (!file || file.projectKey !== projectKey) {
+          return {
+            isError: true,
+            text: "No such design in this project: pass the file id from design_join",
+          };
+        }
+        if (!directory) return { isError: true, text: "This workspace has no folder" };
+        const image = await workspaceImage(directory, input.image);
+        const bridge = await holdFor(file.id, agent.workspaceId, { kind: "agent", id: agent.id });
+        const placed = await bridge.compare(input.frame, image, new Date());
+        return {
+          text: `Placed ${JSON.stringify(placed.name)} (layer ${placed.id}) right of ${JSON.stringify(placed.frame)} at its width. Compare them: screenshot {"ids": [${input.frame}, ${placed.id}]}.`,
+        };
+      } catch (error) {
+        return { isError: true, text: `design_compare failed: ${messageOf(error)}` };
       }
     },
     async openSession(request) {

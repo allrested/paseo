@@ -168,6 +168,45 @@ describe("design service", () => {
     );
     expect(readdirSync(join(work, "design"))).toEqual([]);
   });
+  it("design_compare places a workspace screenshot right of the frame, at its width", async () => {
+    const { service, work } = setup();
+    const joined = await service.join({ id: "a1", workspaceId: "w1", cwd: "/x" } as never, {
+      name: "Card",
+    });
+    const file = /\(file ([^)]+)\)/.exec(joined.text)?.[1] as string;
+    mkdirSync(join(work, ".paseo", "android"), { recursive: true });
+    writeFileSync(join(work, ".paseo", "android", "shot.png"), "png");
+    const agent = { id: "a1", workspaceId: "w1", cwd: "/x" } as never;
+    const result = await service.compare(agent, {
+      file,
+      frame: "4294967297",
+      image: ".paseo/android/shot.png",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.text).toMatch(
+      /^Placed "Running app \d\d:\d\d" \(layer 3\) right of "Card" at its width\. Compare them: screenshot \{"ids": \[4294967297, 3\]\}\.$/,
+    );
+    for (const image of [
+      "../outside.png",
+      "/etc/hostname",
+      ".paseo/android/missing.png",
+      "design/tokens.json",
+    ]) {
+      expect(await service.compare(agent, { file, frame: "4294967297", image })).toMatchObject({
+        isError: true,
+      });
+    }
+    expect(
+      await service.compare(agent, {
+        file: "f_other",
+        frame: "4294967297",
+        image: ".paseo/android/shot.png",
+      }),
+    ).toMatchObject({
+      isError: true,
+      text: expect.stringContaining("No such design in this project"),
+    });
+  });
   it("adds the guarded FigCraft MCP server and the design_join tool to an interactive session", async () => {
     const { service } = setup();
     const request = {
@@ -183,7 +222,7 @@ describe("design service", () => {
       mcpServers: {},
     };
     const next = await service.openSession(request as never);
-    expect(next?.tools.map((t) => t.name)).toEqual(["design_join"]);
+    expect(next?.tools.map((t) => t.name)).toEqual(["design_join", "design_compare"]);
     expect(next?.mcpServers.figcraft).toMatchObject({
       type: "stdio",
       command: process.execPath,

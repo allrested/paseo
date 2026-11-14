@@ -114,6 +114,17 @@ class Mcp {
   }
 }
 
+interface PageLayer {
+  name?: string;
+  fills?: unknown;
+}
+
+/** The first page's top-level layer of that name, from an inspect_document answer. */
+function topLayer(doc: Record<string, unknown>, name: string): PageLayer {
+  const pages = (doc.pages ?? []) as { children?: PageLayer[] }[];
+  return pages[0]?.children?.find((layer) => layer.name === name) ?? {};
+}
+
 /** Every member's selected layer ids, from a collab.peers answer. */
 function selectionOf(peers: Record<string, unknown>): number[] {
   const list = (peers.peers ?? []) as { presence?: { selection?: number[] } }[];
@@ -202,6 +213,40 @@ describe.skipIf(!CLI || !SERVER_BIN)("FigCraft v0.18.1 contract", () => {
     const fromA = await a.command("collab.peers");
     const names = ((fromA.peers ?? []) as { name: string }[]).map((peer) => peer.name);
     expect(names).toEqual(["Builder (agent)"]);
+  }, 60_000);
+
+  it("an image placed from a file by one member reaches the other (design_compare)", async () => {
+    const png = join(mkdtempSync(join(tmpdir(), "figcraft-shot-")), "shot.png");
+    writeFileSync(
+      png,
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    );
+    const placed = await a.command("image.place", {
+      path: png,
+      x: 400,
+      y: 30,
+      width: 320,
+      name: "Running app 12:00",
+    });
+    expect(placed).toMatchObject({ width: 320 });
+    // Layer ids are each member's own, so the other member finds it by name. A headless member
+    // takes in the others' edits only when it runs collab.peers, so each read runs it first.
+    const seen = await until(
+      async () => {
+        await b.command("collab.peers");
+        return topLayer(
+          await b.json("inspect_document", { depth: 1, fields: ["name", "fills"] }),
+          "Running app 12:00",
+        );
+      },
+      (layer) => layer.name === "Running app 12:00",
+    );
+    expect(seen.fills).toEqual([expect.objectContaining({ type: "image" })]);
+    // Later tests measure the page: take the picture off it again.
+    expect((await a.tool("undo", {})).isError).toBe(false);
   }, 60_000);
 
   it("imports variables as local-variables JSON; export wraps the JSON in `text`", async () => {

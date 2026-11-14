@@ -333,6 +333,15 @@ describe("Bridge", () => {
     });
     await bridge.close();
   });
+  it("takes in the other members' edits before it draws the page", async () => {
+    const { bridge, calls } = await open(TOKENS);
+    await bridge.picture();
+    const names = calls().map((call) =>
+      call.name === "run_command" ? commandOf(call) : call.name,
+    );
+    expect(names.slice(-2)).toEqual(["collab.peers", "screenshot"]);
+    await bridge.close();
+  });
   it("never logs the edit link", async () => {
     const { bridge, lines } = await open({ x: { $value: "#fff" } });
     expect(lines.length).toBeGreaterThan(0);

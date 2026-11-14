@@ -401,8 +401,11 @@ Paseo's own tokens instead, `server/paseo-tokens.json`: one mode per app theme, 
 a file with no `Tokens` collection yet, so edits stay in FigCraft and nothing is written to the
 repo. When the repo gains a tokens file, Paseo's collection is deleted before the repo's goes in,
 so none of it is written back; layers bound to it keep their values. `packages/app/src/styles/design-tokens.test.ts`
-fails when the copy drifts from `theme.ts`; `UPDATE_DESIGN_TOKENS=1` rewrites it. Interactive agent sessions in a workspace get the `design_join` tool and a `figcraft`
-MCP server behind `bin/figcraft-guard.mjs`. The guard refuses sharing, publishing, hosting, plugin
+fails when the copy drifts from `theme.ts`; `UPDATE_DESIGN_TOKENS=1` rewrites it. Interactive agent sessions in a workspace get the `design_join` and `design_compare` tools and a
+`figcraft` MCP server behind `bin/figcraft-guard.mjs`. `design_compare` places a screenshot from the
+workspace right of a frame, at its width. A headless FigCraft member, the bridge included, takes in
+the other members' edits only when it runs `collab.peers`, so the bridge runs it before every
+picture. The guard refuses sharing, publishing, hosting, plugin
 directories and anything that names another server, and joins only links to ours. Neither the
 bridge nor the agents' FigCraft runs with automation roots: FigCraft 0.18.1 turns live sessions
 off in a process that has them. `test/figcraft-contract.real.test.ts` pins that and the rest of
