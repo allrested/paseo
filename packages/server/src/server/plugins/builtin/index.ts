@@ -25,6 +25,7 @@ export const builtinPlugins = [
   "office",
   "opencode-go-usage-source",
   "resource-manager",
+  "saved-prompts",
   "shared-mcp",
   "worktree-include",
   "zai-usage-source",
