@@ -72,11 +72,14 @@ export interface FinishSubscriptions {
   /** Pending notification intent, including registration, recovery and unacknowledged delivery. */
   hasPendingForCaller(agentId: string): boolean;
   /**
-   * The callers that wait on `childAgentId`, or were told about a turn of it that ended at or
-   * after `since`. A session move reads this: the notification for the agent it leaves is spent,
-   * so these are who to tell when the successor finishes. Agents on this host only.
+   * The callers that wait on `childAgentId`, or were told that a turn of it failed, was
+   * cancelled or was closed. A session move reads this: their notification is spent while the
+   * work they asked for is not done, so these are who to tell when the successor finishes. A
+   * caller told that the turn finished has its answer and is not named. Agents on this host only.
    */
-  watchersOf(childAgentId: string, since: Date | null): string[];
+  watchersOf(childAgentId: string): string[];
+  /** The agent completed a turn: whoever was told about an earlier failure no longer waits. */
+  forgetWatchers(childAgentId: string): void;
   register(
     input: Omit<FinishSubscription, "id">,
     pendingDispatch?: boolean,
@@ -101,13 +104,27 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
   let told: FinishWatcher[] = [];
   /** Long enough to move an agent the morning after its limit; nothing reads an older entry. */
   const TOLD_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+  function currentTime(): Date {
+    return (deps.now ?? (() => new Date()))();
+  }
+  function isFresh(entry: FinishWatcher, at: Date): boolean {
+    return at.getTime() - Date.parse(entry.at) < TOLD_FOR_MS;
+  }
+  /** The latest write of who was told, so close can wait for it. */
+  let savingTold: Promise<void> = Promise.resolve();
+  function saveTold(): void {
+    if (!deps.watchers) return;
+    savingTold = deps.watchers.replace(told).catch((error: unknown) => {
+      deps.logger.warn({ err: error }, "Failed to save finish watchers");
+    });
+  }
   function noteTold(record: FinishSubscription): void {
     // A watch on an agent of another host is that host's move to follow.
     if (record.serverId) return;
-    const at = (deps.now ?? (() => new Date()))();
+    const at = currentTime();
     told = told.filter(
       (entry) =>
-        at.getTime() - Date.parse(entry.at) < TOLD_FOR_MS &&
+        isFresh(entry, at) &&
         !(
           entry.childAgentId === record.childAgentId && entry.callerAgentId === record.callerAgentId
         ),
@@ -117,9 +134,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       callerAgentId: record.callerAgentId,
       at: at.toISOString(),
     });
-    deps.watchers?.replace(told).catch((error: unknown) => {
-      deps.logger.warn({ err: error }, "Failed to save finish watchers");
-    });
+    saveTold();
   }
   const watches = new Map<string, Set<Watch>>();
   let closed = false;
@@ -353,7 +368,8 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
             stop(watch, group);
             return;
           }
-          if (!noted && reasonFor(pending) !== "needs permission" && pending.final) {
+          // A turn that failed, was cancelled or was closed leaves the caller's request undone.
+          if (!noted && ["errored", "was canceled", "was closed"].includes(reasonFor(pending))) {
             noteTold(record);
             noted = true;
           }
@@ -394,14 +410,14 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       }
       return false;
     },
-    watchersOf(childAgentId, since) {
+    watchersOf(childAgentId) {
+      const at = currentTime();
       const callers = new Set<string>();
       for (const entry of told) {
-        if (entry.childAgentId !== childAgentId) continue;
-        if (since && Date.parse(entry.at) < since.getTime()) continue;
-        callers.add(entry.callerAgentId);
+        if (entry.childAgentId === childAgentId && isFresh(entry, at)) {
+          callers.add(entry.callerAgentId);
+        }
       }
-      // A watch still waiting is current whatever the time.
       for (const group of watches.values()) {
         for (const watch of group) {
           const record = watch.records[0]!;
@@ -411,9 +427,25 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       }
       return [...callers];
     },
+    forgetWatchers(childAgentId) {
+      if (!told.some((entry) => entry.childAgentId === childAgentId)) return;
+      told = told.filter((entry) => entry.childAgentId !== childAgentId);
+      saveTold();
+    },
     start: () =>
       serialize(async () => {
-        told = (await deps.watchers?.list()) ?? [];
+        // A memory aid, never a reason to fail the start. What was noted before this read is kept.
+        const saved = await (deps.watchers?.list() ?? Promise.resolve([])).catch(
+          (error: unknown): FinishWatcher[] => {
+            deps.logger.warn({ err: error }, "Failed to read finish watchers");
+            return [];
+          },
+        );
+        const noted = new Set(told.map((entry) => `${entry.childAgentId}\n${entry.callerAgentId}`));
+        told = [
+          ...saved.filter((entry) => !noted.has(`${entry.childAgentId}\n${entry.callerAgentId}`)),
+          ...told,
+        ];
         const groups = new Map<string, FinishSubscription[]>();
         for (const record of await deps.store.list()) {
           const records = groups.get(key(record)) ?? [];
@@ -473,6 +505,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
         }
       await mutations;
       await Promise.all(tasks);
+      await savingTold;
       await deps.store.list();
       // Dispatch may still be pending. The delivery owner drains it after observers stop.
     },

@@ -1097,20 +1097,14 @@ describe("moveAgent", () => {
       const { agentManager } = requireCtx().daemon.daemon;
       const carry = agentManager.moveCarry;
       if (!carry) throw new Error("test daemon has no move carry");
-      const asked: Array<{ agentId: string; fromAgentId: string; since: Date | null }> = [];
+      const asked: Array<{ agentId: string; fromAgentId: string }> = [];
       agentManager.setMoveCarry({
         ...carry,
         notifyWatchersOnFinish: async (input) => {
-          asked.push({
-            agentId: input.agentId,
-            fromAgentId: input.fromAgentId,
-            since: input.since,
-          });
+          asked.push({ agentId: input.agentId, fromAgentId: input.fromAgentId });
           return undefined;
         },
       });
-      const lastPrompt = agentManager.getAgent(sourceId)?.lastUserMessageAt ?? null;
-      expect(lastPrompt).not.toBeNull();
 
       const moved = await moveAgent(deps(), {
         agentId: sourceId,
@@ -1120,7 +1114,30 @@ describe("moveAgent", () => {
       await agentManager.waitForAgentEvent(moved.agentId);
       await moveAgentBack(deps(), { agentId: moved.agentId, continueWork: false });
 
-      expect(asked).toEqual([{ agentId: moved.agentId, fromAgentId: sourceId, since: lastPrompt }]);
+      expect(asked).toEqual([{ agentId: moved.agentId, fromAgentId: sourceId }]);
+    });
+
+    it("moves and continues when the notice cannot be registered", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const { agentManager } = requireCtx().daemon.daemon;
+      const carry = agentManager.moveCarry;
+      if (!carry) throw new Error("test daemon has no move carry");
+      agentManager.setMoveCarry({
+        ...carry,
+        notifyWatchersOnFinish: async () => {
+          throw new Error("store unavailable");
+        },
+      });
+
+      const moved = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: true,
+      });
+
+      expect(moved.strategy).toBe("handoff");
+      const { agentStorage } = requireCtx().daemon.daemon;
+      expect((await agentStorage.get(sourceId))?.archivedAt).toBeTruthy();
     });
 
     it("with continue off the parent is told nothing", async () => {
