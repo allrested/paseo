@@ -92,6 +92,8 @@ function command(name, params) {
         variables: Object.keys(variables.meta.variables).length,
         warnings: [],
       };
+    case "image.place":
+      return { id: 3, image: "hash", width: params.width ?? 100, height: 100 };
     case "variable.deleteCollection": {
       const gone = Object.values(variables.meta.variables).filter(
         (variable) => variable.variableCollectionId === params.collection,
@@ -175,6 +177,7 @@ function tool(name, args) {
         name: "Card",
         width: 320,
         height: 200,
+        absoluteBounds: { x: 40, y: 30, width: 320, height: 200 },
         boundVariables: { fill: "v:color/accent" },
         children: [
           {

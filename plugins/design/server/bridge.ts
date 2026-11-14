@@ -35,6 +35,8 @@ export const BRIDGE_AUTHOR = `${CLIENT_NAME} (agent)`;
 const AGENT_NAME = / \(agent\)$/;
 const MAX_CODE_LAYERS = 3;
 const MAX_FACT_LAYERS = 10;
+/** Space between a frame and the picture of the running app placed beside it. */
+const COMPARE_GAP = 40;
 /** How deep under a selected layer to look for bound variables. */
 const FACT_DEPTH = 8;
 
@@ -214,7 +216,9 @@ export class Bridge {
   }
 
   /** The layers, or the current page; null when the page is empty. */
-  picture(ids?: string[]): Promise<Picture | null> {
+  async picture(ids?: string[]): Promise<Picture | null> {
+    // A headless member takes in the other members' edits only when it reads collab.peers.
+    await this.session.peers();
     return this.session.screenshot(ids, 1600);
   }
 
@@ -274,6 +278,27 @@ export class Bridge {
       }
     }
     return { layers, tokens: [...tokens].sort() };
+  }
+
+  /** Places a picture of the running app right of a frame, at the frame's width. */
+  async compare(
+    frame: string,
+    image: string,
+    now: Date,
+  ): Promise<{ id: string; name: string; frame: string }> {
+    const layer = await this.session.layer(frame, 0);
+    const box = layer.absoluteBounds;
+    if (!box) throw new Error(`Layer ${frame} has no bounds on the page`);
+    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const name = `Running app ${time}`;
+    const id = await this.session.placeImage({
+      path: image,
+      x: box.x + box.width + COMPARE_GAP,
+      y: box.y,
+      width: box.width,
+      name,
+    });
+    return { id, name, frame: String(layer.name ?? "") };
   }
 
   async code(ids: string[]): Promise<string> {

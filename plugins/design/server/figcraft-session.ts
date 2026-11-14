@@ -73,6 +73,7 @@ export interface RawLayer {
   name?: unknown;
   width?: unknown;
   height?: unknown;
+  absoluteBounds?: Bounds;
   boundVariables?: unknown;
   children?: RawLayer[];
 }
@@ -227,8 +228,21 @@ export class FigcraftSession {
     return (await this.tool("get_node", {
       id: figcraftId(id),
       depth,
-      fields: ["name", "width", "height", "boundVariables"],
+      fields: ["name", "width", "height", "absoluteBounds", "boundVariables"],
     })) as RawLayer;
+  }
+
+  /** Places an image file as a new layer on the page; its height follows the picture's shape. */
+  async placeImage(input: {
+    path: string;
+    x: number;
+    y: number;
+    width: number;
+    name: string;
+  }): Promise<string> {
+    const answer = (await this.command("image.place", input)) as { id?: unknown };
+    if (answer.id === undefined) throw new Error("FigCraft placed no image");
+    return String(answer.id);
   }
 
   /** The layers, or the current page; null when the page has nothing to render. */
