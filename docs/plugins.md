@@ -214,6 +214,15 @@ agent's runtime; the agent stays, and its next prompt resumes it. When one of th
 runtime stays open. The readings come from Linux `/proc` and cgroup v2, so on
 macOS and Windows the tab shows none. Settings > Sidebar can hide the item.
 
+Under an agent's or a group's row, "Listening on" lists the TCP ports its processes listen on, each
+with how far it can be reached: local only, one interface, or all interfaces. A tap copies the
+port's address on the host, `http://localhost:<port>`. The ports and the socket inodes come from
+`/proc/net/tcp` and `/proc/net/tcp6`; the process whose `/proc/<pid>/fd` links hold a socket owns
+its port, and a port goes to the agent or group that process counts against. A socket no readable
+process holds, such as another user's server, shows under everything else. A parent and its
+workers share one socket; the lowest pid gets it. UDP is not read, and the server tabs show no
+ports.
+
 A card reads Warning at 80% of memory, a 1-minute load equal to the core count, or a disk at 85%,
 and Critical at 90%, twice the core count, or 95%. Swap does not change the status. The thresholds
 are constants in `plugins/resource-manager/client/cards.ts`. An open card draws memory and load

@@ -6,6 +6,8 @@ import type {
   HostSummary,
   LiveStatus,
   MountUsage,
+  Port,
+  PortReach,
   RemoteProcess,
   RemoteSnapshot,
   ServerReading,
@@ -27,6 +29,12 @@ const GROUP_LABELS: Record<GroupKind, string> = {
   sharedMcp: "Shared MCP servers",
   heavyGate: "Heavy commands",
   other: "Everything else",
+};
+
+const REACH_LABELS: Record<PortReach, string> = {
+  local: "local only",
+  one: "one interface",
+  all: "all interfaces",
 };
 
 const STATE_LABELS: Record<LiveStatus, string> = {
@@ -115,6 +123,20 @@ export function describeGroup(group: GroupUsage): string {
     formatBytes(group.rssBytes),
     formatCpu(group.cpuPercent),
   ].join(", ");
+}
+
+export function reachText(reach: PortReach): string {
+  return REACH_LABELS[reach];
+}
+
+/** Where the port answers on the host itself, whatever it is bound to. */
+export function portAddress(port: Port): string {
+  return `http://localhost:${port.port}`;
+}
+
+/** What a port's chip does, for a screen reader. */
+export function portLabel(port: Port): string {
+  return `Copy ${portAddress(port)}, port ${port.port}, ${reachText(port.reach)}`;
 }
 
 function containerMemory(host: HostSummary): string {

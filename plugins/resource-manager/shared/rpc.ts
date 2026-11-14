@@ -32,6 +32,16 @@ export const HostSummarySchema = z.object({
 });
 export type HostSummary = z.output<typeof HostSummarySchema>;
 
+/** How far a listening port can be reached: this host only, one of its addresses, or all. */
+export const PortReachSchema = z.enum(["local", "one", "all"]);
+export type PortReach = z.output<typeof PortReachSchema>;
+
+export const PortSchema = z.object({
+  port: z.number().int(),
+  reach: PortReachSchema,
+});
+export type Port = z.output<typeof PortSchema>;
+
 export const AgentUsageSchema = z.object({
   agentId: z.string(),
   title: z.string().nullable(),
@@ -43,6 +53,8 @@ export const AgentUsageSchema = z.object({
   /** The agent's updatedAt while it is idle, else null. */
   idleSince: z.string().nullable(),
   processCount: z.number().int(),
+  /** The TCP ports its processes listen on, lowest first. Empty where /proc lists none. */
+  ports: z.array(PortSchema),
 });
 export type AgentUsage = z.output<typeof AgentUsageSchema>;
 
@@ -51,6 +63,8 @@ export const GroupUsageSchema = z.object({
   rssBytes: z.number(),
   cpuPercent: z.number().nullable(),
   processCount: z.number().int(),
+  /** As an agent's. "other" also takes the ports no readable process holds. */
+  ports: z.array(PortSchema),
 });
 export type GroupUsage = z.output<typeof GroupUsageSchema>;
 
