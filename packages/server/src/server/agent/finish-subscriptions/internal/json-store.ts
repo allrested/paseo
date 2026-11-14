@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { writeJsonFileAtomic } from "../../../atomic-file.js";
-import type { FinishSubscription, FinishSubscriptionStore } from "../index.js";
+import type {
+  FinishSubscription,
+  FinishSubscriptionStore,
+  FinishWatcher,
+  FinishWatcherStore,
+} from "../index.js";
 
 const recordsSchema = z.array(
   z.object({
@@ -54,5 +59,37 @@ export function createJsonFinishSubscriptionStore(paseoHome: string): FinishSubs
       ),
     remove: (id) =>
       serialized(() => mutate((current) => current.filter((record) => record.id !== id))),
+  };
+}
+
+const watchersSchema = z.array(
+  z.object({
+    childAgentId: z.string().min(1),
+    callerAgentId: z.string().min(1),
+    at: z.string().min(1),
+  }),
+);
+
+/** Who was told about each agent's last turn, kept across restarts for session move. */
+export function createJsonFinishWatcherStore(paseoHome: string): FinishWatcherStore {
+  const file = join(paseoHome, "finish-watchers.json");
+  let pending = Promise.resolve();
+  return {
+    async list(): Promise<FinishWatcher[]> {
+      try {
+        return watchersSchema.parse(JSON.parse(await readFile(file, "utf8")));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        return [];
+      }
+    },
+    replace(watchers) {
+      const written = pending.then(() => writeJsonFileAtomic(file, watchers));
+      pending = written.then(
+        () => undefined,
+        () => undefined,
+      );
+      return written;
+    },
   };
 }

@@ -278,8 +278,8 @@ interface FinishProgress {
   linked: boolean;
   /** The agent `finish` began pointing schedules at. Set before the first one changes. */
   schedulesMovedTo: string | null;
-  /** The parent's notification for the continue turn. */
-  parentNotice: FinishRegistration | null;
+  /** The notification, for whoever waited on the agent being left, for the continue turn. */
+  watcherNotice: FinishRegistration | null;
 }
 
 function newFinishProgress(): FinishProgress {
@@ -288,22 +288,28 @@ function newFinishProgress(): FinishProgress {
     previousMovedFrom: null,
     linked: false,
     schedulesMovedTo: null,
-    parentNotice: null,
+    watcherNotice: null,
   };
 }
 
 /**
- * Sends the continue turn. The agent's parent, when it has one on this host, is told when that
- * work ends: the notification it held for the agent being left was spent by the turn that failed
- * or was cancelled.
+ * Sends the continue turn. Whoever waited on the agent being left (its parent, and any agent on
+ * this host that was told about its last turn) is told when that work ends: the notification
+ * they held was spent by the turn that failed or was cancelled.
  */
 async function continueAgent(
   deps: MoveAgentDeps,
   agentId: string,
+  from: ManagedAgent,
   progress: FinishProgress,
 ): Promise<void> {
   const labels = deps.agentManager.getAgent(agentId)?.labels ?? {};
-  const notice = await deps.agentManager.moveCarry?.notifyParentOnFinish(agentId, labels);
+  const notice = await deps.agentManager.moveCarry?.notifyWatchersOnFinish({
+    agentId,
+    fromAgentId: from.id,
+    labels,
+    since: from.lastUserMessageAt ?? null,
+  });
   try {
     const { disposition } = await sendPromptToAgent({
       agentManager: deps.agentManager,
@@ -319,12 +325,12 @@ async function continueAgent(
     }
   } catch (error) {
     await notice?.reject().catch((rejectError: unknown) => {
-      deps.logger.error({ err: rejectError, agentId }, "move: failed to withdraw parent notice");
+      deps.logger.error({ err: rejectError, agentId }, "move: failed to withdraw watcher notice");
     });
     throw error;
   }
   notice?.accept();
-  progress.parentNotice = notice ?? null;
+  progress.watcherNotice = notice ?? null;
 }
 
 /** Live sub-agents of `parentId`. Internal ones never reach storage, so they come from memory. */
@@ -399,8 +405,8 @@ async function undoFinish(
   from: ManagedAgent,
   progress: FinishProgress,
 ): Promise<void> {
-  await progress.parentNotice?.reject().catch((error: unknown) => {
-    deps.logger.error({ err: error, agentId: from.id }, "move: failed to withdraw parent notice");
+  await progress.watcherNotice?.reject().catch((error: unknown) => {
+    deps.logger.error({ err: error, agentId: from.id }, "move: failed to withdraw watcher notice");
   });
   const previous = progress.previousMovedFrom;
   if (previous) {
@@ -576,7 +582,7 @@ async function moveForward(
         pendingMoveContext: undelivered,
       });
       if (title) await deps.agentManager.updateAgentMetadata(moved.id, { title });
-      if (options.continueWork) await continueAgent(deps, moved.id, progress);
+      if (options.continueWork) await continueAgent(deps, moved.id, source, progress);
       await finish(deps, source, moved, progress);
       return { agentId: moved.id, strategy: "native", fellBackFromNative: false };
     }
@@ -621,7 +627,7 @@ async function moveForward(
         cwd: source.cwd,
       }),
     });
-    if (options.continueWork) await continueAgent(deps, moved.id, progress);
+    if (options.continueWork) await continueAgent(deps, moved.id, source, progress);
     await finish(deps, source, moved, progress);
     return { agentId: moved.id, strategy: "handoff", fellBackFromNative: attemptedNative(shared) };
   } catch (error) {
@@ -878,7 +884,7 @@ async function moveBack(
     // Returning to a login is trusting it again. Cleared before the continue turn, so a limit
     // that turn hits is recorded rather than erased.
     await deps.agentManager.setLimitReached(originalId, null);
-    if (continueWork) await continueAgent(deps, originalId, progress);
+    if (continueWork) await continueAgent(deps, originalId, current, progress);
     await finish(deps, current, original, progress);
     return {
       agentId: originalId,

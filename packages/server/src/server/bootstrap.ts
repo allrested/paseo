@@ -14,8 +14,8 @@ import {
   startUsageWatch,
 } from "./agent/session-move/usage-watch.js";
 import { startUsageLimitFallback } from "./agent/session-move/usage-limit-fallback.js";
-import { getParentAddressFromLabels } from "@getpaseo/protocol/agent-labels";
 import { movedAgentLookup, resolveMovedAgent } from "./agent/session-move/move-agent.js";
+import { registerWatcherNotice } from "./agent/session-move/watcher-notice.js";
 import { createUsageLookup } from "./agent/session-move/move-targets.js";
 import {
   probeTargetLogin,
@@ -27,6 +27,7 @@ import {
   createFinishSubscriptions,
   createFinishObservation,
   createJsonFinishSubscriptionStore,
+  createJsonFinishWatcherStore,
 } from "./agent/finish-subscriptions/index.js";
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
@@ -1583,6 +1584,7 @@ export async function createPaseoDaemon(
 
   const finishSubscriptions = createFinishSubscriptions({
     store: createJsonFinishSubscriptionStore(config.paseoHome),
+    watchers: createJsonFinishWatcherStore(config.paseoHome),
     serverId,
     logger,
     messages: () => {
@@ -1621,14 +1623,8 @@ export async function createPaseoDaemon(
   agentManager.setMoveCarry({
     targetLogin,
     retargetSchedules: (from, to) => scheduleService.retargetAgent(from, to),
-    notifyParentOnFinish: async (agentId, labels) => {
-      const parent = getParentAddressFromLabels(labels, serverId);
-      if (!parent || parent.serverId !== serverId) return undefined;
-      return finishSubscriptions.register(
-        { childAgentId: agentId, callerAgentId: parent.agentId, requireParentOwnership: true },
-        true,
-      );
-    },
+    notifyWatchersOnFinish: (input) =>
+      registerWatcherNotice({ serverId, subscriptions: finishSubscriptions }, input),
   });
 
   const idleRuntimeCleanup = createIdleRuntimeCleanup({
