@@ -224,7 +224,8 @@ The Stack tab, next to the first, checks the rest of this instance's stack from 
 once a minute while it is open: Paseo's version and uptime, FigCraft, the Android device, and the
 newest deploy. A part shows Off, naming the variable to set, until that variable is there.
 `FIGCRAFT_URL` turns on the FigCraft card, which asks the server and `FIGCRAFT_WEB_URL` for an
-answer and checks that `FIGCRAFT_SERVER_KEY_FILE` is not empty, never reading the key out.
+answer (a figcraft-server with no proxy in front answers no GET, so there it only connects) and
+checks that `FIGCRAFT_SERVER_KEY_FILE` is not empty, never reading the key out.
 `PASEO_ANDROID_ADB` turns on the device card, which runs `adb get-state` against it and looks for
 `maestro` on `PATH`. `PASEO_DEPLOY_REPO`, such as `allrested/paseo`, turns on the deploy card, which
 reads the newest `v*` tag's `docker.yml` run and its `deploy` job with `gh`, so `gh` needs a login or
@@ -401,9 +402,9 @@ server. Opening a file starts a bridge, a `figcraft-cli mcp` child that joins th
 and stops 5 minutes after the last viewer or agent leaves; at most 3 run at once. On desktop the
 panel frames FigCraft's editor, and FigCraft asks you to confirm the join once. A phone, in the app
 or a compact browser, gets the bridge's picture of the page instead: tap a spot to comment, and send
-an open thread to an agent. Its Edit switch makes a tap pick the layer there for a sheet that
-changes its text, binds its fill to a colour token, nudges its place and size, duplicates or
-deletes it, and undoes; the bridge makes those edits as its own member, so its Undo leaves other
+an open thread to an agent. Its Edit switch makes a tap pick the layer there; tools under the
+picture change its text, bind its fill to a colour token, nudge its place and size, duplicate or
+delete it, and undo; the bridge makes those edits as its own member, so its Undo leaves other
 members' edits alone ([design](superpowers/specs/2026-11-14-design-phone-editing-design.md)). New comments reach the agent that last joined the file as one prompt, at
 most one per turn.
 

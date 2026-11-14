@@ -77,8 +77,22 @@ export interface DesignStyles {
   editorFrame: ViewStyle;
   modeBar: ViewStyle;
   outline: ViewStyle;
-  sheetLabel: TextStyle;
-  colorList: ViewStyle;
+  outlineRing: ViewStyle;
+  outlineInner: ViewStyle;
+  iconButtonDisabled: ViewStyle;
+  /** The picked layer's tools under the picture: four rows that keep their height. */
+  inspector: ViewStyle;
+  inspectorHead: ViewStyle;
+  inspectorLayers: ViewStyle;
+  inspectorTools: ViewStyle;
+  inspectorPanel: ViewStyle;
+  inspectorSpacer: ViewStyle;
+  chipRow: ViewStyle;
+  nudgeButton: ViewStyle;
+  nudgeButtonDisabled: ViewStyle;
+  nudgeColor: string;
+  nudgeText: TextStyle;
+  inputInline: TextStyle;
   colorChip: ViewStyle;
   colorChipSelected: ViewStyle;
   swatch: ViewStyle;
@@ -308,15 +322,51 @@ export function useDesignStyles(
         paddingHorizontal: pad,
         paddingBottom: 8,
       },
-      // The picked layer in the picture: the one place the accent shows on the canvas.
+      // The picked layer in the picture. The accent line has a light line each side, so it shows
+      // on a layer of the accent's own colour too.
       outline: {
         position: "absolute",
-        borderWidth: 2,
-        borderColor: colors.accent,
-        borderRadius: 2,
+        borderWidth: 1,
+        borderColor: colors.accentForeground,
+        borderRadius: 4,
       },
-      sheetLabel: { ...small, fontWeight: "500", color: colors.foregroundMuted },
-      colorList: { maxHeight: 176 },
+      outlineRing: { flex: 1, borderWidth: 2, borderColor: colors.accent, borderRadius: 3 },
+      outlineInner: {
+        flex: 1,
+        borderWidth: 1,
+        borderColor: colors.accentForeground,
+        borderRadius: 1,
+      },
+      iconButtonDisabled: { ...iconButton, opacity: 0.4 },
+      inspector: { ...column, paddingHorizontal: pad, paddingTop: 8, paddingBottom: 12, gap: 8 },
+      inspectorHead: { flexDirection: "row", alignItems: "center", gap: 4 },
+      // Each list scrolls sideways in its own row and never grows the block.
+      inspectorLayers: { flex: 1, flexGrow: 1, flexShrink: 1 },
+      inspectorTools: { flexGrow: 0, flexShrink: 0 },
+      inspectorPanel: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        height: controlHeight,
+      },
+      inspectorSpacer: { flex: 1 },
+      chipRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+      nudgeButton: { ...iconButton, borderWidth: 1, borderColor: colors.border },
+      nudgeButtonDisabled: {
+        ...iconButton,
+        borderWidth: 1,
+        borderColor: colors.border,
+        opacity: 0.4,
+      },
+      nudgeColor: colors.foreground,
+      nudgeText: { ...small, fontWeight: "500", color: colors.foreground },
+      inputInline: {
+        ...input,
+        flex: 1,
+        minWidth: 0,
+        height: controlHeight,
+        paddingVertical: touch ? 10 : 6,
+      },
       colorChip: { ...chip, flexDirection: "row", alignItems: "center", gap: 8 },
       colorChipSelected: {
         ...chip,
