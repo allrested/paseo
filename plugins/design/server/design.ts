@@ -9,7 +9,13 @@ import type {
   PluginSessionOpenRequest,
 } from "@getpaseo/plugin/server";
 import type { DesignConfig } from "./config.js";
-import type { FileRow, PublicFile, ViewEvent } from "../shared/contracts.js";
+import type {
+  EditAction,
+  EditResult,
+  FileRow,
+  PublicFile,
+  ViewEvent,
+} from "../shared/contracts.js";
 import { BRIDGE_AUTHOR, Bridge, type TokensPort } from "./bridge.js";
 import { createBridges, type Bridges } from "./bridges.js";
 import { createCommentRouter, type CommentRouter } from "./comments.js";
@@ -70,6 +76,8 @@ export interface DesignService {
   remove(fileId: string): Promise<Result>;
   editorLink(fileId: string, workspaceId: string): Promise<Result<{ url: string }>>;
   comment(fileId: string, x: number, y: number, text: string): Promise<Result>;
+  /** The phone's edits; an open view redraws its picture straight after. */
+  edit(fileId: string, action: EditAction): Promise<EditResult | { ok: false; error: string }>;
   send(fileId: string, agentId: string, note: string): Promise<Result>;
   agents(workspaceId: string): Promise<{ agents: { id: string; title: string }[] }>;
   view(
@@ -119,6 +127,7 @@ function disabledService(reason: string): DesignService {
     remove: async () => off,
     editorLink: async () => off,
     comment: async () => off,
+    edit: async () => off,
     send: async () => off,
     agents: async () => ({ agents: [] }),
     view: async (_input, push) => {
@@ -169,6 +178,8 @@ export function createDesignService(given: DesignDeps): DesignService {
   /** The workspace directory each running file reads its tokens from (its first opener's). */
   const tokenDirs = new Map<string, string>();
   const viewers = new Map<string, Set<(event: ViewEvent) => Promise<void>>>();
+  /** Ends an open view's wait, so it redraws now. */
+  const wakers = new Map<string, Set<() => void>>();
   const serverWithKey = `${config.serverUrl}${config.serverUrl.includes("?") ? "&" : "?"}key=${encodeURIComponent(config.serverKey)}`;
 
   async function workspace(
@@ -390,6 +401,19 @@ export function createDesignService(given: DesignDeps): DesignService {
         return failure(error);
       }
     },
+    async edit(fileId, action) {
+      try {
+        const bridge = await bridges.acquire(fileId, { kind: "viewer", id: "edit" });
+        try {
+          return await bridge.edit(action);
+        } finally {
+          bridges.release(fileId, { kind: "viewer", id: "edit" });
+          for (const wake of wakers.get(fileId) ?? []) wake();
+        }
+      } catch (error) {
+        return failure(error);
+      }
+    },
     async send(fileId, agentId, note) {
       const file = await store.get(fileId);
       if (!file) return { ok: false, error: "This design is no longer listed" };
@@ -456,11 +480,19 @@ export function createDesignService(given: DesignDeps): DesignService {
             if (event) await push(event);
           }
           if (signal.aborted) break;
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, deps.viewPollMs ?? 3000);
-            timer.unref();
-            signal.addEventListener("abort", () => resolve(), { once: true });
+          const wake = wakers.get(input.fileId) ?? new Set();
+          wakers.set(input.fileId, wake);
+          let resume = (): void => undefined;
+          const waiting = new Promise<void>((resolve) => {
+            resume = resolve;
           });
+          const timer = setTimeout(resume, deps.viewPollMs ?? 3000);
+          timer.unref();
+          wake.add(resume);
+          signal.addEventListener("abort", resume, { once: true });
+          await waiting;
+          clearTimeout(timer);
+          wake.delete(resume);
         }
       } catch (error) {
         await push({ type: "status", status: "failed", error: messageOf(error) }).catch(

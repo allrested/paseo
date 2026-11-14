@@ -421,6 +421,39 @@ describe("design service", () => {
       ],
     });
   });
+  it("edits from the phone through the bridge, and an open view redraws at once", async () => {
+    // A poll long enough that only the edit can bring the next pass.
+    const { service } = setup({}, 600_000);
+    const created = await service.create("w1", "Login");
+    if (!created.ok) throw new Error(created.error);
+    let passes = 0;
+    const controller = new AbortController();
+    const viewing = service.view(
+      { fileId: created.file.id, workspaceId: "w1", pictures: true },
+      async (event) => {
+        if (event.type === "threads") passes += 1;
+      },
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(passes).toBe(1));
+    const picked = await service.edit(created.file.id, { type: "pick", x: 0.1, y: 0.15 });
+    expect(picked).toMatchObject({ ok: true, layer: { id: "2", text: "Sign in" } });
+    await vi.waitFor(() => expect(passes).toBe(2));
+    expect(
+      await service.edit(created.file.id, {
+        type: "change",
+        id: "2",
+        change: { kind: "text", text: "Log in" },
+      }),
+    ).toMatchObject({ ok: true, layer: { text: "Log in" } });
+    await vi.waitFor(() => expect(passes).toBe(3));
+    controller.abort();
+    await viewing;
+    expect(await service.edit("nope", { type: "layer", id: "2" })).toEqual({
+      ok: false,
+      error: "This design is no longer listed",
+    });
+  });
   it("ends a view with the error once the bridge failed twice, without starting a third", async () => {
     const { service } = setup({ FAKE_FIGCRAFT_CRASH_AFTER: "5" }, 20);
     const created = await service.create("w1", "Login");

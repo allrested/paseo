@@ -41,6 +41,7 @@ export interface DesignStyles {
   pictureFrame: ViewStyle;
   picture: ImageStyle;
   pictureHint: TextStyle;
+  pictureProblem: TextStyle;
   threads: ViewStyle;
   threadsEmpty: TextStyle;
   thread: ViewStyle;
@@ -74,6 +75,13 @@ export interface DesignStyles {
   buttonPrimaryText: TextStyle;
   actionError: TextStyle;
   editorFrame: ViewStyle;
+  modeBar: ViewStyle;
+  outline: ViewStyle;
+  sheetLabel: TextStyle;
+  colorList: ViewStyle;
+  colorChip: ViewStyle;
+  colorChipSelected: ViewStyle;
+  swatch: ViewStyle;
 }
 
 export function useDesignStyles(
@@ -231,6 +239,12 @@ export function useDesignStyles(
         paddingHorizontal: pad,
         paddingTop: 8,
       },
+      pictureProblem: {
+        ...small,
+        color: colors.statusDanger,
+        paddingHorizontal: pad,
+        paddingTop: 8,
+      },
       // The picture gives way first: a squeezed list would cut its rows and their Send buttons.
       threads: { maxHeight: 240, flexShrink: 0 },
       threadsEmpty: { ...small, color: colors.foregroundMuted, paddingHorizontal: pad },
@@ -287,6 +301,39 @@ export function useDesignStyles(
       buttonPrimaryText: { ...buttonLabel, color: colors.accentForeground },
       actionError: { ...small, color: colors.statusDanger },
       editorFrame: { flex: 1, borderTopWidth: 1, borderTopColor: colors.border },
+      modeBar: {
+        ...column,
+        flexDirection: "row",
+        gap: 8,
+        paddingHorizontal: pad,
+        paddingBottom: 8,
+      },
+      // The picked layer in the picture: the one place the accent shows on the canvas.
+      outline: {
+        position: "absolute",
+        borderWidth: 2,
+        borderColor: colors.accent,
+        borderRadius: 2,
+      },
+      sheetLabel: { ...small, fontWeight: "500", color: colors.foregroundMuted },
+      colorList: { maxHeight: 176 },
+      colorChip: { ...chip, flexDirection: "row", alignItems: "center", gap: 8 },
+      colorChipSelected: {
+        ...chip,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 15,
+        borderWidth: 2,
+        borderColor: colors.foreground,
+      },
+      swatch: {
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+      },
     };
   }, [theme, compact, touchScreen]);
 }
