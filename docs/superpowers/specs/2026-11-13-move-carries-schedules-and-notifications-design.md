@@ -171,10 +171,11 @@ The parent may itself have moved since; delivery follows its moved-to link as ab
 ## Known limits
 
 - Schedules completed by a move before this ships stay completed.
-- Only a parent is told when a moved agent's successor finishes. An agent that prompted the moved
-  agent with notify-on-finish, without being its parent, is not: nothing records who it was once
-  its notification is spent.
-- A parent on another host is not told. Its notifications live on its own host.
+- A parent or other watcher on another host is not told when a moved agent's successor finishes:
+  its notifications live on its own host. On this host
+  the parent is told, and so is any agent that waits on the agent being left or was told about a
+  turn of it that ended since its last prompt; the daemon remembers who was told for a week
+  (`finish-watchers.json`).
 - The parent still gets the notification the old agent's turn produced: "errored" for a limit,
   "finished" for a turn the move cancelled.
 - A finish that arrives while the watcher's move is in progress, before the old agent is
@@ -235,3 +236,6 @@ Anti-goals:
   re-pointed.
 - A parent that moved getting its sub-agent's finish is covered in the finish subscription tests,
   not by a move on a test daemon.
+- Since 2026-11-14 the continue turn's notice goes to every local watcher of the agent being
+  left, not only its parent. `MoveCarry.notifyParentOnFinish` became `notifyWatchersOnFinish`,
+  built by `session-move/watcher-notice.ts` from `FinishSubscriptions.watchersOf`.

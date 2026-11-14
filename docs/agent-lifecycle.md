@@ -426,8 +426,8 @@ second request is refused as busy.
 
 Schedules and heartbeats aimed at the agent you move are aimed at its successor before the move
 archives it, and move back returns them. A finish notification addressed to an agent that moved
-is delivered to its successor. When you move a sub-agent and let it continue, its parent is told
-when the successor finishes.
+is delivered to its successor. When you move an agent and let it continue, its parent and any other
+agent on the host that waited on it are told when the successor finishes.
 
 ## Tabs vs archive
 

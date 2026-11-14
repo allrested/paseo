@@ -11,7 +11,10 @@ import {
   finishNotificationEvents,
   type FinishNotificationReason,
 } from "./internal/notification.js";
-export { createJsonFinishSubscriptionStore } from "./internal/json-store.js";
+export {
+  createJsonFinishSubscriptionStore,
+  createJsonFinishWatcherStore,
+} from "./internal/json-store.js";
 
 export interface FinishSubscription {
   id: string;
@@ -25,6 +28,16 @@ export interface FinishSubscriptionStore {
   list(): Promise<FinishSubscription[]>;
   put(subscription: FinishSubscription): Promise<void>;
   remove(id: string): Promise<void>;
+}
+/** A caller that was told about the end of a turn of an agent on this host. */
+export interface FinishWatcher {
+  childAgentId: string;
+  callerAgentId: string;
+  at: string;
+}
+export interface FinishWatcherStore {
+  list(): Promise<FinishWatcher[]>;
+  replace(watchers: FinishWatcher[]): Promise<void>;
 }
 export interface FinishObservationSession {
   next(): Promise<FinishObservationResult>;
@@ -41,6 +54,9 @@ interface Dependencies extends FinishObservation {
    * null when neither exists.
    */
   resolveCaller(agentId: string): Promise<string | null>;
+  /** Left out, who was told is remembered only until the daemon stops. */
+  watchers?: FinishWatcherStore;
+  now?: () => Date;
   serverId: string;
   logger: Logger;
   retryDelayMs?: number;
@@ -55,6 +71,12 @@ export interface FinishSubscriptions {
   start(): Promise<void>;
   /** Pending notification intent, including registration, recovery and unacknowledged delivery. */
   hasPendingForCaller(agentId: string): boolean;
+  /**
+   * The callers that wait on `childAgentId`, or were told about a turn of it that ended at or
+   * after `since`. A session move reads this: the notification for the agent it leaves is spent,
+   * so these are who to tell when the successor finishes. Agents on this host only.
+   */
+  watchersOf(childAgentId: string, since: Date | null): string[];
   register(
     input: Omit<FinishSubscription, "id">,
     pendingDispatch?: boolean,
@@ -76,6 +98,29 @@ function key(record: FinishSubscription): string {
 /** Owns durable intent, live observation, supersession, and dispatch acknowledgment. */
 export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptions {
   const tasks = new Set<Promise<void>>();
+  let told: FinishWatcher[] = [];
+  /** Long enough to move an agent the morning after its limit; nothing reads an older entry. */
+  const TOLD_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+  function noteTold(record: FinishSubscription): void {
+    // A watch on an agent of another host is that host's move to follow.
+    if (record.serverId) return;
+    const at = (deps.now ?? (() => new Date()))();
+    told = told.filter(
+      (entry) =>
+        at.getTime() - Date.parse(entry.at) < TOLD_FOR_MS &&
+        !(
+          entry.childAgentId === record.childAgentId && entry.callerAgentId === record.callerAgentId
+        ),
+    );
+    told.push({
+      childAgentId: record.childAgentId,
+      callerAgentId: record.callerAgentId,
+      at: at.toISOString(),
+    });
+    deps.watchers?.replace(told).catch((error: unknown) => {
+      deps.logger.warn({ err: error }, "Failed to save finish watchers");
+    });
+  }
   const watches = new Map<string, Set<Watch>>();
   let closed = false;
   let recovering = true;
@@ -260,6 +305,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     let observation: FinishObservationSession | undefined;
     let pending: FinishObservationResult | undefined;
     let acknowledged = false;
+    let noted = false;
     let remoteFailures = 0;
     let retries = 0;
     let warned = false;
@@ -307,6 +353,10 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
             stop(watch, group);
             return;
           }
+          if (!noted && reasonFor(pending) !== "needs permission" && pending.final) {
+            noteTold(record);
+            noted = true;
+          }
           if (!acknowledged) acknowledged = await deliver(record, pending, permissions, signal);
           if (acknowledged) {
             // A removal failure retries only the commit, never the already accepted callback.
@@ -344,8 +394,26 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       }
       return false;
     },
+    watchersOf(childAgentId, since) {
+      const callers = new Set<string>();
+      for (const entry of told) {
+        if (entry.childAgentId !== childAgentId) continue;
+        if (since && Date.parse(entry.at) < since.getTime()) continue;
+        callers.add(entry.callerAgentId);
+      }
+      // A watch still waiting is current whatever the time.
+      for (const group of watches.values()) {
+        for (const watch of group) {
+          const record = watch.records[0]!;
+          if (watch.pending || record.serverId || record.childAgentId !== childAgentId) continue;
+          callers.add(record.callerAgentId);
+        }
+      }
+      return [...callers];
+    },
     start: () =>
       serialize(async () => {
+        told = (await deps.watchers?.list()) ?? [];
         const groups = new Map<string, FinishSubscription[]>();
         for (const record of await deps.store.list()) {
           const records = groups.get(key(record)) ?? [];
