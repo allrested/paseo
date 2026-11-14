@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { AgentToolContext, AgentToolResult, PluginHookAgent } from "@getpaseo/plugin/server";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createAndroidTools } from "./agent-tools.js";
+import { createScreenRecorder } from "./recorder.js";
 import type { AndroidDevice } from "./device.js";
 import { DeviceUnreachableError, UNREACHABLE } from "./errors.js";
 
@@ -40,9 +41,14 @@ function agent(id: string, cwd = workspace): PluginHookAgent {
 
 function fakeDevice(overrides: Partial<AndroidDevice> = {}) {
   const calls: string[] = [];
+  // A recording runs until the device gets pkill, as screenrecord does.
+  let endRecording = () => undefined as void;
   const device: AndroidDevice = {
     ensure: async () => {},
-    shell: async () => "",
+    shell: async (command) => {
+      if (command[0] === "pkill") endRecording();
+      return "";
+    },
     screenshot: async () => PNG,
     dump: async () => DUMP,
     focus: async () => ({ packageName: "com.android.settings", activity: ".Settings" }),
@@ -72,6 +78,18 @@ function fakeDevice(overrides: Partial<AndroidDevice> = {}) {
       return "log line\n";
     },
     size: async () => ({ width: 720, height: 1280 }),
+    record: async (remote, seconds) => {
+      calls.push(`record ${remote} ${seconds}`);
+      return {
+        done: new Promise<void>((resolve) => {
+          endRecording = resolve;
+        }),
+      };
+    },
+    pull: async (remote, local) => {
+      calls.push(`pull ${remote}`);
+      await writeFile(local, "mp4");
+    },
     ...overrides,
   };
   return { device, calls };
@@ -79,7 +97,13 @@ function fakeDevice(overrides: Partial<AndroidDevice> = {}) {
 
 function setup(overrides: Partial<AndroidDevice> = {}, workspacePath: string | null = workspace) {
   const { device, calls } = fakeDevice(overrides);
-  const tools = createAndroidTools({ device, workspacePath: () => workspacePath, now: () => NOW });
+  const recorder = createScreenRecorder({ device, now: () => NOW });
+  const tools = createAndroidTools({
+    device,
+    recorder,
+    workspacePath: () => workspacePath,
+    now: () => NOW,
+  });
   async function run(
     name: string,
     input: object,
@@ -93,7 +117,7 @@ function setup(overrides: Partial<AndroidDevice> = {}, workspacePath: string | n
   return { tools, run, calls };
 }
 
-test("there are nine tools with these names", () => {
+test("there are eleven tools with these names", () => {
   expect(setup().tools.map((tool) => tool.name)).toEqual([
     "android_snapshot",
     "android_tap",
@@ -101,10 +125,40 @@ test("there are nine tools with these names", () => {
     "android_key",
     "android_swipe",
     "android_screenshot",
+    "android_record_start",
+    "android_record_stop",
     "android_install",
     "android_launch",
     "android_logs",
   ]);
+});
+
+test("record start then stop saves the video in the workspace and answers its path", async () => {
+  const { run, calls } = setup();
+  expect(await run("android_record_start", {})).toEqual({
+    text: "Recording the Android screen. Call android_record_stop to save it.",
+  });
+  const stopped = await run("android_record_stop", {});
+  const expected = join(workspace, ".paseo", "android", "recording-2026-11-13T10-20-30-123Z.mp4");
+  expect(stopped).toEqual({
+    text: `Recording saved to ${expected}`,
+    structuredContent: { path: expected },
+  });
+  expect(await readFile(expected, "utf8")).toBe("mp4");
+  expect(calls[0]).toBe(`record /sdcard/paseo-recording-${NOW.getTime()}.mp4 180`);
+});
+
+test("record stop without a recording, and a second start, say why", async () => {
+  const { run } = setup();
+  expect(await run("android_record_stop", {})).toEqual({
+    text: "No recording to save: call android_record_start first",
+    isError: true,
+  });
+  await run("android_record_start", {});
+  expect(await run("android_record_start", {})).toEqual({
+    text: "A recording is already running",
+    isError: true,
+  });
 });
 
 test("snapshot answers with the app and one line per element", async () => {
@@ -327,6 +381,7 @@ test("every tool answers with the unreachable words when the device throws them"
     launch: unreachable,
     logs: unreachable,
     screenshot: unreachable,
+    record: unreachable,
   });
   await writeFile(join(workspace, "u.apk"), "x");
   const inputs: Record<string, object> = {
@@ -336,11 +391,13 @@ test("every tool answers with the unreachable words when the device throws them"
     android_key: { key: "back" },
     android_swipe: { from: { x: 1, y: 2 }, to: { x: 3, y: 4 } },
     android_screenshot: {},
+    android_record_start: {},
     android_install: { path: "u.apk" },
     android_launch: { package: "com.example.app" },
     android_logs: {},
   };
-  for (const tool of tools) {
+  // android_record_stop asks the device only once a recording runs.
+  for (const tool of tools.filter((candidate) => candidate.name !== "android_record_stop")) {
     expect(await run(tool.name, inputs[tool.name]!), tool.name).toEqual({
       text: UNREACHABLE,
       isError: true,

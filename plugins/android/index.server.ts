@@ -6,6 +6,7 @@ import { createAdbRunner, findOnPath } from "./server/adb.js";
 import { createAndroidTools } from "./server/agent-tools.js";
 import { createAndroidDevice, type AndroidDevice } from "./server/device.js";
 import { createMaestroRunner, type MaestroRunner } from "./server/maestro.js";
+import { createScreenRecorder } from "./server/recorder.js";
 import { registerMaestro } from "./server/maestro-rpc.js";
 import { errorMessage } from "./server/errors.js";
 import { nodeClock, type Clock } from "./server/timers.js";
@@ -33,6 +34,7 @@ export function createAndroidPlugin(
   const settings = server.registerSettings(androidHostSettings);
   const tools = createAndroidTools({
     device,
+    recorder: createScreenRecorder({ device, now: () => new Date(clock.now()) }),
     workspacePath: (agent) => agent.cwd || null,
     now: () => new Date(clock.now()),
   });
