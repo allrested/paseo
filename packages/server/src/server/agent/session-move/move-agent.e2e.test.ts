@@ -660,6 +660,66 @@ describe("moveAgent", () => {
       expect(await chainOf(aId)).toBe(b.agentId);
     });
 
+    it("keep the earliest agent after a move back to a middle agent and a move on from it", async () => {
+      const aId = await createRanClaudeAgent();
+      const b = await moveAgent(deps(), {
+        agentId: aId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      const c = await moveAgent(deps(), {
+        agentId: b.agentId,
+        target: { provider: "opencode" },
+        continueWork: false,
+      });
+      await moveAgentBack(deps(), { agentId: c.agentId, continueWork: false });
+      expect((await chainOf(b.agentId))?.split(",").sort()).toEqual([aId, c.agentId].sort());
+
+      const d = await moveAgent(deps(), {
+        agentId: b.agentId,
+        target: { provider: "opencode" },
+        continueWork: false,
+      });
+
+      const chain = (await chainOf(d.agentId))?.split(",") ?? [];
+      expect(chain[0]).toBe(b.agentId);
+      expect([...chain].sort()).toEqual([aId, b.agentId, c.agentId].sort());
+    });
+
+    it("are put back on a middle agent when a move back to it fails", async () => {
+      const aId = await createRanClaudeAgent();
+      const b = await moveAgent(deps(), {
+        agentId: aId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      const c = await moveAgent(deps(), {
+        agentId: b.agentId,
+        target: { provider: "opencode" },
+        continueWork: false,
+      });
+      const real = deps();
+      const agentManager = new Proxy(real.agentManager, {
+        get(target, property) {
+          if (property === "archiveAgent") {
+            return async (agentId: string) => {
+              if (agentId === c.agentId) throw new Error("archive failed");
+              return target.archiveAgent(agentId);
+            };
+          }
+          const value: unknown = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      await expect(
+        moveAgentBack({ ...real, agentManager }, { agentId: c.agentId, continueWork: false }),
+      ).rejects.toMatchObject({ code: "failed" });
+
+      expect(await chainOf(b.agentId)).toBe(aId);
+      expect(await chainOf(c.agentId)).toBe(`${b.agentId},${aId}`);
+    });
+
     it("are put back as they were when a move back fails", async () => {
       const aId = await createRanClaudeAgent();
       const b = await moveAgent(deps(), {
