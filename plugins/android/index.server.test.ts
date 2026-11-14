@@ -150,8 +150,16 @@ test("the state call says the device is available and whether agent tools are on
   const states = [ON, OFF];
   const { recorded, stop } = setup(async () => states.shift() ?? ON);
   const state = recorded.handlers.get("android.state.request");
-  expect(await state?.({}, context)).toEqual({ available: true, agentTools: true });
-  expect(await state?.({}, context)).toEqual({ available: true, agentTools: false });
+  expect(await state?.({}, context)).toEqual({
+    available: true,
+    agentTools: true,
+    maestro: false,
+  });
+  expect(await state?.({}, context)).toEqual({
+    available: true,
+    agentTools: false,
+    maestro: false,
+  });
   await stop();
 });
 
@@ -162,6 +170,7 @@ test("a state call whose setting cannot be read answers without tools and does n
   expect(await recorded.handlers.get("android.state.request")?.({}, context)).toEqual({
     available: true,
     agentTools: false,
+    maestro: false,
   });
   expect(logs).toEqual(["[android] state failed: down"]);
   await stop();

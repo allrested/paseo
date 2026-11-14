@@ -435,7 +435,11 @@ a viewer silent for 30 seconds is closed and the panel speaks every 10 seconds. 
 through `android.stream.input.request` in device pixels, mapped from the letterboxed picture: a
 press and release within 8 view pixels is a tap, anything else one swipe with the gesture's own
 duration (50 to 3000 ms). The panel also has Back, Home and Recents, a text field that types on the
-device (printable ASCII only), and the "Agent tools" switch for the host setting. A hidden or
+device (printable ASCII only), and the "Agent tools" switch for the host setting. In a workspace,
+when `maestro` is on the host's PATH, the panel also lists the workspace's Maestro flows and runs one
+at a time per host, with its files under `$PASEO_HOME/android/maestro-runs/`; a finished run can go to
+an agent. Agents' own `maestro` runs are not coordinated with it
+([design](superpowers/specs/2026-11-14-android-maestro-panel-design.md)). A hidden or
 backgrounded panel closes its stream; Retry opens it again. The client folder may not import
 `server/`, even for a type: the plugin compiler refuses it, so shapes both sides use live in
 `shared/`. The office's streamed 3D view is the pattern; its modules are copied, not imported.

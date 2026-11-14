@@ -174,8 +174,9 @@ modules are copied from the office, not shared.
 ### Maestro (part 4)
 
 The Maestro CLI in the agent image runs a repo's flows against the device:
-`maestro --device 127.0.0.1:5555 test <flow>`. Agents run it as a command. Nothing in Paseo wraps
-it.
+`maestro --device 127.0.0.1:5555 test <flow>`. Agents run it as a command. Since 2026-11-14 the
+user can also run a workspace's flows from the Android panel:
+[the Maestro panel design](2026-11-14-android-maestro-panel-design.md).
 
 ### Constraints
 
