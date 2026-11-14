@@ -7,6 +7,7 @@ import type { DesignStyles } from "./styles.js";
 export function IconButton(props: {
   label: string;
   icon: string;
+  disabled?: boolean;
   styles: DesignStyles;
   onPress(): void;
 }) {
@@ -24,10 +25,51 @@ export function IconButton(props: {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={props.label}
+      disabled={props.disabled}
       onPress={props.onPress}
-      style={styles.iconButton}
+      style={props.disabled ? styles.iconButtonDisabled : styles.iconButton}
     >
       {render}
+    </Pressable>
+  );
+}
+
+/** A text button whose caller shows its failure; ActionButton keeps its own. */
+export function TextButton(props: {
+  label: string;
+  primary?: boolean;
+  danger?: boolean;
+  disabled?: boolean;
+  styles: DesignStyles;
+  onPress(): void;
+}) {
+  const { styles, primary = false, danger = false, disabled = false } = props;
+  const style = useCallback(
+    ({ pressed }: PressableStateCallbackType) => {
+      if (primary) {
+        if (disabled) return styles.buttonPrimaryDisabled;
+        return pressed ? styles.buttonPrimaryPressed : styles.buttonPrimary;
+      }
+      if (disabled) return styles.buttonDisabled;
+      return pressed ? styles.buttonPressed : styles.button;
+    },
+    [styles, primary, disabled],
+  );
+  let textStyle = styles.buttonText;
+  if (primary) textStyle = styles.buttonPrimaryText;
+  else if (danger) textStyle = styles.buttonDangerText;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={props.label}
+      disabled={disabled}
+      onPress={props.onPress}
+      style={style}
+    >
+      {primary ? null : <View style={styles.buttonFill} />}
+      <Text style={textStyle} numberOfLines={1}>
+        {props.label}
+      </Text>
     </Pressable>
   );
 }
@@ -76,6 +118,8 @@ export function Chip(props: {
     <Pressable
       accessibilityRole="radio"
       accessibilityState={state}
+      // react-native-web reads the aria prop, not accessibilityState.
+      aria-checked={props.chosen}
       onPress={press}
       style={props.chosen ? styles.chipSelected : styles.chip}
     >

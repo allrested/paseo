@@ -279,7 +279,9 @@ async function tapCentre(picture: HTMLElement): Promise<void> {
 const editCalls = () =>
   calls.filter((call) => call.method === "design.edit.request").map((call) => call.input);
 
-test("in Edit, a tap picks the layer there, outlines it and opens its sheet", async () => {
+const tools = () => byLabel("Layer tools");
+
+test("in Edit, a tap picks the layer there, outlines it and shows its tools under the picture", async () => {
   await pictureOnScreen();
   await press(inside(container, "radio", "Edit"));
   editReplies.push({
@@ -294,24 +296,30 @@ test("in Edit, a tap picks the layer there, outlines it and opens its sheet", as
   await tapCentre(byLabel("Login. Tap a layer to edit it"));
 
   expect(editCalls()).toEqual([{ fileId: "f1", action: { type: "pick", x: 0.5, y: 0.5 } }]);
-  const sheet = byLabel("Edit layer");
-  expect(sheet.textContent).toContain("Text · 100 × 20 · Fill #000000");
-  expect(inside(sheet, "radio", "Card")).toBeTruthy();
-  // The 400 x 200 picture drawn 200 x 100 from y = 50: the box's middle half.
+  expect(tools().textContent).toContain("Text · 100 × 20 · Fill #000000");
+  expect(inside(tools(), "radio", "Card")).toBeTruthy();
+  // The tools take the comments' place, and no sheet covers the picture.
+  expect(container.textContent).not.toContain("Open comments");
+  expect(container.querySelector("section")).toBeNull();
+  // The 400 x 200 picture drawn 200 x 100 from y = 50: the box's middle half, 4 px around it.
   const outline = container.querySelector<HTMLElement>('[data-testid="layer-outline"]');
   if (!outline) throw new Error("No outline");
   const placed = getComputedStyle(outline);
   expect([placed.left, placed.top, placed.width, placed.height]).toEqual([
-    "50px",
-    "75px",
-    "100px",
-    "50px",
+    "46px",
+    "71px",
+    "108px",
+    "58px",
   ]);
   // Nothing to undo yet.
-  expect(inside(sheet, "button", "Undo").getAttribute("aria-disabled")).toBe("true");
+  expect(inside(tools(), "button", "Undo").getAttribute("aria-disabled")).toBe("true");
+
+  await press(inside(container, "radio", "Comment"));
+  expect(container.querySelector('[aria-label="Layer tools"]')).toBeNull();
+  expect(container.textContent).toContain("Open comments");
 });
 
-test("the sheet's edits go to the bridge and show the layer as it comes back", async () => {
+test("the tools' edits go to the bridge and show the layer as it comes back", async () => {
   await pictureOnScreen();
   await press(inside(container, "radio", "Edit"));
   editReplies.push({
@@ -321,9 +329,10 @@ test("the sheet's edits go to the bridge and show the layer as it comes back", a
     colors: [{ name: "color/accent", hex: "#3366CC" }],
   });
   await tapCentre(byLabel("Login. Tap a layer to edit it"));
-  const sheet = byLabel("Edit layer");
+  // One layer under the tap still gets its name on a chip.
+  expect(inside(tools(), "radio", "Label").getAttribute("aria-checked")).toBe("true");
 
-  const field = sheet.querySelector("textarea");
+  const field = tools().querySelector("textarea");
   if (!field) throw new Error("No text field");
   await act(async () => {
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
@@ -331,49 +340,65 @@ test("the sheet's edits go to the bridge and show the layer as it comes back", a
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
   editReplies.push({ ok: true, layer: { ...LABEL, text: "Log in" }, here: [], colors: [] });
-  await press(inside(sheet, "button", "Apply text"));
+  await press(inside(tools(), "button", "Apply"));
+
+  await press(inside(tools(), "radio", "Fill"));
   editReplies.push({
     ok: true,
     layer: { ...LABEL, text: "Log in", fill: { token: "color/accent", color: "#3366CC" } },
     here: [],
     colors: [],
   });
-  await press(inside(sheet, "radio", "color/accent"));
-  editReplies.push({ ok: true, layer: LABEL, here: [], colors: [] });
-  await press(inside(sheet, "radio", "10 px"));
-  await press(inside(sheet, "button", "Right"));
-  editReplies.push({ ok: true, layer: null, here: [], colors: [] });
-  await press(inside(sheet, "button", "Delete"));
+  await press(inside(tools(), "radio", "color/accent"));
+  expect(tools().textContent).toContain("Fill accent");
 
-  expect(editCalls().slice(1)).toEqual([
-    { fileId: "f1", action: { type: "change", id: "2", change: { kind: "text", text: "Log in" } } },
-    {
-      fileId: "f1",
-      action: { type: "change", id: "2", change: { kind: "fill", token: "color/accent" } },
-    },
-    { fileId: "f1", action: { type: "change", id: "2", change: { kind: "move", dx: 10, dy: 0 } } },
-    { fileId: "f1", action: { type: "change", id: "2", change: { kind: "delete" } } },
-  ]);
-  expect(sheet.textContent).toContain("Deleted. Undo brings it back");
+  await press(inside(tools(), "radio", "Move"));
+  await press(inside(tools(), "radio", "10 px"));
   editReplies.push({ ok: true, layer: LABEL, here: [], colors: [] });
-  await press(inside(sheet, "button", "Undo"));
+  await press(inside(tools(), "button", "Move right by 10 px"));
+
+  await press(inside(tools(), "radio", "Size"));
+  editReplies.push({ ok: true, layer: LABEL, here: [], colors: [] });
+  await press(inside(tools(), "button", "Taller by 10 px"));
+
+  await press(inside(tools(), "radio", "Layer"));
+  editReplies.push({ ok: true, layer: null, here: [], colors: [] });
+  await press(inside(tools(), "button", "Delete"));
+
+  const change = (value: unknown) => ({
+    fileId: "f1",
+    action: { type: "change", id: "2", change: value },
+  });
+  expect(editCalls().slice(1)).toEqual([
+    change({ kind: "text", text: "Log in" }),
+    change({ kind: "fill", token: "color/accent" }),
+    change({ kind: "move", dx: 10, dy: 0 }),
+    change({ kind: "resize", dw: 0, dh: 10 }),
+    change({ kind: "delete" }),
+  ]);
+  expect(tools().textContent).toContain("Deleted. Undo brings it back");
+  editReplies.push({ ok: true, layer: LABEL, here: [], colors: [] });
+  await press(inside(tools(), "button", "Undo"));
   expect(editCalls().at(-1)).toEqual({ fileId: "f1", action: { type: "undo", id: "2" } });
-  expect(sheet.textContent).toContain("Text · 100 × 20");
+  expect(tools().textContent).toContain("Text · 100 × 20");
 });
 
-test("a tap with no layer under it, or a failed edit, says so", async () => {
+test("a tap on nothing puts the layer down; a failed edit says so in the tools", async () => {
   await pictureOnScreen();
   await press(inside(container, "radio", "Edit"));
   editReplies.push({ ok: true, layer: null, here: [], colors: [] });
   await tapCentre(byLabel("Login. Tap a layer to edit it"));
   expect(container.textContent).toContain("Nothing to edit there. Tap a layer");
-  expect(container.querySelector('[aria-label="Edit layer"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Layer tools"]')).toBeNull();
 
   editReplies.push({ ok: true, layer: LABEL, here: [], colors: [] });
   await tapCentre(byLabel("Login. Tap a layer to edit it"));
+  await press(inside(tools(), "radio", "Size"));
   editReplies.push({ ok: false, error: "This layer is gone. Tap it again" });
-  await press(inside(byLabel("Edit layer"), "button", "Wider"));
-  expect(byLabel("Edit layer").textContent).toContain(
-    "Unable to resize the layer: This layer is gone. Tap it again",
-  );
+  await press(inside(tools(), "button", "Wider by 1 px"));
+  expect(tools().textContent).toContain("Unable to wider: This layer is gone. Tap it again");
+
+  editReplies.push({ ok: true, layer: null, here: [], colors: [] });
+  await tapCentre(byLabel("Login. Tap a layer to edit it"));
+  expect(container.querySelector('[aria-label="Layer tools"]')).toBeNull();
 });
