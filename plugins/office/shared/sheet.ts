@@ -45,6 +45,8 @@ export interface SheetRobot {
 
 export interface SheetRoom {
   roomId: string;
+  /** What the room covers on the picture, walls included: what a focus on it shows. */
+  area: SheetRect;
   board: SheetRect;
   plate: SheetRect;
 }

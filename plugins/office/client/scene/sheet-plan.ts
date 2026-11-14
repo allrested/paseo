@@ -1,6 +1,6 @@
 // The office as positions on a picture: where the sheet page draws each still, and where the app
 // lays it. Pure; nothing here touches the DOM.
-import { VIEW_TURN } from "../layout.js";
+import { VIEW_TURN, WALL_HEIGHT } from "../layout.js";
 import {
   MAX_BACKDROP_PIXELS,
   MAX_SPRITE_WIDTH,
@@ -33,6 +33,7 @@ import {
   WAVE_MS,
   labelAnchor,
   robotFrame,
+  roomFootprint,
   type LampState,
   type RobotFrame,
   type RobotPlan,
@@ -350,8 +351,17 @@ export function buildSheet({ plan, frame, version, tiles, fresh, plates }: Sheet
   const rooms = plan.rooms.map((room) => {
     const hung = at(labelAnchor(room));
     const plate = plates.get(room.roomId) ?? { width: 0, height: 0 };
+    const ground = roomFootprint(room);
     return {
       roomId: room.roomId,
+      area: boundsOf(
+        [ground.minX, ground.maxX].flatMap((x) =>
+          [ground.minZ, ground.maxZ].flatMap((z) => [
+            at({ x, y: 0, z }),
+            at({ x, y: WALL_HEIGHT, z }),
+          ]),
+        ),
+      ),
       board: face(
         { x: room.board.x, y: BOARD_CENTER_Y, z: room.board.z },
         BOARD_SIZE.width,
