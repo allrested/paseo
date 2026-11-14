@@ -34,6 +34,16 @@ export interface AndroidStyles {
   input: TextStyle;
   inputSlot: ViewStyle;
   refused: TextStyle;
+  flows: ViewStyle;
+  flowsContent: ViewStyle;
+  flowsTitle: TextStyle;
+  flowRow: ViewStyle;
+  flowName: TextStyle;
+  flowMeta: TextStyle;
+  flowProblem: TextStyle;
+  flowResult: ViewStyle;
+  flowSend: ViewStyle;
+  flowOutput: TextStyle;
 }
 
 // The app's touch control and switch sizes (packages/app/src/components/ui/control-geometry.ts).
@@ -149,6 +159,28 @@ export function useAndroidStyles(theme: PluginTheme, compact: boolean): AndroidS
         color: colors.foreground,
       },
       refused: { ...column, ...base, color: colors.statusDanger, paddingHorizontal: pad },
+      // Under the device, never taller than a third of a phone, so the picture keeps the room.
+      flows: { flexGrow: 0, maxHeight: compact ? 240 : 320 },
+      flowsContent: { ...column, gap: 8, paddingHorizontal: pad, paddingVertical: 12 },
+      flowsTitle: { ...base, fontWeight: "500", color: colors.foreground },
+      flowRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: CONTROL },
+      flowName: { ...base, flex: 1, color: colors.foreground },
+      flowMeta: { ...base, color: colors.foregroundMuted },
+      flowProblem: { ...base, color: colors.statusDanger },
+      flowResult: {
+        gap: 8,
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+      },
+      flowSend: { gap: 8 },
+      flowOutput: {
+        fontFamily: "monospace",
+        fontSize: 12,
+        lineHeight: 18,
+        color: colors.foregroundMuted,
+      },
     };
   }, [theme, compact]);
 }
