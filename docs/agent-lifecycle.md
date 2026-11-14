@@ -357,8 +357,8 @@ archives the original:
   so a moved subagent stays in its parent's track. The app moves the tab to the successor on
   `agent.moved`, and a tab restored onto an archived agent follows `paseo.moved-to-agent-id` to the
   live end of the chain. A client that was away during the move holds no record of the archived
-  agent, so it finds the successor through the live agent's `paseo.moved-from-agent-id`. That
-  covers one move: after two moves while away, the tab closes.
+  agent, so it finds the successor through the live agent's `paseo.moved-from-agent-ids`, which
+  names every agent the session was moved from, however many moves it missed.
 - The original's live subagents are re-parented to the successor before the archive, so they follow
   the session.
 
@@ -553,6 +553,7 @@ Each agent is a single JSON file. Fields relevant to this doc:
 | `labels["paseo.parent-agent-id"]`            | `string?`          | Parent agent ID, set automatically for agent-scoped creation and removed by detach |
 | `labels["paseo.open-agent-tab.<client-id>"]` | `string?`          | `"true"` protects an open tab on that client; detach clears every matching label   |
 | `labels["paseo.moved-from-agent-id"]`        | `string?`          | The agent this one was [moved](#moving-a-session) from                             |
+| `labels["paseo.moved-from-agent-ids"]`       | `string?`          | Every agent the session was moved from, nearest first, comma separated             |
 | `labels["paseo.moved-to-agent-id"]`          | `string?`          | On an archived agent, the agent it was moved to                                    |
 | `pendingMoveContext`                         | `{ text, title }?` | Handoff history waiting for the agent's next prompt                                |
 | `moveHistory`                                | `object?`          | The session's move chain: its first task and one curated segment per earlier agent |

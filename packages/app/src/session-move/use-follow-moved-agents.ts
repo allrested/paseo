@@ -3,7 +3,7 @@ import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
 import { useSessionStore } from "@/stores/session-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
-import { getMovedFromAgentId } from "@getpaseo/protocol/agent-labels";
+import { getMovedFromAgentId, getMovedFromAgentIds } from "@getpaseo/protocol/agent-labels";
 import type { Agent } from "@/stores/session-store";
 import { findSessionAgent, resolveMovedAgentId } from "./resolve-moved-agent";
 
@@ -35,10 +35,16 @@ export function retargetAgentTabs(
   if (destinationTab) layout.focusTab(workspaceKey, destinationTab.tabId);
 }
 
-/** The live agent that was moved from `agentId`, read from the active agents' moved-from links. */
+/**
+ * The live agent whose session was moved from `agentId`, read from the active agents' moved-from
+ * links. The list of every agent in the chain covers a client that was away for several moves; a
+ * host older than that list sends only the last link.
+ */
 function findLiveSuccessor(agents: Map<string, Agent>, agentId: string): string | null {
   for (const agent of agents.values()) {
-    if (!agent.archivedAt && getMovedFromAgentId(agent.labels) === agentId) return agent.id;
+    if (agent.archivedAt) continue;
+    if (getMovedFromAgentId(agent.labels) === agentId) return agent.id;
+    if (getMovedFromAgentIds(agent.labels).includes(agentId)) return agent.id;
   }
   return null;
 }

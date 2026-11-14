@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
 import {
+  getMovedFromAgentIds,
   getParentAgentIdFromLabels,
   getOpenAgentTabLabel,
   hasOpenAgentTab,
   isDelegatedAgent,
   isOpenAgentTabLabel,
+  MOVED_FROM_AGENT_IDS_LABEL,
   PARENT_AGENT_ID_LABEL,
 } from "./agent-labels.js";
 
@@ -35,5 +37,12 @@ describe("agent label policy", () => {
     expect(isOpenAgentTabLabel(getOpenAgentTabLabel("client-a"))).toBe(true);
     expect(isOpenAgentTabLabel("paseo.open-agent-tab")).toBe(false);
     expect(isOpenAgentTabLabel("custom.open-agent-tab.client-a")).toBe(false);
+  });
+
+  test("reads the agents a session was moved from, nearest first", () => {
+    expect(getMovedFromAgentIds({ [MOVED_FROM_AGENT_IDS_LABEL]: " b , a ,," })).toEqual(["b", "a"]);
+    expect(getMovedFromAgentIds({})).toEqual([]);
+    expect(getMovedFromAgentIds({ [MOVED_FROM_AGENT_IDS_LABEL]: 42 })).toEqual([]);
+    expect(getMovedFromAgentIds(null)).toEqual([]);
   });
 });
