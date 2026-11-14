@@ -355,20 +355,21 @@ neighbour. The control and the command read and write through `settingsRpc`, the
 with composer items, 0.16.0 or later.
 
 The `chat-search` built-in finds words in every Claude Code chat on the host. "Search chats" in the
-sidebar and the Command Center opens a screen with one field. The search reads Claude Code's
-transcripts, the `projects` folder of `$CLAUDE_CONFIG_DIR` or `~/.claude` and of every `~/.claude-*`
-account folder, and not Paseo's timelines: a chat whose agent is not loaded has its text nowhere
-else, and `agent.timeline.search.request` loads the agent, which starts its runtime. `grep` does the
-reading in its own process. It names the files that hold the words, then hands over only the lines
-that do, so the daemon parses a few lines of each chat. Over 700 MB of cached transcripts that
-takes under a second; reading the matching files in the daemon took up to six. A host without
-`grep`, Windows among them, shows an error instead of results. The words are one phrase of at least
-three characters, in any case, with any white space between them. Only what the user typed and what
-the agent wrote is searched: tool output, thinking, text Claude Code injected and subagent side
-chats are not. A search reads the 40 newest chats that match and counts up to ten messages in
-each. A chat that belongs to an agent, archived or not, opens on a tap. The others, started in a
-terminal or by another Paseo home, are listed under "Not in Paseo" with their session id and
-folder, and cannot be opened. Chats of other providers are not searched.
+Command Center opens a screen with one field. It has no sidebar row: the sidebar's Search row opens
+the Command Center, and a second row named "Search chats" beside it did not say which was which. The
+search reads Claude Code's transcripts, the `projects` folder of `$CLAUDE_CONFIG_DIR` or `~/.claude`
+and of every `~/.claude-*` account folder, and not Paseo's timelines: a chat whose agent is not
+loaded has its text nowhere else, and `agent.timeline.search.request` loads the agent, which starts
+its runtime. `grep` does the reading in its own process. It names the files that hold the words,
+then hands over only the lines that do, so the daemon parses a few lines of each chat. Over 700 MB
+of cached transcripts that takes under a second; reading the matching files in the daemon took up to
+six. A host without `grep`, Windows among them, shows an error instead of results. The words are one
+phrase of at least three characters, in any case, with any white space between them. Only what the
+user typed and what the agent wrote is searched: tool output, thinking, text Claude Code injected
+and subagent side chats are not. A search reads the 40 newest chats that match and counts up to ten
+messages in each. A chat that belongs to an agent, archived or not, opens on a tap. The others,
+started in a terminal or by another Paseo home, are listed under "Not in Paseo" with their session
+id and folder, and cannot be opened. Chats of other providers are not searched.
 
 The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which
