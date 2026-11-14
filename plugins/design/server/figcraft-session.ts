@@ -71,6 +71,9 @@ function sleep(ms: number): Promise<void> {
 
 export interface RawLayer {
   name?: unknown;
+  type?: unknown;
+  characters?: unknown;
+  fills?: { type?: unknown; color?: unknown }[];
   width?: unknown;
   height?: unknown;
   absoluteBounds?: Bounds;
@@ -230,6 +233,77 @@ export class FigcraftSession {
       depth,
       fields: ["name", "width", "height", "absoluteBounds", "boundVariables"],
     })) as RawLayer;
+  }
+
+  /** One layer as the phone's edit sheet shows it, without its children. */
+  async node(id: string): Promise<RawLayer> {
+    return (await this.tool("get_node", {
+      id: figcraftId(id),
+      fields: [
+        "name",
+        "type",
+        "width",
+        "height",
+        "absoluteBounds",
+        "characters",
+        "fills",
+        "boundVariables",
+      ],
+    })) as RawLayer;
+  }
+
+  /**
+   * Every layer under a page point, as FigCraft 0.18.1 lists them: parent before child, siblings
+   * front-most first. `depth` counts from the page's top level.
+   */
+  async layersAt(
+    x: number,
+    y: number,
+  ): Promise<{ id: string; name: string; type: string; depth: number }[]> {
+    const answer = (await this.command("select.layersAt", { x, y })) as {
+      layers?: { id?: unknown; name?: unknown; type?: unknown; depth?: unknown }[];
+    };
+    return (answer.layers ?? []).map((layer) => ({
+      id: String(layer.id),
+      name: String(layer.name ?? ""),
+      type: String(layer.type ?? ""),
+      depth: Number(layer.depth ?? 0),
+    }));
+  }
+
+  async setProperties(id: string, properties: Record<string, unknown>): Promise<void> {
+    await this.command("node.set", { ids: [figcraftId(id)], ...properties });
+  }
+
+  async nudge(id: string, dx: number, dy: number): Promise<void> {
+    await this.command("transform.nudge", { ids: [figcraftId(id)], dx, dy });
+  }
+
+  async nudgeSize(id: string, dw: number, dh: number): Promise<void> {
+    await this.command("transform.nudgeSize", { ids: [figcraftId(id)], dw, dh });
+  }
+
+  /** The copy's id. */
+  async duplicate(id: string): Promise<string> {
+    const answer = (await this.command("edit.duplicate", { ids: [figcraftId(id)] })) as {
+      ids?: unknown[];
+    };
+    const copy = answer.ids?.[0];
+    if (copy === undefined) throw new Error("FigCraft made no copy");
+    return String(copy);
+  }
+
+  async remove(id: string): Promise<void> {
+    await this.command("edit.delete", { ids: [figcraftId(id)] });
+  }
+
+  /** This member's own last edit; other members' edits stay. */
+  async undo(): Promise<void> {
+    await this.command("edit.undo");
+  }
+
+  async redo(): Promise<void> {
+    await this.command("edit.redo");
   }
 
   /** Places an image file as a new layer on the page; its height follows the picture's shape. */
