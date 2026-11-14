@@ -31,6 +31,13 @@ let variables = env.FAKE_FIGCRAFT_VARIABLES
   ? JSON.parse(env.FAKE_FIGCRAFT_VARIABLES)
   : { meta: { variableCollections: {}, variables: {} } };
 const comments = [];
+// The page's Card (any id) holds the text layer 2. Edits from the phone change these.
+const LABEL = 2;
+const label = { characters: "Sign in", fillVar: null };
+const card = { fillVar: "v:color/accent", x: 40 };
+const deleted = new Set();
+let copies = 0;
+const sameId = (a, b) => String(a) === String(b);
 
 // Real layer ids are numbers; a test's "n1" stays a string so it reads back as given.
 const ids = (list) =>
@@ -69,6 +76,51 @@ function peers() {
         : null,
     peers: members(),
   };
+}
+
+// The Card's box, parent before child as FigCraft 0.18.1 lists them.
+function layersAt({ x, y }) {
+  if (x < card.x || x > card.x + 320 || y < 30 || y > 230) return { layers: [] };
+  return {
+    layers: [
+      { depth: 0, id: 4294967297, name: "Card", type: "FRAME" },
+      ...(deleted.has(LABEL) ? [] : [{ depth: 1, id: LABEL, name: "Label", type: "TEXT" }]),
+    ],
+  };
+}
+
+function setProperties(params) {
+  for (const id of params.ids ?? []) {
+    const target = sameId(id, LABEL) ? label : card;
+    if (params.characters !== undefined) target.characters = params.characters;
+    if (params.fill?.$var !== undefined) target.fillVar = `v:${params.fill.$var}`;
+  }
+  return { ok: true };
+}
+
+/** The phone's edits (select.layersAt to edit.redo); undefined for any other command. */
+function editCommand(name, params) {
+  switch (name) {
+    case "select.layersAt":
+      return layersAt(params);
+    case "node.set":
+      return setProperties(params);
+    case "transform.nudge":
+      card.x += params.dx ?? 0;
+      return { ok: true };
+    case "edit.duplicate":
+      copies += 1;
+      return { ids: [1000 + copies] };
+    case "edit.delete":
+      for (const id of params.ids ?? []) deleted.add(Number(id));
+      return { deleted: params.ids ?? [], hidden: [] };
+    case "edit.undo":
+      return { undone: true };
+    case "edit.redo":
+      return { redone: true };
+    default:
+      return undefined;
+  }
 }
 
 function command(name, params) {
@@ -137,7 +189,7 @@ function command(name, params) {
         language: params.language ?? "tailwind",
       };
     default:
-      return { ok: true };
+      return editCommand(name, params) ?? { ok: true };
   }
 }
 
@@ -171,14 +223,30 @@ function tool(name, args) {
         ],
       };
     case "get_node":
+      if (deleted.has(Number(args.id))) return failure(`no such node ${args.id}`);
+      if (sameId(args.id, LABEL)) {
+        return text({
+          id: LABEL,
+          name: "Label",
+          type: "TEXT",
+          width: 100,
+          height: 20,
+          characters: label.characters,
+          absoluteBounds: { x: card.x + 20, y: 50, width: 100, height: 20 },
+          fills: [{ color: "#000000", type: "solid" }],
+          ...(label.fillVar ? { boundVariables: { fill: label.fillVar } } : {}),
+        });
+      }
       // The fixture's Card with a child, both bound to color/accent as toVariables names it.
       return text({
         id: args.id,
         name: "Card",
+        type: "FRAME",
         width: 320,
         height: 200,
-        absoluteBounds: { x: 40, y: 30, width: 320, height: 200 },
-        boundVariables: { fill: "v:color/accent" },
+        absoluteBounds: { x: card.x, y: 30, width: 320, height: 200 },
+        fills: [{ color: "#3366CC", type: "solid" }],
+        boundVariables: { fill: card.fillVar },
         children: [
           {
             id: 2,

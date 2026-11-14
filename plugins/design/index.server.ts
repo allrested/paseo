@@ -8,6 +8,7 @@ import {
   createFileRpc,
   designFilesRpc,
   editorLinkRpc,
+  editRpc,
   removeFileRpc,
   renameFileRpc,
   sendRpc,
@@ -77,6 +78,10 @@ export default function contribute(
     (input, context) => (
       remember(context), service.comment(input.fileId, input.x, input.y, input.text)
     ),
+  );
+  server.handle(
+    editRpc,
+    (input, context) => (remember(context), service.edit(input.fileId, input.action)),
   );
   server.handle(
     sendRpc,

@@ -349,3 +349,121 @@ describe("Bridge", () => {
     await bridge.close();
   });
 });
+
+describe("Bridge edits from the phone", () => {
+  const LABEL = {
+    id: "2",
+    name: "Label",
+    type: "TEXT",
+    width: 100,
+    height: 20,
+    text: "Sign in",
+    fill: { token: null, color: "#000000" },
+    // The page is the Card's box, 320 x 200 at (40, 30); the Label sits at (60, 50).
+    box: { x: 0.0625, y: 0.1, width: 0.3125, height: 0.1 },
+  };
+  const edits = (calls: () => { name: string; arguments: Record<string, unknown> }[]) =>
+    calls()
+      .filter((call) => call.name === "run_command" && commandOf(call) !== "variable.export")
+      .map((call) => [commandOf(call), call.arguments.params]);
+
+  it("picks the front-most layer under a spot, with the others there and the colour tokens", async () => {
+    const { bridge, calls } = await open(TOKENS);
+    const before = calls().length;
+    expect(await bridge.edit({ type: "pick", x: 0.1, y: 0.15 })).toEqual({
+      ok: true,
+      layer: LABEL,
+      here: [
+        { id: "2", name: "Label", type: "TEXT" },
+        { id: "4294967297", name: "Card", type: "FRAME" },
+      ],
+      colors: [{ name: "color/accent", hex: "#3366CC" }],
+    });
+    const after = calls().slice(before);
+    expect(commandOf(after[0]!)).toBe("collab.peers");
+    expect(after.find((call) => commandOf(call) === "select.layersAt")?.arguments.params).toEqual({
+      x: 72,
+      y: 60,
+    });
+    await bridge.close();
+  });
+
+  it("picks nothing on an empty page", async () => {
+    const { bridge } = await open(null, { FAKE_FIGCRAFT_EMPTY: "1" });
+    expect(await bridge.edit({ type: "pick", x: 0.5, y: 0.5 })).toEqual({
+      ok: true,
+      layer: null,
+      here: [],
+      colors: [],
+    });
+    await bridge.close();
+  });
+
+  it("changes text, binds the fill to a token, moves and resizes, and shows the layer after", async () => {
+    const { bridge, calls } = await open(TOKENS);
+    const before = edits(calls).length;
+    const text = await bridge.edit({
+      type: "change",
+      id: "2",
+      change: { kind: "text", text: "Log in" },
+    });
+    expect(text.layer).toEqual({ ...LABEL, text: "Log in" });
+    const fill = await bridge.edit({
+      type: "change",
+      id: "2",
+      change: { kind: "fill", token: "color/accent" },
+    });
+    expect(fill.layer?.fill).toEqual({ token: "color/accent", color: "#000000" });
+    const moved = await bridge.edit({
+      type: "change",
+      id: "4294967297",
+      change: { kind: "move", dx: 32, dy: 0 },
+    });
+    expect(moved.layer?.box.x).toBe(0.1);
+    await bridge.edit({
+      type: "change",
+      id: "4294967297",
+      change: { kind: "resize", dw: 0, dh: -10 },
+    });
+    expect(edits(calls).slice(before)).toEqual([
+      ["collab.peers", {}],
+      ["node.set", { ids: [2], characters: "Log in" }],
+      ["collab.peers", {}],
+      ["node.set", { ids: [2], fill: { $var: "color/accent" } }],
+      ["collab.peers", {}],
+      ["transform.nudge", { ids: [4294967297], dx: 32, dy: 0 }],
+      ["collab.peers", {}],
+      ["transform.nudgeSize", { ids: [4294967297], dw: 0, dh: -10 }],
+    ]);
+    await bridge.close();
+  });
+
+  it("shows the copy after a duplicate and nothing after a delete; a gone layer says so", async () => {
+    const { bridge } = await open(TOKENS);
+    const copy = await bridge.edit({ type: "change", id: "2", change: { kind: "duplicate" } });
+    expect(copy.layer?.id).toBe("1001");
+    const gone = await bridge.edit({ type: "change", id: "2", change: { kind: "delete" } });
+    expect(gone.layer).toBeNull();
+    await expect(bridge.edit({ type: "layer", id: "2" })).rejects.toThrow(
+      "This layer is gone. Tap it again",
+    );
+    await expect(
+      bridge.edit({ type: "change", id: "2", change: { kind: "text", text: "x" } }),
+    ).rejects.toThrow("This layer is gone. Tap it again");
+    await bridge.close();
+  });
+
+  it("undoes and redoes its own last edit, then shows the layer as it is", async () => {
+    const { bridge, calls } = await open(TOKENS);
+    const before = edits(calls).length;
+    expect((await bridge.edit({ type: "undo", id: "2" })).layer?.id).toBe("2");
+    expect((await bridge.edit({ type: "redo", id: null })).layer).toBeNull();
+    expect(edits(calls).slice(before)).toEqual([
+      ["collab.peers", {}],
+      ["edit.undo", {}],
+      ["collab.peers", {}],
+      ["edit.redo", {}],
+    ]);
+    await bridge.close();
+  });
+});

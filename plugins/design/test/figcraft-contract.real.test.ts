@@ -406,6 +406,90 @@ describe.skipIf(!CLI || !SERVER_BIN)("FigCraft v0.18.1 contract", () => {
     expect(page.children?.[0]?.absoluteBounds).toEqual({ x: 40, y: 30, width: 320, height: 200 });
   }, 60_000);
 
+  it("edits from the phone: layers under a point, a token by name, nudges, and an undo of one's own", async () => {
+    const frame = (await a.command("node.create", {
+      type: "frame",
+      x: 2000,
+      y: 0,
+      width: 200,
+      height: 100,
+      name: "Phone",
+    })) as { id: number };
+    const back = (await a.command("node.create", {
+      type: "rectangle",
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 50,
+      parent: frame.id,
+      name: "Back",
+    })) as { id: number };
+    const front = (await a.command("node.create", {
+      type: "rectangle",
+      x: 20,
+      y: 20,
+      width: 50,
+      height: 50,
+      parent: frame.id,
+      name: "Front",
+    })) as { id: number };
+    const here = (await a.command("select.layersAt", { x: 2030, y: 30 })) as {
+      layers: { id: number; depth: number }[];
+    };
+    record("layers-at.json", here);
+    // Not front-most first as the docs say: parent before child; siblings front-most first.
+    expect(here.layers.map((layer) => [layer.id, layer.depth])).toEqual([
+      [frame.id, 0],
+      [front.id, 1],
+      [back.id, 1],
+    ]);
+
+    await a.command("node.set", { ids: [front.id], fill: { $var: "color/accent" } });
+    const bound = await a.json("get_node", {
+      id: front.id,
+      fields: ["type", "fills", "boundVariables", "absoluteBounds"],
+    });
+    record("get-node-edit.json", bound);
+    expect(bound).toMatchObject({
+      type: "RECTANGLE",
+      fills: [{ color: "#3366CC", type: "solid" }],
+      boundVariables: { fill: expect.any(String) },
+    });
+    await a.command("transform.nudge", { ids: [front.id], dx: 10, dy: 0 });
+    await a.command("transform.nudgeSize", { ids: [front.id], dw: 0, dh: 10 });
+    expect(await a.json("get_node", { id: front.id, fields: ["absoluteBounds"] })).toMatchObject({
+      absoluteBounds: { x: 2030, y: 20, width: 50, height: 60 },
+    });
+
+    // b renames the frame after a's last edit; a's undo takes back a's resize, not b's rename.
+    const seen = await until(
+      () => b.command("node.find", { name: "Phone" }),
+      (found) => (found.total as number) > 0,
+    );
+    await b.command("node.set", { ids: [(seen.ids as number[])[0]], name: "Phone B" });
+    await until(
+      async () => {
+        await a.command("collab.peers");
+        return a.json("get_node", { id: frame.id, fields: ["name"] });
+      },
+      (layer) => layer.name === "Phone B",
+    );
+    expect(await a.command("edit.undo")).toEqual({ undone: true });
+    expect(await a.json("get_node", { id: front.id, fields: ["absoluteBounds"] })).toMatchObject({
+      absoluteBounds: { height: 50 },
+    });
+    expect(await a.json("get_node", { id: frame.id, fields: ["name"] })).toMatchObject({
+      name: "Phone B",
+    });
+
+    const copy = (await a.command("edit.duplicate", { ids: [back.id] })) as { ids: number[] };
+    expect(copy.ids).toHaveLength(1);
+    await a.command("edit.delete", { ids: [back.id] });
+    await expect(a.json("get_node", { id: back.id, fields: ["name"] })).rejects.toThrow(
+      /no such node/,
+    );
+  }, 120_000);
+
   it("records codeConnect.export for a component (for the deferred unmapped-components mark)", async () => {
     await a.json("select", { ids: [cardId] });
     await a.command("component.create");

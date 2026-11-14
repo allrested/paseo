@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -12,16 +12,19 @@ import { Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
 import {
   addCommentRpc,
   editorLinkRpc,
+  editRpc,
   viewSubscription,
   type FileRow,
+  type Layer,
   type ViewEvent,
 } from "../shared/contracts.js";
 import { ActionButton } from "./action-button.js";
-import { IconButton } from "./controls.js";
+import { Chip, IconButton } from "./controls.js";
+import { LayerSheet, type Editing } from "./layer-sheet.js";
 import { tokensBanner, type Tokens } from "./model.js";
 import { SendSheet } from "./send-sheet.js";
 import type { DesignStyles } from "./styles.js";
-import { tapToPicture } from "./tap.js";
+import { pictureToFrame, tapToPicture } from "./tap.js";
 
 type Picture = { uri: string; width: number; height: number } | "empty" | null;
 type Thread = Extract<ViewEvent, { type: "threads" }>["threads"][number];
@@ -29,6 +32,14 @@ interface Point {
   x: number;
   y: number;
 }
+type Mode = "comment" | "edit";
+type Box = Layer["box"];
+
+const MODES: { id: Mode; label: string }[] = [
+  { id: "comment", label: "Comment" },
+  { id: "edit", label: "Edit" },
+];
+const NOTHING_HERE = "Nothing to edit there. Tap a layer";
 
 const IMAGE_SOURCE_CACHE = new Map<string, { uri: string }>();
 
@@ -114,16 +125,35 @@ function PictureContent(props: { picture: Picture; styles: DesignStyles }) {
   return <Image source={sourceOf(picture.uri)} style={styles.picture} resizeMode="contain" />;
 }
 
-/** The phone's view: the bridge's picture of the page, tap to comment, open threads below. */
+/** The picked layer's outline over the picture. */
+function Outline(props: {
+  box: Box;
+  frame: { width: number; height: number };
+  picture: { width: number; height: number };
+  styles: DesignStyles;
+}) {
+  const { box, frame, picture, styles } = props;
+  const placed = useMemo(() => pictureToFrame(box, frame, picture), [box, frame, picture]);
+  const style = useMemo(() => [styles.outline, placed], [styles.outline, placed]);
+  if (placed === null) return null;
+  return <View testID="layer-outline" pointerEvents="none" style={style} />;
+}
+
+/** The phone's view: the bridge's picture of the page, a tap comments or picks a layer to edit. */
 function PhoneView(props: {
   name: string;
   picture: Picture;
   threads: Thread[];
+  mode: Mode;
+  /** The picked layer's box while its sheet is open. */
+  outline: Box | null;
+  problem: string | null;
   styles: DesignStyles;
-  onComment(point: Point): void;
+  onMode(mode: Mode): void;
+  onTap(point: Point): void;
   onSend(text: string): void;
 }) {
-  const { picture, styles, onComment } = props;
+  const { picture, styles, onTap, onMode, mode } = props;
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const measure = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -143,23 +173,55 @@ function PhoneView(props: {
       const y = at.locationY ?? at.offsetY;
       if (x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y)) return;
       const point = tapToPicture({ x, y }, frame, picture);
-      if (point !== null) onComment(point);
+      if (point !== null) onTap(point);
     },
-    [frame, onComment, picture],
+    [frame, onTap, picture],
   );
+  const chooseMode = useCallback((id: string) => onMode(id as Mode), [onMode]);
+  const drawn = picture !== null && picture !== "empty" ? picture : null;
+  const editing = mode === "edit";
   return (
     <>
+      <View style={styles.modeBar} accessibilityRole="radiogroup">
+        {MODES.map((choice) => (
+          <Chip
+            key={choice.id}
+            id={choice.id}
+            label={choice.label}
+            chosen={choice.id === mode}
+            styles={styles}
+            onChoose={chooseMode}
+          />
+        ))}
+      </View>
       <Pressable
         style={styles.pictureFrame}
         accessibilityRole="imagebutton"
-        accessibilityLabel={`${props.name}. Tap a spot to comment on it`}
-        accessibilityHint="Opens a comment at that spot"
+        accessibilityLabel={
+          editing
+            ? `${props.name}. Tap a layer to edit it`
+            : `${props.name}. Tap a spot to comment on it`
+        }
+        accessibilityHint={
+          editing ? "Opens the layer's edit sheet" : "Opens a comment at that spot"
+        }
         onLayout={measure}
         onPress={tap}
       >
         <PictureContent picture={picture} styles={styles} />
+        {props.outline !== null && drawn !== null ? (
+          <Outline box={props.outline} frame={frame} picture={drawn} styles={styles} />
+        ) : null}
       </Pressable>
-      <Text style={styles.pictureHint}>Tap the design to comment. Edit it on a computer</Text>
+      {props.problem === null ? (
+        <Text style={styles.pictureHint}>
+          {editing ? "Tap a layer to edit it" : "Tap the design to comment"}
+        </Text>
+      ) : (
+        <Text accessibilityRole="alert" style={styles.pictureProblem}>
+          {props.problem}
+        </Text>
+      )}
       <Text style={styles.sectionLabel} accessibilityRole="header">
         Open comments
       </Text>
@@ -251,6 +313,11 @@ export function EditorView(
   const [written, setWritten] = useState(false);
   const [draft, setDraft] = useState<Point | null>(null);
   const [sendNote, setSendNote] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("comment");
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [edited, setEdited] = useState(false);
+  const [pickProblem, setPickProblem] = useState<string | null>(null);
+  const edit = useRpc(editRpc);
 
   const onEvent = useCallback((event: ViewEvent) => {
     if (event.type === "status") setFailure(event.status === "failed" ? event.error : null);
@@ -278,6 +345,34 @@ export function EditorView(
   const sendSelection = useCallback(() => setSendNote(""), []);
   const closeSend = useCallback(() => setSendNote(null), []);
   const closeComment = useCallback(() => setDraft(null), []);
+  const closeEdit = useCallback(() => setEditing(null), []);
+  const markEdited = useCallback(() => setEdited(true), []);
+  const changeMode = useCallback((next: Mode) => {
+    setMode(next);
+    setPickProblem(null);
+  }, []);
+  const tapped = useCallback(
+    (point: Point) => {
+      if (mode === "comment") {
+        setDraft(point);
+        return;
+      }
+      setPickProblem(null);
+      void edit({ fileId: file.id, action: { type: "pick", ...point } }).then(
+        (result) => {
+          if (!result.ok) setPickProblem(result.error);
+          else if (result.layer === null) setPickProblem(NOTHING_HERE);
+          else {
+            const { layer, here, colors } = result;
+            setEditing({ id: layer.id, layer, here, colors });
+          }
+          return undefined;
+        },
+        (error: unknown) => setPickProblem(String(error)),
+      );
+    },
+    [edit, file.id, mode],
+  );
 
   const lost =
     subscription.status === "error"
@@ -304,8 +399,12 @@ export function EditorView(
         name={file.name}
         picture={picture}
         threads={threads}
+        mode={mode}
+        outline={editing?.layer?.box ?? null}
+        problem={pickProblem}
         styles={styles}
-        onComment={setDraft}
+        onMode={changeMode}
+        onTap={tapped}
         onSend={setSendNote}
       />
     );
@@ -342,6 +441,15 @@ export function EditorView(
       ) : null}
       {body}
       <CommentSheet fileId={file.id} point={draft} styles={styles} onClose={closeComment} />
+      <LayerSheet
+        fileId={file.id}
+        editing={editing}
+        edited={edited}
+        styles={styles}
+        onUpdate={setEditing}
+        onEdited={markEdited}
+        onClose={closeEdit}
+      />
       <SendSheet
         note={sendNote}
         onClose={closeSend}

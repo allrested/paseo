@@ -43,5 +43,11 @@ rerun this test with `FIGCRAFT_RECORD=1`, and read the fixture diff.
   is empty: nothing to render".
 - `inspect_document {depth: 0}` gives no page bounds. `{depth: 1}` gives each top-level layer's
   `absoluteBounds`; the page picture covers their union.
+- `select.layersAt {x, y}` lists a parent before its children, and siblings front-most first; the
+  docs say front-most first overall. Each item has `depth` from the page's top level.
+- `node.set {ids, fill: {$var: "<name>"}}` binds the fill by the variable's name;
+  `get_node`'s `boundVariables.fill` then holds the exported id (`VariableID:...`).
+  `edit.undo` takes back the caller's own last edit, not another member's.
+- `get_node` on a deleted layer fails with "no such node <id>".
 - `codeConnect.export {}` returns `{links, text}` where `text` is `{"links": [], "version": 1}`
   for a file with no mappings.
