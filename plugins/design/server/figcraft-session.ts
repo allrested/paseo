@@ -162,6 +162,11 @@ export class FigcraftSession {
     return { warnings: answer.warnings ?? [] };
   }
 
+  /** Deletes a variable collection; layers bound to its variables keep their values. */
+  async deleteCollection(id: string): Promise<void> {
+    await this.command("variable.deleteCollection", { collection: id });
+  }
+
   /** The local-variables JSON; FigCraft wraps it in `text`. */
   async exportVariables(): Promise<unknown> {
     const answer = (await this.command("variable.export", { format: "json" })) as { text?: string };
