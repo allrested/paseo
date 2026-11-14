@@ -164,6 +164,40 @@ describe("retargetStaleAgentTabs", () => {
     expect(agentTabTargets()).toEqual(["new"]);
   });
 
+  it("prefers the live agent moved straight from the tab's agent over one that only lists it", () => {
+    // An agent in the middle of a chain was unarchived by hand: two live agents name "old".
+    useSessionStore.getState().setAgents(
+      serverId,
+      new Map([
+        [
+          "newest",
+          makeAgent({
+            id: "newest",
+            labels: {
+              "paseo.moved-from-agent-id": "middle",
+              "paseo.moved-from-agent-ids": "middle,old",
+            },
+          }),
+        ],
+        [
+          "middle",
+          makeAgent({
+            id: "middle",
+            labels: {
+              "paseo.moved-from-agent-id": "old",
+              "paseo.moved-from-agent-ids": "old",
+            },
+          }),
+        ],
+      ]),
+    );
+    openAgentTab("old");
+
+    retargetStaleAgentTabs(serverId, workspaceKey);
+
+    expect(agentTabTargets()).toEqual(["middle"]);
+  });
+
   it("leaves a tab on an agent no live agent's chain names", () => {
     useSessionStore.getState().setAgents(
       serverId,
