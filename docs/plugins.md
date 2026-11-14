@@ -414,15 +414,18 @@ the FigCraft contract, and CI runs it against the pinned release. Design:
 
 The `android` built-in gives agents an Android device over `adb`. It does nothing unless
 `PASEO_ANDROID_ADB` names a device (`host:port` or a serial) and `adb` is on the daemon's `PATH`;
-see [docker.md](docker.md) for the device in the stack. Interactive agent sessions get nine tools,
+see [docker.md](docker.md) for the device in the stack. Interactive agent sessions get eleven tools,
 `android_snapshot`, `android_tap`, `android_type`, `android_key`, `android_swipe`,
-`android_screenshot`, `android_install`, `android_launch` and `android_logs`, unless the host's
+`android_screenshot`, `android_record_start`, `android_record_stop`, `android_install`,
+`android_launch` and `android_logs`, unless the host's
 `agentTools` setting is off when the session opens. A snapshot lists up to 200 screen elements with
 refs such as `@a3`; `android_tap` takes a ref from that agent's own latest snapshot, or a point. Every call
 is `adb -s <serial> ...` with an argument list and a timeout, and everything sent to the device's
 shell is single-quoted. `android_install` takes only a `.apk` inside the agent's workspace or the
 home folder; `android_screenshot` saves a PNG under `<workspace>/.paseo/android/` and answers its
-path. When the device does not answer, every tool says "The Android device is unreachable" and the
+path. `android_record_start` runs `screenrecord` on the device, one recording per host, which
+Android stops after 3 minutes; `android_record_stop` sends it SIGINT (a kill leaves the MP4
+unplayable), pulls the MP4 into the same folder and answers its path. When the device does not answer, every tool says "The Android device is unreachable" and the
 next call tries again.
 
 The same built-in has a panel, a sidebar screen and a Command Center item, all drawn with React

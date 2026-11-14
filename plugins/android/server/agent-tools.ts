@@ -9,6 +9,7 @@ import {
 } from "@getpaseo/plugin/server";
 import { z } from "zod";
 import type { AndroidDevice } from "./device.js";
+import type { ScreenRecorder } from "./recorder.js";
 import { DeviceUnreachableError, UNREACHABLE, errorMessage } from "./errors.js";
 import { centerOf, parseSnapshot, snapshotText, type ScreenElement } from "./snapshot.js";
 
@@ -16,6 +17,7 @@ type ToolAgent = Pick<PluginHookAgent, "id" | "cwd">;
 
 export interface AndroidToolPorts {
   device: AndroidDevice;
+  recorder: ScreenRecorder;
   /** The folder the agent works in, or null when it has none. */
   workspacePath(agent: ToolAgent): string | null;
   now(): Date;
@@ -255,6 +257,34 @@ export function createAndroidTools(ports: AndroidToolPorts): AgentToolDefinition
         const path = join(directory, name);
         await writeFile(path, png);
         return { text: `Screenshot saved to ${path}`, structuredContent: { path } };
+      },
+    }),
+    tool({
+      name: "android_record_start",
+      description:
+        "Start recording the Android screen as a video, up to 3 minutes (Android's limit). Call android_record_stop to save it in your workspace. One recording at a time on this host.",
+      input: z.object({}),
+      async run() {
+        const started = await ports.recorder.start();
+        if (!started.ok) return { text: started.error, isError: true };
+        return { text: "Recording the Android screen. Call android_record_stop to save it." };
+      },
+    }),
+    tool({
+      name: "android_record_stop",
+      description:
+        "Stop the screen recording and save it as an MP4 file in your workspace; answers its path.",
+      input: z.object({}),
+      async run(_input, agent) {
+        const workspace = ports.workspacePath(agent);
+        if (workspace === null)
+          return { text: "This agent has no workspace folder", isError: true };
+        const saved = await ports.recorder.stop(workspace);
+        if (!saved.ok) return { text: saved.error, isError: true };
+        return {
+          text: `Recording saved to ${saved.path}`,
+          structuredContent: { path: saved.path },
+        };
       },
     }),
     tool({

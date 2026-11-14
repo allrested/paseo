@@ -369,3 +369,32 @@ test("size reads the override when there is one, else the physical size", async 
   fake.answer("shell 'wm'", "nonsense");
   await expect(device.size()).rejects.toThrow("screen size");
 });
+
+test("record runs screenrecord with its time limit, and done settles when it stops", async () => {
+  const { fake, device } = setup();
+  const { done } = await device.record("/sdcard/paseo.mp4", 180);
+  await done;
+  expect(fake.calls.at(-1)).toEqual([
+    "-s",
+    SERIAL,
+    "shell",
+    "screenrecord",
+    "--time-limit",
+    "180",
+    "/sdcard/paseo.mp4",
+  ]);
+  expect(fake.options.at(-1)).toEqual({ timeoutMs: 210_000 });
+});
+
+test("pull copies a device file to the host", async () => {
+  const { fake, device } = setup();
+  await device.pull("/sdcard/paseo.mp4", "/work/.paseo/android/recording.mp4");
+  expect(fake.calls.at(-1)).toEqual([
+    "-s",
+    SERIAL,
+    "pull",
+    "/sdcard/paseo.mp4",
+    "/work/.paseo/android/recording.mp4",
+  ]);
+  expect(fake.options.at(-1)).toEqual({ timeoutMs: 60_000 });
+});

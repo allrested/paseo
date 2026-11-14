@@ -42,6 +42,10 @@ function fakeDevice(): FakeDevice {
     async shell() {
       return "";
     },
+    async record() {
+      return { done: Promise.resolve() };
+    },
+    async pull() {},
     async screenshot() {
       device.screenshots += 1;
       device.inFlight += 1;

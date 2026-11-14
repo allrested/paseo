@@ -26,6 +26,8 @@ const NAMES = [
   "android_key",
   "android_swipe",
   "android_screenshot",
+  "android_record_start",
+  "android_record_stop",
   "android_install",
   "android_launch",
   "android_logs",
@@ -126,7 +128,7 @@ test("no tools while the setting is off, and a change holds from the next sessio
   const states = [ON, OFF, ON];
   const { open, stop, recorded } = setup(async () => states[recorded.reads - 1] ?? ON);
   const results = [await open(), await open(), await open()];
-  expect(results.map((result) => result?.tools.length)).toEqual([10, undefined, 10]);
+  expect(results.map((result) => result?.tools.length)).toEqual([12, undefined, 12]);
   await stop();
 });
 
