@@ -1,13 +1,14 @@
 import {
   GroupKindSchema,
   type AgentUsage,
-  type GroupKind,
   type GroupUsage,
   type LocalReading,
+  type Port,
 } from "../../shared/rpc.js";
 import type { LiveAgent } from "../paseo-ports.js";
 import { attribute } from "./attribution.js";
 import { readHostSummary } from "./host-summary.js";
+import { mergePorts, readListeningPorts, type OwnedPort } from "./listening-ports.js";
 import { findSupervisorPid, readProcessTable, type ProcessInfo } from "./process-table.js";
 import { readSharedMcpPids } from "./shared-mcp-groups.js";
 
@@ -92,19 +93,10 @@ function totals(
   return { rssBytes, cpuPercent, processCount: pids.length };
 }
 
-function groupUsage(
-  kind: GroupKind,
-  pids: readonly number[],
-  pair: SamplePair,
-  byPid: Map<number, ProcessInfo>,
-): GroupUsage {
-  const total = totals(pids, pair, byPid);
-  return {
-    kind,
-    rssBytes: total.rssBytes,
-    cpuPercent: total.cpuPercent,
-    processCount: total.processCount,
-  };
+/** The ports the given processes hold, and with `unowned` those no listed process holds. */
+function portsOf(ports: readonly OwnedPort[], pids: readonly number[], unowned = false): Port[] {
+  const mine = new Set(pids);
+  return mergePorts(ports.filter(({ pid }) => (pid === null ? unowned : mine.has(pid))));
 }
 
 export class LocalReader {
@@ -137,8 +129,12 @@ export class LocalReader {
     // unhandled.
     const agentsOutcome = settleAgents(listAgents);
     const pair = await this.samplePair();
+    const ports = await readListeningPorts(
+      this.options.procRoot,
+      pair.current.table.map((info) => info.pid),
+    );
     const outcome = await agentsOutcome;
-    const reading = this.build(pair, outcome);
+    const reading = this.build(pair, outcome, ports);
     this.last = { at: pair.current.at, reading };
     return reading;
   }
@@ -162,7 +158,11 @@ export class LocalReader {
     return { at: this.options.now(), table, ticks };
   }
 
-  private build(pair: SamplePair, outcome: AgentsOutcome): LocalReading {
+  private build(
+    pair: SamplePair,
+    outcome: AgentsOutcome,
+    ports: readonly OwnedPort[],
+  ): LocalReading {
     const { options } = this;
     const table = pair.current.table;
     const byPid = new Map(table.map((info): [number, ProcessInfo] => [info.pid, info]));
@@ -186,12 +186,23 @@ export class LocalReader {
         cpuPercent: total.cpuPercent,
         idleSince: agent.status === "idle" ? agent.updatedAt : null,
         processCount: total.processCount,
+        ports: portsOf(ports, pids),
       });
     }
     agents.sort((a, b) => b.rssBytes - a.rssBytes || a.agentId.localeCompare(b.agentId));
-    const groups = GroupKindSchema.options.map((kind) =>
-      groupUsage(kind, attribution.groups.get(kind) ?? [], pair, byPid),
-    );
+    const groups = GroupKindSchema.options.map((kind): GroupUsage => {
+      const pids = attribution.groups.get(kind) ?? [];
+      const total = totals(pids, pair, byPid);
+      return {
+        kind,
+        rssBytes: total.rssBytes,
+        cpuPercent: total.cpuPercent,
+        processCount: total.processCount,
+        // A socket no readable process holds is another user's server: not an agent's, not
+        // Paseo's.
+        ports: portsOf(ports, pids, kind === "other"),
+      };
+    });
     return {
       readAt: new Date(pair.current.at).toISOString(),
       host: readHostSummary({
