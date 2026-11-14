@@ -6,6 +6,9 @@ import {
   RenderEventSchema,
   renderInputRpc,
   renderSubscription,
+  sheetInputRpc,
+  sheetSpriteRpc,
+  sheetSubscription,
   assetRpc,
   deleteRpc,
   officeStateSubscription,
@@ -109,4 +112,72 @@ test("the render subscription refuses a theme with a colour missing", () => {
   expect(
     renderSubscription.input.safeParse({ ...input, colors: { surface0: "#fff" } }).success,
   ).toBe(false);
+});
+
+test("the sheet view's subscription and RPCs are named as the docs say", () => {
+  expect([sheetSubscription.name, sheetInputRpc.name, sheetSpriteRpc.name]).toEqual([
+    "office.sheet",
+    "office.sheet.input.request",
+    "office.sheet.sprite.request",
+  ]);
+});
+
+test("a sheet's events parse, and a tile over 1024 pixels is refused", () => {
+  const tile = {
+    version: 1,
+    index: 0,
+    x: 0,
+    y: 0,
+    width: 780,
+    height: 1024,
+    jpeg: "AA",
+    overlay: null,
+  };
+  const event = sheetSubscription.event;
+  expect(event.safeParse({ type: "ready", sheetId: "s1" }).success).toBe(true);
+  expect(event.safeParse({ type: "tile", tile }).success).toBe(true);
+  expect(event.safeParse({ type: "tile", tile: { ...tile, overlay: "AA" } }).success).toBe(true);
+  expect(event.safeParse({ type: "tile", tile: { ...tile, height: 1025 } }).success).toBe(false);
+  const sheet = {
+    version: 1,
+    tiles: 2,
+    width: 780,
+    height: 1814,
+    ratio: 2,
+    scale: 47.4,
+    frame: { width: 155, height: 204, chest: { x: 84, y: 107.6 } },
+    robots: [
+      {
+        agentId: "a",
+        key: "idle|#fff|off|#aaa|0|0|0",
+        x: 10,
+        y: 20,
+        phase: 0,
+        joining: false,
+        fresh: true,
+      },
+    ],
+    rooms: [
+      {
+        roomId: "lobby",
+        board: { x: 1, y: 2, width: 3, height: 4 },
+        plate: { x: 1, y: 2, width: 3, height: 4 },
+      },
+    ],
+    notes: [{ roomId: "lobby", rect: { x: 1, y: 2, width: 3, height: 4 } }],
+    mentions: [{ postId: "p", from: { x: 0, y: 0 }, to: { x: 5, y: 5 } }],
+  };
+  expect(event.safeParse({ type: "sheet", sheet }).success).toBe(true);
+  expect(event.safeParse({ type: "sheet", sheet: { ...sheet, tiles: 0 } }).success).toBe(false);
+  expect(event.safeParse({ type: "problem", message: "no browser" }).success).toBe(true);
+});
+
+test("a sprite request names its sheet, and the answer may be null", () => {
+  expect(sheetSpriteRpc.input.safeParse({ sheetId: "s1", key: "plane" }).success).toBe(true);
+  expect(sheetSpriteRpc.input.safeParse({ key: "plane" }).success).toBe(false);
+  expect(sheetSpriteRpc.input.safeParse({ sheetId: "s1", key: "x".repeat(201) }).success).toBe(
+    false,
+  );
+  expect(sheetSpriteRpc.output.safeParse(null).success).toBe(true);
+  expect(sheetInputRpc.input.safeParse({ sheetId: "s1" }).success).toBe(true);
 });
