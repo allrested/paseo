@@ -81,48 +81,61 @@ All three kinds of picture come from the render page, with the scene's own meshe
 camera angle. The camera is orthographic, so a robot looks the same wherever it sits: one picture
 of a robot serves every seat.
 
-- **Backdrop.** The whole office, without robots, lit screens or planes. Everything else that
-  stands still is in it: rooms, every desk (an empty seat's too), boards, the notes on boards and
-  desks, and the room labels with their "+3" tails. JPEG.
+- **Backdrop.** The whole office, without robots, lit screens or planes: floors, the far walls
+  (back and left), boards with their notes, every main desk with a dark screen. JPEG.
   - The viewer sends its size and pixel ratio, as for the stream. The host lays the office out for
     that size, so a phone gets the column count the web gives a phone.
-  - Scale: the scene's first-view scale for that viewer, times the pixel ratio (2 at most), and
-    never below 22 pixels per world unit, the scene's own floor for a legible robot. The picture is
-    as tall as the office needs, so a deep office is taller than the screen and the user pans it.
-  - Size cap: 2048 pixels on the long side; the scale drops to meet it but not below the floor,
-    where the cap gives way up to 4096.
-  - A new backdrop is made when the rooms, their sizes or arrangement, a label, a note, the
-    theme or the viewer's column count changes. A robot's change never makes one.
-- **Overlay.** The parts that stand in front of robots (front and side glass, rails), on a
-  transparent ground, the same size as the backdrop. PNG. Without it a robot would hide the wall
-  in front of it.
-- **Sprite.** A robot with its desk, on a transparent ground, as one PNG strip of frames side by
-  side at the backdrop's scale. The key is what changes its look: pose, visor colour, lamp state
-  and colour, lit screen, and which way it faces (`side`). The visor colour comes from the
-  provider and lamps have four states, so real offices need a few dozen strips; the host keeps at
-  most 200 and drops the least used. Strips: `typing` 8 frames, looping; `raised` 12 frames of
-  the wave ending on the raised hand, played once and held on its last frame; `idle` and
-  `slumped` 1 frame each. The scene's `walking` pose is not drawn: the sheet gives such a
-  robot its `idle` strip and marks it `joining`, which the app shows as a fade in.
+  - Framing: the scene's first view for that viewer, at its scale and as wide as the viewer, and
+    carried on downwards until the whole office is in it. A deep office is taller than the screen
+    and the user pans it.
+  - Sharpness: the viewer's pixel ratio, 2 at most, lowered until the picture has at most 4
+    million pixels, and never below 1 picture pixel per screen point.
+  - Sent as tiles of at most 1024 pixels a side. Android's image loader shrinks a picture over
+    2048 pixels, which would blur it and move every robot off its desk.
+  - A new backdrop and overlay are made when the rooms, their sizes or arrangement, a label, a
+    note, the theme or the viewer's size changes. A robot's change never makes one.
+- **Overlay.** What stands in front of robots, on a transparent ground, in the same tiles: the
+  near walls (right and front) with their rails, the notes on desk fronts, and the room name
+  plates, which the web draws over everything. PNG. Without it a robot would hide the wall in
+  front of it. The camera stands to the front right, so a room's right and front walls are in
+  front of everything in that room and its back and left walls behind; rooms are 3 units apart,
+  further than a wall or a robot reaches on screen, so one room never covers another's robots.
+- **Sprite.** A robot with its desk, lit or dark screen, glow and shadow, on a transparent
+  ground, at the backdrop's scale. The camera is orthographic, so one picture serves every seat;
+  it is laid over the backdrop's own desk, at most half a pixel off. The key is what changes its
+  look: pose, visor colour, lamp state and colour, lit screen, a side desk (`side`, drawn with
+  its own desk shadow, since the backdrop has no side desks), and for `idle` the side its head
+  lies to. Real offices need a few dozen; the page keeps at most 200 and drops the oldest.
+  - Frames lie in a grid at most 1024 pixels wide, row by row.
+  - `typing`: 24 frames, 86 ms each, looping: three strokes of the arms and one sway of the
+    head, so the loop has no jump. Each robot starts at its own frame (`phase`), as on the web.
+  - `raised`: 20 frames, 70 ms each: the wave, ending on the raised hand; played once and held.
+  - `idle`, `slumped`: 1 frame. The scene's `walking` pose is not drawn: the sheet gives such
+    a robot its `idle` picture and marks it `joining`, which the app shows as a fade in.
 - **Plane.** One small picture of a paper plane, key `plane`, for mentions.
-- **Sheet.** Plain data in backdrop pixels: for each robot its agent id, sprite key, the top-left
-  corner of its frame, its frame size and its place in the back-to-front order; for each room its
-  outline and board rectangle; for each note its rectangle and room (for taps only: notes are
-  drawn in the backdrop); for each mention its post id and its two end points. Each robot also
-  carries `fresh`: its pose began less than the wave's length ago, by the host's clock. The host
-  makes the sheet from the same plan it draws, so the two cannot disagree.
+- **Sheet.** Plain data in backdrop pixels, made by the render page from the plan it draws, so
+  the two cannot disagree: the picture's size and its pixels per screen point; the sprite frame's
+  size and where the chest is in it; robots in back-to-front order, each with its agent id,
+  sprite key, the top-left corner of its frame, `phase`, `joining` and `fresh` (its pose began
+  less than the wave's length ago, by the page's clock); for each room its board's rectangle and
+  its name plate's; for each note on a desk its rectangle and room; for each mention its post id
+  and two end points.
 
 ### Wire contract (`shared/contracts.ts`)
 
-- Subscription `office.sheet`. Input: the viewer's size, pixel ratio and theme colours; a later
-  size goes in through `office.sheet.resize`. Events:
-  `{ type: "backdrop", version, jpeg, overlay, width, height }` when the still parts changed;
-  `{ type: "sheet", version, robots, rooms, notes, mentions }` after every office change, naming the
-  backdrop version it belongs to; `{ type: "problem", message }`.
-- RPC `office.sheet.sprite`: `{ key } → { png, frames, frameWidth, frameHeight, frameMs, loop }`.
-- The stream's limits carry over: two viewers at most, the 30-second silence rule (the app calls an
-  empty `office.sheet.alive` every 10 seconds), a page per viewer that is closed when the viewer
-  leaves.
+- Subscription `office.sheet`. Input: the viewer's size, pixel ratio and theme colours. Events:
+  `{ type: "ready", sheetId }`;
+  `{ type: "tile", version, index, x, y, width, height, jpeg, overlay }` for each tile of a new
+  backdrop (`overlay` is null for a tile with nothing in front);
+  `{ type: "sheet", sheet }` after every office change, naming the backdrop version and tile
+  count it belongs to; the app shows a version once it has all its tiles;
+  `{ type: "problem", message }`.
+- RPC `office.sheet.sprite.request`: `{ sheetId, key }` → the picture and its grid, or null when
+  the page does not know the key.
+- RPC `office.sheet.input.request`: `{ sheetId, resize? }`; an empty call says the viewer is
+  still there. The stream's limits apply here in the same way: two viewers
+  at most on a host, the 30-second silence rule (the app calls every 10 seconds), a page per
+  viewer that is closed when the viewer leaves.
 
 The host needs a page only to draw. A viewer's page stays open while the viewer watches, because a
 change in the office needs a new sheet at once and sometimes a new backdrop.
@@ -157,8 +170,8 @@ change in the office needs a new sheet at once and sometimes a new backdrop.
 - A picture is sent once. Nothing is sent per frame.
 - The host stays the only place that lays the office out.
 - Daemon-process code must not throw out of a handler or a timer.
-- Memory on the phone: one backdrop, one overlay and a few dozen small strips. The backdrop's size
-  limit is what bounds it.
+- Memory on the phone: one backdrop, one overlay and a few dozen small strips. The backdrop's 4
+  million pixels bound it.
 
 ## Goals, non-goals, anti-goals
 
@@ -201,7 +214,6 @@ when nothing changed; an office that looks different from the web's at a glance.
 ## Left to the builder
 
 - File and function names, and how the scene is reshaped to offer its parts.
-- The exact frame counts and frame time, within "typing reads as typing".
 - How the strips are cached on the host and when they are dropped.
 - The fade for a robot that joins or leaves.
 
