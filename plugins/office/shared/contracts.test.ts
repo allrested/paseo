@@ -173,6 +173,34 @@ test("a sheet's events parse, and a tile over 1024 pixels is refused", () => {
   expect(event.safeParse({ type: "problem", message: "no browser" }).success).toBe(true);
 });
 
+test("a sheet viewer's size is bounded", () => {
+  const colors = Object.fromEntries(
+    [
+      "surface0",
+      "surface1",
+      "surface2",
+      "border",
+      "foreground",
+      "foregroundMuted",
+      "accent",
+      "accentForeground",
+      "statusSuccess",
+      "statusWarning",
+      "statusDanger",
+    ].map((name) => [name, "#000"]),
+  );
+  const input = { width: 390, height: 700, pixelRatio: 2.625, colors };
+  expect(sheetSubscription.input.safeParse(input).success).toBe(true);
+  expect(sheetSubscription.input.safeParse({ ...input, width: 20_000 }).success).toBe(false);
+  expect(sheetSubscription.input.safeParse({ ...input, height: 4097 }).success).toBe(false);
+  expect(sheetSubscription.input.safeParse({ ...input, pixelRatio: 9 }).success).toBe(false);
+  const resize = { width: 20_000, height: 700, pixelRatio: 2 };
+  expect(sheetInputRpc.input.safeParse({ sheetId: "s1", resize }).success).toBe(false);
+  expect(
+    sheetInputRpc.input.safeParse({ sheetId: "s1", resize: { ...resize, width: 800 } }).success,
+  ).toBe(true);
+});
+
 test("a sprite request names its sheet, and the answer may be null", () => {
   expect(sheetSpriteRpc.input.safeParse({ sheetId: "s1", key: "plane" }).success).toBe(true);
   expect(sheetSpriteRpc.input.safeParse({ key: "plane" }).success).toBe(false);
