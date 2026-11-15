@@ -43,12 +43,30 @@ function plain(line: string): string {
     .trim();
 }
 
-/** The first line of a text that has words on it, cut to a row's length; null when none has. */
+function cut(line: string): string {
+  return line.length > TEXT_MAX ? `${line.slice(0, TEXT_MAX - 1).trimEnd()}…` : line;
+}
+
+/**
+ * The first line of an agent's message that has words on it, cut to a row's length; null when
+ * none has. A message is Markdown, so its marks are dropped.
+ */
 export function oneLine(text: string): string | null {
   for (const raw of text.split("\n")) {
     const line = plain(raw);
-    if (line === "") continue;
-    return line.length > TEXT_MAX ? `${line.slice(0, TEXT_MAX - 1).trimEnd()}…` : line;
+    if (line !== "") return cut(line);
+  }
+  return null;
+}
+
+/**
+ * The same for a text that is not Markdown, a tool's name or an error: its marks are kept, since
+ * the underscores of mcp__paseo__office_read are no emphasis.
+ */
+export function firstLine(text: string): string | null {
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\s+/g, " ").trim();
+    if (line !== "") return cut(line);
   }
   return null;
 }

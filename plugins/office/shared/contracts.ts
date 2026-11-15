@@ -28,6 +28,8 @@ export const OfficePermissionSchema = z.object({
   id: z.string(),
   kind: PermissionKindSchema,
   title: z.string(),
+  /** What is asked beyond the title (the command, the file); absent when there is nothing more. */
+  detail: z.string().optional(),
 });
 export type OfficePermission = z.output<typeof OfficePermissionSchema>;
 
