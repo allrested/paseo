@@ -73,6 +73,8 @@ export interface OfficeStyles {
   standupHeading: TextStyle;
   standupBlocker: TextStyle;
   standupPeople: ViewStyle;
+  reviewRow: ViewStyle;
+  reviewAnswer: ViewStyle;
   card: ViewStyle;
   cardHeader: ViewStyle;
   cardTitle: TextStyle;
@@ -405,6 +407,8 @@ export function useOfficeStyles(
       standupHeading: { ...base, color: colors.foreground, fontWeight: "500" },
       standupBlocker: { ...base, color: colors.statusWarning },
       standupPeople: { gap: 6 },
+      reviewRow: { gap: 8 },
+      reviewAnswer: { gap: 4 },
       card: {
         backgroundColor: colors.surface1,
         borderRadius: 8,

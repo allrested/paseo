@@ -58,6 +58,8 @@ export const WorkspacePullRequestSchema = z.object({
   number: z.number().nullable(),
   url: z.string(),
   title: z.string(),
+  /** The branch it would be merged into; null when the forge did not say. */
+  base: z.string().nullable(),
   state: z.enum(["open", "draft", "merged", "closed"]),
   /** Its checks taken together. */
   checks: z.enum(["none", "pending", "success", "failure"]),
@@ -73,6 +75,8 @@ export const OfficeWorkspaceSchema = z.object({
   projectName: z.string(),
   branch: z.string().optional(),
   ticket: WorkspaceTicketSchema.optional(),
+  /** The lines its checkout adds and removes, as the sidebar counts them; absent when none. */
+  changes: z.object({ additions: z.number(), deletions: z.number() }).optional(),
   pullRequest: WorkspacePullRequestSchema.optional(),
 });
 export type OfficeWorkspace = z.output<typeof OfficeWorkspaceSchema>;

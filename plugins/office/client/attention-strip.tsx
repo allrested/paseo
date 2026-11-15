@@ -55,14 +55,14 @@ function AttentionItem({ entry, styles, onSelect }: AttentionItemProps) {
 
 const HOST_DOT = { muted: "idle", warning: "warning", danger: "danger" } as const;
 
-/** What the strip says of the host or of the janitor, and the card it opens. */
-export interface StripNote {
+/** A card of the office in the strip: its name, what it says in a few words, and its opening. */
+export interface StripCard {
+  title: string;
   note: HostNote;
   onOpen(): void;
 }
 
-interface NoteItemProps extends StripNote {
-  title: string;
+interface NoteItemProps extends StripCard {
   styles: OfficeStyles;
 }
 
@@ -104,29 +104,15 @@ function NoteItem({ title, note, styles, onOpen }: NoteItemProps) {
 
 export interface AttentionStripProps {
   entries: readonly AttentionEntry[];
-  /** The host's note; null on a host that cannot be read. It comes after the agents. */
-  host: StripNote | null;
-  /** How full the contexts are; null in an office without agents. */
-  janitor: StripNote | null;
-  /** What blocks the teams; null in an office without agents. It comes last. */
-  standup: StripNote | null;
+  /** The office's cards that have something to say, in their order. They come after the agents. */
+  cards: readonly StripCard[];
   styles: OfficeStyles;
   onSelect(agentId: string): void;
 }
 
-/**
- * The agents that need the user, then the office's cards: the host, the janitor and the
- * stand-up. On a phone this is the fast path.
- */
-export function AttentionStrip({
-  entries,
-  host,
-  janitor,
-  standup,
-  styles,
-  onSelect,
-}: AttentionStripProps) {
-  if (entries.length === 0 && host === null && janitor === null && standup === null) return null;
+/** The agents that need the user, then the office's cards. On a phone this is the fast path. */
+export function AttentionStrip({ entries, cards, styles, onSelect }: AttentionStripProps) {
+  if (entries.length === 0 && cards.length === 0) return null;
   return (
     <View style={styles.stripRail}>
       <ScrollView
@@ -138,15 +124,15 @@ export function AttentionStrip({
         {entries.map((entry) => (
           <AttentionItem key={entry.agentId} entry={entry} styles={styles} onSelect={onSelect} />
         ))}
-        {host ? (
-          <NoteItem title="Host" note={host.note} styles={styles} onOpen={host.onOpen} />
-        ) : null}
-        {janitor ? (
-          <NoteItem title="Janitor" note={janitor.note} styles={styles} onOpen={janitor.onOpen} />
-        ) : null}
-        {standup ? (
-          <NoteItem title="Stand-up" note={standup.note} styles={styles} onOpen={standup.onOpen} />
-        ) : null}
+        {cards.map((card) => (
+          <NoteItem
+            key={card.title}
+            title={card.title}
+            note={card.note}
+            styles={styles}
+            onOpen={card.onOpen}
+          />
+        ))}
       </ScrollView>
     </View>
   );
