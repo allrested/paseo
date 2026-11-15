@@ -18,7 +18,7 @@ import type { Machine } from "../shared/contracts.js";
 import { OFFICE_VIEWS, officeDeviceSettings, type OfficeViewChoice } from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
 import { AgentCard } from "./agent-card.js";
-import { AttentionStrip } from "./attention-strip.js";
+import { AttentionStrip, type StripCard } from "./attention-strip.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { HostSwitches } from "./host-switches.js";
@@ -38,9 +38,11 @@ import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
+import { ReviewCard } from "./review-card.js";
 import { StandupCard } from "./standup-card.js";
-import { STANDUP_ASK, standupNote, standupTeams } from "./standup-text.js";
 import { useJanitor } from "./use-janitor.js";
+import { useReviews } from "./use-reviews.js";
+import { useStandup } from "./use-standup.js";
 import { useMachine } from "./use-machine.js";
 import { useOffice, type OfficeState } from "./use-office.js";
 import { ViewSwitch } from "./view-switch.js";
@@ -562,16 +564,6 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [janitorOpen, setJanitorOpen] = useState(false);
   const openJanitor = useCallback(() => setJanitorOpen(true), []);
   const closeJanitor = useCallback(() => setJanitorOpen(false), []);
-  // The stand-up reads the clock when it opens: a note counts for a day.
-  const [standupAt, setStandupAt] = useState<number | null>(null);
-  const openStandup = useCallback(() => setStandupAt(Date.now()), []);
-  const closeStandup = useCallback(() => setStandupAt(null), []);
-  const { post } = boardActions;
-  const askForUpdate = useCallback(
-    (roomId: string, agentId: string) =>
-      post({ board: roomId, kind: "note", text: STANDUP_ASK, to: agentId }),
-    [post],
-  );
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
@@ -583,7 +575,18 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   // In error or closed the data is frozen: no strip, no card and no board sheet to act on it.
   const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
   const board = useBoardSheet(model, live);
-  const standupOpen = standupAt !== null && live;
+  const standup = useStandup(model, boardActions.post, live);
+  const showWorkspace = useMemo(() => {
+    if (navigation === undefined) return undefined;
+    return (workspaceId: string) => navigation.openWorkspace({ workspaceId });
+  }, [navigation]);
+  const reviews = useReviews({
+    model,
+    post: boardActions.post,
+    live,
+    showWorkspace,
+    showBoard: board.open,
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
@@ -614,23 +617,20 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     if (kept !== selectedId) setSelectedId(kept);
   }, [kept, selectedId]);
   const hostEntry = useMemo(
-    () => (machine === null ? null : { note: hostNote(machine), onOpen: openMachine }),
+    (): StripCard | null =>
+      machine === null ? null : { title: "Host", note: hostNote(machine), onOpen: openMachine },
     [machine, openMachine],
   );
   const contexts = useMemo(() => janitorRows(model.agents.values()), [model.agents]);
-  const janitorEntry = useMemo(() => {
+  const janitorEntry = useMemo((): StripCard | null => {
     const note = janitorNote(contexts);
-    return note === null ? null : { note, onOpen: openJanitor };
+    return note === null ? null : { title: "Janitor", note, onOpen: openJanitor };
   }, [contexts, openJanitor]);
-  const [mountedAt] = useState(() => Date.now());
-  const teams = useMemo(
-    () => standupTeams(model, standupAt ?? mountedAt),
-    [model, standupAt, mountedAt],
+  // The strip's cards, each only while it has something to say.
+  const cards = useMemo(
+    () => [hostEntry, janitorEntry, standup.entry, reviews.entry].filter((card) => card !== null),
+    [hostEntry, janitorEntry, standup.entry, reviews.entry],
   );
-  const standupEntry = useMemo(() => {
-    const note = standupNote(teams);
-    return note === null ? null : { note, onOpen: openStandup };
-  }, [teams, openStandup]);
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
@@ -652,9 +652,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         {live ? (
           <AttentionStrip
             entries={model.attention}
-            host={hostEntry}
-            janitor={janitorEntry}
-            standup={standupEntry}
+            cards={cards}
             styles={styles}
             onSelect={selectFromStrip}
           />
@@ -682,7 +680,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onOpenMachine={openMachine}
         janitor={janitorEntry?.note ?? null}
         onOpenJanitor={openJanitor}
-        meeting={standupOpen}
+        meeting={standup.open}
         onSceneProblem={setSceneProblem}
       />
       <AgentCard
@@ -708,12 +706,22 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onClose={closeJanitor}
       />
       <StandupCard
-        teams={teams}
-        open={standupOpen}
-        ask={askForUpdate}
+        teams={standup.teams}
+        open={standup.open}
+        ask={standup.ask}
         wakesPaused={office.state.wake.paused}
         styles={styles}
-        onClose={closeStandup}
+        onClose={standup.close}
+      />
+      <ReviewCard
+        rows={reviews.rows}
+        open={reviews.open}
+        ask={reviews.ask}
+        wakesPaused={office.state.wake.paused}
+        onOpenWorkspace={reviews.openWorkspace}
+        onOpenBoard={reviews.openBoard}
+        styles={styles}
+        onClose={reviews.close}
       />
       <BoardSheet
         room={board.room}

@@ -42,6 +42,7 @@ function request(patch: Partial<WorkspacePullRequest> = {}): WorkspacePullReques
     number: 12,
     url: "https://forge.example/pull/12",
     title: "Fix checkout",
+    base: "main",
     state: "open",
     checks: "none",
     review: null,

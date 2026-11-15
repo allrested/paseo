@@ -718,6 +718,18 @@ agent is asked once per opening of the card, and the button is off while "Wake a
 "Copy as text" copies the report. Design:
 [the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
 
+The Reviews entry is in the strip while a workspace has an open or draft pull request. Its card
+is a queue: what waits for a review first, then what was sent back, the approved and the drafts,
+each with its branch, its base, the size of the checkout's changes, its checks and its conflicts,
+from the same descriptor as the stand-up. No SDK call fetches a diff or submits a verdict, so the
+card sends you on: "Open workspace" shows the workspace, where the app has the diff, and the link
+opens the pull request on its forge. "Ask for a review" posts a note to the team's newest idle
+agent. The note's first line starts with `Review request:` and its second is the pull request's
+address; that is how the office finds the request again, and the asked agent's first note after
+it is shown as the review (`plugins/office/client/review-text.ts`). While a request has no
+answer and its agent is still in the room, nobody else is asked. Design:
+[reviews](superpowers/specs/2026-11-16-office-reviews-design.md).
+
 The `design` built-in keeps a workspace's design files on the host's own FigCraft server (deploy
 it with [docker.md](docker.md#figcraft-design-mode)). It is off until `FIGCRAFT_URL` names that
 server; `FIGCRAFT_WEB_URL` names its browser editor, and the server key is read from the file
