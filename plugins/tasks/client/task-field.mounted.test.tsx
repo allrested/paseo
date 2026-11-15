@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { nextTask } from "./next-task.js";
+import { pickedTask } from "./picked-task.js";
 import type { FieldItem } from "./picker.js";
 import { createTaskField } from "./task-field.js";
 
@@ -103,7 +104,7 @@ test("the field is empty until a task is picked, and lists what the host found",
   expect(queries).toEqual(["web"]);
 });
 
-test("a pick names the branch after the task and leaves its key and link on the workspace", async () => {
+test("a pick names the branch after the task and leaves the task, its key and link on the workspace", async () => {
   await mount();
   const [item] = await shown.search({ query: "" });
   await shown.onSelect({ item });
@@ -111,7 +112,11 @@ test("a pick names the branch after the task and leaves its key and link on the 
     ["setBranch", "BWLT-12-add-the-webhook"],
     [
       "setMetadata",
-      { "tasks.key": "BWLT-12", "tasks.url": "https://team.atlassian.net/browse/BWLT-12" },
+      {
+        "tasks.id": "jira:BWLT-12",
+        "tasks.key": "BWLT-12",
+        "tasks.url": "https://team.atlassian.net/browse/BWLT-12",
+      },
     ],
   ]);
   expect(opened).toEqual([]);
@@ -126,7 +131,7 @@ test("a picked task shows by its key, and No task undoes the pick", async () => 
   await shown.onSelect({ item: items[0] });
   expect(commands).toEqual([
     ["setBranch", null],
-    ["setMetadata", { "tasks.key": null, "tasks.url": null }],
+    ["setMetadata", { "tasks.id": null, "tasks.key": null, "tasks.url": null }],
   ]);
 });
 
@@ -148,10 +153,10 @@ test("with no tracker connected the one row opens the connections and changes no
   expect(commands).toEqual([]);
 });
 
-const NEXT = { key: TASK.key, url: TASK.url, branch: TASK.branch };
+const NEXT = { id: TASK.id, key: TASK.key, url: TASK.url, branch: TASK.branch };
 const TAKEN = [
   ["setBranch", "BWLT-12-add-the-webhook"],
-  ["setMetadata", { "tasks.key": "BWLT-12", "tasks.url": TASK.url }],
+  ["setMetadata", { "tasks.id": "jira:BWLT-12", "tasks.key": "BWLT-12", "tasks.url": TASK.url }],
 ];
 
 test("a task picked on its page is taken when the field mounts, and only once", async () => {
@@ -178,4 +183,21 @@ test("a picked task the host refuses says so, and is not tried again", async () 
   expect(commands).toEqual([]);
   expect(toasts).toEqual(["BWLT-12 could not be used: No project is chosen."]);
   expect(nextTask.get()).toBeNull();
+});
+
+test("the picked task is told to the composer's Task prompt control while the field is up", async () => {
+  await mount();
+  expect(pickedTask.get()).toBeNull();
+  metadata = { "tasks.id": "jira:BWLT-12", "tasks.key": "BWLT-12", "tasks.url": TASK.url };
+  await mount();
+  expect(pickedTask.get()).toBe("jira:BWLT-12");
+  // A workspace picked before the id was kept names no task the control could ask for.
+  metadata = { "tasks.key": "BWLT-12", "tasks.url": TASK.url };
+  await mount();
+  expect(pickedTask.get()).toBeNull();
+  metadata = { "tasks.id": "jira:BWLT-12", "tasks.key": "BWLT-12", "tasks.url": TASK.url };
+  await mount();
+  await act(async () => root.unmount());
+  expect(pickedTask.get()).toBeNull();
+  root = createRoot(container);
 });

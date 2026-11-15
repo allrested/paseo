@@ -3,6 +3,7 @@ import {
   SOURCE_NAME,
   SourceSchema,
   type Connections,
+  type LinkedWorkspaces,
   type Source,
   type Task,
   type TaskDetail,
@@ -11,6 +12,7 @@ import {
   type Tokens,
 } from "../shared/contracts.js";
 import { taskBranch } from "../shared/branch.js";
+import { fillPrompt } from "../shared/prompt.js";
 import { createGitlab } from "./gitlab.js";
 import { TrackerError, errorMessage, type Issue, type IssueDetail, type Tracker } from "./issue.js";
 import { createJira } from "./jira.js";
@@ -36,6 +38,13 @@ export interface Tasks {
   comment(input: { id: string; text: string }): Promise<TaskDetail>;
   /** Moves the task and answers with it as it then is. */
   change(input: { id: string; change: string }): Promise<TaskDetail>;
+  /**
+   * The linked workspaces, each with how its task stands now. It never rejects: a task that is
+   * gone, or a tracker that cannot be asked, leaves the workspace linked with no status.
+   */
+  linked(found: LinkedWorkspaces): Promise<LinkedWorkspaces>;
+  /** The saved prompt template filled with one task. */
+  prompt(id: string): Promise<{ text: string }>;
   tokens(): Promise<Tokens>;
   setToken(input: { source: Source; token: string }): Promise<Tokens>;
   test(source: Source): Promise<{ account: string }>;
@@ -49,6 +58,9 @@ const NEEDS: Record<Source, string> = {
 };
 /** What a task's page shows of a long description or comment; the rest is on the tracker. */
 const TEXT_MAX = 20_000;
+// The sidebar asks how every linked task stands: a few at a time, and no more than this many.
+const ASKED_AT_ONCE = 6;
+const ASKED_MAX = 60;
 
 function subtitle(issue: Issue): string {
   return `${SOURCE_NAME[issue.source]} · ${issue.status}`;
@@ -183,6 +195,34 @@ export function createTasks(deps: TasksDeps): Tasks {
     return { tracker, tail: id.slice(at + 1) };
   }
 
+  /** How each of `ids` stands, for the ones a connected tracker shows. */
+  async function standing(ids: readonly string[]): Promise<Map<string, Issue>> {
+    const stands = new Map<string, Issue>();
+    const problems = new Set<string>();
+    const ask = async (id: string) => {
+      const at = id.indexOf(":");
+      const tracker = list.find((candidate) => candidate.source === id.slice(0, Math.max(at, 0)));
+      if (!tracker) return;
+      try {
+        const issue = await tracker.find(id.slice(at + 1));
+        if (issue) stands.set(id, issue);
+      } catch (error) {
+        problems.add(errorMessage(error));
+      }
+    };
+    let list: Tracker[] = [];
+    try {
+      list = await trackers();
+      for (let at = 0; at < ids.length; at += ASKED_AT_ONCE) {
+        await Promise.all(ids.slice(at, at + ASKED_AT_ONCE).map(ask));
+      }
+    } catch (error) {
+      problems.add(errorMessage(error));
+    }
+    for (const problem of problems) log(`[tasks] ${problem}`);
+    return stands;
+  }
+
   async function detail(id: string): Promise<TaskDetail> {
     const { tracker, tail } = await locate(id);
     return toDetail(await tracker.detail(tail));
@@ -232,6 +272,34 @@ export function createTasks(deps: TasksDeps): Tasks {
       const { tracker, tail } = await locate(id);
       await tracker.change(tail, change);
       return detail(id);
+    },
+    async linked(found) {
+      const ids = [...new Set(found.linked.flatMap((each) => each.taskId ?? []))];
+      if (ids.length === 0) return found;
+      const stands = await standing(ids.slice(0, ASKED_MAX));
+      return {
+        workspaceIds: found.workspaceIds,
+        linked: found.linked.map((each) => {
+          const issue = each.taskId === undefined ? undefined : stands.get(each.taskId);
+          if (!issue) return each;
+          const { status, phase } = issue;
+          return { ...each, status, ...(phase === undefined ? {} : { phase }) };
+        }),
+      };
+    },
+    async prompt(id) {
+      const [{ tracker, tail }, saved] = await Promise.all([locate(id), deps.connections()]);
+      const issue = await tracker.find(tail);
+      if (!issue) {
+        throw new TrackerError(
+          `${SOURCE_NAME[tracker.source]} has no such task, or the saved account cannot see it.`,
+        );
+      }
+      const text = fillPrompt(saved.promptTemplate, {
+        ...issue,
+        description: cut(issue.description),
+      });
+      return { text };
     },
     tokens: tokenState,
     async setToken({ source, token }) {

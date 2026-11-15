@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
-import type { TaskRow } from "../shared/contracts.js";
+import type { LinkedWorkspace, TaskRow } from "../shared/contracts.js";
 import { Button } from "./button.js";
 import { useDebounced, useNow } from "./device.js";
 import { emptyList, rowLabel, rowMeta } from "./format.js";
+import { useLinkedWorkspaces, workspacesOf } from "./linked.js";
 import type { TasksStyles } from "./tasks-styles.js";
 import { useTaskList, type TaskListState } from "./use-tasks.js";
 
@@ -15,6 +16,8 @@ const SEARCH_DELAY_MS = 300;
 // is put back.
 let typed = "";
 
+const NO_WORKSPACES: readonly LinkedWorkspace[] = [];
+
 /** For tests: one test's search must not open the next. */
 export function forgetSearch(): void {
   typed = "";
@@ -24,12 +27,14 @@ interface RowProps {
   row: TaskRow;
   first: boolean;
   selected: boolean;
+  /** A workspace was started on this task. */
+  hasWorkspace: boolean;
   now: number;
   styles: TasksStyles;
   onOpen(id: string): void;
 }
 
-function Row({ row, first, selected, now, styles, onOpen }: RowProps) {
+function Row({ row, first, selected, hasWorkspace, now, styles, onOpen }: RowProps) {
   const open = useCallback(() => onOpen(row.id), [onOpen, row.id]);
   const style = useCallback(
     ({ pressed }: PressableStateCallbackType) => [
@@ -41,7 +46,7 @@ function Row({ row, first, selected, now, styles, onOpen }: RowProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={rowLabel(row)}
+      accessibilityLabel={rowLabel(row, hasWorkspace)}
       aria-selected={selected}
       onPress={open}
       style={style}
@@ -55,18 +60,20 @@ function Row({ row, first, selected, now, styles, onOpen }: RowProps) {
           {rowMeta(row, now)}
         </Text>
       </View>
+      {hasWorkspace ? <Icon name="FolderGit2" size={16} color={styles.iconColor} /> : null}
       <Icon name="ChevronRight" size={16} color={styles.iconColor} />
     </Pressable>
   );
 }
 
-interface SectionProps extends Omit<RowProps, "row" | "first" | "selected"> {
+interface SectionProps extends Omit<RowProps, "row" | "first" | "selected" | "hasWorkspace"> {
   title: string;
   rows: readonly TaskRow[];
   selected: string | null;
+  linked: readonly LinkedWorkspace[];
 }
 
-function Section({ title, rows, selected, ...row }: SectionProps) {
+function Section({ title, rows, selected, linked, ...row }: SectionProps) {
   if (rows.length === 0) return null;
   return (
     <View style={row.styles.section}>
@@ -80,6 +87,7 @@ function Section({ title, rows, selected, ...row }: SectionProps) {
             row={item}
             first={index === 0}
             selected={item.id === selected}
+            hasWorkspace={workspacesOf(linked, item).length > 0}
             {...row}
           />
         ))}
@@ -154,6 +162,7 @@ export function TaskList({ styles, selected, onOpen, onConnect }: TaskListProps)
   }, [text]);
   const query = useDebounced(text.trim(), SEARCH_DELAY_MS);
   const list = useTaskList(query);
+  const linked = useLinkedWorkspaces().data?.linked ?? NO_WORKSPACES;
   const now = useNow();
   return (
     <ScrollView contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
@@ -182,6 +191,7 @@ export function TaskList({ styles, selected, onOpen, onConnect }: TaskListProps)
         list={list}
         query={query}
         selected={selected}
+        linked={linked}
         now={now}
         styles={styles}
         onOpen={onOpen}

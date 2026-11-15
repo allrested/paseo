@@ -273,3 +273,28 @@ test("a status is named by where it ends; two moves to one status carry their na
 test("Jira has no merge requests", () => {
   expect(jira(() => json({})).tracker.mergeRequests).toBeUndefined();
 });
+
+test("one issue is found by its id, with where its status stands", async () => {
+  const stands = (key: string) =>
+    json({ ...ISSUE, fields: { ...ISSUE.fields, status: { name: "X", statusCategory: { key } } } });
+  const { calls, tracker } = jira(() => stands("indeterminate"));
+  const found = await tracker.find("bwlt-12");
+  expect(calls.map((call) => call.url.pathname)).toEqual(["/rest/api/3/issue/BWLT-12"]);
+  expect(found).toMatchObject({ id: "BWLT-12", status: "X", phase: "doing" });
+  expect((await jira(() => stands("new")).tracker.find("BWLT-12"))?.phase).toBe("todo");
+  expect((await jira(() => stands("done")).tracker.find("BWLT-12"))?.phase).toBe("done");
+  // A category Jira adds later is no phase Paseo knows.
+  expect((await jira(() => stands("paused")).tracker.find("BWLT-12"))?.phase).toBeUndefined();
+});
+
+test("an issue that is gone is found as nothing; a refusal is an error; a bad id is refused", async () => {
+  const missing = jira(() => json({ errorMessages: ["Issue does not exist"] }, 404));
+  expect(await missing.tracker.find("BWLT-999")).toBeNull();
+  const denied = jira(() => json({}, 401));
+  await expect(denied.tracker.find("BWLT-999")).rejects.toThrow(
+    "Jira rejected the saved sign-in details.",
+  );
+  const { calls, tracker } = jira(() => json(ISSUE));
+  await expect(tracker.find("../myself")).rejects.toThrow("That is no Jira issue key.");
+  expect(calls).toEqual([]);
+});

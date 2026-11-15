@@ -7,6 +7,7 @@ import { act, createElement, useImperativeHandle, useRef, type ReactNode, type R
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { DEFAULT_PROMPT } from "../shared/prompt.js";
 import { ConnectionsScreen } from "./connections-screen.js";
 
 interface RowProps {
@@ -82,6 +83,19 @@ vi.mock("@getpaseo/plugin/client/ui", () => {
     );
   }
   return {
+    // The kit's field for text of several lines.
+    TextInput: (props: {
+      accessibilityLabel: string;
+      value: string;
+      editable?: boolean;
+      onChangeText(text: string): void;
+    }) =>
+      createElement("textarea", {
+        "aria-label": props.accessibilityLabel,
+        value: props.value,
+        disabled: props.editable === false,
+        onChange: (event: { target: { value: string } }) => props.onChangeText(event.target.value),
+      }),
     SettingsSection: (props: { title: string; info?: string; children: ReactNode }) =>
       createElement("section", { "aria-label": props.title, title: props.info }, props.children),
     SettingsCard: (props: { children: ReactNode }) => createElement("div", null, props.children),
@@ -112,6 +126,7 @@ const SAVED = {
   jiraSite: "https://team.atlassian.net",
   jiraEmail: "me@team.test",
   gitlabUrl: "",
+  promptTemplate: DEFAULT_PROMPT,
 };
 
 let container: HTMLElement;
@@ -339,4 +354,46 @@ test("settings that cannot be read offer a reload and a reset that keeps the tok
     ).click(),
   );
   expect(reset).toHaveBeenCalledTimes(1);
+});
+
+const template = () => section("Task prompt").querySelector("textarea") as HTMLTextAreaElement;
+
+async function writeTemplate(text: string): Promise<void> {
+  const input = template();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+test("the task prompt shows the saved template and says what it can hold", async () => {
+  await mount();
+  expect(template().value).toBe(DEFAULT_PROMPT);
+  expect(section("Task prompt").title).toContain("{key}, {title}, {description} and {url}");
+  // The default is in use: there is nothing to go back to.
+  expect(labels("Task prompt")).toEqual(["Save the prompt"]);
+});
+
+test("a template of the user's own is saved with the addresses kept, and can go back to the default", async () => {
+  await mount();
+  await writeTemplate("Plan {key}, then stop.");
+  await press("Task prompt", "Save the prompt");
+  expect(saves).toEqual([
+    { values: { ...SAVED, promptTemplate: "Plan {key}, then stop." }, revision: "r1" },
+  ]);
+  expect(hint("Task prompt", "Save the prompt")).toBe("Saved");
+  expect(labels("Task prompt")).toEqual(["Save the prompt", "Use the default prompt"]);
+  await press("Task prompt", "Use the default prompt");
+  expect(saves[1]).toEqual({ values: SAVED, revision: "r1" });
+  expect(template().value).toBe(DEFAULT_PROMPT);
+  expect(labels("Task prompt")).toEqual(["Save the prompt"]);
+});
+
+test("a template the host refuses says why under Save", async () => {
+  saveResult = false;
+  await mount();
+  await writeTemplate("x");
+  await press("Task prompt", "Save the prompt");
+  expect(alert("Task prompt", "Save the prompt")).toBe("The address is too long");
+  expect(alert("Jira", "Save the Jira connection")).toBeNull();
 });

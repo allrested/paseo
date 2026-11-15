@@ -5,6 +5,7 @@ import {
   PluginAttachmentSearchPayloadSchema,
 } from "@getpaseo/plugin";
 import { z } from "zod";
+import { DEFAULT_PROMPT } from "./prompt.js";
 
 export const SourceSchema = z.enum(["jira", "gitlab"]);
 export type Source = z.infer<typeof SourceSchema>;
@@ -18,9 +19,14 @@ export const TOKEN_MAX = 500;
 export const TASKS_SCREEN = "tasks";
 export const TASK_PARAM = "task";
 export const COMMENT_MAX = 10_000;
+/** The workspace metadata a picked task leaves: which task, its key and its link. */
+export const TASK_ID = "tasks.id";
+export const TASK_KEY = "tasks.key";
+export const TASK_URL = "tasks.url";
+export const PROMPT_MAX = 4000;
 
 /**
- * Where the trackers are. The tokens are not here: every client of the host reads its settings,
+ * Where the trackers are, and the prompt a task starts a workspace with. The tokens are not here: every client of the host reads its settings,
  * and a token never leaves the daemon.
  */
 export const connections = defineSettings({
@@ -31,6 +37,8 @@ export const connections = defineSettings({
     jiraSite: z.string().trim().max(200).default(""),
     jiraEmail: z.string().trim().max(200).default(""),
     gitlabUrl: z.string().trim().max(200).default(""),
+    /** Filled by `fillPrompt`; an empty one is the default. */
+    promptTemplate: z.string().max(PROMPT_MAX).default(DEFAULT_PROMPT),
   }),
 });
 export type Connections = z.infer<typeof connections.schema>;
@@ -98,6 +106,46 @@ export const TaskDetailSchema = TaskRowSchema.extend({
   branch: z.string().optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetailSchema>;
+
+/** Where a status stands, whatever the tracker calls it. */
+export const PhaseSchema = z.enum(["todo", "doing", "done"]);
+export type Phase = z.infer<typeof PhaseSchema>;
+
+/** A workspace that was started on a task. */
+export const LinkedWorkspaceSchema = z.object({
+  workspaceId: z.string(),
+  /** The workspace's name, for a button that opens it. */
+  name: z.string(),
+  key: z.string(),
+  url: z.string(),
+  /** The task, when the workspace names it or its key tells it. */
+  taskId: TaskId.optional(),
+  /** How the task stands. Absent while its tracker cannot be asked or does not show it. */
+  status: z.string().optional(),
+  phase: PhaseSchema.optional(),
+});
+export type LinkedWorkspace = z.infer<typeof LinkedWorkspaceSchema>;
+
+/**
+ * The workspaces started on a task, and how each task stands now. `workspaceIds` is every
+ * workspace the host had when it answered, so a newer one is known to be missing from it.
+ */
+export const linkedWorkspacesRpc = defineRpc({
+  name: "tasks.workspaces.linked",
+  input: z.object({}),
+  output: z.object({
+    workspaceIds: z.array(z.string()),
+    linked: z.array(LinkedWorkspaceSchema),
+  }),
+});
+export type LinkedWorkspaces = z.infer<typeof linkedWorkspacesRpc.output>;
+
+/** The saved prompt template, filled with one task. */
+export const taskPromptRpc = defineRpc({
+  name: "tasks.prompt.fill",
+  input: z.object({ id: TaskId }),
+  output: z.object({ text: z.string() }),
+});
 
 /**
  * The signed-in user's open issues and merge requests. `problems` holds one sentence for each
