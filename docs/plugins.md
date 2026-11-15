@@ -430,6 +430,36 @@ The chart's bars are neutral ink, not the accent: the accent is under 3:1 agains
 in several themes. The chart is for a pointer and a finger. The table button beside its title
 gives the same days as text, which is what a keyboard and a screen reader get.
 
+The `attribution` built-in records which lines each agent wrote. The Attribution workspace
+panel ("Show line attribution" in the Command Center) lists the files agents changed in the
+workspace's checkout, and shows one file line by line: the agents are numbered, each line an agent
+wrote carries a mark, and choosing a line gives its turn and opens the agent.
+
+The daemon takes a snapshot of the checkout when a turn starts and when it ends
+(`agent.turn.before`, `agent.turn.after`); what changed in between is that agent's. A change
+made while several agents ran in one checkout is credited to all of them, and a background
+agent's edits to its parent. Each change is a commit in a shadow history under
+`$PASEO_HOME/attribution/<hash of the checkout's path>/`, so `git blame` on that history answers
+who wrote a line and follows it across later edits and moves. Only the files agents changed enter
+it. Edits between turns read as nobody's.
+
+The checkout's own repository is never written. A snapshot runs Git in the checkout with
+`GIT_INDEX_FILE` and `GIT_OBJECT_DIRECTORY` pointed at the shadow store and the repository's
+objects as an alternate: ignore rules, line endings and filters are the checkout's, and no ref,
+object or index entry of it changes. Run every Git command through `server/git.ts`, which drops
+the daemon's own `GIT_` variables first; an inherited `GIT_DIR` would aim the command at
+another repository.
+
+Blame runs against a commit, not against the file on disk: `git blame --contents` cannot name a
+revision before Git 2.41, and it would read the file without the checkout's line-ending settings.
+The reader hashes the file in the checkout and, when it differs from the last recorded version,
+blames an unreferenced commit of it. Its lines read as nobody's.
+
+Limits: Git checkouts only, files up to 1 MiB, no binary files, a turn of up to 300 changed
+files. Attribution stays in the checkout it was recorded in and does not follow a merge into
+another one. A turn that was running across a daemon restart is not recorded. The store of a
+checkout that is gone is removed at the next daemon start.
+
 The `tasks` built-in lists the open tasks of whoever connected a tracker: Jira Cloud issues
 assigned to the token's user and not done, open GitLab and GitHub issues assigned to them, and
 open GitLab merge requests and GitHub pull requests that ask for their review or are assigned to
