@@ -16,6 +16,20 @@ export const CDP_BROWSER_ERROR_CODES = [
   "browser_url_refused",
   /** A pick_element on a page that is still loading: the page cannot be marked up yet. */
   "browser_page_loading",
+  // The browser.cdp.profile.* codes. Gate: server_info.features.cdpBrowserProfiles.
+  "browser_profile_not_found",
+  /** Empty, longer than 40 characters, or with a control character. */
+  "browser_profile_name_invalid",
+  /** Another profile has the name, without regard to case, or it is the built-in's: Shared. */
+  "browser_profile_name_taken",
+  /** The daemon keeps at most 12 profiles. */
+  "browser_profile_limit",
+  /** The import text is not a cookie file, or the sites named are not sites. */
+  "browser_cookies_unreadable",
+  /** The import holds no cookie Chromium keeps: every one was unusable, expired or refused. */
+  "browser_cookies_none",
+  /** The import text is over 1 MiB or holds more than 5,000 cookies. */
+  "browser_cookies_too_large",
 ] as const;
 export type CdpBrowserErrorCode = (typeof CDP_BROWSER_ERROR_CODES)[number];
 
@@ -32,6 +46,11 @@ export const CdpBrowserTabStateSchema = z.object({
    * null versus non-null carries meaning: a client's clock may be skewed, so do not compare it.
    */
   agentActiveUntil: z.number().nullable(),
+  /**
+   * The named profile the tab opened in; null is the Shared profile, which is the Chromium's own.
+   * Absent from a daemon without server_info.features.cdpBrowserProfiles.
+   */
+  profile: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
 });
 
 export const CdpBrowserTabsEventSchema = z.discriminatedUnion("kind", [
@@ -255,7 +274,115 @@ export const BrowserCdpViewCancelPickRequestSchema = z.object({
   browserId: z.string(),
 });
 
+/**
+ * Gate: server_info.features.cdpBrowserProfiles. A named profile of the Docker Chromium: tabs
+ * opened in it share cookies with each other and with no other profile. The daemon keeps a
+ * profile's cookies across a Chromium restart; other site storage lasts until then.
+ */
+export const CdpBrowserProfileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** Daemon wall-clock time, epoch ms. */
+  createdAt: z.number(),
+});
+
+/** What an import did. It names sites and never a cookie's value. */
+export const CdpBrowserCookieImportResultSchema = z.object({
+  /** Cookies the Chromium kept. */
+  imported: z.number().int(),
+  /** Entries that were unusable, had expired, or that the Chromium refused. */
+  skipped: z.number().int(),
+  /** The first sites the kept cookies belong to, in name order; `siteCount` is how many there are. */
+  sites: z.array(z.string()),
+  siteCount: z.number().int(),
+});
+
+/**
+ * Where an import's cookies come from. `text` is a cookie file's content: a JSON export (an array,
+ * or an object with a `cookies` array) or a Netscape cookies.txt. `shared` copies the Shared
+ * profile's cookies for the sites named and the hosts under them.
+ */
+export const CdpBrowserCookieSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("text"), text: z.string() }),
+  z.object({ kind: z.literal("shared"), sites: z.array(z.string()) }),
+]);
+
+/** The profiles, and the one the workspace's new tabs open in; null is Shared. */
+export const BrowserCdpProfileListRequestSchema = z.object({
+  type: z.literal("browser.cdp.profile.list.request"),
+  requestId: z.string(),
+  workspaceId: z.string().optional(),
+});
+export const BrowserCdpProfileListResponseSchema = z.object({
+  type: z.literal("browser.cdp.profile.list.response"),
+  payload: z.object({
+    requestId: z.string(),
+    profiles: z.array(CdpBrowserProfileSchema),
+    workspaceProfileId: z.string().nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BrowserCdpProfileCreateRequestSchema = z.object({
+  type: z.literal("browser.cdp.profile.create.request"),
+  requestId: z.string(),
+  name: z.string(),
+});
+export const BrowserCdpProfileCreateResponseSchema = z.object({
+  type: z.literal("browser.cdp.profile.create.response"),
+  payload: z.object({
+    requestId: z.string(),
+    profile: CdpBrowserProfileSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+/** Closes the profile's tabs and forgets its cookies. Its workspaces go back to Shared. */
+export const BrowserCdpProfileDeleteRequestSchema = z.object({
+  type: z.literal("browser.cdp.profile.delete.request"),
+  requestId: z.string(),
+  profileId: z.string(),
+});
+export const BrowserCdpProfileDeleteResponseSchema = z.object({
+  type: z.literal("browser.cdp.profile.delete.response"),
+  payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
+});
+
+/**
+ * The profile the workspace's new tabs open in, whoever opens them: a person or an agent's
+ * browser_new_tab. Null is Shared. A tab that is open keeps the profile it opened in.
+ */
+export const BrowserCdpProfileAssignRequestSchema = z.object({
+  type: z.literal("browser.cdp.profile.assign.request"),
+  requestId: z.string(),
+  workspaceId: z.string(),
+  profileId: z.string().nullable(),
+});
+export const BrowserCdpProfileAssignResponseSchema = z.object({
+  type: z.literal("browser.cdp.profile.assign.response"),
+  payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
+});
+
+/** Adds cookies to a named profile. The cookies it already has stay, unless one is replaced. */
+export const BrowserCdpProfileImportRequestSchema = z.object({
+  type: z.literal("browser.cdp.profile.import.request"),
+  requestId: z.string(),
+  profileId: z.string(),
+  source: CdpBrowserCookieSourceSchema,
+});
+export const BrowserCdpProfileImportResponseSchema = z.object({
+  type: z.literal("browser.cdp.profile.import.response"),
+  payload: z.object({
+    requestId: z.string(),
+    result: CdpBrowserCookieImportResultSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
 export type CdpBrowserTabState = z.infer<typeof CdpBrowserTabStateSchema>;
+export type CdpBrowserProfile = z.infer<typeof CdpBrowserProfileSchema>;
+export type CdpBrowserCookieSource = z.infer<typeof CdpBrowserCookieSourceSchema>;
+export type CdpBrowserCookieImportResult = z.infer<typeof CdpBrowserCookieImportResultSchema>;
 export type CdpBrowserElementSelection = z.infer<typeof CdpBrowserElementSelectionSchema>;
 export type CdpBrowserTabsEvent = z.infer<typeof CdpBrowserTabsEventSchema>;
 export type CdpBrowserViewport = z.infer<typeof CdpBrowserViewportSchema>;

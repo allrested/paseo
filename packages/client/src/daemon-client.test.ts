@@ -10525,6 +10525,133 @@ test("the pick methods refuse a host whose browser cannot pick", async () => {
   expect(mock.sent).toHaveLength(0);
 });
 
+const CDP_PROFILE_FEATURES = {
+  ownedSubscriptions: true,
+  cdpBrowser: true,
+  cdpBrowserProfiles: true,
+};
+const CDP_PROFILE = { id: "p1", name: "Work", createdAt: 1 };
+
+test("listCdpBrowserProfiles resolves with the profiles and the workspace's choice", async () => {
+  const { client, mock } = await connectCdpClient(CDP_PROFILE_FEATURES);
+  const promise = client.listCdpBrowserProfiles("ws-a");
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({ type: "browser.cdp.profile.list.request", workspaceId: "ws-a" });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.profile.list.response",
+      payload: {
+        requestId: request.requestId,
+        profiles: [CDP_PROFILE],
+        workspaceProfileId: "p1",
+        error: null,
+      },
+    }),
+  );
+  await expect(promise).resolves.toEqual({ profiles: [CDP_PROFILE], workspaceProfileId: "p1" });
+});
+
+test("createCdpBrowserProfile resolves with the profile, or rejects with the daemon's code", async () => {
+  const { client, mock } = await connectCdpClient(CDP_PROFILE_FEATURES);
+  const made = client.createCdpBrowserProfile("Work");
+  const first = parseSentFrame(mock.sent[0]);
+  expect(first).toMatchObject({ type: "browser.cdp.profile.create.request", name: "Work" });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.profile.create.response",
+      payload: { requestId: first.requestId, profile: CDP_PROFILE, error: null },
+    }),
+  );
+  await expect(made).resolves.toEqual(CDP_PROFILE);
+
+  const refused = client.createCdpBrowserProfile("work");
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.profile.create.response",
+      payload: {
+        requestId: parseSentFrame(mock.sent[1]).requestId,
+        profile: null,
+        error: "browser_profile_name_taken",
+      },
+    }),
+  );
+  await expect(refused).rejects.toThrow("browser_profile_name_taken");
+});
+
+test("assignCdpBrowserProfile and deleteCdpBrowserProfile send their request and resolve", async () => {
+  const { client, mock } = await connectCdpClient(CDP_PROFILE_FEATURES);
+  const assigned = client.assignCdpBrowserProfile("ws-a", null);
+  const assign = parseSentFrame(mock.sent[0]);
+  expect(assign).toMatchObject({
+    type: "browser.cdp.profile.assign.request",
+    workspaceId: "ws-a",
+    profileId: null,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.profile.assign.response",
+      payload: { requestId: assign.requestId, error: null },
+    }),
+  );
+  await expect(assigned).resolves.toBeUndefined();
+
+  const deleted = client.deleteCdpBrowserProfile("p1");
+  const remove = parseSentFrame(mock.sent[1]);
+  expect(remove).toMatchObject({ type: "browser.cdp.profile.delete.request", profileId: "p1" });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.profile.delete.response",
+      payload: { requestId: remove.requestId, error: "browser_no_host" },
+    }),
+  );
+  await expect(deleted).rejects.toThrow("browser_no_host");
+});
+
+test("importCdpBrowserCookies resolves with what the import did", async () => {
+  const { client, mock } = await connectCdpClient(CDP_PROFILE_FEATURES);
+  const result = { imported: 3, skipped: 1, sites: ["github.com"], siteCount: 1 };
+  const promise = client.importCdpBrowserCookies("p1", { kind: "shared", sites: ["github.com"] });
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "browser.cdp.profile.import.request",
+    profileId: "p1",
+    source: { kind: "shared", sites: ["github.com"] },
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.profile.import.response",
+      payload: { requestId: request.requestId, result, error: null },
+    }),
+  );
+  await expect(promise).resolves.toEqual(result);
+
+  const refused = client.importCdpBrowserCookies("p1", { kind: "text", text: "my cookies" });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.profile.import.response",
+      payload: {
+        requestId: parseSentFrame(mock.sent[1]).requestId,
+        result: null,
+        error: "browser_cookies_unreadable",
+      },
+    }),
+  );
+  await expect(refused).rejects.toThrow("browser_cookies_unreadable");
+});
+
+test("the profile methods refuse a host without browser profiles", async () => {
+  const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
+  const refusal = "This host has no browser profiles.";
+  await expect(client.listCdpBrowserProfiles()).rejects.toThrow(refusal);
+  await expect(client.createCdpBrowserProfile("Work")).rejects.toThrow(refusal);
+  await expect(client.deleteCdpBrowserProfile("p1")).rejects.toThrow(refusal);
+  await expect(client.assignCdpBrowserProfile("ws-a", "p1")).rejects.toThrow(refusal);
+  await expect(client.importCdpBrowserCookies("p1", { kind: "text", text: "[]" })).rejects.toThrow(
+    refusal,
+  );
+  expect(mock.sent).toHaveLength(0);
+});
+
 test("observeCdpBrowserView routes binary frames to its observer", async () => {
   const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
   const view = client.observeCdpBrowserView({

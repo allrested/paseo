@@ -116,6 +116,16 @@ import {
   BrowserAutomationExecuteResponseSchema,
 } from "./browser-automation/rpc-schemas.js";
 import {
+  BrowserCdpProfileAssignRequestSchema,
+  BrowserCdpProfileAssignResponseSchema,
+  BrowserCdpProfileCreateRequestSchema,
+  BrowserCdpProfileCreateResponseSchema,
+  BrowserCdpProfileDeleteRequestSchema,
+  BrowserCdpProfileDeleteResponseSchema,
+  BrowserCdpProfileImportRequestSchema,
+  BrowserCdpProfileImportResponseSchema,
+  BrowserCdpProfileListRequestSchema,
+  BrowserCdpProfileListResponseSchema,
   BrowserCdpTabCloseRequestSchema,
   BrowserCdpTabCloseResponseSchema,
   BrowserCdpTabOpenRequestSchema,
@@ -3649,6 +3659,11 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   BrowserCdpViewNavigateRequestSchema,
   BrowserCdpViewPickElementRequestSchema,
   BrowserCdpViewCancelPickRequestSchema,
+  BrowserCdpProfileListRequestSchema,
+  BrowserCdpProfileCreateRequestSchema,
+  BrowserCdpProfileDeleteRequestSchema,
+  BrowserCdpProfileAssignRequestSchema,
+  BrowserCdpProfileImportRequestSchema,
   VoiceAudioChunkMessageSchema,
   AbortRequestMessageSchema,
   AudioPlayedMessageSchema,
@@ -4076,6 +4091,9 @@ export const ServerInfoStatusPayloadSchema = z
         // Fork delta (web browser pane): browser.cdp.view.pick_element and cancel_pick.
         // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
         cdpBrowserPick: z.boolean().optional(),
+        // Fork delta (browser profiles): browser.cdp.profile.* and the tab state's `profile`.
+        // COMPAT(cdpBrowserProfiles): added in v0.16.0, remove gate after 2027-05-15.
+        cdpBrowserProfiles: z.boolean().optional(),
         // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
         usageSetting: z.boolean().optional(),
         usageSources: z.boolean().optional(),
@@ -7611,6 +7629,11 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   BrowserCdpViewUpdateSchema,
   BrowserCdpViewNavigateResponseSchema,
   BrowserCdpViewPickElementResponseSchema,
+  BrowserCdpProfileListResponseSchema,
+  BrowserCdpProfileCreateResponseSchema,
+  BrowserCdpProfileDeleteResponseSchema,
+  BrowserCdpProfileAssignResponseSchema,
+  BrowserCdpProfileImportResponseSchema,
   PluginCatalogGetResponseSchema,
   PluginListResponseSchema,
   PluginLogsGetResponseSchema,

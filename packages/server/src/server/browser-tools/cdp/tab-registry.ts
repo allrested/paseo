@@ -9,6 +9,8 @@ const CdpTabEntrySchema = z.object({
   workspaceId: z.string(),
   lastUrl: z.string(),
   createdAt: z.number(),
+  /** The named profile the tab opened in. Absent in the Shared profile, which is Chromium's own. */
+  profileId: z.string().optional(),
 });
 const CdpTabFileSchema = z.object({ version: z.literal(1), tabs: z.array(CdpTabEntrySchema) });
 
@@ -92,6 +94,8 @@ export class CdpTabRegistry {
       workspaceId: opener.workspaceId,
       lastUrl: input.url,
       createdAt: input.now,
+      // Chromium opens a popup in its opener's browser context.
+      ...(opener.profileId === undefined ? {} : { profileId: opener.profileId }),
     };
     this.add(entry);
     return entry;
