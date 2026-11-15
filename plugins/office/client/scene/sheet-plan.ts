@@ -10,6 +10,7 @@ import {
   type SheetPoint,
   type SheetRect,
   type SheetRobot,
+  type SheetWalk,
 } from "../../shared/sheet.js";
 import {
   FIRST_MARGINS,
@@ -41,6 +42,7 @@ import {
   type RobotPose,
   type ScenePlan,
 } from "./scene-plan.js";
+import { WALK_DIRECTIONS, walkDirection, type Walk } from "./walk.js";
 
 /** A still's camera and size: `StillFrame` of office-stills.web.ts. */
 export interface SheetFrame {
@@ -248,6 +250,31 @@ export function spriteLook(key: string): RobotPlan | null {
   };
 }
 
+const WALK_KEY = "walk";
+
+/** Names what a robot on foot looks like when it goes the way of `heading`. */
+export function walkKey(robot: RobotPlan, heading: number): string {
+  return [
+    WALK_KEY,
+    robot.pose,
+    robot.visor,
+    robot.lamp,
+    robot.lampColor,
+    String(walkDirection(heading)),
+  ].join("|");
+}
+
+/** The robot of a walking sprite and the direction it faces; null for any other key. */
+export function walkLook(key: string): { robot: RobotPlan; direction: number } | null {
+  const [kind, pose, visor, lamp, lampColor, facing, ...rest] = key.split("|");
+  if (kind !== WALK_KEY || rest.length > 0 || facing === undefined) return null;
+  const direction = Number(facing);
+  if (!Number.isInteger(direction) || direction < 0 || direction >= WALK_DIRECTIONS) return null;
+  // The rest reads as a seated robot's key does: on foot it has no desk, lit or dark.
+  const robot = spriteLook([pose, visor, lamp, lampColor, "0", "0", "0"].join("|"));
+  return robot === null ? null : { robot, direction };
+}
+
 /** How the robot of a sprite stands in frame `index` of its clip. */
 export function clipMotion(look: RobotPlan, index: number): RobotFrame {
   const clip = SPRITE_CLIPS[look.pose];
@@ -340,6 +367,8 @@ export interface SheetInput {
   tiles: number;
   /** Agents whose pose began less than a wave ago. */
   fresh: ReadonlySet<string>;
+  /** Agents on their way to their desk. */
+  walks: ReadonlyMap<string, { id: number; walk: Walk }>;
   /** Each room's name plate as drawn, in screen points. */
   plates: ReadonlyMap<string, { width: number; height: number }>;
 }
@@ -352,7 +381,15 @@ function boundsOf(points: readonly SheetPoint[]): SheetRect {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
-export function buildSheet({ plan, frame, version, tiles, fresh, plates }: SheetInput): Sheet {
+export function buildSheet({
+  plan,
+  frame,
+  version,
+  tiles,
+  fresh,
+  walks,
+  plates,
+}: SheetInput): Sheet {
   const { view, viewport, ratio } = frame;
   const scale = pictureScale(frame);
   const at = (point: { x: number; y: number; z: number }): SheetPoint => {
@@ -370,17 +407,47 @@ export function buildSheet({ plan, frame, version, tiles, fresh, plates }: Sheet
     );
   const box = spriteBox(scale);
   const depth = (robot: RobotPlan) => robot.seat.x * TURN_SIN + robot.seat.z * TURN_COS;
+  /** The top left corner of the frame of a robot that stands on `ground`. */
+  const corner = (ground: { x: number; z: number }): SheetPoint => {
+    const stood = at({ x: ground.x, y: 0, z: ground.z });
+    return { x: Math.round(stood.x - box.seat.x), y: Math.round(stood.y - box.seat.y) };
+  };
+  const walkOf = (robot: RobotPlan): SheetWalk | null => {
+    const walking = walks.get(robot.agentId);
+    const first = walking?.walk.legs[0];
+    if (walking === undefined || first === undefined) return null;
+    const { walk } = walking;
+    const start = corner(first.from);
+    let gone = 0;
+    return {
+      id: walking.id,
+      ms: walk.ms,
+      x: start.x,
+      y: start.y,
+      legs: walk.legs.map((leg, index) => {
+        const end = corner(leg.to);
+        gone += leg.length;
+        return {
+          x: end.x,
+          y: end.y,
+          until: index === walk.legs.length - 1 ? 1 : gone / walk.length,
+          key: walkKey(robot, leg.heading),
+          inside: leg.inside,
+        };
+      }),
+    };
+  };
   const robots = [...plan.robots]
     .sort((a, b) => depth(a) - depth(b) || a.agentId.localeCompare(b.agentId))
     .map((robot): SheetRobot => {
-      const seat = at({ x: robot.seat.x, y: 0, z: robot.seat.z });
+      const seat = corner(robot.seat);
       return {
         agentId: robot.agentId,
         key: spriteKey(robot),
-        x: Math.round(seat.x - box.seat.x),
-        y: Math.round(seat.y - box.seat.y),
+        x: seat.x,
+        y: seat.y,
         phase: robot.pose === "typing" ? typingPhase(robot.seatIndex) : 0,
-        joining: robot.pose === "walking",
+        walk: walkOf(robot),
         fresh: fresh.has(robot.agentId),
       };
     });

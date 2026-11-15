@@ -382,10 +382,12 @@ The server keeps one directory from subscribed `agents.list` and `workspaces.lis
 first 200 of each) and streams a compact projection over the `office.state` subscription; the
 directory and the 5 s "doing now" reads run only while an office surface is open. On web, with
 WebGL2, the office draws the same model as a small 3D office, one glass room per workspace and one
-robot per agent whose pose shows its state; a per-device "3D view" switch turns it off. The 3D
-view loads the plugin's vendored three.js r170 (`plugins/office/vendor`) through the
-`office.asset.request` RPC the first time it is shown on a page, evaluates it from a Blob URL, and
-draws only while something moves.
+robot per agent whose pose shows its state; a per-device "3D view" switch turns it off. A robot
+whose agent moves to another workspace walks there: out of its door, round the rooms between, in
+at the other door (`plugins/office/client/scene/walk.ts`). It is at its new desk at once when the
+rooms were dealt again in the same change, or with reduced motion. The 3D view loads the plugin's
+vendored three.js r170 (`plugins/office/vendor`) through the `office.asset.request` RPC the first
+time it is shown on a page, evaluates it from a Blob URL, and draws only while something moves.
 
 A client that cannot draw, which is the installed app (plugin code there has React Native views
 only) and a browser without WebGL2, composes the same office itself from pictures the host draws
@@ -399,13 +401,17 @@ draws over `office.sheet`:
 - An overlay of what stands in front of robots (each room's right and front wall, notes on desks,
   name plates), as PNG tiles.
 - A sheet of positions in backdrop pixels after every office change: robots far to near, boards,
-  name plates, notes, mentions.
+  name plates, notes, mentions, and for a robot on its way the legs of its walk.
 
 Each robot look (pose, colours, lit screen, side desk) is one PNG grid of frames, asked for once
 through `office.sheet.sprite.request`. The camera is orthographic, so one picture serves every
 seat. The client lays tiles and sprites out as `Image`s, steps a robot through its frames on the
 native driver, and pans, zooms and picks on the device: nothing is sent per frame, and a robot's
-change never draws a new backdrop. `plugins/office/server/render/sheet-page.local.e2e.test.ts`
+change never draws a new backdrop. A walking robot is one more grid per look and direction, of
+eight. The client plays a walk when a sheet first names it and runs it on its own clock; it plays
+none from the first sheet it gets, so an office opened mid-walk shows robots at their desks. The
+client has two layers to put a walker in: a leg inside a room goes under the overlay, a leg on the
+open floor over it. `plugins/office/server/render/sheet-page.local.e2e.test.ts`
 is the hand-run check that the pictures add up to the scene; run it after a change to what the
 scene draws. The daemon hands built-ins the two things this needs beside their directory:
 `offscreenPages` and `bundleBrowserScript` (`BuiltinPluginInfo`); directory plugins get neither.

@@ -33,6 +33,30 @@ export interface SheetRect extends SheetPoint {
   height: number;
 }
 
+/** One straight stretch of a walk. */
+export interface SheetWalkLeg {
+  /** The top left corner of the robot's frame where the leg ends. */
+  x: number;
+  y: number;
+  /** The share of the walk's time at which it ends: over 0, at most 1, and more on each leg. */
+  until: number;
+  /** The sprite of the robot walking the way this leg goes. */
+  key: string;
+  /** Inside a room, so behind its near walls; otherwise in front of every wall. */
+  inside: boolean;
+}
+
+/** A robot on its way to its desk: in from the door, or over from another room. */
+export interface SheetWalk {
+  /** Another number for every walk: a viewer plays each one once. */
+  id: number;
+  ms: number;
+  /** The top left corner of the robot's frame where the walk starts. */
+  x: number;
+  y: number;
+  legs: SheetWalkLeg[];
+}
+
 export interface SheetRobot {
   agentId: string;
   /** Names the sprite to show: `office.sheet.sprite.request` returns it. */
@@ -42,8 +66,8 @@ export interface SheetRobot {
   y: number;
   /** The frame a looping sprite starts at, so neighbours do not move as one. */
   phase: number;
-  /** It has only just arrived: shown with a fade. */
-  joining: boolean;
+  /** The way it is walking to its desk, while it does. */
+  walk: SheetWalk | null;
   /** Its pose began less than a wave ago: a once-only sprite plays for a robot not seen before. */
   fresh: boolean;
 }

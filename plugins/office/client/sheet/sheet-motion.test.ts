@@ -1,10 +1,11 @@
 import { expect, test } from "vitest";
-import type { Sheet, SheetRobot, SpritePicture } from "../../shared/sheet.js";
+import type { Sheet, SheetRobot, SheetWalk, SpritePicture } from "../../shared/sheet.js";
 import {
   firstTransform,
   fitted,
   focusOn,
   layerStyleValues,
+  legShown,
   panned,
   pinched,
   planePath,
@@ -12,8 +13,12 @@ import {
   RETRY_MS,
   keptSprites,
   pivotedRotation,
+  robotsSeated,
   shouldAsk,
   stepRanges,
+  walkKeys,
+  walkTrack,
+  walksStarted,
   wavesOwed,
   zoomLimits,
   targetAt,
@@ -26,7 +31,7 @@ const robot = (agentId: string, x: number, y: number, extra: Partial<SheetRobot>
   x,
   y,
   phase: 0,
-  joining: false,
+  walk: null,
   fresh: false,
   ...extra,
 });
@@ -302,4 +307,105 @@ test("a plane turns about its chest point", () => {
   // A point to the right of the chest ends below it after a quarter turn.
   expect(through({ x: 50, y: 60 }).x).toBeCloseTo(30);
   expect(through({ x: 50, y: 60 }).y).toBeCloseTo(80);
+});
+
+// Out of a room, along the corridor, into another: four legs, two of them the same way.
+const WALK: SheetWalk = {
+  id: 3,
+  ms: 2000,
+  x: 100,
+  y: 300,
+  legs: [
+    { x: 100, y: 380, until: 0.25, key: "walk|south", inside: true },
+    { x: 180, y: 380, until: 0.5, key: "walk|east", inside: false },
+    { x: 180, y: 460, until: 0.75, key: "walk|south", inside: false },
+    { x: 200, y: 500, until: 1, key: "walk|north", inside: true },
+  ],
+};
+
+test("the first sheet starts no walk: the view opened while the robot was on its way", () => {
+  expect(walksStarted(null, [robot("a", 200, 500, { walk: WALK })])).toEqual([]);
+});
+
+test("a later sheet starts each walk the one before it did not name", () => {
+  const next: SheetWalk = { ...WALK, id: 4 };
+  const before = [
+    robot("a", 90, 290, { key: "typing", phase: 4, fresh: true }),
+    robot("b", 10, 10, { walk: WALK }),
+    robot("d", 30, 30, { walk: WALK }),
+  ];
+  const after = [
+    robot("a", 200, 500, { key: "idle", walk: WALK }),
+    robot("b", 10, 10, { walk: WALK }),
+    robot("c", 20, 20, { walk: next }),
+    robot("d", 30, 30, { walk: next }),
+    robot("e", 40, 40),
+  ];
+
+  expect(walksStarted(before, after)).toEqual([
+    // It waits where the walk starts, looking as it did, until the walk's pictures are here.
+    { agentId: "a", walk: WALK, held: robot("a", 100, 300, { key: "typing", phase: 4 }) },
+    // A robot that was not in the office is not there yet.
+    { agentId: "c", walk: next, held: null },
+    // Moved again before it arrived: the new walk replaces the old one.
+    { agentId: "d", walk: next, held: robot("d", 100, 300) },
+  ]);
+});
+
+test("a walk's track passes the end of each leg at that leg's share of the time", () => {
+  expect(walkTrack(WALK)).toEqual({
+    input: [0, 0.25, 0.5, 0.75, 1],
+    x: [100, 100, 180, 180, 200],
+    y: [300, 380, 380, 460, 500],
+  });
+  expect(walkKeys(WALK)).toEqual(["walk|south", "walk|east", "walk|north"]);
+});
+
+test("a leg's picture shows from the end of the leg before it to its own end", () => {
+  const gap = 0.0001;
+  expect(legShown(WALK, 0)).toEqual({ input: [0, 0.25, 0.25 + gap], output: [1, 1, 0] });
+  expect(legShown(WALK, 1)).toEqual({
+    input: [0.25, 0.25 + gap, 0.5, 0.5 + gap],
+    output: [0, 1, 1, 0],
+  });
+  expect(legShown(WALK, 3)).toEqual({ input: [0.75, 0.75 + gap, 1], output: [0, 1, 1] });
+  // In from the door: one leg, shown throughout.
+  const one: SheetWalk = { ...WALK, legs: [WALK.legs[3]!] };
+  expect(legShown(one, 0)).toEqual({ input: [0, 1], output: [1, 1] });
+});
+
+test("two legs hand over within the shorter one, so no range runs backwards or past the end", () => {
+  const short: SheetWalk = {
+    ...WALK,
+    legs: [
+      { ...WALK.legs[0]!, until: 0.5 },
+      { ...WALK.legs[1]!, until: 0.50002 },
+      { ...WALK.legs[3]!, until: 1 },
+    ],
+  };
+  for (const index of [0, 1, 2]) {
+    const { input } = legShown(short, index);
+    expect(input.at(-1)).toBeLessThanOrEqual(1);
+    for (let at = 1; at < input.length; at += 1) {
+      expect(input[at]).toBeGreaterThan(input[at - 1]!);
+    }
+  }
+  // The middle leg's picture is alone for a part of its own time.
+  const [, shows, until] = legShown(short, 1).input;
+  expect(until! - shows!).toBeGreaterThan(0);
+  // The first leg is gone when the second is fully shown: the two cross over the same stretch.
+  expect(legShown(short, 0).input.at(-1)).toBe(shows);
+});
+
+test("a robot on its way is not at a desk: it is held where it was until its walk can be shown", () => {
+  const robots = [robot("a", 200, 500), robot("b", 10, 10), robot("c", 20, 20)];
+  const held = robot("a", 100, 300, { key: "raised" });
+  const walks = [
+    { agentId: "a", walk: WALK, held },
+    { agentId: "c", walk: { ...WALK, id: 4 }, held: null },
+  ];
+
+  expect(robotsSeated(robots, [], () => false)).toEqual(robots);
+  expect(robotsSeated(robots, walks, () => false)).toEqual([held, robots[1]]);
+  expect(robotsSeated(robots, walks, () => true)).toEqual([robots[1]]);
 });

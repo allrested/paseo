@@ -14,12 +14,27 @@ import {
   type PluginSubscriptionObserver,
 } from "@getpaseo/plugin/client/host";
 import type { SheetEvent } from "../../shared/contracts.js";
-import type { Sheet, SpritePicture } from "../../shared/sheet.js";
+import type { Sheet, SheetWalk, SpritePicture } from "../../shared/sheet.js";
 import { LIGHT_THEME_COLORS } from "../scene/fake-theme.js";
 import { useOfficeStyles } from "../styles.js";
 import { SheetView } from "./sheet-view.js";
 
 const THEME = { colors: LIGHT_THEME_COLORS };
+
+// React Native Web asks the browser once, when it loads, and takes a browser that cannot say for
+// one that wants less motion. jsdom cannot say.
+const motion = vi.hoisted(() => {
+  const asked = { reduced: false };
+  window.matchMedia = ((query: string) => ({
+    media: query,
+    get matches() {
+      return asked.reduced;
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  })) as unknown as typeof window.matchMedia;
+  return asked;
+});
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 // React Native Web makes one observer for every view, the first time a view asks for its layout.
@@ -135,9 +150,7 @@ function sheet(version: number, extra: Partial<Sheet> = {}): Sheet {
     ratio: 2,
     scale: 40,
     frame: { width: 60, height: 80, chest: { x: 30, y: 40 } },
-    robots: [
-      { agentId: "a", key: "typing", x: 100, y: 300, phase: 0, joining: false, fresh: false },
-    ],
+    robots: [{ agentId: "a", key: "typing", x: 100, y: 300, phase: 0, walk: null, fresh: false }],
     rooms: [],
     notes: [],
     mentions: [],
@@ -173,6 +186,7 @@ async function tapAt(x: number, y: number): Promise<void> {
 }
 
 beforeEach(async () => {
+  motion.reduced = false;
   opened = [];
   spriteCalls = [];
   selected = [];
@@ -237,9 +251,7 @@ test("a robot keeps its picture while the sprite of its new key is fetched", asy
   await hostSays({
     type: "sheet",
     sheet: sheet(1, {
-      robots: [
-        { agentId: "a", key: "raised", x: 100, y: 300, phase: 0, joining: false, fresh: false },
-      ],
+      robots: [{ agentId: "a", key: "raised", x: 100, y: 300, phase: 0, walk: null, fresh: false }],
     }),
   });
   expect(spriteSources()).toEqual(["data:image/png;base64,TYPING"]);
@@ -247,6 +259,209 @@ test("a robot keeps its picture while the sprite of its new key is fetched", asy
   await act(async () => answer(stillOf("raised")));
   await settle();
   expect(spriteSources()).toEqual(["data:image/png;base64,RAISED"]);
+});
+
+// Out of one room and into the next: a leg behind the near walls, then one in front of them.
+const WALK: SheetWalk = {
+  id: 1,
+  ms: 40,
+  x: 100,
+  y: 300,
+  legs: [
+    { x: 150, y: 400, until: 0.5, key: "walk|out", inside: true },
+    { x: 200, y: 500, until: 1, key: "walk|over", inside: false },
+  ],
+};
+const MOVED = {
+  robots: [{ agentId: "a", key: "idle", x: 200, y: 500, phase: 0, walk: WALK, fresh: false }],
+};
+
+/** Each robot picture shown and where its frame's corner is laid. */
+const spritesShown = () =>
+  [...container.querySelectorAll("img")]
+    .filter((image) => (image.getAttribute("src") ?? "").startsWith("data:image/png"))
+    .map((image) => {
+      const frame = image.closest<HTMLElement>('[style*="overflow"]')!;
+      return [image.getAttribute("src")!.slice("data:image/png;base64,".length), frame.style.left];
+    });
+
+/**
+ * Holds every timed animation until the test ends it. The test build of Animated ends each one
+ * as it starts, so a walk would be over before it could be looked at.
+ */
+function heldAnimations() {
+  const ends: Array<(result: { finished: boolean }) => void> = [];
+  const durations: number[] = [];
+  vi.spyOn(Animated, "timing").mockImplementation((_value, config) => {
+    durations.push(config.duration ?? 0);
+    return {
+      start: (callback?: (result: { finished: boolean }) => void) => {
+        if (callback) ends.push(callback);
+      },
+      stop: () => {},
+      reset: () => {},
+    };
+  });
+  return {
+    durations,
+    finish: () =>
+      act(async () => {
+        for (const end of ends.splice(0)) end({ finished: true });
+      }),
+  };
+}
+
+test("a robot that changes room waits at its old seat, walks, and sits down at the new one", async () => {
+  const animations = heldAnimations();
+  await shown(1);
+  const answers = new Map<string, (picture: SpritePicture) => void>();
+  spriteAnswer = (key) => new Promise((done) => answers.set(key, done));
+
+  await hostSays({ type: "sheet", sheet: sheet(1, MOVED) });
+  // Its walk's pictures and its new look are asked for; until they come it is where it was.
+  expect(spriteCalls.map((call) => call.key).sort()).toEqual([
+    "idle",
+    "typing",
+    "walk|out",
+    "walk|over",
+  ]);
+  expect(spritesShown()).toEqual([["TYPING", "100px"]]);
+
+  await act(async () => answers.get("walk|out")!(stillOf("walk|out")));
+  await settle();
+  expect(spritesShown()).toEqual([["TYPING", "100px"]]);
+
+  await act(async () => {
+    answers.get("walk|over")!(stillOf("walk|over"));
+    answers.get("idle")!(stillOf("idle"));
+  });
+  // On foot: one picture a leg, and none at a desk. The walk takes as long as the host says.
+  expect(spritesShown().map(([png]) => png)).toEqual(["WALK|OUT", "WALK|OVER"]);
+  expect(animations.durations).toEqual([WALK.ms]);
+
+  await animations.finish();
+  expect(spritesShown()).toEqual([["IDLE", "200px"]]);
+});
+
+test("a robot that arrives is not drawn until it walks in, and sits down without fading in", async () => {
+  const animations = heldAnimations();
+  await shown(1);
+  const answers = new Map<string, (picture: SpritePicture) => void>();
+  spriteAnswer = (key) => new Promise((done) => answers.set(key, done));
+  const arrived = {
+    robots: [
+      sheet(1).robots[0]!,
+      {
+        agentId: "b",
+        key: "walking",
+        x: 200,
+        y: 500,
+        phase: 0,
+        walk: {
+          id: 2,
+          ms: 1500,
+          x: 240,
+          y: 600,
+          legs: [{ ...WALK.legs[0]!, x: 200, y: 500, until: 1 }],
+        },
+        fresh: false,
+      },
+    ],
+  };
+
+  await hostSays({ type: "sheet", sheet: sheet(1, arrived) });
+  expect(spritesShown()).toEqual([["TYPING", "100px"]]);
+
+  await act(async () => {
+    answers.get("walk|out")!(stillOf("walk|out"));
+    answers.get("walking")!(stillOf("walking"));
+  });
+  expect(spritesShown().map(([png]) => png)).toEqual(["TYPING", "WALK|OUT"]);
+
+  await animations.finish();
+  expect(spritesShown()).toEqual([
+    ["TYPING", "100px"],
+    ["WALKING", "200px"],
+  ]);
+  // The walk is the only thing that was timed: no fade for the robot that walked in.
+  expect(animations.durations).toEqual([1500]);
+});
+
+test("with reduced motion a robot is at its new desk at once", async () => {
+  await act(async () => root.unmount());
+  motion.reduced = true;
+  await mount();
+  const animations = heldAnimations();
+  await shown(1);
+
+  await hostSays({ type: "sheet", sheet: sheet(1, MOVED) });
+
+  expect(spriteCalls.map((call) => call.key)).toEqual(["typing", "idle"]);
+  expect(spritesShown()).toEqual([["IDLE", "200px"]]);
+  expect(animations.durations).toEqual([]);
+});
+
+test("a walk is played once: the sheets that name it again do not start it over", async () => {
+  const animations = heldAnimations();
+  await shown(1);
+  await hostSays({ type: "sheet", sheet: sheet(1, MOVED) });
+  await hostSays({ type: "sheet", sheet: sheet(1, MOVED) });
+  expect(animations.durations).toEqual([WALK.ms]);
+
+  await animations.finish();
+  await hostSays({ type: "sheet", sheet: sheet(1, MOVED) });
+  expect(animations.durations).toEqual([WALK.ms]);
+  expect(spritesShown()).toEqual([["IDLE", "200px"]]);
+});
+
+test("a view that opens while a robot is on its way shows it at its desk", async () => {
+  await shown(1, MOVED);
+
+  expect(spriteCalls.map((call) => call.key)).toEqual(["idle"]);
+  expect(spritesShown()).toEqual([["IDLE", "200px"]]);
+});
+
+test("a walk whose pictures do not come is given up, and the robot sits at its new desk", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const flush = () => act(async () => void (await vi.advanceTimersByTimeAsync(1)));
+    await act(async () => {
+      opened[0]!.observer.event({
+        type: "tile",
+        tile: {
+          version: 1,
+          index: 0,
+          x: 0,
+          y: 0,
+          width: 400,
+          height: 800,
+          jpeg: "J",
+          overlay: null,
+        },
+      });
+      opened[0]!.observer.event({ type: "sheet", sheet: sheet(1) });
+    });
+    await flush();
+    spriteAnswer = async (key) => (key.startsWith("walk|") ? null : stillOf(key));
+    await act(async () => opened[0]!.observer.event({ type: "sheet", sheet: sheet(1, MOVED) }));
+    await flush();
+    expect(spritesShown()).toEqual([["TYPING", "100px"]]);
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(3000)));
+    expect(spritesShown()).toEqual([["IDLE", "200px"]]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a new backdrop ends a walk made for the old one", async () => {
+  heldAnimations();
+  await shown(1);
+  await hostSays({ type: "sheet", sheet: sheet(1, MOVED) });
+  expect(spritesShown().map(([png]) => png)).toEqual(["WALK|OUT", "WALK|OVER"]);
+
+  await shown(2, MOVED);
+  expect(spritesShown()).toEqual([["IDLE", "200px"]]);
 });
 
 test("a sprite that failed is asked for again later, not in a loop", async () => {

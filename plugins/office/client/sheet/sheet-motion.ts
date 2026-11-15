@@ -6,6 +6,7 @@ import type {
   SheetPoint,
   SheetRect,
   SheetRobot,
+  SheetWalk,
   SpritePicture,
 } from "../../shared/sheet.js";
 import { TAP_RADIUS_PX } from "../scene/picking.js";
@@ -246,6 +247,114 @@ export function playsOnce(
 ): boolean {
   if (loop) return false;
   return previous === undefined ? next.fresh : previous.key !== next.key;
+}
+
+/** A walk whose pictures have not come after this long is given up, and the robot shown seated. */
+export const WALK_WAIT_MS = 3000;
+/** One leg's picture gives way to the next within this share of the walk's time, at most. */
+const LEG_GAP = 0.0001;
+
+export interface StartedWalk {
+  agentId: string;
+  walk: SheetWalk;
+  /**
+   * The robot as it sat before it left, at the walk's start: what is shown until the walk's
+   * pictures are here. Null for a robot that was not in the office: it is not there yet.
+   */
+  held: SheetRobot | null;
+}
+
+/**
+ * The walks a sheet starts: each one the sheet before it did not name. The first sheet starts
+ * none: the view opened while those robots were on their way, and shows them at their desks.
+ */
+export function walksStarted(
+  before: readonly SheetRobot[] | null,
+  robots: readonly SheetRobot[],
+): StartedWalk[] {
+  if (before === null) return [];
+  const was = new Map(before.map((robot) => [robot.agentId, robot]));
+  const started: StartedWalk[] = [];
+  for (const robot of robots) {
+    const { walk } = robot;
+    const old = was.get(robot.agentId);
+    if (walk === null || old?.walk?.id === walk.id) continue;
+    started.push({
+      agentId: robot.agentId,
+      walk,
+      held: old === undefined ? null : { ...old, x: walk.x, y: walk.y, walk: null, fresh: false },
+    });
+  }
+  return started;
+}
+
+/**
+ * The robots drawn at a desk. One on its way is drawn by its walk instead; until the walk's
+ * pictures are here (`ready`) it is held where it was, and one that was not in the office is
+ * not drawn at all.
+ */
+export function robotsSeated(
+  robots: readonly SheetRobot[],
+  walks: readonly StartedWalk[],
+  ready: (walk: SheetWalk) => boolean,
+): SheetRobot[] {
+  const afoot = new Map(walks.map((each) => [each.agentId, each]));
+  const seated: SheetRobot[] = [];
+  for (const robot of robots) {
+    const walking = afoot.get(robot.agentId);
+    if (walking === undefined) seated.push(robot);
+    else if (walking.held !== null && !ready(walking.walk)) seated.push(walking.held);
+  }
+  return seated;
+}
+
+/** The sprites a walk shows, each once. */
+export function walkKeys(walk: SheetWalk): string[] {
+  return [...new Set(walk.legs.map((leg) => leg.key))];
+}
+
+/**
+ * What `Animated.interpolate` needs to carry a robot's frame along its walk: the frame's top
+ * left corner at each share of the walk's time, with a straight line between two of them.
+ */
+export function walkTrack(walk: SheetWalk): { input: number[]; x: number[]; y: number[] } {
+  return {
+    input: [0, ...walk.legs.map((leg) => leg.until)],
+    x: [walk.x, ...walk.legs.map((leg) => leg.x)],
+    y: [walk.y, ...walk.legs.map((leg) => leg.y)],
+  };
+}
+
+/** The share of the walk's time at which leg `index` starts: where the one before it ends. */
+function legStart(walk: SheetWalk, index: number): number {
+  return index <= 0 ? 0 : (walk.legs[index - 1]?.until ?? 0);
+}
+
+/**
+ * How long the pictures of leg `index` and the one after it share, in the walk's time: short,
+ * and a quarter of the shorter of the two at most, so each leg is shown alone for half of itself.
+ */
+function handover(walk: SheetWalk, index: number): number {
+  const ends = walk.legs[index]?.until ?? 1;
+  const nextEnds = walk.legs[index + 1]?.until ?? 1;
+  return Math.min(LEG_GAP, (ends - legStart(walk, index)) / 4, (nextEnds - ends) / 4);
+}
+
+/**
+ * The opacity of leg `index`'s picture over the walk: 1 from the end of the leg before it to its
+ * own end, 0 before and after. Where two legs meet, one fades as the other shows, so the robot
+ * is never missing and never drawn twice at full strength.
+ */
+export function legShown(walk: SheetWalk, index: number): { input: number[]; output: number[] } {
+  const last = walk.legs.length - 1;
+  const from = legStart(walk, index);
+  const until = walk.legs[index]?.until ?? 1;
+  const shows = from + handover(walk, index - 1);
+  const gone = until + handover(walk, index);
+  if (index === 0 && index === last) return { input: [0, 1], output: [1, 1] };
+  if (index === 0) return { input: [0, until, gone], output: [1, 1, 0] };
+  if (index === last) return { input: [from, shows, 1], output: [0, 1, 1] };
+  return { input: [from, shows, until, gone], output: [0, 1, 1, 0] };
 }
 
 /** A plane's flight: its length, its heading for a sprite that points right, and its arc. */

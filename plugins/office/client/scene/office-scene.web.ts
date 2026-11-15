@@ -90,6 +90,7 @@ import type {
   TextureLike,
   ThreeModule,
 } from "./three-types.js";
+import { createWalkTracker, walkFrame } from "./walk.js";
 
 /** The camera as the user left it, and the column count of the office it looked at. */
 export interface KeptCamera {
@@ -1027,6 +1028,8 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   const enteredAt = new Map<string, number>();
   /** When each robot took its present pose: a robot that starts to wait waves from then. */
   const posedAt = new Map<string, number>();
+  /** Robots on their way to another room. An agent that starts walks in by `robotFrame`. */
+  const walks = createWalkTracker({ arrivals: false, reducedMotion: options.reducedMotion });
   let viewport: Viewport = { width: 0, height: 0 };
   let ratio = 1;
   let view: CameraView = { x: 0, z: 0, zoom: 1 };
@@ -1117,12 +1120,17 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     for (const label of labels.values()) placeLabel(label, view, viewport, ratio);
   }
 
+  /** How a robot stands now: on its way to another room, or at its desk in its pose. */
+  function motionOf(robot: RobotPlan, now: number): RobotFrame {
+    const walking = walks.get(robot.agentId, now);
+    if (walking !== null) return walkFrame(walking.walk, now - walking.startedAt, now);
+    const entered = enteredAt.get(robot.agentId) ?? now;
+    const posed = posedAt.get(robot.agentId) ?? now;
+    return robotFrame(robot, entered, now, options.reducedMotion, posed);
+  }
+
   function writeRobots(now: number): void {
-    const frames = plan.robots.map((robot) => {
-      const entered = enteredAt.get(robot.agentId) ?? now;
-      const posed = posedAt.get(robot.agentId) ?? now;
-      return { robot, motion: robotFrame(robot, entered, now, options.reducedMotion, posed) };
-    });
+    const frames = plan.robots.map((robot) => ({ robot, motion: motionOf(robot, now) }));
     writeRobotFrames(stage, rig, frames, pixelsPerUnit(view, viewport));
   }
 
@@ -1210,7 +1218,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
     const fading = stepFades(now);
     renderer.render(scene, camera);
     options.onFrame?.();
-    if (flying || fading) return { easing: moving, need: "smooth" };
+    if (flying || fading || walks.active(now)) return { easing: moving, need: "smooth" };
     const need = animationNeed(plan.robots, enteredAt, now, options.reducedMotion, posedAt);
     return { easing: moving, need };
   }
@@ -1339,8 +1347,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
   /** Every robot's chest where it is drawn now: the points a tap is measured from. */
   function robotSpots(now: number): RobotSpot[] {
     return plan.robots.map((robot) => {
-      const entered = enteredAt.get(robot.agentId) ?? now;
-      const motion = robotFrame(robot, entered, now, options.reducedMotion);
+      const motion = motionOf(robot, now);
       const chest = { x: motion.x, y: motion.lift + CHEST_Y, z: motion.z };
       return { agentId: robot.agentId, chest };
     });
@@ -1500,6 +1507,7 @@ export function createOfficeScene(options: OfficeSceneOptions): OfficeScene {
       focus = replan(focus, dealt || nextPlan.rooms.length === 0);
       // After a new deal the old places are another room's: nothing fades there.
       if (!dealt) startFades(plan.notes, nextPlan.notes);
+      walks.update(plan, nextPlan, now);
       plan = nextPlan;
       span = groundSpan(nextPlan.rooms.map(roomFootprint));
       colors = nextPalette;

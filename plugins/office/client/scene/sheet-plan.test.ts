@@ -27,7 +27,10 @@ import {
   stillSignature,
   tileRects,
   typingPhase,
+  walkKey,
+  walkLook,
 } from "./sheet-plan.js";
+import { walkBetween, walkDirection, walkIn } from "./walk.js";
 
 const PHONE = { width: 390, height: 700 };
 
@@ -49,6 +52,7 @@ function sheetOf(plan: ScenePlan, viewer = PHONE, pixelRatio = 2) {
     version: 1,
     tiles: tileRects(picturePixels(frame).width, picturePixels(frame).height).length,
     fresh: new Set(),
+    walks: new Map(),
     plates: new Map(plan.rooms.map((room) => [room.roomId, { width: 80, height: 20 }])),
   });
   return { frame, sheet };
@@ -124,6 +128,7 @@ describe("sheetFrame", () => {
       version: 1,
       tiles: 2,
       fresh: new Set(),
+      walks: new Map(),
       plates: new Map(),
     });
     expect(sheet.robots).toEqual([]);
@@ -174,12 +179,12 @@ describe("buildSheet", () => {
     expect(picturePixels(frame)).toEqual({ width: box.width, height: box.height });
   });
 
-  test("a walking robot is joining; a typing one has its own phase", () => {
+  test("a robot with no walk has none on the sheet; a typing one has its own phase", () => {
     const plan = planFor();
     const { sheet } = sheetOf(plan);
     const walking = robotWith(plan, "walking");
     const placed = sheet.robots.find((robot) => robot.agentId === walking.agentId)!;
-    expect(placed.joining).toBe(true);
+    expect(placed.walk).toBeNull();
     expect(placed.key.startsWith("walking|")).toBe(true);
     const typing = sheet.robots.filter((robot) => robot.key.startsWith("typing|"));
     expect(new Set(typing.map((robot) => robot.phase)).size).toBeGreaterThan(1);
@@ -188,6 +193,104 @@ describe("buildSheet", () => {
       expect(robot.phase).toBeLessThan(SPRITE_CLIPS.typing.frames);
     }
     expect(typingPhase(0)).toBe(0);
+  });
+
+  test("a walk from another room is on the sheet leg by leg, from that seat to the robot's own", () => {
+    const plan = planFor();
+    const frame = sheetFrame(spanOf(plan), PHONE, 2);
+    const roomOf = (robot: RobotPlan) => plan.rooms.find((room) => room.roomId === robot.roomId)!;
+    const mover = robotWith(plan, "typing");
+    const left = plan.robots.find((robot) => robot.roomId !== mover.roomId)!;
+    const walk = walkBetween(
+      { seat: left.seat, room: roomOf(left) },
+      { seat: mover.seat, room: roomOf(mover) },
+      plan.rooms,
+    )!;
+    const sheet = buildSheet({
+      plan,
+      frame,
+      version: 1,
+      tiles: 2,
+      fresh: new Set(),
+      walks: new Map([[mover.agentId, { id: 7, walk }]]),
+      plates: new Map(),
+    });
+    const placed = (agentId: string) => sheet.robots.find((robot) => robot.agentId === agentId)!;
+    const onSheet = placed(mover.agentId).walk!;
+
+    expect(onSheet.id).toBe(7);
+    expect(onSheet.ms).toBe(walk.ms);
+    // It starts where the robot it left from sits, and ends where it sits itself.
+    expect([onSheet.x, onSheet.y]).toEqual([placed(left.agentId).x, placed(left.agentId).y]);
+    const last = onSheet.legs.at(-1)!;
+    expect([last.x, last.y]).toEqual([placed(mover.agentId).x, placed(mover.agentId).y]);
+    expect(last.until).toBe(1);
+    expect(onSheet.legs.length).toBe(walk.legs.length);
+    expect(onSheet.legs.length).toBeGreaterThan(3);
+    let before = 0;
+    onSheet.legs.forEach((leg, index) => {
+      expect(leg.until).toBeGreaterThan(before);
+      before = leg.until;
+      expect(leg.inside).toBe(index === 0 || index === onSheet.legs.length - 1);
+      const look = walkLook(leg.key)!;
+      expect(look.direction).toBe(walkDirection(walk.legs[index]!.heading));
+      expect(look.robot.visor).toBe(mover.visor);
+    });
+    // The pace is one over the whole way: a leg's share of the time is its share of the length.
+    expect(onSheet.legs[0]!.until).toBeCloseTo(walk.legs[0]!.length / walk.length, 9);
+    expect(sheet.robots.filter((robot) => robot.walk !== null)).toHaveLength(1);
+  });
+
+  test("a robot that comes in from the door has one leg, inside its room", () => {
+    const plan = planFor();
+    const frame = sheetFrame(spanOf(plan), PHONE, 2);
+    const arriving = robotWith(plan, "walking");
+    const sheet = buildSheet({
+      plan,
+      frame,
+      version: 1,
+      tiles: 2,
+      fresh: new Set(),
+      walks: new Map([[arriving.agentId, { id: 1, walk: walkIn(arriving) }]]),
+      plates: new Map(),
+    });
+    const placed = sheet.robots.find((robot) => robot.agentId === arriving.agentId)!;
+    expect(placed.walk!.legs).toHaveLength(1);
+    expect(placed.walk!.legs[0]).toMatchObject({
+      x: placed.x,
+      y: placed.y,
+      until: 1,
+      inside: true,
+    });
+    // The door is nearer the viewer than the seat: lower on the picture.
+    expect(placed.walk!.y).toBeGreaterThan(placed.y);
+  });
+
+  test("a walking sprite's key names the robot's look and one of eight directions", () => {
+    const plan = planFor();
+    const robot = robotWith(plan, "typing");
+    const east = walkLook(walkKey(robot, Math.PI / 2))!;
+    expect(east.direction).toBe(2);
+    expect(east.robot).toMatchObject({
+      pose: robot.pose,
+      visor: robot.visor,
+      lamp: robot.lamp,
+      lampColor: robot.lampColor,
+      screenLit: false,
+      side: false,
+    });
+    // A heading a little off is the same picture; the next eighth is another.
+    expect(walkKey(robot, Math.PI / 2 + 0.2)).toBe(walkKey(robot, Math.PI / 2));
+    expect(walkKey(robot, Math.PI / 2 + 0.5)).not.toBe(walkKey(robot, Math.PI / 2));
+    // Neither kind of key reads as the other, and a made-up direction is refused.
+    expect(walkLook(spriteKey(robot))).toBeNull();
+    expect(spriteLook(walkKey(robot, 0))).toBeNull();
+    expect(
+      walkLook(["walk", robot.pose, robot.visor, robot.lamp, robot.lampColor, "8"].join("|")),
+    ).toBeNull();
+    expect(
+      walkLook(["walk", "dancing", robot.visor, robot.lamp, robot.lampColor, "1"].join("|")),
+    ).toBeNull();
   });
 
   test("marks the robots whose pose is fresh, and places boards, plates, notes and mentions", () => {
@@ -200,6 +303,7 @@ describe("buildSheet", () => {
       version: 3,
       tiles: 2,
       fresh: new Set([raised.agentId]),
+      walks: new Map(),
       plates: new Map([[plan.rooms[0]!.roomId, { width: 60, height: 20 }]]),
     });
     expect(sheet.version).toBe(3);
