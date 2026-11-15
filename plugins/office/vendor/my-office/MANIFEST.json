@@ -1,0 +1,345 @@
+{
+  "upstream": {
+    "repository": "https://github.com/khanh020905/my-office",
+    "commit": "b68228871fe30cd2c759a2c919337a9a9d1f5644",
+    "version": "0.6.0"
+  },
+  "three": {
+    "version": "0.160.0",
+    "sha256": "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6",
+    "bytes": 670681
+  },
+  "setupOrder": [
+    "office/core/env.js",
+    "office/ui/event-text.js",
+    "office/ui/icons.js",
+    "office/scene/renderer.js",
+    "office/scene/lights.js",
+    "office/scene/quality.js",
+    "office/world/terrace.js",
+    "office/world/layout.js",
+    "office/world/cozy-room.js",
+    "office/world/windows.js",
+    "office/world/furniture/room-pieces.js",
+    "office/world/furniture/server-racks.js",
+    "office/world/furniture/rocket.js",
+    "office/world/furniture/board.js",
+    "office/world/entrance.js",
+    "office/people/bedding.js",
+    "office/world/desks.js",
+    "office/world/furniture/meeting.js",
+    "office/world/furniture/coffee.js",
+    "office/world/furniture/plants-lamps.js",
+    "office/world/props/trinkets.js",
+    "office/world/pro/pieces.js",
+    "office/world/pro/floor.js",
+    "office/world/props/aquarium.js",
+    "office/world/props/arcade.js",
+    "office/world/props/printer.js",
+    "office/world/props/tv.js",
+    "office/world/props/game-tv.js",
+    "office/world/props/billiards.js",
+    "office/world/props/karaoke.js",
+    "office/world/props/neon.js",
+    "office/world/props/string-lights.js",
+    "office/world/props/cat.js",
+    "office/world/props/vacuum.js",
+    "office/world/props/bins.js",
+    "office/world/props/shredder.js",
+    "office/world/props/cups.js",
+    "office/world/props/dev-servers.js",
+    "office/world/props/switches.js",
+    "office/world/props/microwave.js",
+    "office/world/props/duty-board.js",
+    "office/interact/rings.js",
+    "office/people/navigation.js",
+    "office/people/breaks.js",
+    "office/people/look.js",
+    "office/people/workers.js",
+    "office/people/team-lines.js",
+    "office/people/director.js",
+    "office/people/errands.js",
+    "office/people/gatherings.js",
+    "office/life/trophies.js",
+    "office/life/quota.js",
+    "office/life/tests.js",
+    "office/world/room-update.js",
+    "office/interact/props.js",
+    "office/interact/place-chips.js",
+    "office/interact/place-cards.js",
+    "office/net/live.js",
+    "office/life/your-turn.js",
+    "office/core/loop.js",
+    "office/core/optimize.js"
+  ],
+  "standIns": {
+    "i18n/index.js": [
+      "locale",
+      "num",
+      "t"
+    ],
+    "office/audio/sfx.js": [
+      "sfx"
+    ],
+    "office/demo/demo.js": [
+      "DEMO"
+    ],
+    "office/interact/first-person.js": [
+      "blocked",
+      "buildGrid",
+      "fp",
+      "fpUpdate"
+    ],
+    "office/life/altar.js": [
+      "updateAltar"
+    ],
+    "office/life/day-swaps.js": [
+      "updateDaySwaps"
+    ],
+    "office/life/drill.js": [
+      "updateDrill"
+    ],
+    "office/life/incidents.js": [
+      "updateIncident"
+    ],
+    "office/life/lift-service.js": [
+      "updateLiftService"
+    ],
+    "office/life/nap.js": [
+      "napOn",
+      "updateNap"
+    ],
+    "office/life/post.js": [
+      "updatePost"
+    ],
+    "office/life/rain.js": [
+      "updateSeason"
+    ],
+    "office/life/seasons.js": [
+      "SEASON_SPOT",
+      "seasonName",
+      "seasonProp"
+    ],
+    "office/life/weather.js": [
+      "applyWeather",
+      "updateWeather"
+    ],
+    "office/people/accountant.js": [
+      "updateAccountant"
+    ],
+    "office/people/billiards.js": [
+      "tableClick",
+      "updateBilliards"
+    ],
+    "office/people/comnha.js": [
+      "updateMicro"
+    ],
+    "office/people/duty.js": [
+      "dutyText",
+      "updateDuty"
+    ],
+    "office/people/farewell.js": [
+      "updateFarewell"
+    ],
+    "office/people/foosball.js": [
+      "updateFoosball"
+    ],
+    "office/people/gaming.js": [
+      "tvClick",
+      "updateGaming"
+    ],
+    "office/people/guard.js": [
+      "updateGuard"
+    ],
+    "office/people/hr.js": [
+      "updateHr"
+    ],
+    "office/people/interns.js": [
+      "updateInterns"
+    ],
+    "office/people/karaoke.js": [
+      "boothClick",
+      "updateKaraoke"
+    ],
+    "office/people/outings.js": [
+      "updateOutings"
+    ],
+    "office/people/rounds.js": [
+      "updateRounds"
+    ],
+    "office/people/staff.js": [
+      "updateStaff"
+    ],
+    "office/people/teatime.js": [
+      "updateTeatime"
+    ],
+    "office/replay/replay.js": [
+      "REPLAY_MOTION",
+      "replayTick"
+    ],
+    "office/replay/timeline.js": [
+      "recorder"
+    ],
+    "office/ui/activity.js": [
+      "cap",
+      "queueUi",
+      "renderHud",
+      "toast",
+      "updateMarkers"
+    ],
+    "office/ui/camera-bar.js": [
+      "setView"
+    ],
+    "office/ui/group-chat.js": [
+      "chatLife"
+    ],
+    "office/ui/lite.js": [
+      "lite",
+      "setLite"
+    ],
+    "office/ui/mac-drawer.js": [
+      "liveWindows",
+      "macSnap",
+      "openMac",
+      "resetText"
+    ],
+    "office/ui/session-drawer.js": [
+      "closeSession",
+      "openSession"
+    ],
+    "office/ui/settings.js": [
+      "setTimeMode",
+      "syncTimeBtns",
+      "syncToggles"
+    ],
+    "office/ui/timelapse.js": [
+      "clipCamera",
+      "clipFrame"
+    ],
+    "office/ui/tips.js": [
+      "tipUsed",
+      "updateTips"
+    ],
+    "office/ui/topbar.js": [
+      "bellOn"
+    ],
+    "office/ui/whiteboard.js": [
+      "boardContent",
+      "ray",
+      "updateBoard"
+    ],
+    "office/world/backdrops/city.js": [
+      "dotTex"
+    ],
+    "office/world/backdrops/index.js": [
+      "THEME",
+      "THEMES"
+    ],
+    "office/world/backdrops/street-folk.js": [
+      "seen"
+    ],
+    "office/world/pro/wing.js": [
+      "DEPT_SIGNS"
+    ]
+  },
+  "files": {
+    "i18n/locales/en/activity.js": "15f6b049c4f1f9b76498c5fd0cf14db9e00e5b208e6896be97964d1a7df3fa90",
+    "i18n/locales/en/common.js": "8011d3d9bdcb5fa846bbdf1fd831bac6920522e87c1f63cf4561a72317e1a824",
+    "i18n/locales/en/events.js": "6bbfb6c9ae6d8259100b088751622171a1868d3a2f0b791733f8eb70b89dac1f",
+    "i18n/locales/en/incident.js": "046b4447c1e5aa3b00363a457993665ecfb302c49bccfa87f2ed801490e8b15e",
+    "i18n/locales/en/life.js": "d8692dbea52c932a483361d3b993a744f20a75016d2a3581c81756f2177c2147",
+    "i18n/locales/en/people.js": "70ca431415e351f809686a11c14aa1991e2a47894b78d7643a2bb8e56b39c330",
+    "i18n/locales/en/places.js": "a1a4b1a665e2b2caba129c015e1da5098fa6b0f8796b6f26abb9267fd5524115",
+    "i18n/locales/en/props.js": "f82d272dfafcedf02c2411c6957d41ff0608fef2c891332f3c01bd806325876b",
+    "i18n/locales/en/settings.js": "ff6b2bfc29a7c1803924f7d4f3915d13f2ddec7e5a56d6955b6f375d07dc48d4",
+    "i18n/locales/en/time.js": "ef6a0fc21a0ac4ccdc658fcb8679b9a867201e76957d3acc9cdd1824aa087ca7",
+    "i18n/locales/en/world.js": "f25ea10826f5f17ac38c2ff5501d64635f5aa3d724b9d9d0d8e129b0bc32d1af",
+    "office/core/env.js": "d3655e5843758dd55288c175873ff4dc63249c824e4015ded95835e65428a676",
+    "office/core/loop.js": "3d369e26d2612603108d49c596b1624753c1a0ff197a2ff5d1981b87a10df57d",
+    "office/core/optimize.js": "34a58c2630428dd660ccc672f5e8274fa8333ef3c008756d355c1e3d827d158e",
+    "office/core/state.js": "e14a53df91f94c556cb7435fac419f9b685cc43ade25e7cf12d1472d4e2fc1e6",
+    "office/interact/place-cards.js": "3f3402711e7c7668b13473a7b4ffa8c59b59acdca6c9141590c885cf828a1541",
+    "office/interact/place-chips.js": "602bbf24a39821ca534a45ff02d6244ec6f03ade1ed36db970b6b6317fb00f4b",
+    "office/interact/props.js": "eaea94db0fb65a93267ee17364b8fb6640cec7b68b3de3e5a404bedd5db6a815",
+    "office/interact/rings.js": "a1ba8574ed6377f1589de0ac30c91c74dc2b1cf8c1b261840e31f4ed64a65d96",
+    "office/life/quota.js": "5a6553ea901b5b72d3b02f124c2cd2d241dfdcad0b7e0529d98e1f7f26abc4f5",
+    "office/life/tests.js": "03c5096eaf9a1302d7036816155e78b77f00db28ce1c4ade5c4c4e1953893273",
+    "office/life/trophies.js": "422c4cd10e0191a5e225e0d7ed3a2c4b7de9e0c10a3a13f28ffba5a4dbfbcb80",
+    "office/life/your-turn.js": "29790f01f10b3fe8be2d86327b0c8d43cf122d1a43651882adbd6c840ae153cc",
+    "office/net/live.js": "9c4232ad9a2697245201f2ed88d33b767c475325194819d9f6bc59089c375862",
+    "office/people/bedding.js": "1f9abb36b2f9327c33decae42a53f965f3cad15dc1a43e284effdc19887288a3",
+    "office/people/breaks.js": "39c8ca718c4976b8674cc8b53bb2fd74d8cf754a811e5055b4bb6ae0435a6b5e",
+    "office/people/chibi-rig.js": "091a2963043ee84647a3435682b2abc238afc76817a208af2bb9b3d9d9de80e2",
+    "office/people/director.js": "4760331b5d2fb0622e49d5ea45b546c8f76a4a4b999fdad3b9593bde7ac57b8e",
+    "office/people/errands.js": "963fc359ce0aeeae2acac35a976b48fdbb31ef287c3328ac5ef09a650c5a2c47",
+    "office/people/gatherings.js": "8f5e0e413ba3f3dfcf6eb2854444066eb1d7153b36fc17897af1f5bfd4d852a5",
+    "office/people/look.js": "1f7bc510fad4eef1eeeae186a5c1e889545aaef640466d4597c9541de3dda655",
+    "office/people/navigation.js": "ccc374ba6660b9b14ee1a78e9d053c8671e1b55da13be2e2e8270709da4fe76a",
+    "office/people/team-lines.js": "6213942c582c65888a4a5fa124fc771e0966edb6e180664aa95e904463060405",
+    "office/people/workers.js": "44ff11013da0000ad013e799cb9eba8b8c2f3f02869ddc42bb2aaad65ddbc032",
+    "office/scene/blocks.js": "02bf430c1438035c04eb3edcbffc4cecb80e8adb0ba4ac9e0110192f523a3798",
+    "office/scene/lights.js": "d032ce0f2eb4e34fbcb10672ee72ed3b87f70200fe0a7d18162110b9193bda95",
+    "office/scene/quality.js": "fe2c71f296d15e7ed642077e5ddf81af023e595a9279f55bb4fca7475dc9ddb8",
+    "office/scene/renderer.js": "9cd0f1f7c22e4ff15f49a874773ec8f9e42e507746c186cd9cfdec73beafeb10",
+    "office/ui/event-text.js": "aacc48a70644ad3ba284f264b2383bdd57b0612da81ea19a7c8bf8eb3c33faf4",
+    "office/ui/icons.js": "0aa45c14cd93a1cd31acc1038a4e65faa390e80c3de55daeeedfdf9118896973",
+    "office/world/cozy-room.js": "6d97d3b3bfacc0c9f5957ea0d63040fb0779496c26c0ae7cf59afecd2b4be1b9",
+    "office/world/desks.js": "9657ee54ad8a5fed27f5c3cd3a5227bd5728988fa9beb64242c1380e6719bbc4",
+    "office/world/entrance.js": "214eb0073156deba09aa1ac56062d672741f7747cb6a8375032c08394d83b484",
+    "office/world/furniture/board.js": "57cc5e0f7df37eeaa86b56800958efdd7aee72eff40ceb2db329e3362e72aec8",
+    "office/world/furniture/coffee.js": "5cc4440c2fa89c435c64c45bef3a464026a8a930c2048a2b047ef606efd2fe8f",
+    "office/world/furniture/meeting.js": "2b7b27293f2ce6e690e03f56457e532bed63c3bab6b54f953cf8a5455544e956",
+    "office/world/furniture/plants-lamps.js": "56e31460080987443065c4c6c8d3041757d3ba1ffec464ac1215111a2f6348db",
+    "office/world/furniture/rocket.js": "bcf2e5027586b3728ab1a914181f48ae341276548a2510af881f6094bd4f6d9a",
+    "office/world/furniture/room-pieces.js": "2357c53e5c89ed10e492b2256b158da751b9da21e1604d044800cda9f6e0d685",
+    "office/world/furniture/server-racks.js": "49f3dd1457690576a094b5b923e58d5eb5f73d3c7bd39f77e54ef1f46810abd0",
+    "office/world/layout.js": "baed9c6610a70997ba36837116cc4af9539f7bdd427fa981c3ea54c005829150",
+    "office/world/pro/floor.js": "7c2f4b8af5d2b8ff8b2d704a2be670f5d4007b078fa1cef70dad30fbecdd1bc5",
+    "office/world/pro/pieces.js": "48c8ddba5fc7b55fe0d61aec2acdb9bd588855c2ddbbce3600a221d47aafbc88",
+    "office/world/props/aquarium.js": "3a7263c01a064f760bf048323b3e0ed24f47b38ef92702072930888d11c2b46a",
+    "office/world/props/arcade.js": "ee7543998d4cf941cbbeae2abc41c9408bd8f7462c4da6f0e4016173725721d9",
+    "office/world/props/billiards.js": "17bdd6b6e67163591d16986e7bdd7a2fe58d579ffee67d32c6a776c94c4bd931",
+    "office/world/props/bins.js": "450741f9bcb5f2aba4c1eb98c230d682add3b2e736fff2b333c95e59fbdfe2d1",
+    "office/world/props/cat.js": "784ec132385001969915ceae47971adfa082fc39d7c9cc3d48e4bb035a1c83c3",
+    "office/world/props/cups.js": "af5e71b1463c0e8b52301f0f8a6ce6eaf000d3f4834dc1f7b7808b958fbb0afe",
+    "office/world/props/dev-servers.js": "672b585fd1ce97c07cafabeb601bd0e85286c28b9778bf3e5a1d264e0069df1e",
+    "office/world/props/duty-board.js": "a72244e11218ddb675d2c0fff596b2be6fe4831a0743cf0ecf7974bf96586460",
+    "office/world/props/game-tv.js": "b306006e0574a237455146ec0906d236ac205991d8ab5300eebeec36ca8fddc8",
+    "office/world/props/karaoke.js": "37abd85c6c1dcd54d1b4dd8adaab4b10a4ffa987ef7a4e9b1e54f91c0e5874f4",
+    "office/world/props/microwave.js": "a99a6fed822bdb9f5bc16d7399b424f9bac7db873aeadcc196a9be4735eeb0c1",
+    "office/world/props/neon.js": "3c7fcd8f5e33afc3bca08eb274d8ff9e6b1d5fa473943b6d48ffdd8764b2f5b4",
+    "office/world/props/printer.js": "38a45467bf9ff2c61023f78d4db59b69690667fdb2f9804f144fdd45f8611025",
+    "office/world/props/shredder.js": "ebe4d80d49b6beb851af20422461a59bf006048f3dd0ee17bd1c5ca047288324",
+    "office/world/props/string-lights.js": "9dc86ced1a82befcec426cbe97ba2b971f27e194f865fc688d023c4bc4178f0b",
+    "office/world/props/switches.js": "ee77ee6e754c9ed65135a87e19bf42d309380d46eaaae5d826bc084a7c859763",
+    "office/world/props/trinkets.js": "97b3c8b12415be7c1ddf44c0dc3093f2bf7c1abe6490df39557e538a78b63dcc",
+    "office/world/props/tv.js": "84ce7fc17ef462cd32a138e8d635c63a402d313debad44a333af68bad0a0727b",
+    "office/world/props/update.js": "60dfca0d5eb75bf8c26f4f528eb375b3a49bf98793bd5206a88141593b5d451c",
+    "office/world/props/vacuum.js": "cb6e3b24bad60fd6d66631f9e935b11dd63f5b1f6ef955742a6724a69d51bd21",
+    "office/world/room-update.js": "f828441d2d17d8d49975dbecf4dfb2b7c9e85432316d3cd1b8ea5ca95417fa00",
+    "office/world/screens.js": "a8a3cc24c4cc4ba12a9a7f7b08de550f8c779b3e70b73b93febf9fa172053403",
+    "office/world/terrace.js": "e07e6642f747523bf4d2f4363ffd72a78e6e75e3046d24f1f76f93e9e9485e65",
+    "office/world/windows.js": "9d5c1d10a6b64dbca78258e232de1dc867787d1fd1361d5d36954774a58faeda",
+    "shared/cache-clock.js": "6bea97429b540d61f392a69792b543c6c5466a795208a11862f6048aecc6744a",
+    "shared/duty.js": "2ff5820852f1b3cade39ed2e2541dca3c14dfb0d6c0c26231522061c15f8f05c",
+    "shared/model-name.js": "7ec137c9fd072acd272acfc6a94d89a8145851e179aa6f4c92d8ab55073f28b3",
+    "shared/workdays.js": "82d793eac17886804cf2637f4a70dd992cbbc08e947f4145f31589998864268b"
+  },
+  "addons": {
+    "addons/controls/OrbitControls.js": "5a44a9e86a2a0fb11933eed69bc2cd33c76a496854c1aed6ed776efa87d7b064",
+    "addons/environments/RoomEnvironment.js": "e21f41b7ef2016f2984a5d27850b42dffa797a6a194a138e288b06576d765a7b",
+    "addons/geometries/RoundedBoxGeometry.js": "d20aeaf7077c459a8d952d215738d7b44fba028440bb862d84b622a34f0c80bb",
+    "addons/postprocessing/EffectComposer.js": "d234e578618fa816955ebdc059c049c577e203e650e33cf22bde3f232c29e669",
+    "addons/postprocessing/MaskPass.js": "328cf7db0da5d9be83ffe39d54b01d5ac1fddf108cc98182ddbb056f5c8b537f",
+    "addons/postprocessing/OutputPass.js": "13817fc7a87f662d29d2c5e00f44d3a4588c9afac4a372de0cacb0e44e368ffd",
+    "addons/postprocessing/Pass.js": "b3c6128340eaa37e40a6a2f1b738e894c855239417d50959759b34a2b5e89f92",
+    "addons/postprocessing/RenderPass.js": "1c90c085312871c4bcdccfcf519499c6276dd503363fcf7cb7f703add45cf4a2",
+    "addons/postprocessing/ShaderPass.js": "3b28a1ee27e0eb96c0eab137a1f442ccf127a926904eced2d51e125ec44af781",
+    "addons/postprocessing/UnrealBloomPass.js": "8f09315c0cec117a0ca2494d3e3586035b3c4323d6dcb037537cc51b04c3cdba",
+    "addons/renderers/CSS2DRenderer.js": "a4f0f79184c043f6b9d2654d8ba051e49a7d631d34e8f437c1804798a68c379f",
+    "addons/shaders/CopyShader.js": "4e3346db194db56a596cd074e9bdb39fb5eb52040c333e0d29dc4eb1324d3b1d",
+    "addons/shaders/LuminosityHighPassShader.js": "3d841cc594a0c1767d1b0185720b32761a0133c5f1b70b56658e28f2fb9b7900",
+    "addons/shaders/OutputShader.js": "53a52e430c27bc36ceaab8ae90a2b4af7b02672d7ee4b29d6ba3c28e09c92c2a",
+    "addons/utils/BufferGeometryUtils.js": "9be041e96308775d00e2695cc607645b9a9b64fd7c0e759dd8f7c00a8d92becb"
+  }
+}

@@ -1,0 +1,224 @@
+// PASEO: the entry of the page the office is drawn in. It stands where upstream's main.js,
+// net/live.js's connection and life/incidents.js's event handler stand: it builds the world from
+// the kept modules, in upstream's order, and gives Paseo's office plugin one object to drive it.
+// The plugin's side of this contract is plugins/office/client/world/world-api.ts.
+import { state } from './core/state.js';
+import { MODULES } from './paseo-modules.js';
+import { host } from './paseo-host.js';
+import { STYLE } from './paseo-style.js';
+import { reduceMotion, short } from './core/env.js';
+import { renderer } from './scene/renderer.js';
+import { focusTarget } from './core/loop.js';
+import * as live from './net/live.js';
+import * as whiteboard from './ui/whiteboard.js';
+import * as backdrops from './world/backdrops/index.js';
+import * as cameraBar from './ui/camera-bar.js';
+import { ACT, bubbleText } from './ui/event-text.js';
+import { icon } from './ui/icons.js';
+import { closeSession, openSession } from './ui/session-drawer.js';
+import { setMacSnap } from './ui/mac-drawer.js';
+import { PLACES } from './interact/place-chips.js';
+import { closePlace } from './interact/place-cards.js';
+import { dropSub, sessions, spawnSub, subAct, subs, workers } from './people/workers.js';
+import { director } from './people/director.js';
+import { STATIONS } from './people/navigation.js';
+import { applaud } from './people/gatherings.js';
+import { launchRocket } from './world/room-update.js';
+import { printPage } from './world/props/printer.js';
+import { shredAction } from './world/props/shredder.js';
+import { onTest } from './life/tests.js';
+import { onTurnDone } from './life/your-turn.js';
+import { t as tr } from '../i18n/index.js';
+
+const VERSION = 1;
+let started = false;
+let seated = false;
+let limits = [];
+let boardRows = [];
+let problem = () => {};
+let stopped = false;
+
+/** What upstream's page markup gives the kept modules: the stage, the place card, two controls. */
+function buildPage() {
+  const style = document.createElement('style');
+  style.textContent = STYLE;
+  document.head.append(style);
+  document.documentElement.lang = 'en';
+  document.body.innerHTML = `
+    <div id="stage-wrap"><div id="stage"></div>
+      <section class="plc" id="plc" hidden role="dialog" aria-labelledby="plc-title">
+        <header class="plc-head"><span class="plc-ico" id="plc-ico"></span><div class="plc-title"><h3 id="plc-title"></h3><p id="plc-sub"></p></div>
+          <button type="button" class="icon-btn" id="plc-close" aria-label="Close"><span data-icon="x"></span></button></header>
+        <div class="plc-body" id="plc-body"></div><footer class="plc-foot" id="plc-foot" hidden></footer>
+      </section>
+    </div>
+    <span id="conn" hidden><i></i><span></span></span><button type="button" id="btn-night" hidden></button>`;
+}
+
+/** The app theme, as the custom properties paseo-style.js reads and the page's colour scheme. */
+function applyColors(colors, dark) {
+  const root = document.documentElement.style;
+  root.colorScheme = dark ? 'dark' : 'light';
+  const set = (name, value) => { if (typeof value === 'string' && value) root.setProperty(name, value); };
+  set('--o-surface-raised', colors.surface1);
+  set('--o-surface', colors.surface2);
+  set('--o-border', colors.border);
+  set('--o-fg', colors.foreground);
+  set('--o-muted', colors.foregroundMuted);
+  set('--o-accent', colors.accent);
+  set('--o-success', colors.statusSuccess);
+  set('--o-warning', colors.statusWarning);
+  set('--o-danger', colors.statusDanger);
+  if (typeof colors.surface0 === 'string' && colors.surface0) host.surface = colors.surface0;
+}
+
+/** The project a team chip stands for: the first field of the key net/live.js keeps on it. */
+const teamOf = (tag) => tag.key.split('|').slice(0, -3).join('|');
+
+/** A team's chip opens that team's board in Paseo: a button, by pointer and by keyboard. */
+function makeTeamChipsButtons() {
+  for (const tag of live.teamTags || []) {
+    const chip = tag.o.element;
+    chip.setAttribute('role', 'button');
+    chip.tabIndex = 0;
+    const open = () => { const team = teamOf(tag); if (team) host.board(team); };
+    chip.addEventListener('click', open);
+    chip.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      if (!event.repeat) open();
+    });
+  }
+}
+
+/** Upstream's life/incidents.js onEvent, the part that moves people and furniture. */
+function onEvent(e) {
+  const s = sessions.get(e.sess), w = workers.get(e.sess);
+  if (e.type === 'stop' || e.type === 'commit') printPage();   // every finished turn and every commit prints a page
+  if (e.type === 'test' || e.type === 'testok' || e.type === 'testfail') onTest(e);
+  if (e.type === 'push' || e.type === 'deploy') { applaud(e.sess); launchRocket(); }
+  if (e.type === 'stop' && s) onTurnDone(s);
+  if (!w || !s) return;
+  if (e.type === 'substart') { spawnSub(w, e.agent, e.label); return; }
+  if (e.type === 'substop') { const sw = subs.get(e.agent); if (sw && e.desc) sw.desc = e.desc; dropSub(e.agent); return; }
+  if (e.agent) {
+    const sw = subs.get(e.agent) || spawnSub(w, e.agent, e.agentType || 'agent');
+    if (e.desc) sw.desc = e.desc;
+    sw.push(subAct(e));
+    if (sw.phase === 'walk' || sw.station === (ACT[e.type]?.station || 'desk')) { sw.say(e.type, bubbleText(e), e.type === 'fail' ? 'fail' : ''); sw.lastSay.e = e; }
+    return;
+  }
+  if (e.type === 'start' || e.type === 'end') return;
+  let a = { ...(ACT[e.type] || ACT.other), type: ACT[e.type] ? e.type : 'other', text: bubbleText(e), e };
+  if (e.type === 'fail') {   // a second failure within two minutes: frustration, a fist on the desk
+    w.fails = (w.fails || []).filter((t) => state.sim - t < 120); w.fails.push(state.sim);
+    if (w.fails.length >= 2 && !reduceMotion) { a = { ...a, anim: 'slam', text: tr('incident.againFail', { text: bubbleText(e) }), dwell: 2.2 }; w.slamUntil = state.sim + 2.2; }
+  }
+  if (e.type === 'prompt') a.after = () => { state.boardPulse = { id: e.sess, until: state.sim + 2.6 }; state.boardDirty = true; };
+  if (director && e.type === 'prompt') director.deliver(e.sess, e.label || '');
+  if (director && e.type === 'stop' && director.station === 'home' && STATIONS.director.some((x) => !x.by)) {   // the company floor: report to the director first, then rest
+    const rest = a, done = s.lastPrompt || e.label || '';
+    a = { station: 'director', anim: 'think', type: 'stop', text: !done ? tr('incident.reportNoTask') : tr('incident.report', { task: short(done, 40) }), e, dwell: 2.4,
+      after: () => { if (!director.ack(w)) w.say('stop', tr('incident.reportLeft')); w.push(rest); } };
+  }
+  w.push(e.type === 'compact' ? shredAction(w, a) : a);
+}
+
+const api = {
+  version: VERSION,
+  /**
+   * Builds the office. `options`: plan ('pro' | 'cozy'), dark, colors (the app theme), and what
+   * the scene tells Paseo: onSelect(id | null), onBoard(project | null) (a team's chip, or the
+   * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
+   * (the server racks) and onToast(text). Throws when the world cannot be built (no WebGL, a
+   * module failed).
+   */
+  start(options = {}) {
+    if (started) return;
+    started = true;
+    host.plan = options.plan === 'cozy' ? 'cozy' : 'pro';
+    host.night = options.dark === true;
+    host.select = (id) => options.onSelect?.(id);
+    host.board = (project) => options.onBoard?.(typeof project === 'string' ? project : null);
+    host.machine = typeof options.onMachine === 'function' ? () => options.onMachine() : null;
+    host.toast = (text) => options.onToast?.(text);
+    host.limits = () => limits;
+    host.boardRows = () => boardRows;
+    problem = (message) => options.onProblem?.(message);
+    buildPage();
+    applyColors(options.colors || {}, host.night);
+    // what upstream's first message from its server sets
+    state.stats = {}; state.todos = []; state.feed = []; state.limits = null; state.world = true;
+    for (const [name, module] of MODULES) {
+      if (name === 'coreLoop') backdrops.setup();   // (upstream sets the backdrop up just before the loop)
+      if (typeof module.setup === 'function') module.setup();
+      if (name === 'interactPlaceCards') whiteboard.setup();
+      if (name === 'netLive') { live.setupTeams(); makeTeamChipsButtons(); }
+    }
+    cameraBar.setup();
+    // Escape closes the place card and gives the keyboard back to the chip that opened it.
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || document.getElementById('plc').hidden) return;
+      const chip = document.querySelector('.zone--open');
+      closePlace();
+      chip?.focus({ preventScroll: true });
+    });
+    // (a place with an `open` has no card of upstream's: the whiteboard's chip opens Paseo's board)
+    if (PLACES?.board) PLACES.board.open = () => host.board();
+    // (upstream marks the lounge with its sparkle; the cup that marks who rests there says what the place is for)
+    for (const place of Object.values(PLACES || {})) if (place.icon === 'sparkle') place.el?.querySelector('.z-ico')?.replaceChildren(icon('coffee'));
+    // (the server room's chip opens Paseo's machine panel: no panel, no chip)
+    if (!host.machine) document.querySelector('.zone[data-place="server"]')?.setAttribute('hidden', '');
+    renderer.domElement.addEventListener('webglcontextlost', () => { if (!stopped) problem('the graphics context was lost'); });
+    renderer.domElement.setAttribute('aria-hidden', 'true');
+    let reported = false;
+    window.addEventListener('error', (event) => { if (reported || stopped) return; reported = true; problem(String(event.message || 'the office stopped drawing')); });
+  },
+  /** The page is about to be thrown away: give the graphics context back now, not at the next collection. */
+  stop() {
+    if (!started || stopped) return;
+    stopped = true;
+    renderer.dispose();
+    renderer.forceContextLoss();
+  },
+  /** The app's theme changed. */
+  setTheme({ dark, colors } = {}) {
+    if (!started) return;
+    host.night = dark === true;
+    applyColors(colors || {}, host.night);
+    backdrops.applyNight(host.night);
+  },
+  /**
+   * Everyone in the office now, in upstream's session shape: { id, name, title, dir, git: { repo },
+   * status: 'work' | 'wait' | 'rest', agent, lastPrompt, last, stuck, subs }. The first list is
+   * seated at once; later a newcomer walks in from the lift and someone who is gone walks out.
+   */
+  setSessions(list) {
+    if (!started) return;
+    const ids = new Set(list.map((s) => s.id));
+    for (const id of [...sessions.keys()]) if (!ids.has(id)) live.removeSession(id);
+    for (const s of list) live.upsertSession(s, seated);
+    seated = true;
+    state.connectedOnce = true;
+    state.boardDirty = true;
+  },
+  /** Something a session did: { sess, type, label }, `type` a key of upstream's ACT table. */
+  event(e) { if (started && e && sessions.has(e.sess)) onEvent({ ts: Date.now(), ...e }); },
+  /** Paseo chose someone (its card opened) or nobody (it closed): mark them, tell nobody back. */
+  select(id) { if (!started) return; if (id && sessions.has(id)) openSession(id, { tell: false }); else closeSession({ tell: false }); },
+  /** Glide to a project's desks without choosing anyone. */
+  focusProject(project) {
+    if (!started || !focusTarget) return;
+    const first = [...sessions.values()].find((s) => live.projOf(s) === project);
+    const w = first ? workers.get(first.id) : null;
+    if (w) focusTarget.set(w.pos.x, 0.6, w.pos.y);
+  },
+  /** The whiteboard's rows: [{ id, name, color, text, state: 'doing' | 'wait' | 'done' }]. */
+  setBoardRows(rows) { boardRows = Array.isArray(rows) ? rows : []; state.boardDirty = true; },
+  /** The host's readings, for the server racks and the wall screen; null when unknown. */
+  setMachine(snapshot) { setMacSnap(snapshot || null); },
+  /** Usage windows of the accounts in use: [{ key, pct, resetsAt }]. */
+  setLimits(list) { limits = Array.isArray(list) ? list : []; },
+};
+
+globalThis.PaseoOfficeWorld = api;

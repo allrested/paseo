@@ -43,7 +43,7 @@ import {
   type SpritePicture,
 } from "../../shared/sheet.js";
 import { PLANE_MS } from "../scene/scene-plan.js";
-import type { FocusRequest } from "../scene/scene-view.js";
+import type { FocusRequest } from "../focus-request.js";
 import type { OfficeStyles } from "../styles.js";
 import {
   TAP_SLOP_PX,

@@ -161,11 +161,14 @@ export const setWakesPausedRpc = defineRpc({
   output: WakeStateSchema,
 });
 
-/** The vendored three.js build, as bytes. */
-export const assetRpc = defineRpc({
-  name: "office.asset.request",
+/**
+ * The script of the page that draws the 3D office: the vendored my-office scene with three.js,
+ * one self-contained file. A browser evaluates it in a frame of its own.
+ */
+export const worldRpc = defineRpc({
+  name: "office.world.request",
   input: z.object({}),
-  output: z.instanceof(Uint8Array),
+  output: z.string(),
 });
 
 /** The viewer's theme, as PluginTheme["colors"]: the host draws the 3D view in it. */

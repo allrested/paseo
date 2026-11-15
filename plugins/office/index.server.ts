@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { readThreeAsset } from "./server/asset.js";
+import { createWorldScript, worldEntryPath, type WorldScript } from "./server/world-script.js";
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
 import { createHub } from "./server/hub.js";
@@ -15,7 +16,6 @@ import { createSheetPageHost, type SheetPageHost } from "./server/render/sheet-p
 import { createSheetSessions } from "./server/render/sheet-sessions.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
-  assetRpc,
   deleteRpc,
   officeStateSubscription,
   postRpc,
@@ -24,6 +24,7 @@ import {
   sheetSpriteRpc,
   sheetSubscription,
   updateRpc,
+  worldRpc,
 } from "./shared/contracts.js";
 import { officeHostSettings } from "./shared/settings.js";
 
@@ -41,10 +42,10 @@ export interface OfficePluginDeps {
   store: BoardStore;
   clock: Clock;
   log(message: string): void;
-  /** The folder of the vendored three.js build, or null when the daemon named no plugin folder. */
-  vendorDirectory: string | null;
   /** Draws the office as pictures and positions on the host; null when the host has no browser. */
   sheet: SheetPageHost | null;
+  /** The 3D office's page script; null when the daemon cannot build one. */
+  world: WorldScript | null;
 }
 
 // Runs inside the daemon process: every handler, hook and timer catches its own errors.
@@ -52,7 +53,7 @@ export function createOfficePlugin(
   server: PluginServerContext,
   deps: OfficePluginDeps,
 ): () => Promise<void> {
-  const { log, vendorDirectory } = deps;
+  const { log } = deps;
   const holder = createPaseoHolder();
   const hub = createHub({
     ...liveHubPorts(holder, deps.clock, log),
@@ -90,7 +91,12 @@ export function createOfficePlugin(
     holder.remember(context.paseo);
     return hub.attach(context);
   });
-  server.handle(assetRpc, () => guarded("asset", () => readThreeAsset(vendorDirectory)));
+  server.handle(worldRpc, () =>
+    guarded("world", () => {
+      if (deps.world === null) throw new Error("This host cannot build the 3D office");
+      return deps.world.read();
+    }),
+  );
   // Resolves when the sheet ends, which closes the subscription. It never rejects: a sheet that
   // cannot run says why in a problem event first.
   server.handle(sheetSubscription, (input, context) => {
@@ -191,7 +197,6 @@ export default function contribute(
     }),
     clock: nodeClock,
     log,
-    vendorDirectory,
     sheet:
       builtin?.offscreenPages && builtin.bundleBrowserScript
         ? createSheetPageHost({
@@ -201,5 +206,11 @@ export default function contribute(
             pageEntry: join(builtin.directory, "render", "sheet-page.ts"),
           })
         : null,
+    world: builtin?.bundleBrowserScript
+      ? createWorldScript({
+          bundle: builtin.bundleBrowserScript,
+          entryPath: worldEntryPath(builtin.directory),
+        })
+      : null,
   });
 }

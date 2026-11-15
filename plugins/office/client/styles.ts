@@ -114,6 +114,9 @@ export interface OfficeStyles {
   chipTextSelected: TextStyle;
   scene: ViewStyle;
   sceneStatus: TextStyle;
+  /** A line over a corner of the 3D office: it lies above the frame and takes no pointer. */
+  sceneNote: ViewStyle;
+  sceneNoteText: TextStyle;
   /** The office composed from the host's pictures: the area that takes touches. */
   sheetTouch: ViewStyle;
 }
@@ -456,6 +459,21 @@ export function useOfficeStyles(
       scene: { flex: 1, minHeight: SCENE_MIN_HEIGHT },
       sheetTouch: { flex: 1 },
       sceneStatus: { ...column, ...base, color: colors.foregroundMuted, padding: pad },
+      sceneNote: {
+        position: "absolute",
+        left: pad,
+        bottom: pad,
+        maxWidth: 360,
+        zIndex: 1,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+        pointerEvents: "none",
+      },
+      sceneNoteText: { ...small, color: colors.foregroundMuted },
     };
   }, [theme, compact, touchScreen]);
 }

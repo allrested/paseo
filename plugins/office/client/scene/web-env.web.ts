@@ -46,19 +46,3 @@ export function listenForSpace(elementId: string, onSpace: () => void): () => vo
   element.addEventListener("keydown", onKeyDown);
   return () => element.removeEventListener("keydown", onKeyDown);
 }
-
-/**
- * Evaluates an ES module from bytes and returns its namespace. The import lives in a string so
- * esbuild's CJS output does not rewrite it into a require() the app's evaluator would refuse,
- * and only a browser ever parses it. The three.js build is an ES module, which eval cannot run.
- */
-export async function evaluateModule(bytes: Uint8Array<ArrayBuffer>): Promise<unknown> {
-  const url = URL.createObjectURL(new Blob([bytes], { type: "text/javascript" }));
-  try {
-    const importModule = new Function("url", "return import(url);");
-    const namespace: unknown = await Reflect.apply(importModule, undefined, [url]);
-    return namespace;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
