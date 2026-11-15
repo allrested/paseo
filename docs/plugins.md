@@ -585,6 +585,26 @@ The server keeps one directory from subscribed `agents.list` and `workspaces.lis
 first 200 of each) and streams a compact projection over the `office.state` subscription; the
 directory and the 5 s "doing now" reads run only while an office surface is open.
 
+The office also watches the host. While an office surface is open, the `office.machine`
+subscription sends a reading every 10 s: memory (the daemon's cgroup when it has a cap, else the
+host), CPU, and for each agent the memory, the process count and the TCP ports of the processes
+that carry its `PASEO_AGENT_ID`. A Host entry at the end of the attention strip shows the memory
+in use and opens a card with the agents by memory. An agent has left something running when it
+has been idle for 30 minutes with a port open, or when it is closed or archived and processes of
+it remain: the daemon collects an idle runtime after an hour
+([runtime residency](agent-lifecycle.md#runtime-residency)), and a dev server the agent started
+can outlive that. Clean up, for one agent or for all of them, calls
+`office.machine.cleanup.request`: an idle agent's runtime is closed through the SDK, so its next
+prompt resumes it, and whatever still carries the id of an agent without a runtime gets SIGTERM.
+An agent at work is refused. A process whose agent id this daemon does not know is never shown and
+never signalled, since a second daemon on the host would see the first one's agents that way, and
+the daemon and its ancestors are never signalled either. The reader is the office's own
+(`plugins/office/server/machine/`), for the reason `procfs.ts` is copied above. It counts a
+process for its agent as the Resources screen does, but has none of that screen's groups: a
+command the heavy-command gate runs counts for its agent here and for the gate there, so the two
+can differ while one runs. Linux only: elsewhere the subscription answers `unavailable` and the
+entry is not shown.
+
 On web, with WebGL2, the office is a 3D floor: an agent is a person at a desk, and a workspace's
 agents sit together as a team. A per-device "3D view" switch turns it off. The floor is the scene
 of [my-office](https://github.com/khanh020905/my-office), vendored under
@@ -602,9 +622,13 @@ need the user and the ones at work sit first, and a line over the scene says how
 the list. A step sends its person to that work's place: the library for a read or a search, the
 desk for an edit, the server room for a command, the test board for a test run. A commit prints a
 page, and a push or a deploy launches the rocket. The reads are 5 s apart, so a tool call that
-starts and ends between two of them is never shown. Designs:
+starts and ends between two of them is never shown. With a host reading, the server room's chip,
+its racks and the wall screen open the Host card, the wall screen shows memory and CPU, an agent
+with a port open has a small server on its desk, and what was left running stands in the server
+room under a red light. Designs:
 [the floor](superpowers/specs/2026-11-16-office-my-office-port-design.md),
-[the places](superpowers/specs/2026-11-16-office-activity-places-design.md).
+[the places](superpowers/specs/2026-11-16-office-activity-places-design.md),
+[the host](superpowers/specs/2026-11-16-office-server-care-design.md).
 
 A client that cannot draw, which is the installed app (plugin code there has React Native views
 only) and a browser without WebGL2, composes an office itself from pictures the host draws once,

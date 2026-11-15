@@ -60,6 +60,23 @@ export interface WorldBoardRow {
   state: "doing" | "wait" | "done";
 }
 
+/** Something an agent left listening, as the scene draws it: a small server box. */
+export interface WorldDevServer {
+  /** Whose it is. Not alive: forgotten, so the box stands in the server room with a red light. */
+  owner: { alive: boolean; sid: string };
+  /** The box's tooltip starts with it. */
+  label: string;
+  ports: number[];
+  cpu: number;
+}
+
+/** The host's readings, in the shape the scene's wall screen, racks and boxes read. */
+export interface WorldMachine {
+  mem: { used: number; total: number; pressure: "normal" | "critical" } | null;
+  cpu: { percent: number };
+  devServers: WorldDevServer[];
+}
+
 export type WorldColors = PluginTheme["colors"];
 
 export interface WorldStartOptions {
@@ -70,7 +87,7 @@ export interface WorldStartOptions {
   /** A team's chip was chosen, or the whiteboard (null). */
   onBoard(project: string | null): void;
   onProblem(message: string): void;
-  /** The server racks were chosen. Without it they are furniture: no hand, no tap. */
+  /** The server room was chosen: its chip, the racks, the wall screen or a server box. */
   onMachine?(): void;
   /** A short line the office says once. */
   onToast?(text: string): void;
@@ -87,6 +104,11 @@ export interface WorldApi {
   select(agentId: string | null): void;
   focusProject(project: string): void;
   setBoardRows(rows: readonly WorldBoardRow[]): void;
+  /**
+   * The host's readings. With null the server room is furniture: no chip, no hand, no tap, and
+   * the wall screen shows no memory.
+   */
+  setMachine(machine: WorldMachine | null): void;
 }
 
 /** The version of the contract above; the page says which it speaks. */
@@ -101,6 +123,7 @@ export function isWorldApi(value: unknown): value is WorldApi {
     typeof api.stop === "function" &&
     typeof api.setSessions === "function" &&
     typeof api.event === "function" &&
-    typeof api.select === "function"
+    typeof api.select === "function" &&
+    typeof api.setMachine === "function"
   );
 }

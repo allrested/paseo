@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { TextStyle, ViewStyle } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
+import type { HostTone } from "./machine-text.js";
 import type { AttentionReason, DotTone } from "./model.js";
 
 export interface OfficeStyles {
@@ -40,6 +41,21 @@ export interface OfficeStyles {
   stripBody: ViewStyle;
   stripTitle: TextStyle;
   stripReason: Record<AttentionReason, TextStyle>;
+  /** The host's note in the strip, in its tone. */
+  stripNote: Record<HostTone, TextStyle>;
+  /** The host card: two meters side by side, then groups of agents. */
+  machineMeters: ViewStyle;
+  machineMeter: ViewStyle;
+  machineTrack: ViewStyle;
+  /** The empty part of a meter: the plain button's grey, as a layer under the fill. */
+  machineTrackBase: ViewStyle;
+  machineFill: Record<HostTone, ViewStyle>;
+  /** A figure: digits of one width, so a column of them lines up. */
+  machineValue: TextStyle;
+  machineGroup: ViewStyle;
+  machineRow: ViewStyle;
+  machineRowHead: ViewStyle;
+  machineRowTitle: TextStyle;
   card: ViewStyle;
   cardHeader: ViewStyle;
   cardTitle: TextStyle;
@@ -316,6 +332,31 @@ export function useOfficeStyles(
         permission: { ...small, color: colors.statusWarning },
         error: { ...small, color: colors.statusDanger },
       },
+      stripNote: {
+        muted: { ...small, color: colors.foregroundMuted },
+        warning: { ...small, color: colors.statusWarning },
+        danger: { ...small, color: colors.statusDanger },
+      },
+      machineMeters: { flexDirection: "row", gap: 16 },
+      machineMeter: { flex: 1, minWidth: 0, gap: 4 },
+      machineTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
+      machineTrackBase: fill,
+      // As on the Resources screen: grey while all is well, so a colour means something.
+      machineFill: {
+        muted: { height: 4, backgroundColor: colors.foregroundMuted },
+        warning: { height: 4, backgroundColor: colors.statusWarning },
+        danger: { height: 4, backgroundColor: colors.statusDanger },
+      },
+      machineValue: {
+        ...base,
+        flexShrink: 0,
+        color: colors.foreground,
+        fontVariant: ["tabular-nums"],
+      },
+      machineGroup: { gap: 12 },
+      machineRow: { gap: 8 },
+      machineRowHead: { flexDirection: "row", alignItems: "baseline", gap: 12 },
+      machineRowTitle: { ...base, flex: 1, minWidth: 0, color: colors.foreground },
       card: {
         backgroundColor: colors.surface1,
         borderRadius: 8,

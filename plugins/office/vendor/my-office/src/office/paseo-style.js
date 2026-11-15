@@ -69,7 +69,7 @@ svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: roun
 .z-live { color: var(--o-fg); font-weight: 500; }
 .z-live::before { content: "·"; margin: 0 5px 0 1px; color: var(--o-muted); }
 .zone:hover, .zone.zone--hot, .zone.zone--open { color: var(--o-fg); border-color: var(--o-muted); opacity: 1 !important; }
-.zone:focus-visible, .team-tag:focus-visible, .plc button:focus-visible { outline: 2px solid var(--o-fg); outline-offset: 2px; }
+.zone:focus-visible, .team-tag:focus-visible, .tag--lost:focus-visible, .plc button:focus-visible { outline: 2px solid var(--o-fg); outline-offset: 2px; }
 .zone--behind { opacity: .16; }
 .labels:not(.show-zones) .zone:not(.zone--hot):not(.zone--open) { opacity: 0 !important; pointer-events: none; }
 .labels:not(.show-zones) .zone:not(.zone--hot):not(.zone--open):focus-visible { opacity: 1 !important; }
