@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ImageStyle, TextStyle, ViewStyle } from "react-native";
+import type { TextStyle, ViewStyle } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { AttentionReason, DotTone } from "./model.js";
 
@@ -113,9 +113,8 @@ export interface OfficeStyles {
   chipTextSelected: TextStyle;
   scene: ViewStyle;
   sceneStatus: TextStyle;
-  /** The streamed 3D view: the area that takes touches, and the picture inside it. */
-  streamTouch: ViewStyle;
-  streamPicture: ImageStyle;
+  /** The office composed from the host's pictures: the area that takes touches. */
+  sheetTouch: ViewStyle;
 }
 
 // The app's two control sizes (packages/app/src/components/ui/control-geometry.ts).
@@ -452,8 +451,7 @@ export function useOfficeStyles(
       chipText: { ...base, color: colors.foregroundMuted },
       chipTextSelected: { ...base, color: colors.foreground },
       scene: { flex: 1, minHeight: SCENE_MIN_HEIGHT },
-      streamTouch: { flex: 1 },
-      streamPicture: { width: "100%", height: "100%" },
+      sheetTouch: { flex: 1 },
       sceneStatus: { ...column, ...base, color: colors.foregroundMuted, padding: pad },
     };
   }, [theme, compact, touchScreen]);
