@@ -15,9 +15,9 @@ import { useSearchStyles, type SearchStyles } from "./styles.js";
 
 // Long enough that a word is typed whole before it is searched; Enter does not wait.
 const PAUSE_MS = 400;
-const HINT = `Type at least ${MIN_QUERY} characters. This searches what you and the agents wrote in every Claude chat on this host, loaded or not.`;
+const HINT = `Type at least ${MIN_QUERY} characters. This searches what you and the agents wrote in every Claude and Kiro chat on this host, loaded or not.`;
 const OTHERS_INFO =
-  "Claude sessions on this host that are no agent here, such as ones run in a terminal. They cannot be opened from this list.";
+  "Sessions on this host that are no agent here, such as ones run in a terminal. They cannot be opened from this list.";
 const ROLES: Record<Snippet["role"], string> = { user: "You", assistant: "Agent" };
 
 type Search =

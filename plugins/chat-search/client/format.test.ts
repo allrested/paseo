@@ -27,10 +27,17 @@ describe("chat search text", () => {
     expect(countText(10)).toBe("10 or more messages");
   });
 
-  it("puts a chat's folder, age and count on one line", () => {
-    const hit = { folder: "/work/shop", changedAt: "2026-11-14T07:00:00.000Z", matches: 2 };
-    expect(hitMeta(hit, NOW)).toBe("shop · 5 h ago · 2 messages");
-    expect(hitMeta({ ...hit, folder: null }, NOW)).toBe("5 h ago · 2 messages");
+  it("puts a chat's provider, folder, age and count on one line", () => {
+    const hit = {
+      provider: "claude" as const,
+      folder: "/work/shop",
+      changedAt: "2026-11-14T07:00:00.000Z",
+      matches: 2,
+    };
+    expect(hitMeta(hit, NOW)).toBe("Claude · shop · 5 h ago · 2 messages");
+    expect(hitMeta({ ...hit, provider: "kiro", folder: null }, NOW)).toBe(
+      "Kiro · 5 h ago · 2 messages",
+    );
   });
 
   it("sums up a result", () => {

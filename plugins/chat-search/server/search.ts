@@ -1,12 +1,14 @@
-// A search of every Claude chat on this host. The text of a chat whose agent is not loaded is in
-// its transcript and nowhere else, and loading an agent starts its runtime, so the search reads
-// the transcripts: grep names the files that hold the words, then hands over their lines.
+// A search of every chat on this host that a store can read (stores.ts). The text of a chat whose
+// agent is not loaded is in its transcript and nowhere else, and loading an agent starts its
+// runtime, so the search reads the transcripts: grep names the files that hold the words, then
+// hands over their lines.
 import { MIN_QUERY, type ChatHit, type SearchResult } from "../shared/contracts.js";
 import { sessionOwners, type AgentsPort } from "./agents.js";
 import { filesHolding } from "./grep.js";
 import { grepPattern } from "./pattern.js";
-import { listTranscripts, type Transcript } from "./sources.js";
-import { readTranscript, type TranscriptRead } from "./transcript.js";
+import type { Transcript } from "./sources.js";
+import type { ChatStore } from "./stores.js";
+import type { TranscriptRead } from "./transcript.js";
 
 /** The newest chats a search reads; older ones that match are only announced. */
 export const MAX_CHATS = 40;
@@ -15,54 +17,64 @@ const MAX_SNIPPETS = 3;
 const SEARCH_TIMEOUT_MS = 30_000;
 
 export interface SearchPorts {
-  /** The projects folders to search (transcriptRoots). */
-  roots: readonly string[];
+  /** Where the chats are (hostStores). */
+  stores: readonly ChatStore[];
   agents: AgentsPort;
 }
 
-interface Found {
+interface Kept {
+  store: ChatStore;
   transcript: Transcript;
+}
+
+interface Found extends Kept {
   read: TranscriptRead;
 }
 
+// Every store's transcripts as one list, newest first.
+async function everyTranscript(stores: readonly ChatStore[]): Promise<Kept[]> {
+  const lists = await Promise.all(
+    stores.map(async (store) => (await store.list()).map((transcript) => ({ store, transcript }))),
+  );
+  return lists
+    .flat()
+    .toSorted((a, b) => b.transcript.changedAt.localeCompare(a.transcript.changedAt));
+}
+
 // The transcripts that hold the words somewhere, in a message or in tool output, newest first.
-async function candidates(
-  transcripts: Transcript[],
-  words: string,
-  signal: AbortSignal,
-): Promise<Transcript[]> {
+async function candidates(kept: Kept[], words: string, signal: AbortSignal): Promise<Kept[]> {
   const holding = await filesHolding(
-    transcripts.map((transcript) => transcript.file),
+    kept.map(({ transcript }) => transcript.file),
     grepPattern(words),
     { signal },
   );
-  return transcripts.filter((transcript) => holding.has(transcript.file));
+  return kept.filter(({ transcript }) => holding.has(transcript.file));
 }
 
 export async function searchChats(query: string, ports: SearchPorts): Promise<SearchResult> {
   const words = query.trim();
   if (words.length < MIN_QUERY) throw new Error(`Type at least ${MIN_QUERY} characters`);
-  const transcripts = await listTranscripts(ports.roots);
-  if (transcripts.length === 0) return { chats: [], others: [], more: false };
+  const kept = await everyTranscript(ports.stores);
+  if (kept.length === 0) return { chats: [], others: [], more: false };
   const signal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
-  const files = await candidates(transcripts, words, signal);
   const found: Found[] = [];
   let more = false;
   // One at a time, newest first: reading stops at the cap, and one grep runs at a time.
-  for (const transcript of files) {
+  for (const { store, transcript } of await candidates(kept, words, signal)) {
     if (found.length === MAX_CHATS) {
       more = true;
       break;
     }
-    const read = await readTranscript(transcript.file, words, MAX_SNIPPETS, { signal });
-    if (read !== null) found.push({ transcript, read });
+    const read = await store.read(transcript.file, words, MAX_SNIPPETS, { signal });
+    if (read !== null) found.push({ store, transcript, read });
   }
   const owners = found.length === 0 ? new Map() : await sessionOwners(ports.agents);
   const chats: ChatHit[] = [];
   const others: ChatHit[] = [];
-  for (const { transcript, read } of found) {
+  for (const { store, transcript, read } of found) {
     const owner = owners.get(transcript.sessionId);
     const hit: ChatHit = {
+      provider: store.provider,
       sessionId: transcript.sessionId,
       agentId: owner?.agentId ?? null,
       title: owner?.title ?? read.title,
