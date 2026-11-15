@@ -7,7 +7,7 @@ import type {
   TestResult,
 } from "../../shared/contracts.js";
 import { machineTitle, memoryPercent, memoryTone } from "../machine-text.js";
-import { relativeLuminance } from "../scene/palette.js";
+import { relativeLuminance } from "../luminance.js";
 import type {
   WorldBoardRow,
   WorldColors,
@@ -17,13 +17,13 @@ import type {
   WorldSession,
 } from "./world-api.js";
 
-/** Desks of each floor plan of the vendored scene; who does not fit stays in the list view. */
+/** Desks of each floor plan of the vendored scene. */
 export const PLAN_DESKS = { pro: 12, cozy: 9 } as const;
 export type WorldPlan = keyof typeof PLAN_DESKS;
 
 export interface WorldPeople {
   sessions: WorldSession[];
-  /** Agents without a desk on this plan. */
+  /** Agents without a desk on this floor. */
   overflow: number;
   /** The tool call each seated agent is at, for the ones at one. */
   steps: ReadonlyMap<string, ActivityStep>;
@@ -65,11 +65,13 @@ function toSession(row: OfficeRow, team: string): WorldSession {
   };
 }
 
-/** The office's agents as the scene's people: a room is a team, seated together. */
-export function worldPeople(model: OfficeModel, plan: WorldPlan): WorldPeople {
+/**
+ * The office's agents as people on a floor with this many desks: a room is a team, seated
+ * together. Who does not fit stays in the list view.
+ */
+export function worldPeople(model: OfficeModel, desks: number): WorldPeople {
   const rows = model.rooms.flatMap((room) => room.rows.map((row) => ({ row, team: room.name })));
   const all = rows.map(({ row, team }) => toSession(row, team));
-  const desks = PLAN_DESKS[plan];
   const order = new Map(all.map((session, index) => [session.id, index]));
   const seated =
     all.length <= desks
@@ -91,7 +93,8 @@ function boardState(session: WorldSession): WorldBoardRow["state"] {
   return session.status === "work" ? "doing" : "done";
 }
 
-function boardText(session: WorldSession, activity: string | null): string {
+/** What a person is at, in words: the board's line and a desk's name for a screen reader. */
+export function boardText(session: WorldSession, activity: string | null): string {
   if (session.stuck) return "Stopped on an error";
   if (session.status === "wait") return "Waiting for your answer";
   if (session.status === "work") return activity ?? "Working";
@@ -243,6 +246,14 @@ export function worldMachine(machine: Machine | null): WorldMachine | null {
         cpu: 0,
       })),
   };
+}
+
+/** The line with a floor: nobody is in, or some have no desk on it; null otherwise. */
+export function floorNote(agents: number, overflow: number): string | null {
+  if (agents === 0) return "No agents on this host yet. One that starts takes a desk here.";
+  if (overflow <= 0) return null;
+  const who = overflow === 1 ? "1 agent has" : `${overflow} agents have`;
+  return `${who} no desk on this floor. The list shows everyone.`;
 }
 
 /** The team name of a room, as the scene knows it; null for a room that is not there. */

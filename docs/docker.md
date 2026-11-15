@@ -275,11 +275,9 @@ soon as the next one opens over it, so `docker-compose.yml` and `docker-compose.
 Chromium with `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding` in
 `CHROME_CLI`.
 
-The office draws its 3D view for the installed app in a page of this Chromium (see
-[plugins.md](plugins.md)), which needs WebGL. Chrome 156 refuses WebGL on the container's
-software GL driver, so the same `CHROME_CLI` carries `--ignore-gpu-blocklist`. Without it the
-office in the app shows the structure view under "The host browser has no WebGL". The same
-setting can be turned on in a running Chromium at `chrome://flags` ("Override software rendering
+Chrome 156 refuses WebGL on the container's software GL driver, so the same `CHROME_CLI` carries
+`--ignore-gpu-blocklist`. Without it a page that draws with WebGL stays blank in a pane tab. The
+same setting can be turned on in a running Chromium at `chrome://flags` ("Override software rendering
 list"); it is kept in the profile volume and takes effect when Chromium restarts.
 
 A stack that borrows another stack's browser, such as `docker-compose.agent.yml`, and a

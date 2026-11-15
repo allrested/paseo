@@ -15,7 +15,9 @@ import type { FocusRequest } from "../focus-request.js";
 import type { OfficeModel } from "../model.js";
 import type { OfficeStyles } from "../styles.js";
 import {
+  PLAN_DESKS,
   boardRoom,
+  floorNote,
   isDarkTheme,
   teamOfRoom,
   worldBoardRows,
@@ -56,21 +58,13 @@ const PLAN: WorldPlan = "pro";
 const subscribe = (listener: () => void) => sharedWorldLoader.subscribe(listener);
 const read = () => sharedWorldLoader.state();
 
-/** The line over a corner of the floor: nobody is in, or some have no desk; null otherwise. */
-export function floorNote(agents: number, overflow: number): string | null {
-  if (agents === 0) return "No agents on this host yet. One that starts takes a desk here.";
-  if (overflow <= 0) return null;
-  const who = overflow === 1 ? "1 agent has" : `${overflow} agents have`;
-  return `${who} no desk on this floor. Turn 3D view off to see everyone.`;
-}
-
 /**
- * The office in 3D. Web only: office-surface.tsx renders it in a browser with WebGL2 and the 3D
- * switch on. The plugin bundle is evaluated on every platform, so the container and the frame
- * are reached in effects and nothing here touches the DOM when the module loads.
+ * The office in 3D. Web only: office-surface.tsx renders it in a browser with WebGL2 where 3D is
+ * the chosen view. The plugin bundle is evaluated on every platform, so the container and the
+ * frame are reached in effects and nothing here touches the DOM when the module loads.
  *
  * Reporting a problem makes the surface take this view away, and that removes the frame: on
- * unmount, on 3D off and after a lost context alike.
+ * unmount, on another view chosen and after a lost context alike.
  */
 export function WorldView({
   model,
@@ -217,7 +211,7 @@ export function WorldView({
     world.current?.setTheme({ dark: isDarkTheme(theme.colors), colors: theme.colors });
   }, [theme, started]);
 
-  const people = useMemo(() => worldPeople(model, PLAN), [model]);
+  const people = useMemo(() => worldPeople(model, PLAN_DESKS[PLAN]), [model]);
   useEffect(() => {
     const api = world.current;
     if (api === null) return;

@@ -541,21 +541,3 @@ test("stopping the hub cancels a pending restart", async () => {
   subscriber.controller.abort();
   await subscriber.done;
 });
-
-test("the snapshot says whether the host can draw 3D", async () => {
-  for (const available of [true, false]) {
-    const { hub } = startHarness(
-      { agents: [], workspaces: [] },
-      { renderAvailable: () => available },
-    );
-    const subscriber = subscribe(hub);
-    await settle();
-
-    expect(subscriber.events[0]).toMatchObject({
-      type: "snapshot",
-      state: { render: { available } },
-    });
-    subscriber.controller.abort();
-    await subscriber.done;
-  }
-});

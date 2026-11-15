@@ -1,16 +1,6 @@
 import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
-import {
-  MAX_VIEWER_RATIO,
-  MAX_VIEWER_SIDE,
-  TILE_SIDE,
-  type Sheet,
-  type SheetSize,
-  type SheetTile,
-  type SpritePicture,
-} from "./sheet.js";
-
-// In their own file, so code that needs only a name does not load the schemas (the render page).
+// In their own file, so code that needs only a name does not load the schemas.
 import { ACTIVITY_KINDS, TEST_RESULTS } from "./names.js";
 
 export { ACTIVITY_KINDS, LOBBY, USER_AUTHOR } from "./names.js";
@@ -109,8 +99,6 @@ export const OfficeSnapshotSchema = z.object({
   doing: z.record(z.string(), ActivityStepSchema).optional(),
   boards: z.record(z.string(), z.array(PostSchema)),
   wake: WakeStateSchema,
-  /** Whether the host can draw the office's pictures for a device that cannot (office.sheet). */
-  render: z.object({ available: z.boolean() }).optional(),
 });
 export type OfficeSnapshot = z.output<typeof OfficeSnapshotSchema>;
 
@@ -248,151 +236,3 @@ export const worldRpc = defineRpc({
   input: z.object({}),
   output: z.string(),
 });
-
-/** The viewer's theme, as PluginTheme["colors"]: the host draws the 3D view in it. */
-export const ThemeColorsSchema = z.object({
-  surface0: z.string(),
-  surface1: z.string(),
-  surface2: z.string(),
-  border: z.string(),
-  foreground: z.string(),
-  foregroundMuted: z.string(),
-  accent: z.string(),
-  accentForeground: z.string(),
-  statusSuccess: z.string(),
-  statusWarning: z.string(),
-  statusDanger: z.string(),
-});
-
-export const RenderSizeSchema = z.object({
-  /** CSS pixels. */
-  width: z.number().positive(),
-  height: z.number().positive(),
-  pixelRatio: z.number().positive(),
-});
-export type RenderSize = z.output<typeof RenderSizeSchema>;
-
-const SheetPointSchema = z.object({ x: z.number(), y: z.number() });
-const SheetRectSchema = SheetPointSchema.extend({ width: z.number(), height: z.number() });
-const picturePixels = z.number().int().positive();
-
-/** Where everything is on the backdrop: `Sheet` of shared/sheet.ts. */
-export const SheetSchema = z.object({
-  version: z.number().int().positive(),
-  tiles: z.number().int().positive(),
-  width: picturePixels,
-  height: picturePixels,
-  ratio: z.number().positive(),
-  scale: z.number().positive(),
-  frame: z.object({ width: picturePixels, height: picturePixels, chest: SheetPointSchema }),
-  robots: z.array(
-    z.object({
-      agentId: z.string(),
-      key: z.string(),
-      x: z.number(),
-      y: z.number(),
-      phase: z.number().int().nonnegative(),
-      walk: z
-        .object({
-          id: z.number().int().positive(),
-          ms: z.number().positive(),
-          x: z.number(),
-          y: z.number(),
-          legs: z
-            .array(
-              z.object({
-                x: z.number(),
-                y: z.number(),
-                until: z.number().positive().max(1),
-                key: z.string(),
-                inside: z.boolean(),
-              }),
-            )
-            .min(1)
-            .max(64),
-        })
-        .nullable(),
-      fresh: z.boolean(),
-    }),
-  ),
-  rooms: z.array(
-    z.object({
-      roomId: z.string(),
-      area: SheetRectSchema,
-      board: SheetRectSchema,
-      plate: SheetRectSchema,
-    }),
-  ),
-  notes: z.array(z.object({ roomId: z.string(), rect: SheetRectSchema })),
-  mentions: z.array(z.object({ postId: z.string(), from: SheetPointSchema, to: SheetPointSchema })),
-}) satisfies z.ZodType<Sheet>;
-
-export const SheetTileSchema = z.object({
-  version: z.number().int().positive(),
-  index: z.number().int().nonnegative(),
-  x: z.number().int().nonnegative(),
-  y: z.number().int().nonnegative(),
-  width: picturePixels.max(TILE_SIDE),
-  height: picturePixels.max(TILE_SIDE),
-  /** Base64 JPEG, without the data URI prefix. */
-  jpeg: z.string(),
-  /** Base64 PNG of what stands in front of robots there; null when nothing does. */
-  overlay: z.string().nullable(),
-}) satisfies z.ZodType<SheetTile>;
-
-export const SpritePictureSchema = z.object({
-  png: z.string(),
-  frames: z.number().int().positive(),
-  columns: z.number().int().positive(),
-  frameWidth: picturePixels,
-  frameHeight: picturePixels,
-  frameMs: z.number().nonnegative(),
-  loop: z.boolean(),
-  scale: z.number().positive(),
-}) satisfies z.ZodType<SpritePicture>;
-
-export const SheetEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("ready"), sheetId: z.string() }),
-  /** One tile of a new backdrop. The view shows a version once it has all its tiles. */
-  z.object({ type: z.literal("tile"), tile: SheetTileSchema }),
-  z.object({ type: z.literal("sheet"), sheet: SheetSchema }),
-  /** The view ends after it. */
-  z.object({ type: z.literal("problem"), message: z.string() }),
-]);
-export type SheetEvent = z.output<typeof SheetEventSchema>;
-
-/**
- * The office as pictures and positions, for a device that cannot draw it: the installed app and
- * a browser without WebGL2 lay the pictures out and move them themselves.
- */
-/** A sheet viewer's size. Bounded: the host draws a picture as large as it says. */
-export const SheetSizeSchema = z.object({
-  /** Screen points. */
-  width: z.number().positive().max(MAX_VIEWER_SIDE),
-  height: z.number().positive().max(MAX_VIEWER_SIDE),
-  pixelRatio: z.number().positive().max(MAX_VIEWER_RATIO),
-}) satisfies z.ZodType<SheetSize>;
-
-export const sheetSubscription = defineSubscription({
-  name: "office.sheet",
-  input: SheetSizeSchema.extend({ colors: ThemeColorsSchema }),
-  event: SheetEventSchema,
-});
-export type SheetInput = z.output<typeof sheetSubscription.input>;
-
-/** What the viewer of one sheet did. An empty call says the viewer is still there. */
-export const sheetInputRpc = defineRpc({
-  name: "office.sheet.input.request",
-  input: z.object({ sheetId: z.string(), resize: SheetSizeSchema.optional() }),
-  /** False when the host no longer has the sheet. */
-  output: z.object({ ok: z.boolean() }),
-});
-export type SheetInputMessage = z.output<typeof sheetInputRpc.input>;
-
-/** One robot look as a grid of frames; null for a sheet or a key the host does not know. */
-export const sheetSpriteRpc = defineRpc({
-  name: "office.sheet.sprite.request",
-  input: z.object({ sheetId: z.string(), key: z.string().max(200) }),
-  output: SpritePictureSchema.nullable(),
-});
-export type SheetSpriteMessage = z.output<typeof sheetSpriteRpc.input>;

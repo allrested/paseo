@@ -13,7 +13,7 @@ import { textAfterSend } from "./agent-card.js";
 import { orderBoardPosts } from "./board-text.js";
 import { agentTitle, type OfficeRoom } from "./model.js";
 import { PostRow } from "./room-board.js";
-import { listenForSpace } from "./scene/web-env.web.js";
+import { listenForSpace } from "./web-env.web.js";
 import type { OfficeStyles } from "./styles.js";
 import type { BoardActions } from "./use-board-actions.js";
 
