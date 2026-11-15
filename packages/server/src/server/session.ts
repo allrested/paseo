@@ -2658,6 +2658,11 @@ export class Session {
         return Promise.resolve();
       case "browser.cdp.view.navigate.request":
         return this.cdpView.navigate(msg, emit);
+      case "browser.cdp.view.pick_element.request":
+        return this.cdpView.pickElement(msg, emit);
+      case "browser.cdp.view.cancel_pick.request":
+        this.cdpView.cancelPick(msg);
+        return Promise.resolve();
       case "browser.cdp.tab.open.request":
         return this.cdpView.openTab(msg, emit);
       case "browser.cdp.tab.close.request":
@@ -9591,6 +9596,8 @@ export class Session {
     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
     this.isCleanedUp = true;
     this.unsubscribeSetupObservation();
+    // Fork delta (web browser pane): a pick this session left open would keep a page a picker.
+    this.cdpView.endPicks();
     await this.delivery.close();
 
     if (this.unsubscribeAgentEvents) {

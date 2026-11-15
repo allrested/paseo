@@ -2064,6 +2064,8 @@ export class VoiceAssistantWebSocketServer {
         // the pane shows "unreachable" with Retry, which is more use than no pane.
         // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
         ...(this.browserToolsBroker?.cdpBrowser ? { cdpBrowser: true } : {}),
+        // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
+        ...(this.browserToolsBroker?.cdpBrowser ? { cdpBrowserPick: true } : {}),
         // COMPAT(relayProtectedSecurity): added in v0.13.0, remove gate after 2027-04-21.
         relayProtectedSecurity: true,
         usageSetting: true,

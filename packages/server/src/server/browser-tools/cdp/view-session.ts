@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import type {
+  CdpBrowserElementSelection,
   CdpBrowserErrorCode,
   CdpBrowserViewInput,
 } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
@@ -7,6 +9,7 @@ import { encodeBrowserViewFrame } from "@getpaseo/protocol/binary-frames/index";
 import type { SessionInboundMessage, SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import type { SessionDelivery } from "../../session/owned-subscriptions/index.js";
 import { cdpErrorCode, isOpenableUrl, type CdpBrowserService } from "./cdp-browser-service.js";
+import { pickElement, type PickOptions } from "./element-pick.js";
 import { dispatchViewInput } from "./view-input.js";
 
 type Inbound<T extends SessionInboundMessage["type"]> = Extract<SessionInboundMessage, { type: T }>;
@@ -92,11 +95,16 @@ function admit(view: View, input: CdpBrowserViewInput): boolean {
 /** One session's browser.cdp.* handlers. The service and its hub are shared by every session. */
 export class CdpViewSession {
   private readonly views = new Map<string, View>();
+  /** This session's running pick on each tab; aborting one ends it. */
+  private readonly picks = new Map<string, AbortController>();
 
   constructor(
     private readonly service: () => CdpBrowserService | null,
     private readonly logger: Pick<Logger, "debug">,
-    private readonly options: { resizeFrameWaitMs?: number } = {},
+    private readonly options: {
+      resizeFrameWaitMs?: number;
+      pick?: Pick<PickOptions, "timeoutMs" | "pollMs">;
+    } = {},
   ) {}
 
   async openTab(msg: Inbound<"browser.cdp.tab.open.request">, emit: Emit): Promise<void> {
@@ -366,5 +374,56 @@ export class CdpViewSession {
       this.logger.debug({ err: error }, "browser.cdp.view.navigate failed");
       respond(cdpErrorCode(error));
     }
+  }
+
+  /**
+   * Stays open until the pick ends, up to 30 s: the response has to leave inside the request that
+   * asked, or it reaches no connection. The pane's input reaches the page meanwhile, since every
+   * message is handled on its own.
+   */
+  async pickElement(
+    msg: Inbound<"browser.cdp.view.pick_element.request">,
+    emit: Emit,
+  ): Promise<void> {
+    const respond = (
+      selection: CdpBrowserElementSelection | null,
+      error: CdpBrowserErrorCode | null,
+    ) =>
+      emit({
+        type: "browser.cdp.view.pick_element.response",
+        payload: { requestId: msg.requestId, selection, error },
+      });
+    const service = this.service();
+    if (!service) return respond(null, "browser_unsupported");
+    // A page holds one picker. A second pick takes the tab over and the first answers empty.
+    this.picks.get(msg.browserId)?.abort();
+    const controller = new AbortController();
+    this.picks.set(msg.browserId, controller);
+    try {
+      const tab = await service.attachedTab(msg.browserId);
+      if (!tab) return respond(null, "browser_tab_not_found");
+      const outcome = await pickElement({
+        ...this.options.pick,
+        tab,
+        token: randomUUID(),
+        signal: controller.signal,
+      });
+      if (outcome.kind === "picked") respond(outcome.selection, null);
+      else respond(null, outcome.kind === "failed" ? outcome.error : null);
+    } catch (error) {
+      this.logger.debug({ err: error }, "browser.cdp.view.pick_element failed");
+      respond(null, cdpErrorCode(error));
+    } finally {
+      if (this.picks.get(msg.browserId) === controller) this.picks.delete(msg.browserId);
+    }
+  }
+
+  cancelPick(msg: Inbound<"browser.cdp.view.cancel_pick.request">): void {
+    this.picks.get(msg.browserId)?.abort();
+  }
+
+  /** The session is going: its picks end, so no page stays a picker for someone who left. */
+  endPicks(): void {
+    for (const controller of this.picks.values()) controller.abort();
   }
 }

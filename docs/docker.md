@@ -223,6 +223,15 @@ The daemon touches only tabs it opened. It keeps their ids in
 `$PASEO_HOME/browser-tools/cdp-tabs.json` and never lists, drives or closes any other tab, so
 your own tabs and another instance's tabs on a shared Chromium are left alone.
 
+The pane's "Annotate element" button makes the tab a picker: the page outlines the element under
+the pointer, and the next click or tap picks it and reaches nothing on the page. The element and
+the note you write go to the workspace's composer as the attachment the desktop app's browser
+makes. The daemon runs the picker inside the page (`browser.cdp.view.pick_element`), where the
+page's own scripts can read and change it, so it cuts everything the page reports to fixed
+lengths. A pick ends by itself after 30 s, on Escape, when the page navigates and when the pane
+goes away. The button is off while an agent uses the tab, because a picker takes the agent's
+clicks too.
+
 Each tab the daemon opens is its own Chromium window, because Chromium paints no frames for a
 background tab. The window opens on top of the desktop you see in noVNC, over your own window.
 Chromium also stops rendering a window that another window covers, which freezes a pane tab as

@@ -190,6 +190,7 @@ import {
   PluginFrameOpcode,
 } from "@getpaseo/protocol/binary-frames/index";
 import type {
+  CdpBrowserElementSelection,
   CdpBrowserNavigateAction,
   CdpBrowserTabState,
   CdpBrowserViewInput,
@@ -2985,6 +2986,34 @@ export class DaemonClient {
         message: { type: "browser.cdp.view.navigate.request", browserId, action },
       });
     if (payload.error) throw new Error(payload.error);
+  }
+
+  // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
+  private requireCdpBrowserPick(): void {
+    if (this.getLastServerInfoMessage()?.features?.cdpBrowserPick !== true) {
+      throw new Error("This host cannot pick elements in its browser.");
+    }
+  }
+
+  /**
+   * Makes the tab a picker until the person picks an element, which takes up to 30 s. Resolves
+   * with the element, or with null when the pick ended without one (Escape, a cancel, a
+   * navigation, another pick on the tab). Rejects with the daemon's error code.
+   */
+  async pickCdpBrowserElement(browserId: string): Promise<CdpBrowserElementSelection | null> {
+    this.requireCdpBrowserPick();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.view.pick_element.response">({
+        message: { type: "browser.cdp.view.pick_element.request", browserId },
+      });
+    if (payload.error) throw new Error(payload.error);
+    return payload.selection;
+  }
+
+  /** Ends this client's pick on the tab. The pick's own promise resolves with null. */
+  cancelCdpBrowserElementPick(browserId: string): void {
+    this.requireCdpBrowserPick();
+    this.sendSessionMessage({ type: "browser.cdp.view.cancel_pick.request", browserId });
   }
 
   observeEvents(
