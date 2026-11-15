@@ -9,6 +9,7 @@ const BOTH: Connections = {
   jiraSite: "https://team.atlassian.net",
   jiraEmail: "me@team.test",
   gitlabUrl: "https://git.team.test",
+  githubUrl: "",
   promptTemplate: DEFAULT_PROMPT,
 };
 const NONE: Connections = { ...BOTH, jiraSite: "", jiraEmail: "", gitlabUrl: "" };
@@ -69,11 +70,39 @@ function gitlabAnswer(url: URL): Response {
   return json(url.pathname.includes("/merge_requests/") ? GITLAB_MR : GITLAB_ISSUE);
 }
 
+const GITHUB_ISSUE = {
+  number: 9,
+  title: "Cache the price list",
+  body: "It is read on every page.",
+  html_url: "https://github.com/shop/api/issues/9",
+  state: "open",
+  repository_url: "https://api.github.com/repos/shop/api",
+  comments: 0,
+};
+const GITHUB_PULL = {
+  ...GITHUB_ISSUE,
+  number: 10,
+  title: "Add the price cache",
+  body: "Closes #9",
+  html_url: "https://github.com/shop/api/pull/10",
+  pull_request: { merged_at: null },
+};
+
+function githubAnswer(url: URL): Response {
+  if (url.pathname === "/user") return json({ login: "rina", name: "Rina Putri" });
+  if (url.pathname === "/search/issues") {
+    const pulls = url.searchParams.get("q")?.includes("is:pr");
+    return json({ items: [pulls ? GITHUB_PULL : GITHUB_ISSUE] });
+  }
+  return json(url.pathname.endsWith("/10") ? GITHUB_PULL : GITHUB_ISSUE);
+}
+
 interface Setup {
   saved?: Connections;
   tokens?: SavedTokens;
   jira?: Respond;
   gitlab?: Respond;
+  github?: Respond;
 }
 
 function setup(options: Setup = {}) {
@@ -94,6 +123,7 @@ function setup(options: Setup = {}) {
     asked.push(url.host + url.pathname);
     if (init.method) sent.push([init.method, url.pathname, JSON.parse(String(init.body))]);
     if (url.host === "team.atlassian.net") return (options.jira ?? jiraAnswer)(url, init);
+    if (url.host === "api.github.com") return (options.github ?? githubAnswer)(url, init);
     return (options.gitlab ?? gitlabAnswer)(url, init);
   };
   const logs: string[] = [];
@@ -215,7 +245,11 @@ test("attaching with no tracker connected says where to connect one", async () =
 test("the token state says which trackers have one, never the token", async () => {
   const { tasks } = setup({ tokens: { jira: "jira-token" } });
   const state = await tasks.tokens();
-  expect(state).toEqual({ jira: { hasToken: true }, gitlab: { hasToken: false } });
+  expect(state).toEqual({
+    jira: { hasToken: true },
+    gitlab: { hasToken: false },
+    github: { hasToken: false },
+  });
   expect(JSON.stringify(state)).not.toContain("jira-token");
 });
 
@@ -224,10 +258,12 @@ test("a token is saved trimmed, and an empty one removes it", async () => {
   expect(await tasks.setToken({ source: "gitlab", token: "  glpat-abc\n" })).toEqual({
     jira: { hasToken: false },
     gitlab: { hasToken: true },
+    github: { hasToken: false },
   });
   expect(await tasks.setToken({ source: "gitlab", token: "   " })).toEqual({
     jira: { hasToken: false },
     gitlab: { hasToken: false },
+    github: { hasToken: false },
   });
   expect(writes).toEqual([
     ["gitlab", "glpat-abc"],
@@ -374,7 +410,7 @@ test("a long description is cut, and says so", async () => {
 
 test("an id that names no tracker, or one that is not set up, is refused", async () => {
   const { tasks, asked } = setup({ tokens: { jira: "jira-token" } });
-  for (const id of ["", "BWLT-12", "github:1", ":x"]) {
+  for (const id of ["", "BWLT-12", "linear:1", ":x"]) {
     await expect(tasks.detail(id)).rejects.toThrow("That is no task Paseo knows.");
   }
   await expect(tasks.detail("gitlab:issue:42:7")).rejects.toThrow(
@@ -526,4 +562,35 @@ test("a prompt for a task that cannot be read is the tracker's refusal", async (
   await expect(tasks.prompt("jira:BWLT-999")).rejects.toThrow(
     "Jira has no such task, or the saved account cannot see it.",
   );
+});
+
+test("GitHub is connected by its token alone, and lists its issues and pull requests", async () => {
+  const { tasks, asked } = setup({ saved: NONE, tokens: { github: "ghp-token" } });
+  const list = await tasks.list("");
+  expect(list.configured).toBe(true);
+  expect(list.issues.map((row) => [row.id, row.status])).toEqual([
+    ["github:issue:shop/api:9", "Open"],
+  ]);
+  expect(list.mergeRequests.map((row) => [row.id, row.note])).toEqual([
+    ["github:mr:shop/api:10", "Review requested"],
+  ]);
+  expect(new Set(asked)).toEqual(new Set(["api.github.com/search/issues"]));
+  expect(await tasks.test("github")).toEqual({ account: "Rina Putri (@rina)" });
+  const { tasks: tasksOf } = await tasks.search("");
+  expect(tasksOf[0]).toMatchObject({ key: "shop/api#9", branch: "9-cache-the-price-list" });
+});
+
+test("GitHub with no token is not a connection, and a test of it says what is missing", async () => {
+  const { tasks, asked } = setup({ saved: NONE, tokens: {} });
+  expect((await tasks.list("")).configured).toBe(false);
+  await expect(tasks.test("github")).rejects.toThrow("Save the GitHub access token first.");
+  expect(asked).toEqual([]);
+});
+
+test("an attached pull request is named as GitHub names it", async () => {
+  const { tasks } = setup({ saved: NONE, tokens: { github: "ghp-token" } });
+  const { items } = await tasks.attachments("");
+  const pull = items.find((item) => item.id === "github:mr:shop/api:10");
+  expect(pull?.text.split("\n")[0]).toBe("GitHub pull request shop/api#10: Add the price cache");
+  expect(pull?.resourceType).toBe("merge_request");
 });

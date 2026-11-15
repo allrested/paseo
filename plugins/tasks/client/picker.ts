@@ -28,7 +28,7 @@ export function fieldItems({ configured, tasks, query, chosen }: FieldInput): Fi
       {
         kind: "setup",
         id: "tasks:setup",
-        label: "Connect Jira or GitLab",
+        label: "Connect Jira, GitLab or GitHub",
         description: "Opens the task connections",
       },
     ];

@@ -255,7 +255,7 @@ test("with no tracker connected the list says so and leads to the connections", 
   answers["tasks.list"] = { configured: false, issues: [], mergeRequests: [], problems: [] };
   await mount();
   expect(text()).toContain("No tracker is connected");
-  await press("Connect Jira or GitLab");
+  await press("Connect Jira, GitLab or GitHub");
   expect(opened).toEqual([["settings", "connections"]]);
 });
 
@@ -285,7 +285,7 @@ test("a list that failed in part names the failure above the rows it has", async
 test("an empty list says so, and a search that finds nothing names what was typed", async () => {
   answers["tasks.list"] = { ...LIST, issues: [], mergeRequests: [] };
   await mount();
-  expect(text()).toContain("No open issues or merge requests are assigned to you");
+  expect(text()).toContain("No open issues, merge requests or pull requests are assigned to you");
   await type("Search tasks", " webhook ");
   await settle(350);
   expect(calls.at(-1)).toEqual(["tasks.list", { query: "webhook" }]);

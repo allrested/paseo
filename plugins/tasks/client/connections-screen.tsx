@@ -38,6 +38,7 @@ interface Field {
   key: Address;
   label: string;
   placeholder: string;
+  hint?: string;
 }
 
 interface TrackerForm {
@@ -70,6 +71,22 @@ const GITLAB: TrackerForm = {
   fields: [{ key: "gitlabUrl", label: "Address", placeholder: "https://gitlab.example.com" }],
   tokenLabel: "Access token",
   tokenHint: "A personal access token: read_api to read, api to comment and close",
+};
+
+const GITHUB: TrackerForm = {
+  source: "github",
+  title: "GitHub",
+  info: `Lists the open GitHub issues assigned to you. ${WHERE}`,
+  fields: [
+    {
+      key: "githubUrl",
+      label: "Address",
+      placeholder: "https://github.com",
+      hint: "Only for GitHub Enterprise. Leave it empty for github.com",
+    },
+  ],
+  tokenLabel: "Access token",
+  tokenHint: "A personal access token: repo (classic), or Issues and Pull requests (fine-grained)",
 };
 
 const TOKEN_KEPT = "Saved on the host. Type a new one to replace it";
@@ -225,6 +242,7 @@ function FieldInput({ field, settings, draft, disabled }: FieldInputProps) {
   return (
     <SettingsInput
       label={field.label}
+      hint={field.hint}
       initialValue={settings.values[field.key]}
       onChangeText={change}
       placeholder={field.placeholder}
@@ -307,7 +325,11 @@ function PromptSection({ settings, styles }: { settings: ReadySettings; styles: 
   );
 }
 
-const NO_TOKENS: Tokens = { jira: { hasToken: false }, gitlab: { hasToken: false } };
+const NO_TOKENS: Tokens = {
+  jira: { hasToken: false },
+  gitlab: { hasToken: false },
+  github: { hasToken: false },
+};
 
 function Trackers({ settings, styles }: { settings: ReadySettings; styles: ScreenStyles }) {
   const readTokens = useRpc(tokensRpc);
@@ -345,6 +367,12 @@ function Trackers({ settings, styles }: { settings: ReadySettings; styles: Scree
         form={GITLAB}
         settings={settings}
         hasToken={tokens.gitlab.hasToken}
+        onTokens={setTokens}
+      />
+      <TrackerSection
+        form={GITHUB}
+        settings={settings}
+        hasToken={tokens.github.hasToken}
         onTokens={setTokens}
       />
       <PromptSection settings={settings} styles={styles} />

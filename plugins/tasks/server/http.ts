@@ -87,7 +87,7 @@ export async function getJson<Schema extends ZodType>(
 }
 
 export interface SendJsonInput extends CallInput {
-  method: "POST" | "PUT";
+  method: "POST" | "PUT" | "PATCH";
   body: unknown;
   /** The tracker's own words for a refusal, read from its error body; null when it has none. */
   reason(body: unknown): string | null;

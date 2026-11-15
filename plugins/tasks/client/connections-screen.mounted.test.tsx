@@ -20,13 +20,13 @@ let state: Record<string, unknown>;
 let saves: Array<{ values: unknown; revision: string }>;
 let saveResult: boolean;
 let calls: Array<{ name: string; input: unknown }>;
-let tokens: { jira: { hasToken: boolean }; gitlab: { hasToken: boolean } };
+let tokens: Record<"jira" | "gitlab" | "github", { hasToken: boolean }>;
 let testResult: () => Promise<{ account: string }>;
 
 async function rpc(name: string, input: unknown): Promise<unknown> {
   calls.push({ name, input });
   if (name === "tasks.tokens.write") {
-    const { source, token } = input as { source: "jira" | "gitlab"; token: string };
+    const { source, token } = input as { source: "jira" | "gitlab" | "github"; token: string };
     tokens = { ...tokens, [source]: { hasToken: token.trim() !== "" } };
     return tokens;
   }
@@ -126,6 +126,7 @@ const SAVED = {
   jiraSite: "https://team.atlassian.net",
   jiraEmail: "me@team.test",
   gitlabUrl: "",
+  githubUrl: "",
   promptTemplate: DEFAULT_PROMPT,
 };
 
@@ -202,7 +203,7 @@ beforeEach(() => {
   saves = [];
   saveResult = true;
   calls = [];
-  tokens = { jira: { hasToken: false }, gitlab: { hasToken: false } };
+  tokens = { jira: { hasToken: false }, gitlab: { hasToken: false }, github: { hasToken: false } };
   testResult = async () => ({ account: "Rina Putri" });
   ready(SAVED);
   container = document.createElement("div");
@@ -242,7 +243,7 @@ test("shows each tracker's saved address and asks for its token", async () => {
 });
 
 test("a saved token is never shown: its row says it is kept and offers to remove it", async () => {
-  tokens = { jira: { hasToken: true }, gitlab: { hasToken: false } };
+  tokens = { jira: { hasToken: true }, gitlab: { hasToken: false }, github: { hasToken: false } };
   await mount();
   expect(field("Jira", "API token").value).toBe("");
   expect(field("Jira", "API token").placeholder).toBe("Saved");
@@ -268,7 +269,7 @@ test("Save stores the address with the other tracker's kept, then the token, and
 });
 
 test("Save with no token typed leaves the saved token alone", async () => {
-  tokens = { jira: { hasToken: true }, gitlab: { hasToken: false } };
+  tokens = { jira: { hasToken: true }, gitlab: { hasToken: false }, github: { hasToken: false } };
   await mount();
   await type("Jira", "Email", "rina@team.test");
   await press("Jira", "Save the Jira connection");
@@ -310,7 +311,7 @@ test("Test shows the tracker's refusal", async () => {
 });
 
 test("Remove takes the token off the host", async () => {
-  tokens = { jira: { hasToken: true }, gitlab: { hasToken: false } };
+  tokens = { jira: { hasToken: true }, gitlab: { hasToken: false }, github: { hasToken: false } };
   await mount();
   await press("Jira", "Remove the Jira token from the host");
   expect(written()).toEqual([{ name: "tasks.tokens.write", input: { source: "jira", token: "" } }]);
@@ -396,4 +397,24 @@ test("a template the host refuses says why under Save", async () => {
   await press("Task prompt", "Save the prompt");
   expect(alert("Task prompt", "Save the prompt")).toBe("The address is too long");
   expect(alert("Jira", "Save the Jira connection")).toBeNull();
+});
+
+test("GitHub asks for a token, and for an address only when it is not github.com", async () => {
+  await mount();
+  expect(labels("GitHub")).toEqual([
+    "Address",
+    "Access token",
+    "Save the GitHub connection",
+    "Test what is saved",
+  ]);
+  expect(field("GitHub", "Address").placeholder).toBe("https://github.com");
+  expect(hint("GitHub", "Address")).toBe(
+    "Only for GitHub Enterprise. Leave it empty for github.com",
+  );
+  await type("GitHub", "Access token", "ghp-abc");
+  await press("GitHub", "Save the GitHub connection");
+  expect(written()).toEqual([
+    { name: "tasks.tokens.write", input: { source: "github", token: "ghp-abc" } },
+  ]);
+  expect(saves).toEqual([{ values: SAVED, revision: "r1" }]);
 });
