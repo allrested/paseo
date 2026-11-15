@@ -18,9 +18,14 @@ export const SnippetSchema = z.object({
 });
 export type Snippet = z.output<typeof SnippetSchema>;
 
+/** Whose chats are searched: the providers that keep them as files this plugin can read. */
+export const ProviderSchema = z.enum(["claude", "kiro"]);
+export type Provider = z.output<typeof ProviderSchema>;
+
 export const ChatHitSchema = z.object({
+  provider: ProviderSchema,
   sessionId: z.string(),
-  /** Null for a Claude session that is no agent of this Paseo. */
+  /** Null for a session that is no agent of this Paseo. */
   agentId: z.string().nullable(),
   title: z.string(),
   /** The folder the chat ran in. */
@@ -36,7 +41,7 @@ export type ChatHit = z.output<typeof ChatHitSchema>;
 export const SearchResultSchema = z.object({
   /** Chats that are agents here, newest first. */
   chats: z.array(ChatHitSchema),
-  /** Claude sessions on this host that are no agent here, newest first. */
+  /** Sessions on this host that are no agent here, newest first. */
   others: z.array(ChatHitSchema),
   /** More transcripts held the words than were read. */
   more: z.boolean(),

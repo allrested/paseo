@@ -21,6 +21,7 @@ vi.mock("@getpaseo/plugin/client/ui", async () => {
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
 const HERE: ChatHit = {
+  provider: "claude",
   sessionId: "s-new",
   agentId: "agent-new",
   title: "Checkout total",
@@ -39,6 +40,7 @@ const HERE: ChatHit = {
   ],
 };
 const ELSEWHERE: ChatHit = {
+  provider: "kiro",
   sessionId: "0f7a1c2e-terminal",
   agentId: null,
   title: "Explain rounding modes",
@@ -144,7 +146,7 @@ test("starts with the field and what it searches, and asks nothing", async () =>
   await mount();
   expect(field().getAttribute("placeholder")).toBe("Words from a chat");
   expect(text()).toContain("Type at least 3 characters");
-  expect(text()).toContain("every Claude chat on this host");
+  expect(text()).toContain("every Claude and Kiro chat on this host");
   expect(calls).toEqual([]);
 });
 
@@ -182,7 +184,7 @@ test("lists the chats here with their snippets; a tap opens the chat", async () 
   ]);
   const card = buttons()[0];
   expect(card?.textContent).toContain("Checkout total");
-  expect(card?.textContent).toContain("shop · 4 h ago · 2 messages");
+  expect(card?.textContent).toContain("Claude · shop · 4 h ago · 2 messages");
   expect(card?.textContent).toContain("Agent: The rounding happens before the tax.");
   expect(card?.textContent).toContain("You: Move the ROUNDING after the tax.");
   // The words stand out from the text around them.
@@ -206,7 +208,7 @@ test("lists sessions that are no agent here apart, with their id and folder and 
   const section = container.querySelector('[aria-label="Not in Paseo"]');
   expect(section?.textContent).toContain("no agent here");
   expect(section?.textContent).toContain("Explain rounding modes");
-  expect(section?.textContent).toContain("me · 2 d ago · 10 or more messages");
+  expect(section?.textContent).toContain("Kiro · me · 2 d ago · 10 or more messages");
   expect(section?.textContent).toContain("Session 0f7a1c2e-terminal in /home/me");
   // No arrow on a session that cannot be opened.
   expect(section?.querySelectorAll('[data-testid="icon-ChevronRight"]')).toHaveLength(0);

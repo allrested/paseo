@@ -1,5 +1,5 @@
 // Row text for the Search chats screen: sentence case, no trailing period.
-import { MAX_COUNTED } from "../shared/contracts.js";
+import { MAX_COUNTED, type Provider } from "../shared/contracts.js";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -25,14 +25,22 @@ export function countText(matches: number): string {
   return matches === 1 ? "1 message" : `${matches} messages`;
 }
 
+const PROVIDERS: Record<Provider, string> = { claude: "Claude", kiro: "Kiro" };
+
 interface MetaInput {
+  provider: Provider;
   folder: string | null;
   changedAt: string;
   matches: number;
 }
 
 export function hitMeta(hit: MetaInput, now: number): string {
-  return [folderName(hit.folder), ago(hit.changedAt, now), countText(hit.matches)]
+  return [
+    PROVIDERS[hit.provider],
+    folderName(hit.folder),
+    ago(hit.changedAt, now),
+    countText(hit.matches),
+  ]
     .filter((part) => part !== null)
     .join(" · ");
 }
