@@ -80,6 +80,11 @@ export interface TasksStyles {
   checkBox: ViewStyle;
   checkBoxOn: ViewStyle;
   checkMarkColor: string;
+  /** One review thread: where it is, what was said, and what can be done with it. */
+  thread: ViewStyle;
+  threadWhere: TextStyle;
+  /** A thread's buttons, held to the top: a refusal under one must not push its neighbour down. */
+  threadActions: ViewStyle;
   /** The pictures of a description, under its text. */
   pictures: ViewStyle;
   /** One picture; its widest and its shape are the picture's own. */
@@ -294,6 +299,15 @@ export function useTasksStyles(
       checkBox,
       checkBoxOn: { ...checkBox, borderColor: colors.accent, backgroundColor: colors.accent },
       checkMarkColor: colors.accentForeground,
+      thread: {
+        gap: 12,
+        padding: 12,
+        borderWidth: 1,
+        borderRadius: 8,
+        borderColor: colors.border,
+      },
+      threadWhere: { ...small, fontWeight: "500", color: colors.foreground },
+      threadActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 8 },
       pictures: { gap: 12 },
       picture: { width: "100%", borderRadius: 4 },
     };

@@ -91,6 +91,35 @@ export interface IssueDetail extends Issue {
   images: TaskImage[];
 }
 
+/** One thread of a merge request's review: a first note and the answers to it. */
+export interface ReviewThread {
+  /** Names the thread to its tracker. */
+  id: string;
+  resolved: boolean;
+  /** Who resolved it, when the tracker says. */
+  resolvedBy?: string;
+  /** The file and line it is about; absent for a thread about the whole request. */
+  where?: string;
+  /** Oldest first. */
+  notes: Comment[];
+}
+
+export interface ReviewThreads {
+  /** As the tracker lists them: oldest first. */
+  threads: ReviewThread[];
+  /** The tracker holds more than were read. */
+  more: boolean;
+}
+
+/** The review threads of a merge request, on a tracker that keeps them. */
+export interface Review {
+  /** The threads of one merge request, by its `Issue.id`. */
+  list(id: string): Promise<ReviewThreads>;
+  reply(id: string, thread: string, text: string): Promise<void>;
+  /** Resolves a thread, or opens it again. */
+  resolve(id: string, thread: string, resolved: boolean): Promise<void>;
+}
+
 export interface Tracker {
   source: Source;
   /** The open tasks of the signed-in user that match `query`; all of them for an empty query. */
@@ -119,6 +148,8 @@ export interface Tracker {
   assign(id: string): Promise<void>;
   /** One image a task's detail listed, by its `TaskImage.id`. */
   image(id: string, image: string): Promise<FileBytes>;
+  /** Absent on a tracker whose review threads Paseo does not read. */
+  review?: Review;
 }
 
 /** A failure whose message is written for the user and holds no secret. */
