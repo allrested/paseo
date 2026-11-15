@@ -7,6 +7,7 @@ import express from "express";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import pino from "pino";
 
+import type { Brand } from "./brand.js";
 import { createWebUiMiddleware } from "./web-ui.js";
 
 const logger = pino({ level: "silent" });
@@ -73,6 +74,7 @@ function createApp(options: {
   enabled: boolean;
   distDir: string | null;
   publicDir?: string;
+  brand?: Brand | null;
 }): express.Application {
   const app = express();
   app.use(
@@ -81,6 +83,7 @@ function createApp(options: {
       distDir: options.distDir,
       label: "test-label",
       logger,
+      brand: options.brand,
     }),
   );
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
@@ -329,5 +332,179 @@ describe("daemon web UI route module", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toBe("");
+  });
+});
+
+describe("daemon web UI under a brand", () => {
+  let tempRoot: string;
+  let distDir: string;
+
+  const image = (body: string, contentType: string, version: string) => ({
+    body: Buffer.from(body),
+    contentType,
+    etag: `"${version}"`,
+    version,
+  });
+  const BRAND: Brand = {
+    name: "Acme <Agents> & Co",
+    color: "#112233",
+    logo: image("<svg/>", "image/svg+xml", "aaaa000011112222"),
+    icon: { ...image("png-bytes", "image/png", "bbbb000011112222"), width: 512, height: 512 },
+  };
+  const INDEX = [
+    "<!doctype html><html><head>",
+    '<meta name="theme-color" content="#181B1A" />',
+    '<meta name="apple-mobile-web-app-title" content="Paseo" />',
+    '<link rel="manifest" href="/manifest.json" />',
+    '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />',
+    '<link rel="icon" href="/favicon.ico"/>',
+    "<title>Paseo</title>",
+    "</head><body>app</body></html>",
+  ].join("");
+
+  beforeEach(async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "paseo-web-ui-brand-"));
+    distDir = path.join(tempRoot, "dist");
+    await mkdir(distDir, { recursive: true });
+    await writeFile(path.join(distDir, "index.html"), INDEX);
+    await writeFile(path.join(distDir, "favicon.ico"), "paseo-favicon");
+    await writeFile(path.join(distDir, "pwa-icon-512.png"), "paseo-icon");
+    await writeFile(
+      path.join(distDir, "manifest.json"),
+      JSON.stringify({
+        name: "Paseo",
+        short_name: "Paseo",
+        start_url: "/",
+        theme_color: "#181B1A",
+        background_color: "#181B1A",
+        icons: [{ src: "/pwa-icon-512.png", sizes: "512x512", type: "image/png" }],
+      }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const branded = (brand: Brand | null = BRAND) => createApp({ enabled: true, distDir, brand });
+
+  test("the page carries the name, the colour, the icon and what the app reads at start", async () => {
+    const res = await request(branded(), "GET", "/h/some/deep/link");
+
+    expect(res.status).toBe(200);
+    // The name is text in the page: its markup characters are escaped.
+    expect(res.body).toContain("<title>Acme &lt;Agents&gt; &amp; Co</title>");
+    expect(res.body).toContain(
+      '<meta name="apple-mobile-web-app-title" content="Acme &lt;Agents&gt; &amp; Co" />',
+    );
+    expect(res.body).toContain('<meta name="theme-color" content="#112233" />');
+    expect(res.body).toContain(
+      '<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bbbb000011112222" />',
+    );
+    expect(res.body).toContain(
+      '<link rel="icon" type="image/png" href="/_brand/icon.png?v=bbbb000011112222" />',
+    );
+    // In the script the name is JSON, with the characters that could end the script escaped.
+    expect(res.body).toContain(
+      '<script>window.__PASEO_BRAND__={"name":"Acme \\u003CAgents\\u003E \\u0026 Co","logoUrl":"/_brand/logo?v=aaaa000011112222","iconUrl":"/_brand/icon.png?v=bbbb000011112222"}</script></head>',
+    );
+    // The build's icon link is replaced, not joined by a second one.
+    expect(res.body.match(/rel="icon"/g)).toHaveLength(1);
+    expect(res.body).not.toContain("Paseo</title>");
+    expect(res.body).toContain("window.__PASEO_INITIAL_DAEMON_CONNECTION__=");
+  });
+
+  test("a name with a replacement pattern in it is written as it is", async () => {
+    const res = await request(branded({ ...BRAND, name: "Cost $& Co $1" }), "GET", "/");
+
+    expect(res.body).toContain("<title>Cost $&amp; Co $1</title>");
+  });
+
+  test("the manifest keeps the build's fields and takes the brand's name, colour and icon", async () => {
+    const res = await request(branded(), "GET", "/manifest.json");
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/json");
+    expect(JSON.parse(res.body)).toEqual({
+      name: "Acme <Agents> & Co",
+      short_name: "Acme <Agents> & Co",
+      start_url: "/",
+      theme_color: "#112233",
+      background_color: "#181B1A",
+      icons: [
+        {
+          src: "/_brand/icon.png?v=bbbb000011112222",
+          sizes: "512x512",
+          type: "image/png",
+          purpose: "any",
+        },
+      ],
+    });
+  });
+
+  test("the logo and every icon path answer with the brand's files, locked down", async () => {
+    const app = branded();
+    const logo = await request(app, "GET", "/_brand/logo?v=aaaa000011112222");
+
+    expect(logo.status).toBe(200);
+    expect(logo.body).toBe("<svg/>");
+    expect(logo.headers["content-type"]).toContain("image/svg+xml");
+    expect(logo.headers.etag).toBe('"aaaa000011112222"');
+    expect(logo.headers["x-content-type-options"]).toBe("nosniff");
+    expect(logo.headers["content-security-policy"]).toContain("sandbox");
+    for (const iconPath of [
+      "/_brand/icon.png",
+      "/favicon.ico",
+      "/apple-touch-icon.png",
+      "/pwa-icon-192.png",
+      "/pwa-icon-512.png",
+    ]) {
+      const icon = await request(app, "GET", iconPath);
+      expect([iconPath, icon.status, icon.body, icon.headers["content-type"]]).toEqual([
+        iconPath,
+        200,
+        "png-bytes",
+        "image/png",
+      ]);
+    }
+  });
+
+  test("an image the browser already holds is not sent again", async () => {
+    const res = await request(branded(), "GET", "/_brand/logo", {
+      "if-none-match": '"aaaa000011112222"',
+    });
+
+    expect(res.status).toBe(304);
+    expect(res.body).toBe("");
+  });
+
+  test("a brand with only a name leaves the build's icons and logo alone", async () => {
+    const app = branded({ name: "Acme", color: null, logo: null, icon: null });
+
+    const page = await request(app, "GET", "/");
+    expect(page.body).toContain("<title>Acme</title>");
+    expect(page.body).toContain('<meta name="theme-color" content="#181B1A" />');
+    expect(page.body).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />');
+    expect(page.body).toContain(
+      'window.__PASEO_BRAND__={"name":"Acme","logoUrl":null,"iconUrl":null}',
+    );
+    expect((await request(app, "GET", "/favicon.ico")).body).toBe("paseo-favicon");
+    expect(JSON.parse((await request(app, "GET", "/manifest.json")).body)).toMatchObject({
+      name: "Acme",
+      theme_color: "#181B1A",
+      icons: [{ src: "/pwa-icon-512.png" }],
+    });
+    // Without a logo the path is the app's to route, like any other.
+    expect((await request(app, "GET", "/_brand/logo")).body).toContain("<title>Acme</title>");
+  });
+
+  test("without a brand the page and the build's files are as they were", async () => {
+    const app = branded(null);
+
+    const page = await request(app, "GET", "/");
+    expect(page.body).toContain("<title>Paseo</title>");
+    expect(page.body).not.toContain("__PASEO_BRAND__");
+    expect(JSON.parse((await request(app, "GET", "/manifest.json")).body).name).toBe("Paseo");
+    expect((await request(app, "GET", "/pwa-icon-512.png")).body).toBe("paseo-icon");
   });
 });

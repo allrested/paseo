@@ -197,6 +197,42 @@ environment:
 
 IPs and `localhost` are allowed by default.
 
+## Branding
+
+The web UI the daemon serves can carry your own name, logo, icon and colour. Set them in the
+daemon's environment; each one works alone.
+
+| Variable            | Value                                                              | Changes                                                                 |
+| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `PASEO_BRAND_NAME`  | 1 to 40 characters                                                 | The page title, the installed app's name, and "Paseo" in the app's text |
+| `PASEO_BRAND_LOGO`  | Path to an `.svg`, `.png`, `.jpg`, `.jpeg` or `.webp`, up to 1 MiB | The logo on the welcome, start-up, open-project and onboarding screens  |
+| `PASEO_BRAND_ICON`  | Path to a square `.png` of 512 px or more, up to 1 MiB             | The favicon, the Apple touch icon and the installed app's icon          |
+| `PASEO_BRAND_COLOR` | `#RRGGBB`                                                          | The browser bar and the installed app's title bar                       |
+
+```yaml
+services:
+  paseo:
+    environment:
+      PASEO_BRAND_NAME: "Acme Agents"
+      PASEO_BRAND_LOGO: "brand/logo.svg"
+      PASEO_BRAND_ICON: "brand/icon.png"
+      PASEO_BRAND_COLOR: "#1F6F4A"
+```
+
+The paths are on the daemon's machine. A relative path is resolved against `$PASEO_HOME`, so
+`brand/logo.svg` is `./paseo-home/.paseo/brand/logo.svg` in the example above. The logo is drawn
+in its own colours on every theme: pick one that reads on light and dark. The icon is used as it
+is at every size. In the browser tab it carries a dot at the bottom right while an agent runs or
+needs you, so leave that corner free of detail.
+
+The daemon reads the files at start. Restart it after a change. A value it cannot use is named in
+the daemon log and ignored; the others still apply. A browser that installed the app earlier
+keeps the old name and icon until the app is installed again.
+
+Branding reaches the web UI only, in a browser and installed from one. The phone and desktop apps,
+the `paseo` command, tool names and file paths keep their names, and plugin screens keep their
+own wording. Under your name, the Help menu adds "Based on Paseo".
+
 ## Private network access
 
 `docker-compose.vpn.yml` is a complete alternative to `docker-compose.yml`: the

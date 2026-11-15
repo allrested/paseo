@@ -2003,6 +2003,7 @@ export const ko: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "이 메시지로 되감기",
