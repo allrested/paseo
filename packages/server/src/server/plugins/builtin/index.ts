@@ -29,6 +29,7 @@ export const builtinPlugins = [
   "resource-manager",
   "saved-prompts",
   "shared-mcp",
+  "tasks",
   "worktree-include",
   "zai-usage-source",
 ] as const;

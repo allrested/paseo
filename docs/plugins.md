@@ -398,6 +398,25 @@ not told whether it is in front, and the Feed screen stays mounted under the age
 the feed counts as seen when it opens and when it is pressed. An entry that comes while the screen
 is up stays in the count until then.
 
+The `tasks` built-in lists the open tasks of whoever connected a tracker: Jira Cloud issues
+assigned to the token's user and not done, and open GitLab issues assigned to them. A Task field on
+the New workspace screen names the new branch after the pick (`BWLT-12-add-the-webhook`, or
+GitLab's own form `7-rate-limit-the-login-form`) and leaves `tasks.key` and `tasks.url` in the
+workspace's metadata. "Attach Task" in a composer's attach menu sends the task's key, title,
+status and description as text. A Jira key typed in either place finds that issue whoever has it.
+The connections screen opens from the Task field while no tracker is connected, and from "Task
+connections" in the Command Center, which lists plugin items only on a screen that belongs to a
+host (a workspace, a plugin screen), not on New workspace or the start page.
+
+The addresses are the plugin's host settings. The tokens are not, because every client reads the
+settings: they are in `$PASEO_HOME/tasks/tokens.json`, mode 600, and the RPCs about them say
+whether one is saved and replace or remove it. No RPC returns a token. A tracker's address must be
+https (http on loopback only), and requests follow no redirect, because GitLab's `PRIVATE-TOKEN`
+header would go with it. When one tracker fails and the other answers, the list shows the other's
+tasks and the daemon log has the reason; "Test" on the connections screen shows it too. Jira's
+rich text is flattened to plain text (`plugins/tasks/server/adf.ts`), and a description over
+20,000 characters is cut.
+
 The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which
 lists that workspace's room first. Each workspace is a room, and the lobby holds agents without a
