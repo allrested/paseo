@@ -250,7 +250,33 @@ A stack that borrows another stack's browser, such as `docker-compose.agent.yml`
 deployment that keeps its own copy of a compose file need all three flags on the Chromium they
 use.
 
-The profile is shared: a tab the daemon opens has your logins.
+### Profiles
+
+A tab opens in the Chromium's own profile, called Shared in the app, so it has the logins you made
+over noVNC. To keep a workspace away from them, give it a named profile: the profile button in the
+pane's toolbar lists the profiles, and the one you pick is where that workspace's new tabs open,
+yours and its agents'. A tab that is already open stays in the profile it opened in.
+
+A named profile is a CDP browser context, which Chromium holds in memory. The daemon saves each
+profile's cookies to `$PASEO_HOME/browser-tools/cdp-profiles/<id>.json` (owner-only, plain
+text) every 30 s while the profile has an open tab, when one of its tabs closes and when the
+daemon stops, and writes them into a new context after Chromium restarts. Session cookies are
+saved too. Other site storage, such as localStorage and IndexedDB, is gone after a Chromium
+restart.
+
+"Import cookies" adds cookies to a named profile from one of two sources:
+
+- A cookie file from your own browser: a JSON export (an array of cookies, or a Playwright
+  storage state) or a Netscape `cookies.txt`, up to 1 MiB and 5,000 cookies. Choose the file or
+  paste its text.
+- The Shared profile, for the sites you name. `github.com` also copies the cookies of
+  `api.github.com`.
+
+The daemon never writes cookies into the Shared profile, and an import answers with counts and
+site names only. Deleting a profile closes its tabs and removes its cookie file.
+
+A daemon keeps at most 12 profiles. Each daemon on a shared Chromium has its own profiles and
+contexts.
 
 ## FigCraft (design mode)
 

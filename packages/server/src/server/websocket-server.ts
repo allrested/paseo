@@ -2066,6 +2066,8 @@ export class VoiceAssistantWebSocketServer {
         ...(this.browserToolsBroker?.cdpBrowser ? { cdpBrowser: true } : {}),
         // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
         ...(this.browserToolsBroker?.cdpBrowser ? { cdpBrowserPick: true } : {}),
+        // COMPAT(cdpBrowserProfiles): added in v0.16.0, remove gate after 2027-05-15.
+        ...(this.browserToolsBroker?.cdpBrowser?.profiles ? { cdpBrowserProfiles: true } : {}),
         // COMPAT(relayProtectedSecurity): added in v0.13.0, remove gate after 2027-04-21.
         relayProtectedSecurity: true,
         usageSetting: true,

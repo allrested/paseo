@@ -9,7 +9,14 @@ export interface FakeTarget {
   url: string;
   title: string;
   openerId?: string;
+  /** Absent in Chromium's own profile. */
+  browserContextId?: string;
 }
+
+/** The context id the fake uses for Chromium's own profile in `cookies`. */
+export const DEFAULT_CONTEXT = "default";
+
+type FakeCookie = Record<string, unknown>;
 
 export interface FakeCommand {
   targetId: string; // "browser" for the browser socket
@@ -25,6 +32,15 @@ export interface FakeChromium {
   readonly targets: Map<string, FakeTarget>;
   readonly hostHeaders: string[];
   readonly commands: FakeCommand[];
+  /**
+   * Each context's cookies as they were set, by context id; DEFAULT_CONTEXT is Chromium's own
+   * profile. A context that is not listed does not exist.
+   */
+  readonly cookies: Map<string, FakeCookie[]>;
+  /** Names of cookies Chromium cannot make: a setCookies call that holds one fails whole. */
+  readonly refusedCookieNames: Set<string>;
+  /** Names of cookies Chromium drops without an error. */
+  readonly droppedCookieNames: Set<string>;
   /** Replaces the answer for one method. Throwing answers with a CDP error; a promise answers when it settles. */
   handle(method: string, handler: Handler): void;
   /** The method never answers, so the caller times out. */
@@ -34,6 +50,8 @@ export interface FakeChromium {
   emit(targetId: string, method: string, params: Record<string, unknown>): void;
   addTarget(input?: Partial<FakeTarget>): FakeTarget;
   destroyTarget(targetId: string): void;
+  /** Chromium restarted or dropped the context: it is gone, with its cookies and its tabs. */
+  dropContext(contextId: string): void;
   socketCount(targetId: string): number;
   /** Drops every socket of one target ("browser" for the browser socket); the target stays. */
   disconnect(targetId: string): void;
@@ -49,6 +67,9 @@ export async function startFakeChromium(): Promise<FakeChromium> {
   const handlers = new Map<string, Handler>();
   const stalled = new Set<string>();
   const sockets = new Map<string, Set<WebSocket>>();
+  const cookies = new Map<string, FakeCookie[]>([[DEFAULT_CONTEXT, []]]);
+  const refusedCookieNames = new Set<string>();
+  const droppedCookieNames = new Set<string>();
 
   const emit = (targetId: string, method: string, params: Record<string, unknown>) => {
     for (const socket of sockets.get(targetId) ?? [])
@@ -61,6 +82,7 @@ export async function startFakeChromium(): Promise<FakeChromium> {
       url: input.url ?? "about:blank",
       title: input.title ?? "",
       ...(input.openerId ? { openerId: input.openerId } : {}),
+      ...(input.browserContextId ? { browserContextId: input.browserContextId } : {}),
     };
     targets.set(target.id, target);
     emit("browser", "Target.targetCreated", {
@@ -70,6 +92,7 @@ export async function startFakeChromium(): Promise<FakeChromium> {
         url: target.url,
         title: target.title,
         openerId: target.openerId,
+        browserContextId: target.browserContextId,
       },
     });
     return target;
@@ -81,9 +104,77 @@ export async function startFakeChromium(): Promise<FakeChromium> {
     emit("browser", "Target.targetDestroyed", { targetId });
   };
 
-  handlers.set("Target.createTarget", (params) => ({
-    targetId: addTarget({ url: typeof params.url === "string" ? params.url : "about:blank" }).id,
+  const dropContext = (contextId: string) => {
+    if (!cookies.delete(contextId)) return;
+    // A copy: destroying a target takes it out of the map this walks.
+    for (const target of Array.from(targets.values())) {
+      if (target.browserContextId === contextId) destroyTarget(target.id);
+    }
+  };
+  const contextOf = (params: Record<string, unknown>): string => {
+    const contextId =
+      typeof params.browserContextId === "string" ? params.browserContextId : DEFAULT_CONTEXT;
+    if (!cookies.has(contextId)) {
+      throw new Error(`Failed to find browser context for id ${contextId}`);
+    }
+    return contextId;
+  };
+
+  handlers.set("Target.createTarget", (params) => {
+    const contextId = typeof params.browserContextId === "string" ? params.browserContextId : null;
+    // Chromium's whole message for a context it does not have.
+    if (contextId !== null && !cookies.has(contextId)) throw new Error("browserContextId");
+    return {
+      targetId: addTarget({
+        url: typeof params.url === "string" ? params.url : "about:blank",
+        ...(contextId === null ? {} : { browserContextId: contextId }),
+      }).id,
+    };
+  });
+  handlers.set("Target.createBrowserContext", () => {
+    const browserContextId = randomUUID().replaceAll("-", "").toUpperCase();
+    cookies.set(browserContextId, []);
+    return { browserContextId };
+  });
+  handlers.set("Target.getBrowserContexts", () => ({
+    browserContextIds: [...cookies.keys()].filter((id) => id !== DEFAULT_CONTEXT),
   }));
+  handlers.set("Target.disposeBrowserContext", (params) => {
+    const contextId = contextOf(params);
+    if (contextId !== DEFAULT_CONTEXT) dropContext(contextId);
+    return {};
+  });
+  handlers.set("Storage.getCookies", (params) => ({
+    // As Chromium reports them: a session cookie has no expiry of its own.
+    cookies: (cookies.get(contextOf(params)) ?? []).map((cookie) =>
+      Object.assign({}, cookie, {
+        expires: typeof cookie.expires === "number" ? cookie.expires : -1,
+        session: typeof cookie.expires !== "number",
+        size: String(cookie.name).length + String(cookie.value).length,
+      }),
+    ),
+  }));
+  handlers.set("Storage.setCookies", (params) => {
+    const jar = cookies.get(contextOf(params)) ?? [];
+    const given = Array.isArray(params.cookies) ? (params.cookies as FakeCookie[]) : [];
+    // One cookie Chromium cannot make fails the whole call, and nothing is set.
+    const valid = (cookie: FakeCookie) =>
+      typeof cookie.name === "string" &&
+      cookie.name !== "" &&
+      typeof cookie.value === "string" &&
+      typeof cookie.domain === "string" &&
+      cookie.domain !== "" &&
+      !refusedCookieNames.has(cookie.name);
+    if (!given.every(valid)) throw new Error("Invalid cookie fields");
+    const keyOf = (cookie: FakeCookie) => [cookie.name, cookie.domain, cookie.path].join("\n");
+    for (const cookie of given) {
+      if (droppedCookieNames.has(String(cookie.name))) continue;
+      const at = jar.findIndex((each) => keyOf(each) === keyOf(cookie));
+      if (at === -1) jar.push(cookie);
+      else jar[at] = cookie;
+    }
+    return {};
+  });
   handlers.set("Target.closeTarget", (params) => {
     destroyTarget(String(params.targetId));
     return { success: true };
@@ -184,6 +275,10 @@ export async function startFakeChromium(): Promise<FakeChromium> {
     targets,
     hostHeaders,
     commands,
+    cookies,
+    refusedCookieNames,
+    droppedCookieNames,
+    dropContext,
     handle: (method, handler) => void handlers.set(method, handler),
     stall: (method) => void stalled.add(method),
     unstall: (method) => void stalled.delete(method),

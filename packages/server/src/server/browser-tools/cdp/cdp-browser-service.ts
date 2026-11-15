@@ -21,6 +21,7 @@ import {
 } from "./cdp-connection.js";
 import { CdpUnreachableError, type CdpEndpoint } from "./cdp-endpoint.js";
 import { CdpTab } from "./cdp-tab.js";
+import type { CdpProfiles } from "./profiles/profiles.js";
 import { ScreencastHub, type FrameSize } from "./screencast-hub.js";
 import type { CdpTabEntry, CdpTabRegistry } from "./tab-registry.js";
 
@@ -63,6 +64,8 @@ interface FrameSizeCheck {
 }
 /** Each daemon tab is a Chromium window with its own renderer, in the user's logged-in browser. */
 export const MAX_DAEMON_TABS = 10;
+/** How often the cookies of the profiles with an open tab are written down. */
+export const PROFILE_SAVE_INTERVAL_MS = 30_000;
 /**
  * upload checks the path in the daemon's container, and Chromium runs in another one that does
  * not have the file, so the Docker host does not offer it.
@@ -84,6 +87,8 @@ export interface CdpTabState {
    * clock may be skewed, so do not compare this value with it.
    */
   agentActiveUntil: number | null;
+  /** The named profile the tab opened in; null is the Shared profile. Absent without profiles. */
+  profile?: { id: string; name: string } | null;
 }
 
 export type CdpBrowserEvent =
@@ -131,6 +136,10 @@ export interface CdpBrowserServiceOptions {
   reconnect?: { minMs: number; maxMs: number };
   /** Overrides FRAME_WAIT_MS, for tests. */
   frameWaitMs?: number;
+  /** Named browser profiles. Without them every tab opens in Chromium's own profile. */
+  profiles?: CdpProfiles;
+  /** Overrides PROFILE_SAVE_INTERVAL_MS, for tests. */
+  profileSaveIntervalMs?: number;
 }
 
 /** The one URL check for tabs the daemon opens or navigates: http, https or about:blank. */
@@ -167,6 +176,10 @@ export class CdpBrowserService {
   private readonly minBackoffMs: number;
   private readonly maxBackoffMs: number;
   private readonly frameWaitMs: number;
+  private readonly profileSaveIntervalMs: number;
+  /** Null when the daemon was built without profiles. */
+  readonly profiles: CdpProfiles | null;
+  private profileSaveTimer: ReturnType<typeof setInterval> | null = null;
 
   private browser: CdpConnection | null = null;
   private unregister: (() => void) | null = null;
@@ -219,6 +232,8 @@ export class CdpBrowserService {
     this.maxBackoffMs = options.reconnect?.maxMs ?? 30_000;
     this.backoffMs = this.minBackoffMs;
     this.frameWaitMs = options.frameWaitMs ?? FRAME_WAIT_MS;
+    this.profiles = options.profiles ?? null;
+    this.profileSaveIntervalMs = options.profileSaveIntervalMs ?? PROFILE_SAVE_INTERVAL_MS;
     this.screencast = new ScreencastHub({
       source: async (browserId) => (await this.attachedTab(browserId))?.connection ?? null,
       onError: (error) => this.logger.debug({ err: error }, "Screencast error"),
@@ -252,10 +267,13 @@ export class CdpBrowserService {
     for (const timer of this.agentTimers.values()) clearTimeout(timer);
     this.agentTimers.clear();
     for (const browserId of this.frameSizeChecks.keys()) this.endFrameWait(browserId);
+    // While the socket is still open: the last cookie changes of the profiles with a tab.
+    await this.saveOpenProfiles();
     const browser = this.browser;
     this.disconnect();
     browser?.close();
     await this.registry.flush();
+    await this.profiles?.flush();
   }
 
   retryNow(): void {
@@ -294,12 +312,16 @@ export class CdpBrowserService {
         `The Docker browser already has ${MAX_DAEMON_TABS} open tabs. Close a tab before opening another.`,
       );
     }
+    // A workspace opens its tabs in the profile it chose, whoever opens them: a person or an agent.
+    const profile = this.profiles?.profileOf(input.workspaceId) ?? null;
+    const browserContextId = profile ? await this.profiles?.contextFor(profile.id) : undefined;
     // A background tab is hidden: it paints no screencast frames and its requestAnimationFrame
     // never fires. A background window is visible and does not take focus from the noVNC desktop.
     const { targetId } = await browser.send<{ targetId: string }>("Target.createTarget", {
       url,
       newWindow: true,
       background: true,
+      ...(browserContextId === undefined ? {} : { browserContextId }),
     });
     const entry: CdpTabEntry = {
       browserId: this.createBrowserId(),
@@ -307,6 +329,7 @@ export class CdpBrowserService {
       workspaceId: input.workspaceId,
       lastUrl: url,
       createdAt: this.now(),
+      ...(profile ? { profileId: profile.id } : {}),
     };
     this.registry.add(entry);
     this.broker.claimBrowser(CDP_HOST_ID, entry.browserId);
@@ -322,6 +345,8 @@ export class CdpBrowserService {
     if (!entry) return false;
     // A tab the daemon forgets but did not close is a window it can never close again.
     if (!this.browser) throw new CdpUnreachableError("The Docker browser is unreachable.");
+    // Before the tab goes: Chromium may drop a profile's context with its last window.
+    if (entry.profileId !== undefined) await this.saveProfiles([entry.profileId]);
     try {
       await this.browser.send("Target.closeTarget", { targetId: entry.targetId });
     } catch (error) {
@@ -413,6 +438,7 @@ export class CdpBrowserService {
     try {
       if (!this.loaded) {
         await this.registry.load();
+        await this.profiles?.load();
         this.loaded = true;
       }
       const targets = await this.endpoint.listTargets();
@@ -429,8 +455,13 @@ export class CdpBrowserService {
       );
       browser.onClose(() => this.guard(() => this.onBrowserClosed(browser)));
       await browser.send("Target.setDiscoverTargets", { discover: true });
-      if (this.stopped) return;
+      await this.profiles?.connected(browser);
+      if (this.stopped) {
+        this.profiles?.disconnected();
+        return;
+      }
       this.browser = browser;
+      this.startProfileSaves();
       pending = null;
       this.backoffMs = this.minBackoffMs;
       this.unregister = this.broker.registerClient({
@@ -475,6 +506,9 @@ export class CdpBrowserService {
 
   private disconnect(): void {
     this.browser = null;
+    if (this.profileSaveTimer) clearInterval(this.profileSaveTimer);
+    this.profileSaveTimer = null;
+    this.profiles?.disconnected();
     this.unregister?.();
     this.unregister = null;
     for (const tab of this.tabs.values()) tab.dispose();
@@ -747,7 +781,30 @@ export class CdpBrowserService {
   private onTargetDestroyed(params: Record<string, unknown>): void {
     const entry =
       typeof params.targetId === "string" ? this.registry.findByTarget(params.targetId) : null;
-    if (entry) this.forget(entry.browserId);
+    if (!entry) return;
+    this.forget(entry.browserId);
+    // A tab closed from elsewhere: its profile's cookies are saved while its context still lives.
+    if (entry.profileId !== undefined) void this.saveProfiles([entry.profileId]);
+  }
+
+  private startProfileSaves(): void {
+    if (!this.profiles || this.profileSaveTimer) return;
+    this.profileSaveTimer = setInterval(
+      () => void this.saveOpenProfiles(),
+      this.profileSaveIntervalMs,
+    );
+    this.profileSaveTimer.unref?.();
+  }
+
+  /** The profiles with an open tab: only those can have cookies newer than the vault's. */
+  private saveOpenProfiles(): Promise<void> {
+    return this.saveProfiles(this.registry.list().flatMap((entry) => entry.profileId ?? []));
+  }
+
+  /** Never rejects: a profile that cannot be saved is logged by the profiles. */
+  private async saveProfiles(profileIds: string[]): Promise<void> {
+    if (!this.profiles || profileIds.length === 0) return;
+    await this.profiles.saveAll(profileIds);
   }
 
   private forget(browserId: string): void {
@@ -818,7 +875,13 @@ export class CdpBrowserService {
       canGoBack: tab?.canGoBack() ?? false,
       canGoForward: tab?.canGoForward() ?? false,
       agentActiveUntil: this.agentActiveUntil.get(entry.browserId) ?? null,
+      ...(this.profiles ? { profile: this.profileOfTab(entry) } : {}),
     };
+  }
+
+  private profileOfTab(entry: CdpTabEntry): { id: string; name: string } | null {
+    const profile = entry.profileId === undefined ? null : this.profiles?.get(entry.profileId);
+    return profile ? { id: profile.id, name: profile.name } : null;
   }
 
   /** The broker's send hook. It never rejects: every outcome goes back as a response payload. */
