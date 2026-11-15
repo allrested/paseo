@@ -26,7 +26,7 @@ import { applaud } from './people/gatherings.js';
 import { launchRocket } from './world/room-update.js';
 import { printPage } from './world/props/printer.js';
 import { shredAction } from './world/props/shredder.js';
-import { onTest } from './life/tests.js';
+import { clearRun, onTest } from './life/tests.js';
 import { onTurnDone } from './life/your-turn.js';
 import { t as tr } from '../i18n/index.js';
 
@@ -91,8 +91,25 @@ function makeTeamChipsButtons() {
   }
 }
 
+/** What the place cards and the wall screen count an event as. */
+const COUNTED = { prompt: 'prompts', read: 'read', grep: 'read', web: 'web', mcp: 'web', edit: 'edit', write: 'edit', bash: 'cmd', test: 'cmd', commit: 'cmd', push: 'cmd', deploy: 'deploy' };
+const FEED_MAX = 300;
+
+/** Upstream's server keeps the feed and the counts; here they start when the office is opened. */
+function record(e) {
+  const s = sessions.get(e.sess);
+  if (s) { s.last = e; s.lastAt = e.ts; }
+  state.feed.push(e);
+  if (state.feed.length > FEED_MAX) state.feed.splice(0, state.feed.length - FEED_MAX);
+  const counted = COUNTED[e.type];
+  if (counted) state.stats[counted] = (state.stats[counted] || 0) + 1;
+}
+
+const clockTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
 /** Upstream's life/incidents.js onEvent, the part that moves people and furniture. */
 function onEvent(e) {
+  record(e);
   const s = sessions.get(e.sess), w = workers.get(e.sess);
   if (e.type === 'stop' || e.type === 'commit') printPage();   // every finished turn and every commit prints a page
   if (e.type === 'test' || e.type === 'testok' || e.type === 'testfail') onTest(e);
@@ -155,6 +172,9 @@ const api = {
       if (name === 'interactPlaceCards') whiteboard.setup();
       if (name === 'netLive') { live.setupTeams(); makeTeamChipsButtons(); }
     }
+    // Upstream's streamer mode says "a file" and "a command" where it would show a name. Paseo sends no names, so it is
+    // always on (set here, after ui/event-text.js read upstream's own setting).
+    state.streamer = true;
     cameraBar.setup();
     // Escape closes the place card and gives the keyboard back to the chip that opened it.
     document.addEventListener('keydown', (event) => {
@@ -202,8 +222,14 @@ const api = {
     state.connectedOnce = true;
     state.boardDirty = true;
   },
-  /** Something a session did: { sess, type, label }, `type` a key of upstream's ACT table. */
-  event(e) { if (started && e && sessions.has(e.sess)) onEvent({ ts: Date.now(), ...e }); },
+  /** Something a session did: { sess, type }, `type` a key of upstream's ACT table. No text comes with it. */
+  event(e) {
+    if (!started || !e || !sessions.has(e.sess)) return;
+    if (e.type === 'testend') { clearRun(e.sess); return; }
+    // the test board writes a run's label beside its result: Paseo gives the time it ended
+    const ended = e.type === 'testok' || e.type === 'testfail';
+    onEvent({ ts: Date.now(), sess: e.sess, type: e.type, label: ended ? clockTime() : '' });
+  },
   /** Paseo chose someone (its card opened) or nobody (it closed): mark them, tell nobody back. */
   select(id) { if (!started) return; if (id && sessions.has(id)) openSession(id, { tell: false }); else closeSession({ tell: false }); },
   /** Glide to a project's desks without choosing anyone. */

@@ -5,3 +5,36 @@
 export const LOBBY = "lobby";
 /** The author of a post the user made in the office. */
 export const USER_AUTHOR = "user";
+
+/**
+ * What an agent's tool call is for, as far as the office tells it apart. The host works it out
+ * and sends this word alone: never the file, the command or the address.
+ */
+export const ACTIVITY_KINDS = [
+  "read",
+  "search",
+  "edit",
+  "write",
+  "command",
+  "web",
+  "tool",
+  "subagent",
+  "plan",
+  "test",
+  "commit",
+  "push",
+  "deploy",
+] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+/** How a test run ended. */
+export const TEST_RESULTS = ["passed", "failed"] as const;
+export type TestResult = (typeof TEST_RESULTS)[number];
+
+/** An agent's newest tool call: what it is for, and a key that changes with every new call. */
+export interface ActivityStep {
+  kind: ActivityKind;
+  key: string;
+  /** Set on a test run once it has ended. */
+  result?: TestResult;
+}
