@@ -354,22 +354,33 @@ neighbour. The control and the command read and write through `settingsRpc`, the
 `useSettings` makes, since neither has a settings screen's state to hold. The plugin needs an app
 with composer items, 0.16.0 or later.
 
-The `chat-search` built-in finds words in every Claude Code chat on the host. "Search chats" in the
-Command Center opens a screen with one field. It has no sidebar row: the sidebar's Search row opens
-the Command Center, and a second row named "Search chats" beside it did not say which was which. The
-search reads Claude Code's transcripts, the `projects` folder of `$CLAUDE_CONFIG_DIR` or `~/.claude`
-and of every `~/.claude-*` account folder, and not Paseo's timelines: a chat whose agent is not
-loaded has its text nowhere else, and `agent.timeline.search.request` loads the agent, which starts
-its runtime. `grep` does the reading in its own process. It names the files that hold the words,
-then hands over only the lines that do, so the daemon parses a few lines of each chat. Over 700 MB
-of cached transcripts that takes under a second; reading the matching files in the daemon took up to
-six. A host without `grep`, Windows among them, shows an error instead of results. The words are one
-phrase of at least three characters, in any case, with any white space between them. Only what the
-user typed and what the agent wrote is searched: tool output, thinking, text Claude Code injected
-and subagent side chats are not. A search reads the 40 newest chats that match and counts up to ten
-messages in each. A chat that belongs to an agent, archived or not, opens on a tap. The others,
-started in a terminal or by another Paseo home, are listed under "Not in Paseo" with their session
-id and folder, and cannot be opened. Chats of other providers are not searched.
+The `chat-search` built-in finds words in every Claude Code and Kiro CLI chat on the host. "Search
+chats" in the Command Center opens a screen with one field. It has no sidebar row: the sidebar's
+Search row opens the Command Center, and a second row named "Search chats" beside it did not say
+which was which. The search reads the providers' own transcripts and not Paseo's timelines: a chat
+whose agent is not loaded has its text nowhere else, and `agent.timeline.search.request` loads the
+agent, which starts its runtime. `grep` does the reading in its own process. It names the files that
+hold the words, then hands over only the lines that do, so the daemon parses a few lines of each
+chat. Over 700 MB of cached transcripts that takes under a second; reading the matching files in the
+daemon took up to six. A host without `grep`, Windows among them, shows an error instead of
+results. The words are one phrase of at least three characters, in any case, with any white space
+between them. Only what the user typed and what the agent wrote is searched: tool output, thinking,
+text the provider injected and subagent side chats are not. A search reads the 40 newest chats that
+match and counts up to ten messages in each. A chat that belongs to an agent, archived or not, opens
+on a tap. The others, started in a terminal or by another Paseo home, are listed under "Not in
+Paseo" with their session id and folder, and cannot be opened.
+
+Each provider is a store (`plugins/chat-search/server/stores.ts`): where its transcripts are and how
+one line becomes a message. A provider whose chats are JSON lines in files named after the session
+is one more store; one that keeps them in SQLite (OpenCode's `opencode.db`) is not, because `grep`
+cannot hand over a row.
+
+| Provider    | Transcripts                                                                                                                 | Title and folder                                         |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Claude Code | `projects/<folder>/<session>.jsonl` under `$CLAUDE_CONFIG_DIR` or `~/.claude`, and under every `~/.claude-*` account folder | The newest `ai-title` line, else the first prompt; `cwd` |
+| Kiro CLI    | `~/.kiro/sessions/cli/<session>.jsonl`                                                                                      | `<session>.json` beside it, else the first prompt; `cwd` |
+
+Kiro's other layout, `~/.kiro/sessions/<hash>/sess_<id>/messages.jsonl`, is not read.
 
 The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which

@@ -10,7 +10,7 @@ const TRANSCRIPT = ".jsonl";
 
 export interface Transcript {
   file: string;
-  /** The file's name: Claude Code names a transcript after its session. */
+  /** The file's name: Claude Code and Kiro CLI both name a transcript after its session. */
   sessionId: string;
   changedAt: string;
 }
@@ -57,6 +57,17 @@ async function transcriptAt(dir: string, name: string): Promise<Transcript | nul
   };
 }
 
+export function newestFirst(transcripts: readonly Transcript[]): Transcript[] {
+  return transcripts.toSorted((a, b) => b.changedAt.localeCompare(a.changedAt));
+}
+
+/** The transcripts directly inside a folder; none when the folder is not there. */
+export async function transcriptsIn(dir: string): Promise<Transcript[]> {
+  const names = await namesIn(dir);
+  const entries = await Promise.all(names.map((name) => transcriptAt(dir, name)));
+  return entries.filter((entry) => entry !== null);
+}
+
 /**
  * Every chat's transcript under the roots, newest first. Only the files directly inside a project
  * folder: deeper ones are subagents' side chats.
@@ -65,11 +76,8 @@ export async function listTranscripts(roots: readonly string[]): Promise<Transcr
   const found: Transcript[] = [];
   for (const root of roots) {
     for (const project of await namesIn(root)) {
-      const dir = join(root, project);
-      const names = await namesIn(dir);
-      const entries = await Promise.all(names.map((name) => transcriptAt(dir, name)));
-      for (const entry of entries) if (entry !== null) found.push(entry);
+      found.push(...(await transcriptsIn(join(root, project))));
     }
   }
-  return found.toSorted((a, b) => b.changedAt.localeCompare(a.changedAt));
+  return newestFirst(found);
 }
