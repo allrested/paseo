@@ -5,11 +5,13 @@
 // the scroll view and the fields, and plain elements for the rest; the RPCs are the test's.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Image } from "react-native";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PluginRpcProvider } from "@getpaseo/plugin/client/host";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import type { LinkedWorkspaces, TaskDetail, TaskList, TaskRow } from "../shared/contracts.js";
+import { forgetPlace } from "./new-issue.js";
 import { nextTask } from "./next-task.js";
 import { forgetSearch } from "./task-list.js";
 import { createTasksScreen, splitListWidth } from "./tasks-screen.js";
@@ -84,6 +86,8 @@ const ISSUE_PAGE: TaskDetail = {
     { id: "31", label: "Done" },
   ],
   branch: "BWLT-12-add-the-webhook",
+  assignedToMe: true,
+  images: [],
 };
 const REQUEST_PAGE: TaskDetail = {
   ...REQUEST,
@@ -93,9 +97,11 @@ const REQUEST_PAGE: TaskDetail = {
   comments: [],
   earlierComments: 0,
   changes: [],
+  assignedToMe: true,
+  images: [],
 };
 
-type Answer = unknown | Error | (() => unknown);
+type Answer = unknown | Error | ((input: never) => unknown);
 
 let calls: Array<[method: string, input: unknown]>;
 let answers: Record<string, Answer>;
@@ -117,7 +123,8 @@ async function invoke(method: string, input: unknown): Promise<unknown> {
   }
   calls.push([method, input]);
   const answer = answers[method];
-  const value = typeof answer === "function" ? (answer as () => unknown)() : answer;
+  const value =
+    typeof answer === "function" ? (answer as (input: unknown) => unknown)(input) : answer;
   if (value instanceof Error) throw value;
   return value;
 }
@@ -218,6 +225,7 @@ beforeEach(() => {
   queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   forgetTasks();
   forgetSearch();
+  forgetPlace();
   nextTask.set(null);
   container = document.createElement("div");
   document.body.append(container);
@@ -579,4 +587,464 @@ test("a move reads the linked workspaces again, so the sidebar's badge follows",
   await press("In Review");
   await settle();
   expect(linkedReads).toBe(2);
+});
+
+// Making an issue, taking a task, and the pictures of a description.
+
+const ONE_TRACKER = { sources: [{ source: "gitlab", kinds: false }] };
+const THREE_TRACKERS = {
+  sources: [
+    { source: "jira", kinds: true },
+    { source: "gitlab", kinds: false },
+    { source: "github", kinds: false },
+  ],
+};
+const PLACES: Record<string, Array<{ id: string; label: string }>> = {
+  jira: [{ id: "BWLT", label: "BWLT · Wallet" }],
+  gitlab: [
+    { id: "42", label: "shop/web" },
+    { id: "43", label: "shop/api" },
+  ],
+  github: [{ id: "shop/api", label: "shop/api" }],
+};
+const KINDS = {
+  kinds: [
+    { id: "10001", label: "Story" },
+    { id: "10002", label: "Task" },
+    { id: "10004", label: "Bug" },
+  ],
+};
+
+function formAnswers(trackers: object = ONE_TRACKER): void {
+  answers["tasks.sources.list"] = trackers;
+  answers["tasks.places.list"] = ({ source }: { source: string }) => ({ places: PLACES[source] });
+  answers["tasks.kinds.list"] = KINDS;
+  answers["tasks.create"] = { id: "gitlab:issue:42:9" };
+}
+
+const labels = () => buttons().map((each) => each.getAttribute("aria-label"));
+const radios = () =>
+  [...container.querySelectorAll<HTMLElement>('[role="radio"]')].map((each) => [
+    each.getAttribute("aria-label"),
+    each.getAttribute("aria-checked"),
+  ]);
+const pick = (label: string) =>
+  act(async () =>
+    container.querySelector<HTMLElement>(`[role="radio"][aria-label="${label}"]`)?.click(),
+  );
+const checkbox = () => container.querySelector<HTMLElement>('[role="checkbox"]');
+const sent = (method: string) =>
+  calls.filter(([name]) => name === method).map(([, input]) => input);
+const disabled = (label: string) => button(label).getAttribute("aria-disabled") === "true";
+
+async function remount(params: Record<string, string>): Promise<void> {
+  act(() => root.unmount());
+  root = createRoot(container);
+  await mount(params);
+}
+
+test("the list offers a new issue once a tracker is connected, and the form opens on this screen", async () => {
+  await mount();
+  await press("New issue");
+  expect(opened).toEqual([["screen", { screenId: "tasks", params: { new: "issue" } }]]);
+});
+
+test("with no tracker connected the list offers no new issue", async () => {
+  answers["tasks.list"] = { configured: false, issues: [], mergeRequests: [], problems: [] };
+  await mount();
+  expect(labels()).not.toContain("New issue");
+});
+
+test("with one tracker the form asks for no tracker, lists its projects, and makes the issue", async () => {
+  formAnswers();
+  await mount({ new: "issue" });
+  await settle();
+  expect(headings()).toEqual(["New issue"]);
+  expect(text()).toContain("GitLab issue");
+  // One tracker: nothing to choose between.
+  expect(radios()).toEqual([]);
+  expect(sent("tasks.places.list")).toEqual([{ source: "gitlab", query: "" }]);
+  expect(disabled("Create issue")).toBe(true);
+  await press("shop/web");
+  expect(text()).toContain("shop/web");
+  expect(field("Search projects")).toBeNull();
+  await type("Title", "  Cache the price list ");
+  await type("Description", "It is read on every page.");
+  expect(text()).toContain("GitLab reads this as Markdown");
+  expect(disabled("Create issue")).toBe(false);
+  await press("Create issue");
+  await settle();
+  expect(sent("tasks.create")).toEqual([
+    {
+      source: "gitlab",
+      place: "42",
+      title: "  Cache the price list ",
+      description: "It is read on every page.",
+      assign: true,
+    },
+  ]);
+  expect(opened).toEqual([
+    ["screen", { screenId: "tasks", params: { task: "gitlab:issue:42:9" } }],
+  ]);
+  expect(toasts).toEqual([]);
+  // Behind the new task's page the form is empty: going back does not offer the issue again.
+  expect(field("Title").value).toBe("");
+  expect(field("Description").value).toBe("");
+});
+
+test("an issue is not made before it has a place and a title", async () => {
+  formAnswers();
+  await mount({ new: "issue" });
+  await settle();
+  await type("Title", "Cache the price list");
+  expect(disabled("Create issue")).toBe(true);
+  await press("shop/api");
+  expect(disabled("Create issue")).toBe(false);
+  await type("Title", "   ");
+  expect(disabled("Create issue")).toBe(true);
+  expect(sent("tasks.create")).toEqual([]);
+});
+
+test("with several trackers one is picked, and each lists its own places", async () => {
+  formAnswers(THREE_TRACKERS);
+  await mount({ new: "issue" });
+  await settle();
+  expect(radios()).toEqual([
+    ["Jira", "true"],
+    ["GitLab", "false"],
+    ["GitHub", "false"],
+  ]);
+  expect(text()).toContain("Jira takes this as plain text");
+  await pick("GitHub");
+  await settle();
+  expect(radios()).toEqual([
+    ["Jira", "false"],
+    ["GitLab", "false"],
+    ["GitHub", "true"],
+  ]);
+  expect(text()).toContain("Repository");
+  expect(field("Search repositories")).not.toBeNull();
+  expect(sent("tasks.places.list")).toEqual([
+    { source: "jira", query: "" },
+    { source: "github", query: "" },
+  ]);
+});
+
+test("a Jira project's kinds are offered once it is picked, the usual one to start with", async () => {
+  formAnswers(THREE_TRACKERS);
+  answers["tasks.create"] = { id: "jira:BWLT-99" };
+  await mount({ new: "issue" });
+  await settle();
+  expect(sent("tasks.kinds.list")).toEqual([]);
+  await press("BWLT · Wallet");
+  await settle();
+  expect(sent("tasks.kinds.list")).toEqual([{ source: "jira", place: "BWLT" }]);
+  expect(radios().slice(3)).toEqual([
+    ["Story", "false"],
+    ["Task", "true"],
+    ["Bug", "false"],
+  ]);
+  await pick("Bug");
+  await type("Title", "The total is wrong");
+  await press("Create issue");
+  await settle();
+  expect(sent("tasks.create")).toEqual([
+    {
+      source: "jira",
+      place: "BWLT",
+      kind: "10004",
+      title: "The total is wrong",
+      description: "",
+      assign: true,
+    },
+  ]);
+});
+
+test("changing the place asks for another, and a tracker picked again starts from none", async () => {
+  formAnswers(THREE_TRACKERS);
+  await mount({ new: "issue" });
+  await settle();
+  await press("BWLT · Wallet");
+  await settle();
+  await press("Change project");
+  expect(field("Search projects")).not.toBeNull();
+  expect(radios()).toHaveLength(3);
+  await press("BWLT · Wallet");
+  await settle();
+  await pick("GitLab");
+  await settle();
+  // GitLab's issues have no kinds, and Jira's project is not GitLab's.
+  expect(radios()).toHaveLength(3);
+  expect(labels()).toContain("shop/web");
+});
+
+test("typing narrows the places once the words have settled", async () => {
+  formAnswers();
+  await mount({ new: "issue" });
+  await settle();
+  await type("Search projects", " api ");
+  await settle(350);
+  expect(sent("tasks.places.list")).toEqual([
+    { source: "gitlab", query: "" },
+    { source: "gitlab", query: "api" },
+  ]);
+});
+
+test("a search that finds no place says so, and an account that sees none says that", async () => {
+  formAnswers();
+  answers["tasks.places.list"] = { places: [] };
+  await mount({ new: "issue" });
+  await settle();
+  expect(text()).toContain("The saved account sees no projects");
+  await type("Search projects", "zzz");
+  await settle(350);
+  expect(text()).toContain('No project matches "zzz"');
+});
+
+test("places that cannot be read say why, and Try again reads them", async () => {
+  formAnswers();
+  answers["tasks.places.list"] = failure("GitLab rejected the saved sign-in details.");
+  await mount({ new: "issue" });
+  await settle();
+  expect(alerts()).toEqual(["GitLab rejected the saved sign-in details."]);
+  answers["tasks.places.list"] = { places: PLACES.gitlab };
+  await press("Try again");
+  await settle();
+  expect(alerts()).toEqual([]);
+  expect(labels()).toContain("shop/web");
+});
+
+test("an issue that is not for me is made unassigned", async () => {
+  formAnswers();
+  await mount({ new: "issue" });
+  await settle();
+  expect(checkbox()?.getAttribute("aria-checked")).toBe("true");
+  await act(async () => checkbox()?.click());
+  expect(checkbox()?.getAttribute("aria-checked")).toBe("false");
+  await press("shop/web");
+  await type("Title", "Cache the price list");
+  await press("Create issue");
+  await settle();
+  expect(sent("tasks.create")).toMatchObject([{ assign: false }]);
+});
+
+test("a refused issue keeps what was typed and says why above the buttons", async () => {
+  formAnswers();
+  answers["tasks.create"] = failure("GitLab refused the change: Title is too long.");
+  await mount({ new: "issue" });
+  await settle();
+  await press("shop/web");
+  await type("Title", "Cache the price list");
+  await press("Create issue");
+  await settle();
+  expect(alerts()).toEqual(["GitLab refused the change: Title is too long."]);
+  expect(field("Title").value).toBe("Cache the price list");
+  expect(opened).toEqual([]);
+  // The next try clears it, and one that is taken leaves none.
+  answers["tasks.create"] = { id: "gitlab:issue:42:9" };
+  await press("Create issue");
+  await settle();
+  expect(alerts()).toEqual([]);
+  expect(opened).toHaveLength(1);
+});
+
+test("an issue that is made but not assigned opens, and says what went wrong", async () => {
+  formAnswers();
+  const warning =
+    "The issue is made, but it could not be assigned to you: GitLab answered HTTP 403.";
+  answers["tasks.create"] = { id: "gitlab:issue:42:9", warning };
+  await mount({ new: "issue" });
+  await settle();
+  await press("shop/web");
+  await type("Title", "Cache the price list");
+  await press("Create issue");
+  await settle();
+  expect(toasts).toEqual([warning]);
+  expect(opened).toEqual([
+    ["screen", { screenId: "tasks", params: { task: "gitlab:issue:42:9" } }],
+  ]);
+});
+
+test("the next form starts where the last issue went", async () => {
+  formAnswers(THREE_TRACKERS);
+  await mount({ new: "issue" });
+  await settle();
+  await pick("GitLab");
+  await settle();
+  await press("shop/api");
+  await type("Title", "Cache the price list");
+  await press("Create issue");
+  await settle();
+  await remount({ new: "issue" });
+  await settle();
+  expect(radios()).toEqual([
+    ["Jira", "false"],
+    ["GitLab", "true"],
+    ["GitHub", "false"],
+  ]);
+  expect(text()).toContain("shop/api");
+  expect(field("Search projects")).toBeNull();
+});
+
+test("a new issue makes the list beside the form read again", async () => {
+  formAnswers();
+  await mount({ new: "issue" }, false);
+  await settle();
+  expect(sent("tasks.list")).toHaveLength(1);
+  await press("shop/web");
+  await type("Title", "Cache the price list");
+  await press("Create issue");
+  await settle();
+  expect(sent("tasks.list")).toHaveLength(2);
+});
+
+test("Cancel returns to the list, and the form with no tracker leads to the connections", async () => {
+  formAnswers();
+  await mount({ new: "issue" });
+  await settle();
+  await press("Cancel");
+  expect(opened).toEqual([["screen", { screenId: "tasks" }]]);
+  queries.clear();
+  answers["tasks.sources.list"] = { sources: [] };
+  await remount({ new: "issue" });
+  await settle();
+  expect(text()).toContain("No tracker is connected");
+  await press("Connect Jira, GitLab or GitHub");
+  expect(opened.at(-1)).toEqual(["settings", "connections"]);
+});
+
+test("a form that cannot learn the trackers says why, and Try again asks", async () => {
+  answers["tasks.sources.list"] = failure("The task connections cannot be read: disk full");
+  await mount({ new: "issue" });
+  await settle();
+  expect(alerts()).toEqual(["The task connections cannot be read: disk full"]);
+  formAnswers();
+  await press("Try again");
+  await settle();
+  expect(headings()).toEqual(["New issue"]);
+});
+
+test("on a window with no room for both, the form has its own way back", async () => {
+  formAnswers();
+  screenWidth = 600;
+  await mount({ new: "issue" }, false);
+  await settle();
+  await press("Back to the list");
+  expect(opened).toEqual([["screen", { screenId: "tasks" }]]);
+});
+
+test("a task that is another's can be taken, and then no longer offers it", async () => {
+  answers["tasks.detail"] = { ...ISSUE_PAGE, assignedToMe: false };
+  answers["tasks.assign"] = {
+    ...ISSUE_PAGE,
+    details: [...ISSUE_PAGE.details, ["Assignee", "Rina Putri"]],
+  };
+  await mount({ task: "jira:BWLT-12" }, false);
+  expect(sent("tasks.list")).toHaveLength(1);
+  await press("Assign to me");
+  await settle();
+  expect(sent("tasks.assign")).toEqual([{ id: "jira:BWLT-12" }]);
+  expect(text()).toContain("AssigneeRina Putri");
+  expect(labels()).not.toContain("Assign to me");
+  // It is among mine now: the list beside the page reads again.
+  expect(sent("tasks.list")).toHaveLength(2);
+});
+
+test("a task that is mine offers no taking, and a refused one says why", async () => {
+  await mount({ task: "jira:BWLT-12" });
+  expect(labels()).not.toContain("Assign to me");
+  forgetTasks();
+  answers["tasks.detail"] = { ...ISSUE_PAGE, assignedToMe: false };
+  answers["tasks.assign"] = failure("Jira does not let the saved account do that.");
+  await remount({ task: "jira:BWLT-12" });
+  await press("Assign to me");
+  await settle();
+  expect(alerts()).toEqual(["Jira does not let the saved account do that."]);
+  expect(labels()).toContain("Assign to me");
+});
+
+const pictures = () =>
+  [...container.querySelectorAll<HTMLElement>('[role="img"]')].map((each) =>
+    each.getAttribute("aria-label"),
+  );
+const PNG = { mime: "image/png", data: "iVBORw0KGgo=" };
+
+test("the pictures of a description are read one by one and shown under its text", async () => {
+  vi.spyOn(Image, "getSize").mockImplementation((_uri, success) => success(400, 200));
+  answers["tasks.detail"] = {
+    ...ISSUE_PAGE,
+    description: "Before: (image: error.png)",
+    images: [
+      { id: "10001", name: "error.png" },
+      { id: "10003", name: "after" },
+    ],
+  };
+  answers["tasks.images.read"] = PNG;
+  await mount({ task: "jira:BWLT-12" });
+  await settle();
+  expect(sent("tasks.images.read")).toEqual([
+    { id: "jira:BWLT-12", image: "10001" },
+    { id: "jira:BWLT-12", image: "10003" },
+  ]);
+  expect(pictures()).toEqual(["error.png", "after"]);
+});
+
+test("a picture that cannot be read says why beside its name, and Try again reads it", async () => {
+  vi.spyOn(Image, "getSize").mockImplementation((_uri, success) => success(400, 200));
+  answers["tasks.detail"] = { ...ISSUE_PAGE, images: [{ id: "10001", name: "error.png" }] };
+  answers["tasks.images.read"] = failure("The image is too large to show here.");
+  await mount({ task: "jira:BWLT-12" });
+  await settle();
+  expect(text()).toContain("error.png: The image is too large to show here.");
+  expect(pictures()).toEqual([]);
+  answers["tasks.images.read"] = PNG;
+  await press("Try again");
+  await settle();
+  expect(pictures()).toEqual(["error.png"]);
+});
+
+test("a file that is no picture the app can draw says so", async () => {
+  vi.spyOn(Image, "getSize").mockImplementation((_uri, _success, failed) =>
+    failed?.(new Error("decode")),
+  );
+  answers["tasks.detail"] = { ...ISSUE_PAGE, images: [{ id: "10001", name: "error.svg" }] };
+  answers["tasks.images.read"] = { mime: "image/svg+xml", data: "PHN2Zy8+" };
+  await mount({ task: "jira:BWLT-12" });
+  await settle();
+  expect(text()).toContain("error.svg: this picture cannot be drawn here");
+});
+
+test("a task with many pictures reads four, and the rest when asked", async () => {
+  vi.spyOn(Image, "getSize").mockImplementation((_uri, success) => success(400, 200));
+  const images = [1, 2, 3, 4, 5, 6].map((at) => ({ id: `${at}`, name: `shot ${at}` }));
+  answers["tasks.detail"] = { ...ISSUE_PAGE, images };
+  answers["tasks.images.read"] = PNG;
+  await mount({ task: "jira:BWLT-12" });
+  await settle();
+  expect(sent("tasks.images.read")).toHaveLength(4);
+  await press("Show 2 more pictures");
+  await settle();
+  expect(sent("tasks.images.read")).toHaveLength(6);
+  expect(pictures()).toHaveLength(6);
+});
+
+test("Space picks a chip and turns the check, as a browser's own controls do", async () => {
+  formAnswers(THREE_TRACKERS);
+  await mount({ new: "issue" });
+  await settle();
+  const space = (element: HTMLElement | null) =>
+    act(async () => {
+      element?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }),
+      );
+    });
+  await space(checkbox());
+  expect(checkbox()?.getAttribute("aria-checked")).toBe("false");
+  await space(container.querySelector<HTMLElement>('[role="radio"][aria-label="GitHub"]'));
+  await settle();
+  expect(radios()).toEqual([
+    ["Jira", "false"],
+    ["GitLab", "false"],
+    ["GitHub", "true"],
+  ]);
 });

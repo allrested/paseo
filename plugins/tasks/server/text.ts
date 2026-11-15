@@ -1,5 +1,5 @@
 import { SOURCE_NAME, requestName } from "../shared/contracts.js";
-import type { Issue } from "./issue.js";
+import type { Issue, TaskImage } from "./issue.js";
 
 const DESCRIPTION_MAX = 20_000;
 
@@ -20,6 +20,30 @@ export function searchWords(query: string): string {
     .replace(/[^\p{L}\p{N}_]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+/**
+ * Takes the pictures a tracker keeps behind its sign-in out of a Markdown text. The page cannot
+ * load them by their link, so each is left as its name and listed to be read through the daemon.
+ * `pattern` is global; `pick` says what a match is to the tracker.
+ */
+export function takeImages(
+  markdown: string,
+  pattern: RegExp,
+  pick: (match: string[]) => TaskImage,
+): { text: string; images: TaskImage[] } {
+  const images: TaskImage[] = [];
+  const text = markdown.replaceAll(pattern, (...found: unknown[]) => {
+    // A replacer gets the match and its groups, then where it was found and the whole text.
+    const match = found.slice(
+      0,
+      found.findIndex((part) => typeof part === "number"),
+    );
+    const image = pick(match.filter((part): part is string => typeof part === "string"));
+    if (!images.some((each) => each.id === image.id)) images.push(image);
+    return `(image: ${image.name})`;
+  });
+  return { text, images };
 }
 
 /** The whole task as the text an agent gets. */

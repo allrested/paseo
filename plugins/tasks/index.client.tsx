@@ -6,7 +6,13 @@ import { createTaskField } from "./client/task-field.js";
 import { TaskPrompt } from "./client/task-prompt.js";
 import { createTasksScreen } from "./client/tasks-screen.js";
 import { TaskBadge } from "./client/workspace-badge.js";
-import { CONNECTIONS_SCREEN, TASKS_SCREEN, taskAttachments } from "./shared/contracts.js";
+import {
+  CONNECTIONS_SCREEN,
+  NEW_ISSUE,
+  NEW_PARAM,
+  TASKS_SCREEN,
+  taskAttachments,
+} from "./shared/contracts.js";
 
 const ICON = "CircleDot";
 const TITLE = "Tasks";
@@ -48,6 +54,16 @@ export default function contribute(client: PluginClientContext) {
       context: "global",
       onSelect({ openScreen }) {
         openScreen({ screenId: TASKS_SCREEN });
+      },
+    }),
+    client.addCommandCenterItem({
+      id: "new-issue",
+      title: "New issue",
+      icon: "Plus",
+      keywords: ["jira", "gitlab", "github", "create", "ticket", "task", "bug"],
+      context: "global",
+      onSelect({ openScreen }) {
+        openScreen({ screenId: TASKS_SCREEN, params: { [NEW_PARAM]: NEW_ISSUE } });
       },
     }),
     client.addSettingsScreen({

@@ -3,9 +3,12 @@ import type { TaskRow } from "../shared/contracts.js";
 import {
   ago,
   commentMeta,
+  descriptionHint,
   earlierComments,
   emptyList,
   kindName,
+  morePictures,
+  placeName,
   requestsTitle,
   rowLabel,
   rowMeta,
@@ -80,4 +83,25 @@ test("an empty list says why it is empty", () => {
     "No open issues, merge requests or pull requests are assigned to you",
   );
   expect(emptyList(" webhook ")).toBe('Nothing matches "webhook"');
+});
+
+test("a tracker's place is a project, and GitHub's is a repository", () => {
+  expect(placeName("jira")).toEqual({ title: "Project", one: "project", many: "projects" });
+  expect(placeName("gitlab").title).toBe("Project");
+  expect(placeName("github")).toEqual({
+    title: "Repository",
+    one: "repository",
+    many: "repositories",
+  });
+});
+
+test("the form says how each tracker reads a description", () => {
+  expect(descriptionHint("jira")).toBe("Jira takes this as plain text");
+  expect(descriptionHint("gitlab")).toBe("GitLab reads this as Markdown");
+  expect(descriptionHint("github")).toBe("GitHub reads this as Markdown");
+});
+
+test("the button for the pictures not yet read counts them", () => {
+  expect(morePictures(1)).toBe("Show 1 more picture");
+  expect(morePictures(5)).toBe("Show 5 more pictures");
 });

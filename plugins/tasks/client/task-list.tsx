@@ -150,12 +150,14 @@ export interface TaskListProps {
   /** The open task; its row is marked. */
   selected: string | null;
   onOpen(id: string): void;
+  /** Opens the form that makes an issue. */
+  onNew(): void;
   /** Opens the screen where the trackers are connected. */
   onConnect(): void;
 }
 
 /** The signed-in user's open issues and merge requests, with a search over their titles. */
-export function TaskList({ styles, selected, onOpen, onConnect }: TaskListProps) {
+export function TaskList({ styles, selected, onOpen, onNew, onConnect }: TaskListProps) {
   const [text, setText] = useState(typed);
   useEffect(() => {
     typed = text;
@@ -186,6 +188,17 @@ export function TaskList({ styles, selected, onOpen, onConnect }: TaskListProps)
         >
           <Icon name="RefreshCw" size={16} color={styles.iconColor} />
         </Pressable>
+        {/* An issue is made in a connected tracker: with none, the list's own way in is enough. */}
+        {list.value?.configured ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="New issue"
+            onPress={onNew}
+            style={styles.iconButton}
+          >
+            <Icon name="Plus" size={16} color={styles.iconColor} />
+          </Pressable>
+        ) : null}
       </View>
       <Body
         list={list}

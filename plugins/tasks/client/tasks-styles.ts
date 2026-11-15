@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { TextStyle, ViewStyle } from "react-native";
+import type { ImageStyle, TextStyle, ViewStyle } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 
 export interface TasksStyles {
@@ -63,6 +63,27 @@ export interface TasksStyles {
   buttonPrimaryText: TextStyle;
   /** The label that is not showing, at no height: it keeps the button as wide as the longer one. */
   buttonSpacer: TextStyle;
+  /** Laid over a chip, a row or a check while it is pressed. */
+  pressed: ViewStyle;
+  /** A form's one-line field. */
+  field: TextStyle;
+  chips: ViewStyle;
+  chip: ViewStyle;
+  chipSelected: ViewStyle;
+  chipText: TextStyle;
+  chipTextSelected: TextStyle;
+  chipMarkColor: string;
+  /** The place a new issue goes to, once it is picked, beside the way to change it. */
+  picked: ViewStyle;
+  pickedText: TextStyle;
+  check: ViewStyle;
+  checkBox: ViewStyle;
+  checkBoxOn: ViewStyle;
+  checkMarkColor: string;
+  /** The pictures of a description, under its text. */
+  pictures: ViewStyle;
+  /** One picture; its widest and its shape are the picture's own. */
+  picture: ImageStyle;
 }
 
 // docs/design.md section 4: a control is 44 tall where a finger drives it and 32 under a pointer.
@@ -127,6 +148,37 @@ export function useTasksStyles(
       paddingVertical: 12,
       paddingHorizontal: 12,
     };
+    const field: TextStyle = {
+      ...(touch ? { fontSize: 16, lineHeight: 22 } : base),
+      height: control,
+      paddingVertical: 0,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface1,
+      color: colors.foreground,
+    };
+    const chip: ViewStyle = {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      minHeight: control,
+      maxWidth: "100%",
+      paddingHorizontal: touch ? 16 : 12,
+      borderRadius: 9999,
+      borderWidth: 1,
+      borderColor: colors.border,
+    };
+    const checkBox: ViewStyle = {
+      width: 20,
+      height: 20,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: colors.foregroundMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    };
     return {
       screen: { flex: 1 },
       split: { flex: 1, flexDirection: "row" },
@@ -137,19 +189,7 @@ export function useTasksStyles(
       backPressed: { ...back, opacity: 0.6 },
       listContent: { padding: 16, gap: 16 },
       searchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-      search: {
-        ...(touch ? { fontSize: 16, lineHeight: 22 } : base),
-        flex: 1,
-        minWidth: 0,
-        height: control,
-        paddingVertical: 0,
-        paddingHorizontal: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.surface1,
-        color: colors.foreground,
-      },
+      search: { ...field, flex: 1, minWidth: 0 },
       placeholderColor: colors.foregroundMuted,
       iconButton,
       iconButtonBusy: { ...iconButton, opacity: 0.5 },
@@ -233,6 +273,29 @@ export function useTasksStyles(
       buttonText: { ...buttonLabel, color: colors.foreground },
       buttonPrimaryText: { ...buttonLabel, color: colors.accentForeground },
       buttonSpacer: { ...buttonLabel, height: 0, opacity: 0 },
+      pressed: { opacity: 0.6 },
+      field,
+      chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+      chip,
+      // The pick is a filled chip with the text's own colour around it, and a check inside.
+      chipSelected: { ...chip, borderColor: colors.foreground, backgroundColor: colors.surface2 },
+      chipText: { ...base, flexShrink: 1, color: colors.foregroundMuted },
+      chipTextSelected: { ...base, flexShrink: 1, fontWeight: "500", color: colors.foreground },
+      chipMarkColor: colors.foreground,
+      picked: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12 },
+      pickedText: { ...base, flexShrink: 1, color: colors.foreground },
+      check: {
+        flexDirection: "row",
+        alignItems: "center",
+        alignSelf: "flex-start",
+        gap: 8,
+        minHeight: control,
+      },
+      checkBox,
+      checkBoxOn: { ...checkBox, borderColor: colors.accent, backgroundColor: colors.accent },
+      checkMarkColor: colors.accentForeground,
+      pictures: { gap: 12 },
+      picture: { width: "100%", borderRadius: 4 },
     };
   }, [theme, compact, touchScreen]);
 }

@@ -2,14 +2,18 @@ import type { PluginAttachmentItem } from "@getpaseo/plugin";
 import {
   SOURCE_NAME,
   SourceSchema,
+  type Choice,
   type Connections,
   type LinkedWorkspaces,
+  type NewTask,
   type Source,
   type Task,
   type TaskDetail,
+  type TaskImageFile,
   type TaskList,
   type TaskRow,
   type Tokens,
+  type TrackerChoice,
 } from "../shared/contracts.js";
 import { taskBranch } from "../shared/branch.js";
 import { fillPrompt } from "../shared/prompt.js";
@@ -46,6 +50,15 @@ export interface Tasks {
   linked(found: LinkedWorkspaces): Promise<LinkedWorkspaces>;
   /** The saved prompt template filled with one task. */
   prompt(id: string): Promise<{ text: string }>;
+  /** The connected trackers, which are where a new issue can go. */
+  sources(): Promise<{ sources: TrackerChoice[] }>;
+  places(input: { source: Source; query: string }): Promise<{ places: Choice[] }>;
+  kinds(input: { source: Source; place: string }): Promise<{ kinds: Choice[] }>;
+  /** Makes an issue. One that cannot be assigned afterwards is still made: `warning` says so. */
+  create(input: NewTask): Promise<{ id: string; warning?: string }>;
+  /** Assigns the task to the saved account and answers with it as it then is. */
+  assign(id: string): Promise<TaskDetail>;
+  image(input: { id: string; image: string }): Promise<TaskImageFile>;
   tokens(): Promise<Tokens>;
   setToken(input: { source: Source; token: string }): Promise<Tokens>;
   test(source: Source): Promise<{ account: string }>;
@@ -125,6 +138,8 @@ function toDetail(detail: IssueDetail): TaskDetail {
     changes: detail.changes,
     // A merge request has its branch already.
     ...(detail.kind === "issue" ? { branch: taskBranch(detail.branchPrefix, detail.title) } : {}),
+    assignedToMe: detail.assignedToMe,
+    images: detail.images,
   };
 }
 
@@ -197,14 +212,19 @@ export function createTasks(deps: TasksDeps): Tasks {
     return { configured: true, issues: found };
   }
 
+  /** One tracker, which has to be connected. */
+  async function connected(source: Source): Promise<Tracker> {
+    const tracker = (await trackers()).find((candidate) => candidate.source === source);
+    if (!tracker) throw new TrackerError(NEEDS[source]);
+    return tracker;
+  }
+
   /** The tracker a task id names, and the task's name to it. */
   async function locate(id: string): Promise<{ tracker: Tracker; tail: string }> {
     const at = id.indexOf(":");
     const source = SourceSchema.safeParse(id.slice(0, Math.max(at, 0)));
     if (!source.success) throw new TrackerError("That is no task Paseo knows.");
-    const tracker = (await trackers()).find((candidate) => candidate.source === source.data);
-    if (!tracker) throw new TrackerError(NEEDS[source.data]);
-    return { tracker, tail: id.slice(at + 1) };
+    return { tracker: await connected(source.data), tail: id.slice(at + 1) };
   }
 
   /** How each of `ids` stands, for the ones a connected tracker shows. */
@@ -314,6 +334,52 @@ export function createTasks(deps: TasksDeps): Tasks {
       });
       return { text };
     },
+    async sources() {
+      const list = await trackers();
+      return {
+        sources: list.map((tracker) => ({
+          source: tracker.source,
+          kinds: tracker.kinds !== undefined,
+        })),
+      };
+    },
+    async places({ source, query }) {
+      const tracker = await connected(source);
+      return { places: await tracker.places(query) };
+    },
+    async kinds({ source, place }) {
+      const tracker = await connected(source);
+      return { kinds: tracker.kinds ? await tracker.kinds(place) : [] };
+    },
+    async create({ source, assign, title, description, ...where }) {
+      const name = title.trim();
+      if (name === "") throw new TrackerError("Write the title first.");
+      const tracker = await connected(source);
+      const tail = await tracker.create({ ...where, title: name, description: description.trim() });
+      const id = `${source}:${tail}`;
+      if (!assign) return { id };
+      try {
+        await tracker.assign(tail);
+        return { id };
+      } catch (error) {
+        const problem = errorMessage(error);
+        log(`[tasks] ${problem}`);
+        return {
+          id,
+          warning: `The issue is made, but it could not be assigned to you: ${problem}`,
+        };
+      }
+    },
+    async assign(id) {
+      const { tracker, tail } = await locate(id);
+      await tracker.assign(tail);
+      return detail(id);
+    },
+    async image({ id, image }) {
+      const { tracker, tail } = await locate(id);
+      const file = await tracker.image(tail, image);
+      return { mime: file.mime, data: Buffer.from(file.data).toString("base64") };
+    },
     tokens: tokenState,
     async setToken({ source, token }) {
       const trimmed = token.trim();
@@ -321,8 +387,7 @@ export function createTasks(deps: TasksDeps): Tasks {
       return tokenState();
     },
     async test(source) {
-      const tracker = (await trackers()).find((candidate) => candidate.source === source);
-      if (!tracker) throw new TrackerError(NEEDS[source]);
+      const tracker = await connected(source);
       return { account: await tracker.account() };
     },
   };

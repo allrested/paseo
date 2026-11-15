@@ -66,6 +66,25 @@ export function earlierComments(count: number, source: Source): string {
     : `${count} earlier comments are on ${name}`;
 }
 
+/** Where a tracker keeps its issues: as a label, as one, as many. */
+export function placeName(source: Source): { title: string; one: string; many: string } {
+  return source === "github"
+    ? { title: "Repository", one: "repository", many: "repositories" }
+    : { title: "Project", one: "project", many: "projects" };
+}
+
+/** How a tracker reads a new issue's description. Jira's is sent as plain paragraphs. */
+export function descriptionHint(source: Source): string {
+  return source === "jira"
+    ? "Jira takes this as plain text"
+    : `${SOURCE_NAME[source]} reads this as Markdown`;
+}
+
+/** The button that reads the pictures a long task did not read at first. */
+export function morePictures(count: number): string {
+  return count === 1 ? "Show 1 more picture" : `Show ${count} more pictures`;
+}
+
 /** What the list says when it holds nothing. */
 export function emptyList(query: string): string {
   const text = query.trim();

@@ -7,14 +7,20 @@ import { createTokenStore, type TokenStore } from "./server/token-store.js";
 import { linkedWorkspaces } from "./server/workspaces.js";
 import {
   addCommentRpc,
+  assignTaskRpc,
   changeStatusRpc,
   connections,
+  createTaskRpc,
+  kindsRpc,
   linkedWorkspacesRpc,
   listTasksRpc,
+  placesRpc,
   searchAttachmentsRpc,
   searchTasksRpc,
   setTokenRpc,
+  sourcesRpc,
   taskDetailRpc,
+  taskImageRpc,
   taskPromptRpc,
   testConnectionRpc,
   tokensRpc,
@@ -50,6 +56,12 @@ export function createTasksPlugin(server: PluginServerContext, deps: TasksPlugin
     tasks.linked(await linkedWorkspaces((request) => paseo.workspaces.list(request))),
   );
   server.handle(taskPromptRpc, ({ id }) => tasks.prompt(id));
+  server.handle(sourcesRpc, () => tasks.sources());
+  server.handle(placesRpc, (input) => tasks.places(input));
+  server.handle(kindsRpc, (input) => tasks.kinds(input));
+  server.handle(createTaskRpc, (input) => tasks.create(input));
+  server.handle(assignTaskRpc, ({ id }) => tasks.assign(id));
+  server.handle(taskImageRpc, (input) => tasks.image(input));
   server.handle(tokensRpc, () => tasks.tokens());
   server.handle(setTokenRpc, (input) => tasks.setToken(input));
   server.handle(testConnectionRpc, ({ source }) => tasks.test(source));

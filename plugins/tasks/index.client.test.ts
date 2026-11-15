@@ -51,6 +51,7 @@ test("adds both screens, the ways to them, the Task field and prompt, the attach
     ["screen", "tasks", "Tasks"],
     ["sidebar", "tasks", "Tasks"],
     ["command", "open-tasks", "Open tasks"],
+    ["command", "new-issue", "New issue"],
     ["settings", "connections", "Task connections"],
     ["command", "open-connections", "Task connections"],
     ["new-workspace", "task", undefined],
@@ -58,19 +59,25 @@ test("adds both screens, the ways to them, the Task field and prompt, the attach
     ["attachment", "tasks", "Task"],
     ["row-badge", "task", "Task"],
   ]);
-  expect(added[7].search?.name).toBe("tasks.attachments.search");
+  expect(added[8].search?.name).toBe("tasks.attachments.search");
 });
 
-test("the Command Center items open the tasks screen and the connections screen", () => {
+test("the Command Center items open the tasks screen, the new issue form and the connections screen", () => {
   const { added } = setup();
   const opened: string[] = [];
   const actions = {
     openSettings: (id: string) => void opened.push(`settings:${id}`),
-    openScreen: (input: { screenId: string }) => void opened.push(`screen:${input.screenId}`),
+    openScreen: (input: { screenId: string; params?: Record<string, string> }) =>
+      void opened.push(`screen:${input.screenId}:${JSON.stringify(input.params ?? {})}`),
   };
   added[2].onSelect?.(actions);
-  added[4].onSelect?.(actions);
-  expect(opened).toEqual(["screen:tasks", "settings:connections"]);
+  added[3].onSelect?.(actions);
+  added[5].onSelect?.(actions);
+  expect(opened).toEqual([
+    "screen:tasks:{}",
+    'screen:tasks:{"new":"issue"}',
+    "settings:connections",
+  ]);
 });
 
 test("disposing removes everything it added", () => {
@@ -80,6 +87,7 @@ test("disposing removes everything it added", () => {
     "screen:tasks",
     "sidebar:tasks",
     "command:open-tasks",
+    "command:new-issue",
     "settings:connections",
     "command:open-connections",
     "new-workspace:task",
@@ -92,7 +100,7 @@ test("disposing removes everything it added", () => {
 test("an app from before sidebar rows took items gets everything but the badge", () => {
   const { added, removed, dispose } = setup({ rowBadges: false });
   expect(added.map((each) => each.kind)).not.toContain("row-badge");
-  expect(added).toHaveLength(8);
+  expect(added).toHaveLength(9);
   dispose();
-  expect(removed).toHaveLength(8);
+  expect(removed).toHaveLength(9);
 });

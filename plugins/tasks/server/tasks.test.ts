@@ -380,6 +380,8 @@ test("a task's page is the task, its comments, its moves and, for an issue, its 
     earlierComments: 0,
     changes: [{ id: "21", label: "In Review" }],
     branch: "BWLT-12-add-the-webhook",
+    assignedToMe: false,
+    images: [],
   });
   const request = await tasks.detail("gitlab:mr:42:12");
   expect(request).toMatchObject({
@@ -398,9 +400,9 @@ test("a task's page is the task, its comments, its moves and, for an issue, its 
 test("a long description is cut, and says so", async () => {
   const { tasks } = setup({
     gitlab: (url) =>
-      url.pathname.endsWith("/notes")
-        ? json([])
-        : json({ ...GITLAB_ISSUE, description: "x".repeat(20_500) }),
+      url.pathname.endsWith("/issues/7")
+        ? json({ ...GITLAB_ISSUE, description: "x".repeat(20_500) })
+        : gitlabAnswer(url),
   });
   const detail = await tasks.detail("gitlab:issue:42:7");
   expect(detail.description).toBe(
@@ -430,6 +432,7 @@ test("a comment is posted trimmed, then the task is read again", async () => {
     "git.team.test/api/v4/projects/42/merge_requests/12/notes",
     "git.team.test/api/v4/projects/42/merge_requests/12",
     "git.team.test/api/v4/projects/42/merge_requests/12/notes",
+    "git.team.test/api/v4/user",
   ]);
   expect(detail.id).toBe("gitlab:mr:42:12");
 });
@@ -593,4 +596,184 @@ test("an attached pull request is named as GitHub names it", async () => {
   const pull = items.find((item) => item.id === "github:mr:shop/api:10");
   expect(pull?.text.split("\n")[0]).toBe("GitHub pull request shop/api#10: Add the price cache");
   expect(pull?.resourceType).toBe("merge_request");
+});
+
+const ALL_TOKENS = { jira: "jira-token", gitlab: "gitlab-token", github: "github-token" };
+
+test("a new issue can go to every connected tracker, and only Jira's issues have kinds", async () => {
+  const { tasks, asked } = setup({ tokens: ALL_TOKENS });
+  expect(await tasks.sources()).toEqual({
+    sources: [
+      { source: "jira", kinds: true },
+      { source: "gitlab", kinds: false },
+      { source: "github", kinds: false },
+    ],
+  });
+  expect(await setup({ saved: NONE, tokens: {} }).tasks.sources()).toEqual({ sources: [] });
+  expect(asked).toEqual([]);
+});
+
+test("the places and kinds are asked of the tracker that is named", async () => {
+  const { tasks, asked } = setup({
+    jira: (url) =>
+      url.pathname.endsWith("/issuetypes")
+        ? json({ issueTypes: [{ id: "10001", name: "Story" }] })
+        : json({ values: [{ key: "BWLT", name: "Wallet" }] }),
+    gitlab: () => json([{ id: 42, path_with_namespace: "shop/web" }]),
+  });
+  expect(await tasks.places({ source: "jira", query: "wal" })).toEqual({
+    places: [{ id: "BWLT", label: "BWLT · Wallet" }],
+  });
+  expect(await tasks.places({ source: "gitlab", query: "" })).toEqual({
+    places: [{ id: "42", label: "shop/web" }],
+  });
+  expect(await tasks.kinds({ source: "jira", place: "BWLT" })).toEqual({
+    kinds: [{ id: "10001", label: "Story" }],
+  });
+  expect(asked).toEqual([
+    "team.atlassian.net/rest/api/3/project/search",
+    "git.team.test/api/v4/projects",
+    "team.atlassian.net/rest/api/3/issue/createmeta/BWLT/issuetypes",
+  ]);
+  // GitLab's issues have no kinds: nothing is asked.
+  expect(await tasks.kinds({ source: "gitlab", place: "42" })).toEqual({ kinds: [] });
+  expect(asked).toHaveLength(3);
+  await expect(tasks.places({ source: "github", query: "" })).rejects.toThrow(
+    "Save the GitHub access token first.",
+  );
+});
+
+test("a new issue is made, then assigned to me, and answers with the id its page opens by", async () => {
+  const { tasks, sent } = setup({
+    gitlab: (url, init) => {
+      if (url.pathname.endsWith("/user")) return json({ id: 7, username: "rina" });
+      return init.method === "POST" ? json({ iid: 9, project_id: 42 }, 201) : json(GITLAB_ISSUE);
+    },
+  });
+  const made = await tasks.create({
+    source: "gitlab",
+    place: "42",
+    title: "  Cache the price list ",
+    description: " It is read on every page.\n",
+    assign: true,
+  });
+  expect(made).toEqual({ id: "gitlab:issue:42:9" });
+  expect(sent).toEqual([
+    [
+      "POST",
+      "/api/v4/projects/42/issues",
+      { title: "Cache the price list", description: "It is read on every page." },
+    ],
+    ["PUT", "/api/v4/projects/42/issues/9", { assignee_ids: [7] }],
+  ]);
+});
+
+test("an issue that is not to be assigned is only made", async () => {
+  const { tasks, sent } = setup({ jira: () => json({ key: "BWLT-99" }, 201) });
+  const made = await tasks.create({
+    source: "jira",
+    place: "BWLT",
+    kind: "10001",
+    title: "Add the webhook",
+    description: "",
+    assign: false,
+  });
+  expect(made).toEqual({ id: "jira:BWLT-99" });
+  expect(sent.map(([method, path]) => [method, path])).toEqual([["POST", "/rest/api/3/issue"]]);
+});
+
+test("an issue that cannot be assigned is still made, and the answer says what went wrong", async () => {
+  const { tasks, logs } = setup({
+    tokens: ALL_TOKENS,
+    github: (url, init) => {
+      if (url.pathname === "/user") return json({ login: "rina" });
+      if (url.pathname.endsWith("/assignees")) return json({ message: "Forbidden" }, 403);
+      return init.method === "POST" ? json({ number: 9 }, 201) : json(GITHUB_ISSUE);
+    },
+  });
+  const made = await tasks.create({
+    source: "github",
+    place: "shop/api",
+    title: "Cache the price list",
+    description: "",
+    assign: true,
+  });
+  expect(made.id).toBe("github:issue:shop/api:9");
+  expect(made.warning).toMatch(/^The issue is made, but it could not be assigned to you: /);
+  expect(logs).toHaveLength(1);
+});
+
+test("an issue with no title, or for a tracker that is not connected, is refused and nothing is sent", async () => {
+  const { tasks, sent, asked } = setup();
+  const issue = { place: "42", description: "", assign: true };
+  await expect(tasks.create({ ...issue, source: "gitlab", title: "  " })).rejects.toThrow(
+    "Write the title first.",
+  );
+  await expect(tasks.create({ ...issue, source: "github", title: "t" })).rejects.toThrow(
+    "Save the GitHub access token first.",
+  );
+  expect(sent).toEqual([]);
+  expect(asked).toEqual([]);
+});
+
+test("assigning a task to me sends it and answers with the task as it then is", async () => {
+  let assigned = false;
+  const { tasks, sent } = setup({
+    jira: (url, init) => {
+      if (url.pathname.endsWith("/myself")) return json({ accountId: "acc-me", displayName: "Me" });
+      if (init.method === "PUT") {
+        assigned = true;
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith("/issue/BWLT-12") && assigned) {
+        return json({
+          ...JIRA_ISSUE,
+          fields: { ...JIRA_ISSUE.fields, assignee: { accountId: "acc-me", displayName: "Me" } },
+        });
+      }
+      return jiraAnswer(url);
+    },
+  });
+  expect((await tasks.detail("jira:BWLT-12")).assignedToMe).toBe(false);
+  const detail = await tasks.assign("jira:BWLT-12");
+  expect(sent).toEqual([["PUT", "/rest/api/3/issue/BWLT-12/assignee", { accountId: "acc-me" }]]);
+  expect(detail.assignedToMe).toBe(true);
+  expect(detail.details).toContainEqual(["Assignee", "Me"]);
+});
+
+test("a task's picture is read by the tracker and handed over in base64", async () => {
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10]);
+  const { tasks, asked } = setup({
+    gitlab: () => new Response(png, { headers: { "Content-Type": "image/png; charset=binary" } }),
+  });
+  const image = await tasks.image({
+    id: "gitlab:issue:42:7",
+    image: "0123456789abcdef0123456789abcdef/before.png",
+  });
+  expect(image).toEqual({ mime: "image/png", data: Buffer.from(png).toString("base64") });
+  expect(asked).toEqual([
+    "git.team.test/api/v4/projects/42/uploads/0123456789abcdef0123456789abcdef/before.png",
+  ]);
+  await expect(tasks.image({ id: "linear:1", image: "x" })).rejects.toThrow(
+    "That is no task Paseo knows.",
+  );
+});
+
+test("a task's page lists the pictures its description held", async () => {
+  const { tasks } = setup({
+    gitlab: (url) => {
+      if (url.pathname.endsWith("/user")) return json({ id: 7, username: "rina" });
+      if (url.pathname.endsWith("/notes")) return json([]);
+      return json({
+        ...GITLAB_ISSUE,
+        description: "See ![shot](/uploads/0123456789abcdef0123456789abcdef/a.png)",
+        assignees: [{ id: 7, username: "rina" }],
+      });
+    },
+  });
+  expect(await tasks.detail("gitlab:issue:42:7")).toMatchObject({
+    description: "See (image: shot)",
+    images: [{ id: "0123456789abcdef0123456789abcdef/a.png", name: "shot" }],
+    assignedToMe: true,
+  });
 });
