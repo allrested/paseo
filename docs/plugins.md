@@ -495,6 +495,31 @@ no sign-in header there. When one tracker fails and
 the other answers, the list shows the other's tasks under a line that names the failure; "Test" on
 the connections screen shows it too.
 
+The `viewers` built-in adds three read-only file panels: Table for `.csv` and `.tsv`, Notebook
+for `.ipynb`, and PDF. The first two claim text files, so they compete with Source and the first
+open of each extension asks which to use; a PDF has no other panel and opens without a question.
+Nothing runs in the daemon: each panel reads through its `PluginFile` handle and follows the file
+when it changes on disk.
+
+- **Table.** The first line names the columns. A `.tsv` splits at tabs; any other file splits at
+  whichever of `,` `;` and tab its first line holds most of, because a spreadsheet set to a comma
+  decimal writes `;` into a `.csv`. A press on a column's name sorts up, then down, then back to
+  the file's order; a column sorts as numbers when every cell that holds something is one, and
+  empty cells sort last both ways. The search keeps the rows that hold every word. A cell is cut
+  to its column on one line, and a press on its row shows the row in full. React Native lays out
+  no table, so each column's width is estimated from its name and its first 200 rows
+  (`client/table/layout.ts`), and the rows have one height so the list knows its length before it
+  draws them. A file over 10 MiB is not read: every cell is held in memory.
+- **Notebook.** Format 4 and later. Text cells go through the host's Markdown renderer, and so
+  does code, as a fenced block, which is where its highlighting comes from. Under a code cell are
+  its printed text, its errors without the terminal's colour codes, and a result as its PNG or
+  JPEG, else its Markdown, else its plain text. A result's HTML is not drawn: it is whatever the
+  code wrote, and showing it would take a sandboxed frame per output. Such a result falls back to
+  its plain text, which Jupyter saves beside the HTML, or to a line naming its types. One output
+  is cut at 20,000 characters, and a file over 20 MiB is not read.
+- **PDF.** The file's local URL in `DocumentFrame`, so the browser's viewer draws it on the web
+  and the desktop app and the system's on iOS. Android's WebView has none, and the frame says so.
+
 The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which
 lists that workspace's room first. Each workspace is a room, and the lobby holds agents without a
@@ -1201,7 +1226,9 @@ and an agent cannot silently overwrite each other. The daemon reports the file's
 image, binary) with its stat from a bounded sniff, which is how Source claims text files without a
 read. See the [public file panel reference](../public-docs/plugins/reference.md#file-panels) for
 the author API, selection, `DocumentFrame`, and the version requirement. The examples live in
-`plugin-examples/pdf-panel` and `plugin-examples/markdown-panel`.
+`plugin-examples/pdf-panel` and `plugin-examples/markdown-panel`; the `viewers` built-in
+(`plugins/viewers`) holds three read-only panels, with a mounted test for each that stands a
+fake `PluginFile` in for the host's (`client/testing.ts`).
 
 ## Contribute buttons
 
