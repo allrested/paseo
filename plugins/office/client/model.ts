@@ -1,4 +1,10 @@
-import type { ActivityStep, OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
+import type {
+  ActivityStep,
+  OfficeAgent,
+  OfficeSnapshot,
+  OfficeWorkspace,
+  Post,
+} from "../shared/contracts.js";
 import { LOBBY } from "../shared/names.js";
 
 export const LOBBY_NAME = "Lobby";
@@ -20,6 +26,8 @@ export interface OfficeRoom {
   /** The project name of a workspace room. */
   subtitle: string | null;
   lobby: boolean;
+  /** The room's workspace: its branch, its ticket and its pull request. Null for the lobby. */
+  workspace: OfficeWorkspace | null;
   rows: OfficeRow[];
   /** Open and claimed tasks and notes. */
   posts: Post[];
@@ -156,20 +164,26 @@ export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
     roomOfAgent.set(agent.id, roomId);
     byRoom.set(roomId, [...(byRoom.get(roomId) ?? []), agent]);
   }
-  function room(id: string, name: string, subtitle: string | null, lobby: boolean): OfficeRoom {
+  function room(
+    id: string,
+    name: string,
+    subtitle: string | null,
+    workspace: OfficeWorkspace | null,
+  ): OfficeRoom {
     return {
       id,
       name,
       subtitle,
-      lobby,
+      lobby: workspace === null,
+      workspace,
       rows: orderRows(byRoom.get(id) ?? [], state.activity, state.doing ?? {}),
       posts: visiblePosts(state.boards[id] ?? []),
     };
   }
   const rooms = [
-    room(LOBBY, LOBBY_NAME, null, true),
+    room(LOBBY, LOBBY_NAME, null, null),
     ...state.workspaces.map((workspace) =>
-      room(workspace.id, workspace.name, workspace.projectName, false),
+      room(workspace.id, workspace.name, workspace.projectName, workspace),
     ),
   ];
   return { rooms, attention: attentionList(agents.values(), roomOfAgent), agents, roomOfAgent };

@@ -49,10 +49,31 @@ export const OfficeAgentSchema = z.object({
 });
 export type OfficeAgent = z.output<typeof OfficeAgentSchema>;
 
+/** The ticket a workspace was started on, as the Tasks plugin keeps it on the workspace. */
+export const WorkspaceTicketSchema = z.object({ key: z.string(), url: z.string().nullable() });
+export type WorkspaceTicket = z.output<typeof WorkspaceTicketSchema>;
+
+/** The pull or merge request of a workspace's branch, as the host's forge reports it. */
+export const WorkspacePullRequestSchema = z.object({
+  number: z.number().nullable(),
+  url: z.string(),
+  title: z.string(),
+  state: z.enum(["open", "draft", "merged", "closed"]),
+  /** Its checks taken together. */
+  checks: z.enum(["none", "pending", "success", "failure"]),
+  review: z.enum(["approved", "changes_requested", "pending"]).nullable(),
+  /** It cannot be merged as it is. */
+  conflicts: z.boolean(),
+});
+export type WorkspacePullRequest = z.output<typeof WorkspacePullRequestSchema>;
+
 export const OfficeWorkspaceSchema = z.object({
   id: z.string(),
   name: z.string(),
   projectName: z.string(),
+  branch: z.string().optional(),
+  ticket: WorkspaceTicketSchema.optional(),
+  pullRequest: WorkspacePullRequestSchema.optional(),
 });
 export type OfficeWorkspace = z.output<typeof OfficeWorkspaceSchema>;
 

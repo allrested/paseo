@@ -116,6 +116,11 @@ export interface WorldApi {
    * the wall screen shows no memory.
    */
   setMachine(machine: WorldMachine | null): void;
+  /**
+   * Rings the bell on the meeting table for a stand-up: everyone free walks there and says what
+   * they are on. Nothing happens while another gathering is on, or when nobody is free.
+   */
+  meet?(): void;
 }
 
 /** The version of the contract above; the page says which it speaks. */
