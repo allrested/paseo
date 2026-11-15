@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import {
+  AccessibilityInfo,
   Animated,
   AppState,
   Easing,
@@ -38,6 +39,7 @@ import {
   type SheetPoint,
   type SheetRobot,
   type SheetTile,
+  type SheetWalk,
   type SpritePicture,
 } from "../../shared/sheet.js";
 import { PLANE_MS } from "../scene/scene-plan.js";
@@ -52,15 +54,22 @@ import {
   panned,
   pinched,
   keptSprites,
+  legShown,
   planePath,
   pivotedRotation,
+  robotsSeated,
   shouldAsk,
   stepRanges,
   targetAt,
+  WALK_WAIT_MS,
+  walkKeys,
+  walkTrack,
+  walksStarted,
   wavesOwed,
   zoomLimits,
   type Asked,
   type Fingers,
+  type StartedWalk,
   type Transform,
   type Viewer,
 } from "./sheet-motion.js";
@@ -82,6 +91,12 @@ const CLIP = { overflow: "hidden" } as const;
 
 /** The pictures the host has given, by key. A key with none yet, or a failure, is absent. */
 type Pictures = Record<string, SpritePicture>;
+
+/** A robot on its way: its walk on the backdrop it was made for, and how far along it is, 0 to 1. */
+interface Walking extends StartedWalk {
+  version: number;
+  progress: Animated.Value;
+}
 
 /** A clock that runs while a sprite that needs it is shown, and is shared by all of that kind. */
 function createClocks() {
@@ -300,15 +315,24 @@ function Session({
     if (robots === undefined) return;
     for (const robot of robots) want(robot.key);
   }, [robots, want]);
+  const { walking, endWalk } = useWalks(sheetId, sheet, useReducedMotion());
+  useEffect(() => {
+    for (const { walk } of walking) for (const key of walkKeys(walk)) want(key);
+  }, [walking, want]);
   // Few pictures are kept; past a limit those no shown robot uses go.
   useEffect(() => {
     if (robots === undefined) return;
     const keys = Object.keys(pictures);
-    const keep = keptSprites(keys, new Set([PLANE_KEY, ...robots.map((robot) => robot.key)]));
+    const used = new Set([
+      PLANE_KEY,
+      ...robots.map((robot) => robot.key),
+      ...walking.flatMap(({ walk }) => walkKeys(walk)),
+    ]);
+    const keep = keptSprites(keys, used);
     if (keep.length === keys.length) return;
     for (const key of keys) if (!keep.includes(key)) asked.current.delete(key);
     setPictures(Object.fromEntries(keep.map((key) => [key, pictures[key]!])));
-  }, [pictures, robots]);
+  }, [pictures, robots, walking]);
 
   // The sheet shown before this one: what a robot's key and presence are compared with.
   const history = useRef<{ sheet: Sheet | null; previous: Sheet | null }>({
@@ -544,6 +568,11 @@ function Session({
     [pictureWidth, pictureHeight, layer],
   );
   const clocks = useState(createClocks)[0];
+  // A robot on its way is drawn by its walk, and at its desk when the walk is over.
+  const seated = useMemo(
+    () => robotsSeated(robots ?? [], walking, (walk) => walkReady(walk, pictures)),
+    [robots, walking, pictures],
+  );
   const tiles = shown?.tiles;
   const layers = useMemo(() => (tiles === undefined ? null : tileLayers(tiles)), [tiles]);
 
@@ -559,18 +588,37 @@ function Session({
       ) : (
         <Animated.View pointerEvents="none" style={contentStyle}>
           {layers.backdrop}
-          {sheet.robots.map((robot) => (
+          {seated.map((robot) => (
             <RobotSprite
               key={robot.agentId}
               sheet={sheet}
               robot={robot}
-              fadesIn={previous !== null && !previousRobots.has(robot.agentId)}
+              // A robot that walked in is there already: it sits down, it does not fade in.
+              fadesIn={
+                previous !== null && !previousRobots.has(robot.agentId) && robot.walk === null
+              }
               pictures={pictures}
               owed={owed}
               clocks={clocks}
             />
           ))}
+          <WalkLegs inside walking={walking} sheet={sheet} pictures={pictures} clocks={clocks} />
           {layers.overlay}
+          <WalkLegs
+            inside={false}
+            walking={walking}
+            sheet={sheet}
+            pictures={pictures}
+            clocks={clocks}
+          />
+          {walking.map((each) => (
+            <WalkRunner
+              key={`${each.agentId}:${each.walk.id}`}
+              walking={each}
+              ready={walkReady(each.walk, pictures)}
+              onDone={endWalk}
+            />
+          ))}
           {planePicture === undefined || planePicture === null
             ? null
             : planes.map((plane) => (
@@ -588,6 +636,59 @@ function Session({
       )}
     </View>
   );
+}
+
+/** Whether the device asks for less motion, as it did when the view opened. */
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    let open = true;
+    void (async () => {
+      const asked = await AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
+      if (open) setReduced(asked);
+    })();
+    return () => {
+      open = false;
+    };
+  }, []);
+  return reduced;
+}
+
+/**
+ * The walks under way. A walk is taken up from the first sheet that names it and played once.
+ * One on an older backdrop is dropped: its places are not this picture's. With `still` no robot
+ * walks: each is at its new desk at once.
+ */
+function useWalks(sheetId: string | null, sheet: Sheet | null, still: boolean) {
+  // The robots of the sheet before this one: a walk it did not name is a walk that starts.
+  const robotsBefore = useRef<readonly SheetRobot[] | null>(null);
+  const [walking, setWalking] = useState<Walking[]>([]);
+  useEffect(() => {
+    robotsBefore.current = null;
+    setWalking([]);
+  }, [sheetId]);
+  const robots = sheet?.robots;
+  const version = sheet?.version;
+  useEffect(() => {
+    if (robots === undefined || version === undefined) return;
+    const started: Walking[] = [];
+    for (const { agentId, walk, held } of still ? [] : walksStarted(robotsBefore.current, robots)) {
+      started.push({ agentId, walk, held, version, progress: new Animated.Value(0) });
+    }
+    robotsBefore.current = robots;
+    const present = new Set(still ? [] : robots.map((robot) => robot.agentId));
+    for (const { agentId } of started) present.delete(agentId);
+    setWalking((current) => {
+      const kept = current.filter((each) => present.has(each.agentId) && each.version === version);
+      return started.length === 0 && kept.length === current.length
+        ? current
+        : [...kept, ...started];
+    });
+  }, [robots, version, still]);
+  const endWalk = useCallback((ended: Walking) => {
+    setWalking((current) => current.filter((each) => each !== ended));
+  }, []);
+  return { walking, endWalk };
 }
 
 /** The tiles as images, made once per backdrop so they are not reloaded for every sheet. */
@@ -757,6 +858,141 @@ function ShownRobot({
     </Animated.View>
   );
 }
+
+function walkReady(walk: SheetWalk, pictures: Pictures): boolean {
+  return walkKeys(walk).every((key) => pictures[key] !== undefined);
+}
+
+/**
+ * Runs one walk from its start to its end, once its pictures are here. It draws nothing: the legs
+ * read how far along it is.
+ */
+function WalkRunner({
+  walking,
+  ready,
+  onDone,
+}: {
+  walking: Walking;
+  ready: boolean;
+  onDone(walking: Walking): void;
+}) {
+  useEffect(() => {
+    if (!ready) {
+      const giveUp = setTimeout(() => onDone(walking), WALK_WAIT_MS);
+      return () => clearTimeout(giveUp);
+    }
+    const going = Animated.timing(walking.progress, {
+      toValue: 1,
+      duration: walking.walk.ms,
+      easing: Easing.linear,
+      useNativeDriver: NATIVE,
+    });
+    going.start(({ finished }) => {
+      if (finished) onDone(walking);
+    });
+    return () => going.stop();
+  }, [walking, ready, onDone]);
+  return null;
+}
+
+interface WalkLegsProps {
+  /** The legs inside a room, which go under the near walls; or the others, which go over them. */
+  inside: boolean;
+  walking: Walking[];
+  sheet: Sheet;
+  pictures: Pictures;
+  clocks: Clocks;
+}
+
+function WalkLegs({ inside, walking, sheet, pictures, clocks }: WalkLegsProps) {
+  const { width, height } = sheet.frame;
+  return (
+    <>
+      {walking.flatMap((each) =>
+        // A walk shows nothing until every leg has its picture, so it never starts half drawn.
+        walkReady(each.walk, pictures)
+          ? each.walk.legs.map((leg, index) => {
+              const picture = pictures[leg.key];
+              return leg.inside !== inside || picture === undefined ? null : (
+                <WalkLeg
+                  // A walk's legs keep their order for as long as it lasts.
+                  // eslint-disable-next-line react/no-array-index-key
+                  key={`${each.agentId}:${each.walk.id}:${index}`}
+                  walking={each}
+                  index={index}
+                  picture={picture}
+                  frameWidth={width}
+                  frameHeight={height}
+                  clocks={clocks}
+                />
+              );
+            })
+          : [],
+      )}
+    </>
+  );
+}
+
+/** The robot on one leg of its walk: carried along the whole way, and shown only on its own leg. */
+const WalkLeg = memo(function WalkLeg({
+  walking,
+  index,
+  picture,
+  frameWidth,
+  frameHeight,
+  clocks,
+}: {
+  walking: Walking;
+  index: number;
+  picture: SpritePicture;
+  frameWidth: number;
+  frameHeight: number;
+  clocks: Clocks;
+}) {
+  const { walk, progress } = walking;
+  const { frames, frameMs } = picture;
+  const loops = frames > 1;
+  useEffect(
+    () => (loops ? clocks.use(frames, frameMs) : undefined),
+    [clocks, loops, frames, frameMs],
+  );
+  const source = useMemo(() => ({ uri: `${PNG_URI}${picture.png}` }), [picture]);
+  const clipStyle = useMemo(() => {
+    const track = walkTrack(walk);
+    const shown = legShown(walk, index);
+    const along = (output: number[]) =>
+      progress.interpolate({ inputRange: track.input, outputRange: output, extrapolate: "clamp" });
+    return {
+      position: "absolute" as const,
+      left: 0,
+      top: 0,
+      width: frameWidth,
+      height: frameHeight,
+      overflow: "hidden" as const,
+      opacity: progress.interpolate({
+        inputRange: shown.input,
+        outputRange: shown.output,
+        extrapolate: "clamp",
+      }),
+      transform: [{ translateX: along(track.x) }, { translateY: along(track.y) }],
+    };
+  }, [walk, index, progress, frameWidth, frameHeight]);
+  const gridStyle = useMemo(() => {
+    const frame = { width: frameWidth, height: frameHeight };
+    const grid = { position: "absolute" as const, left: 0, top: 0, ...gridSize(picture, frame) };
+    if (!loops) return grid;
+    const ranges = stepRanges(picture, frame);
+    const position = Animated.modulo(clocks.value(frames, frameMs), frames);
+    const step = (output: number[]) =>
+      position.interpolate({ inputRange: ranges.input, outputRange: output, extrapolate: "clamp" });
+    return [grid, { transform: [{ translateX: step(ranges.x) }, { translateY: step(ranges.y) }] }];
+  }, [picture, frameWidth, frameHeight, loops, clocks, frames, frameMs]);
+  return (
+    <Animated.View style={clipStyle}>
+      <Animated.Image source={source} style={gridStyle} fadeDuration={0} />
+    </Animated.View>
+  );
+});
 
 function Plane({
   sheet,

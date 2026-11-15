@@ -24,9 +24,11 @@ import {
   spriteLook,
   stillSignature,
   tileRects,
+  walkLook,
   type SheetFrame,
 } from "../client/scene/sheet-plan.js";
 import { isThreeModule } from "../client/scene/three-types.js";
+import { WALK_CLIP, createWalkTracker, walkClipFrame, type Walk } from "../client/scene/walk.js";
 import { THREE_GLOBAL } from "../shared/render.js";
 import {
   BACKDROP_QUALITY,
@@ -78,6 +80,8 @@ let drawn: {
 let changed = false;
 /** Each robot's pose and when it took it, by this page's clock. */
 const posed = new Map<string, { pose: RobotPose; at: number }>();
+/** Robots on their way to their desks: the viewer has no walk of its own, so arrivals too. */
+const walks = createWalkTracker({ arrivals: true, reducedMotion: false });
 /** Sprites by key, for the scale they were drawn at. */
 let sprites: { scale: number; byKey: Map<string, SpritePicture> } = { scale: 0, byKey: new Map() };
 
@@ -158,6 +162,23 @@ function notePoses(next: ScenePlan): void {
   for (const agentId of posed.keys()) if (!present.has(agentId)) posed.delete(agentId);
 }
 
+/** The next office: who walks is read off the change from the one before it. */
+function adopt(next: ScenePlan): void {
+  walks.update(plan ?? NOTHING, next, performance.now());
+  plan = next;
+  notePoses(next);
+}
+
+function walksNow(current: ScenePlan) {
+  const now = performance.now();
+  const walking = new Map<string, { id: number; walk: Walk }>();
+  for (const robot of current.robots) {
+    const active = walks.get(robot.agentId, now);
+    if (active !== null) walking.set(robot.agentId, { id: active.id, walk: active.walk });
+  }
+  return walking;
+}
+
 function freshNow(): Set<string> {
   const now = performance.now();
   const fresh = new Set<string>();
@@ -184,6 +205,7 @@ function take(): SheetTake {
     version: drawn.version,
     tiles: drawn.tiles,
     fresh: freshNow(),
+    walks: walksNow(plan),
     plates: drawn.plates,
   });
   return { tiles, sheet, problem: null };
@@ -226,6 +248,12 @@ function drawSprite(run: Running, key: string, frame: SheetFrame): SpritePicture
     const still = { frames: 1, frameMs: 0, loop: false };
     // Where a robot's chest is in a frame: the app lays that point on the plane's path.
     return gridOf(run, still, frame, () => run.stills.plane({ x: 0, z: 0 }, CHEST_Y));
+  }
+  const walker = walkLook(key);
+  if (walker !== null) {
+    return gridOf(run, WALK_CLIP, frame, (index) =>
+      run.stills.walker(walker.robot, walkClipFrame(walker.direction, index)),
+    );
   }
   const look = spriteLook(key);
   if (look === null) return null;
@@ -271,18 +299,14 @@ const page: OfficeSheetGlobal = {
     const { pipeline } = requireRunning();
     viewer = size;
     const next = pipeline.resize(size.width, size.height);
-    if (next !== null) {
-      plan = next;
-      notePoses(next);
-    }
+    if (next !== null) adopt(next);
     changed = true;
   },
   state(event) {
     const { pipeline } = requireRunning();
     const next = pipeline.apply(event);
     if (next === null) return;
-    plan = next;
-    notePoses(next);
+    adopt(next);
     changed = true;
   },
   take() {
