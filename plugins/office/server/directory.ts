@@ -67,6 +67,7 @@ export interface DirectoryPullRequestInput {
   url: string;
   title: string;
   state: string;
+  baseRefName?: string | null;
   isMerged: boolean;
   isDraft?: boolean;
   mergeable?: string;
@@ -83,6 +84,7 @@ export interface DirectoryWorkspaceInput {
   /** Data plugins keep on the workspace; the Tasks plugin keeps the ticket there. */
   metadata?: Readonly<Record<string, unknown>>;
   gitRuntime?: { currentBranch?: string | null } | null;
+  diffStat?: { additions: number; deletions: number } | null;
   /** The forge's facts, GitHub's or another's: the field has its first forge's name. */
   githubRuntime?: { pullRequest?: DirectoryPullRequestInput | null } | null;
 }
@@ -113,6 +115,7 @@ function pullRequestOf(workspace: DirectoryWorkspaceInput): WorkspacePullRequest
     number: request.number ?? null,
     url: request.url,
     title: request.title,
+    base: request.baseRefName || null,
     state: pullRequestState(request),
     checks: request.checksStatus ?? "none",
     review: request.reviewDecision ?? null,
@@ -217,12 +220,14 @@ export function projectWorkspace(workspace: DirectoryWorkspaceInput): OfficeWork
   const branch = workspace.gitRuntime?.currentBranch;
   const ticket = ticketOf(workspace);
   const pullRequest = pullRequestOf(workspace);
+  const { additions = 0, deletions = 0 } = workspace.diffStat ?? {};
   return {
     id: workspace.id,
     name: workspace.name,
     projectName: workspace.projectDisplayName,
     ...(branch ? { branch } : {}),
     ...(ticket ? { ticket } : {}),
+    ...(additions + deletions > 0 ? { changes: { additions, deletions } } : {}),
     ...(pullRequest ? { pullRequest } : {}),
   };
 }

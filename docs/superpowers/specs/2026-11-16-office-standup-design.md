@@ -52,7 +52,7 @@ to the agent it names.
 - `client/standup-text.ts`: the teams, the blockers, what an agent said, the strip's note, the
   card's words and the plain text.
 - `client/standup-card.tsx`: the card. `client/attention-strip.tsx` has the Stand-up entry, and
-  `client/office-surface.tsx` posts the requests through the board's own `office.post.request`.
+  `client/use-standup.ts` posts the requests through the board's own `office.post.request`.
 - `client/pixel/actors.ts`: `standingOf` and `castOf` take whether a stand-up is on.
 - `client/world/world-api.ts`: `meet()`, optional. The scene's entry calls upstream's
   `ringBell`; the wording stand-in has the opening line.

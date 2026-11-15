@@ -238,12 +238,14 @@ test("a workspace carries its branch, the ticket it was started on and its pull 
     workspaceInput({
       metadata: { "tasks.key": "SHOP-41", "tasks.url": "https://jira.example/browse/SHOP-41" },
       gitRuntime: { currentBranch: "feat/checkout" },
+      diffStat: { additions: 120, deletions: 30 },
       githubRuntime: {
         pullRequest: {
           number: 12,
           url: "https://github.example/shop/pull/12",
           title: "Fix checkout",
           state: "OPEN",
+          baseRefName: "main",
           isMerged: false,
           isDraft: true,
           mergeable: "CONFLICTING",
@@ -259,10 +261,12 @@ test("a workspace carries its branch, the ticket it was started on and its pull 
     projectName: "paseo",
     branch: "feat/checkout",
     ticket: { key: "SHOP-41", url: "https://jira.example/browse/SHOP-41" },
+    changes: { additions: 120, deletions: 30 },
     pullRequest: {
       number: 12,
       url: "https://github.example/shop/pull/12",
       title: "Fix checkout",
+      base: "main",
       state: "draft",
       checks: "failure",
       review: "changes_requested",
@@ -284,6 +288,7 @@ test("a pull request is merged, closed, a draft or open, whatever its forge call
     number: null,
     url: "u",
     title: "t",
+    base: null,
     state: "open",
     checks: "none",
     review: null,
@@ -302,10 +307,15 @@ test("a workspace without a branch, a ticket or a pull request carries none", ()
       workspaceInput({
         metadata: { "tasks.key": "", "other.key": "x" },
         gitRuntime: { currentBranch: null },
+        diffStat: null,
         githubRuntime: { pullRequest: null },
       }),
     ),
   ).toEqual(plain);
+  // A checkout that changes nothing has no size to show.
+  expect(projectWorkspace(workspaceInput({ diffStat: { additions: 0, deletions: 0 } }))).toEqual(
+    plain,
+  );
   expect(projectWorkspace(workspaceInput({ gitRuntime: null, githubRuntime: null }))).toEqual(
     plain,
   );
