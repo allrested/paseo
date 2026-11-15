@@ -131,7 +131,6 @@ function setup(read: () => Promise<SettingsState>) {
     clock,
     log: (message) => logs.push(message),
     vendorDirectory: null,
-    render: null,
     sheet: null,
   });
   async function open(
@@ -235,14 +234,12 @@ test("a post for a running agent goes out when its turn ends", async () => {
   await stop();
 });
 
-test("the entry serves the office state, the asset, the 3D stream, the sheet and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the entry serves the office state, the asset, the sheet and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
     "office.state",
     "office.asset.request",
-    "office.render",
-    "office.render.input.request",
     "office.sheet",
     "office.sheet.input.request",
     "office.sheet.sprite.request",
@@ -265,18 +262,18 @@ test("the entry serves the office state, the asset, the 3D stream, the sheet and
   expect(clock.pending()).toBe(0);
 });
 
-test("a host with no browser refuses the 3D stream with a problem, and knows no stream", async () => {
+test("a host with no browser refuses the sheet with a problem, and knows no sheet", async () => {
   const { recorded, context, stop } = setup(async () => ON);
   const events: unknown[] = [];
-  const stream = recorded.handlers.get("office.render");
-  const input = recorded.handlers.get("office.render.input.request");
+  const sheet = recorded.handlers.get("office.sheet");
+  const input = recorded.handlers.get("office.sheet.input.request");
 
-  await stream?.({ width: 390, height: 700, pixelRatio: 3, colors: {}, coarsePointer: true }, {
+  await sheet?.({ width: 390, height: 700, pixelRatio: 3, colors: {} }, {
     ...context,
     push: async (event: unknown) => void events.push(event),
   } as never);
 
   expect(events).toEqual([{ type: "problem", message: "The host has no browser to draw 3D" }]);
-  expect(await input?.({ streamId: "s1" }, context)).toEqual({ ok: false });
+  expect(await input?.({ sheetId: "s1" }, context)).toEqual({ ok: false });
   await stop();
 });

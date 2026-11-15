@@ -502,7 +502,7 @@ an agent. Agents' own `maestro` runs are not coordinated with it
 ([design](superpowers/specs/2026-11-14-android-maestro-panel-design.md)). A hidden or
 backgrounded panel closes its stream; Retry opens it again. The client folder may not import
 `server/`, even for a type: the plugin compiler refuses it, so shapes both sides use live in
-`shared/`. The office's streamed 3D view is the pattern; its modules are copied, not imported.
+`shared/`.
 
 `scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
 and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local

@@ -99,7 +99,6 @@ function Mounted() {
       <SheetView
         theme={THEME}
         styles={styles}
-        coarsePointer
         focusRoomId={null}
         focusRequest={null}
         onSelectAgent={selectAgent}

@@ -236,8 +236,8 @@ export function nextFocusRequest(previous: FocusRequest | null, agentId: string)
 /** "fallback" is the structure view under the "Try 3D again" banner. */
 export type OfficeView = "pending" | "scene" | "fallback" | "structure";
 
-/** Where the 3D view is drawn: by this device's WebGL, on the host as pictures, or nowhere. */
-export type ThreeDMode = "local" | "stream" | "none";
+/** Where the 3D view is drawn: by this device's WebGL, from the host's pictures, or nowhere. */
+export type ThreeDMode = "local" | "sheet" | "none";
 
 export interface ThreeDModeInput {
   platform: Platform;
@@ -250,7 +250,7 @@ export interface ThreeDModeInput {
 /** A device that can draw does; the installed app and a browser without WebGL2 ask the host. */
 export function threeDMode({ platform, webgl2, hostRender }: ThreeDModeInput): ThreeDMode {
   if (platform === "web" && webgl2) return "local";
-  return hostRender ? "stream" : "none";
+  return hostRender ? "sheet" : "none";
 }
 
 export interface OfficeViewInput {
@@ -384,7 +384,6 @@ interface SurfaceBodyProps {
   sceneModel: OfficeModel | null;
   /** Who draws that scene. */
   sceneMode: ThreeDMode;
-  touchScreen: boolean;
   /** The 3D switch is still being read: neither view yet. */
   waiting: boolean;
   theme: PluginTheme;
@@ -406,7 +405,6 @@ function SurfaceBody({
   rooms,
   sceneModel,
   sceneMode,
-  touchScreen,
   waiting,
   theme,
   focusRoomId,
@@ -438,13 +436,12 @@ function SurfaceBody({
     );
   }
   if (!office.loaded || waiting) return <Text style={styles.sceneStatus}>Loading...</Text>;
-  if (sceneModel !== null && sceneMode === "stream") {
+  if (sceneModel !== null && sceneMode === "sheet") {
     // The host draws from its own copy of the office, so this view takes no model.
     return (
       <SheetView
         theme={theme}
         styles={styles}
-        coarsePointer={touchScreen}
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}
         onSelectAgent={onSelectAgent}
@@ -594,7 +591,6 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         rooms={rooms}
         sceneModel={sceneModelFor(view, model)}
         sceneMode={threeD.mode}
-        touchScreen={touchScreen}
         waiting={view === "pending"}
         theme={theme}
         focusRoomId={focusRoomId}
