@@ -15,6 +15,26 @@ export interface DirectoryPermissionInput {
   name: string;
   kind: string;
   title?: string;
+  description?: string;
+  /** The fields of a ToolCallDetail that say what is asked; every variant satisfies it. */
+  detail?: { type: string; command?: string; filePath?: string; url?: string; query?: string };
+}
+
+/** A command can be a script; the card shows this much of it. */
+const DETAIL_MAX = 300;
+
+/**
+ * What a request asks for beyond its title, as one line: the command, the file, the address, or
+ * the provider's description. Undefined when that says no more than the title, so "Bash" alone
+ * is never all there is to read before Approve when the daemon knows the command.
+ */
+function permissionDetail(request: DirectoryPermissionInput, title: string): string | undefined {
+  const { detail } = request;
+  const asked =
+    detail?.command ?? detail?.filePath ?? detail?.url ?? detail?.query ?? request.description;
+  const line = (asked ?? "").replace(/\s+/g, " ").trim();
+  if (line === "" || line === title) return undefined;
+  return line.length > DETAIL_MAX ? `${line.slice(0, DETAIL_MAX - 1)}…` : line;
 }
 
 /** The fields the office reads from an agent snapshot (AgentSnapshotPayload satisfies it). */
@@ -68,11 +88,16 @@ export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
     status: status.data,
     workspaceId: agent.workspaceId ?? null,
     parentAgentId: parent === "" ? null : parent,
-    permissions: agent.pendingPermissions.map((request) => ({
-      id: request.id,
-      kind: permissionKind(request.kind),
-      title: request.title ?? request.name,
-    })),
+    permissions: agent.pendingPermissions.map((request) => {
+      const title = request.title ?? request.name;
+      const detail = permissionDetail(request, title);
+      return {
+        id: request.id,
+        kind: permissionKind(request.kind),
+        title,
+        ...(detail === undefined ? {} : { detail }),
+      };
+    }),
     createdAt: agent.createdAt,
   };
 }

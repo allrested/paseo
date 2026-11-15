@@ -66,6 +66,7 @@ export interface OfficeStyles {
   rowChildPermissions: ViewStyle;
   permission: ViewStyle;
   permissionTitle: TextStyle;
+  permissionDetail: TextStyle;
   actions: ViewStyle;
   dot: Record<DotTone, ViewStyle>;
   /** Holds a button and the error under it. */
@@ -360,6 +361,8 @@ export function useOfficeStyles(
       // What the agent asks for is the thing to read before answering, so it is not in the
       // warning colour: the row's dot and its state word already carry that.
       permissionTitle: { ...base, color: colors.foreground },
+      // The command or the file under the title: read before answering, so not the muted grey.
+      permissionDetail: { ...small, color: colors.foreground, marginTop: -4 },
       actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
       dot: {
         // Not the accent: on the default dark theme that is 2.8:1 against a card, dimmer than idle.
