@@ -541,3 +541,58 @@ test("stopping the hub cancels a pending restart", async () => {
   subscriber.controller.abort();
   await subscriber.done;
 });
+
+test("a reset agent's context reads empty at once, and the provider's next number replaces it", async () => {
+  const full = { ...agent("a", "idle"), context: { usedTokens: 164_000, maxTokens: 200_000 } };
+  const harness = startHarness({ agents: [full, agent("b", "idle")], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  subscriber.events.length = 0;
+
+  harness.hub.contextReset("a");
+  // An agent whose context nobody reports has nothing to empty.
+  harness.hub.contextReset("b");
+  harness.hub.contextReset("ghost");
+  harness.clock.advance(DIRECTORY_FLUSH_MS);
+  const emptied = { ...full, context: { usedTokens: 0, maxTokens: 200_000 } };
+  expect(subscriber.events).toEqual([{ type: "agents", agents: [emptied, agent("b", "idle")] }]);
+
+  // The directory repeats the number from before the reset: still empty, and nothing is sent.
+  harness.directory.emit({
+    agents: [{ ...full, status: "idle" }, agent("b", "idle")],
+    workspaces: [],
+  });
+  harness.clock.advance(DIRECTORY_FLUSH_MS);
+  expect(subscriber.events).toHaveLength(1);
+
+  const next = { ...full, context: { usedTokens: 2100, maxTokens: 200_000 } };
+  harness.directory.emit({ agents: [next, agent("b", "idle")], workspaces: [] });
+  harness.clock.advance(DIRECTORY_FLUSH_MS);
+  expect(subscriber.events[1]).toEqual({ type: "agents", agents: [next, agent("b", "idle")] });
+
+  // The reset is over: the same number as before it is a full context again.
+  harness.directory.emit({ agents: [full, agent("b", "idle")], workspaces: [] });
+  harness.clock.advance(DIRECTORY_FLUSH_MS);
+  expect(subscriber.events[2]).toEqual({ type: "agents", agents: [full, agent("b", "idle")] });
+
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("a subscriber that joins after a reset gets the emptied context in its snapshot", async () => {
+  const full = { ...agent("a", "idle"), context: { usedTokens: 164_000, maxTokens: 200_000 } };
+  const harness = startHarness({ agents: [full], workspaces: [] });
+  const first = subscribe(harness.hub);
+  await settle();
+  harness.hub.contextReset("a");
+
+  const second = subscribe(harness.hub);
+  await settle();
+  expect(second.events[0]).toMatchObject({
+    type: "snapshot",
+    state: { agents: [{ id: "a", context: { usedTokens: 0, maxTokens: 200_000 } }] },
+  });
+  first.controller.abort();
+  second.controller.abort();
+  await Promise.all([first.done, second.done]);
+});

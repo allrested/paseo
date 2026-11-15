@@ -605,6 +605,18 @@ command the heavy-command gate runs counts for its agent here and for the gate t
 can differ while one runs. Linux only: elsewhere the subscription answers `unavailable` and the
 entry is not shown.
 
+The office shows how full each agent's context is, from the `lastUsage` its provider reports. A
+Janitor entry after Host in the attention strip counts the contexts that are 85% full or more,
+and its card lists every agent, the fullest first, with two actions for an agent that is idle or
+stopped on an error. Clean context sends the provider's `compact` command. Reset session sends
+its command for a new conversation, the first of `clear`, `new` and `reset` that the session
+lists, after a second press: the plugin kit has no confirm dialog. Both go as a prompt through
+`office.janitor.request`. An agent at work is refused, since the command would cut its turn, and
+a provider without the command says so under the buttons. A provider reports a context's size
+when a turn ends, so after a reset the old number would stay until the next turn. The hub reads a
+reset agent's context as empty until the provider reports another number (`settleResets` in
+`plugins/office/server/directory.ts`).
+
 The office has three views: a 3D floor, a 2D floor and the list. The header's switch chooses one
 per device and keeps it in the `office-device` setting. A device that never chose shows the 3D
 floor where it can draw it, which is a browser with WebGL2, and the 2D floor anywhere else. A 3D
@@ -632,10 +644,13 @@ page, and a push or a deploy launches the rocket. The reads are 5 s apart, so a 
 starts and ends between two of them is never shown. With a host reading, the server room's chip,
 its racks and the wall screen open the Host card, the wall screen shows memory and CPU, an agent
 with a port open has a small server on its desk, and what was left running stands in the server
-room under a red light. Designs:
+room under a red light. The paper on a desk and in its bin is the agent's context, with a flag in
+it from 85%. When a context falls to less than half of what it was, by a compaction or a new
+conversation, the person carries the paper to the shredder. Designs:
 [the floor](superpowers/specs/2026-11-16-office-my-office-port-design.md),
 [the places](superpowers/specs/2026-11-16-office-activity-places-design.md),
-[the host](superpowers/specs/2026-11-16-office-server-care-design.md).
+[the host](superpowers/specs/2026-11-16-office-server-care-design.md),
+[the janitor](superpowers/specs/2026-11-16-office-janitor-design.md).
 
 The 2D floor (`plugins/office/client/pixel`) is pixel art drawn with plain views, one per
 rectangle of colour. Plugin code in the installed app has React Native views only, with no canvas
@@ -652,14 +667,19 @@ test run, the whiteboard for a plan or a subagent, the pad for a push or a deplo
 the rocket, and the desk for everything else. Whoever needs you stays at the desk, where a tap
 opens the card. Where a person stands follows from the agent's state alone
 (`client/pixel/actors.ts`), so an office opened in the middle of a turn shows everyone in place.
-The one thing remembered is the coffee break: 30 seconds away from the desk after a turn ends. A
+Two things are remembered: the coffee break, 30 seconds away from the desk after a turn ends,
+and the desks the janitor is due at. A
 desk opens its agent's card, a team's plate and the whiteboard open a board, and the racks open
 the Host card. With a host reading, a bubble beside the racks says that something was left
 running or that memory is high, and an agent with a port open has a small server on its desk. A
 person away from the desk can be tapped too, but only the desk is a stop for the keyboard and a
-screen reader, and it says what its agent is at. With reduced motion nobody walks and nobody
-takes a break. Design:
-[the 2D floor](superpowers/specs/2026-11-16-office-pixel-office-design.md).
+screen reader, and it says what its agent is at. The tray on a desk holds the agent's context as
+paper, with a flag in it from 85%. A janitor stands by a cart in the lounge, and the two open the
+Janitor card. When a context empties, the janitor walks to that desk and sweeps, and the tray is
+empty once that is done. With reduced motion nobody walks, nobody takes a break and the janitor
+stays at the cart. Designs:
+[the 2D floor](superpowers/specs/2026-11-16-office-pixel-office-design.md),
+[the janitor](superpowers/specs/2026-11-16-office-janitor-design.md).
 
 Server code of a plugin cannot import from its `client/` folder (the compiler refuses it).
 

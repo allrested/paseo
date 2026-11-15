@@ -1,5 +1,6 @@
 import { ACTIVITY_TAIL_LIMIT, startActivityPoller } from "./activity.js";
 import type { HubPorts } from "./hub.js";
+import type { JanitorPorts } from "./janitor.js";
 import { wakeTargetOf } from "./mention-queue.js";
 import type { OfficeAgentPorts } from "./office.js";
 import { openPaseoDirectory } from "./paseo-directory.js";
@@ -60,5 +61,24 @@ export function liveAgentPorts(holder: PaseoHolder): OfficeAgentPorts {
           prompt,
           source === null ? { activeTurnBehavior: "steer" } : { sourceAgentId: source },
         ),
+  };
+}
+
+/** Janitor ports on the daemon's own API; the holder is set by the handler that uses them. */
+export function liveJanitorPorts(holder: PaseoHolder): JanitorPorts {
+  const ref = (agentId: string) => holder.require().agents.ref(agentId);
+  return {
+    async status(agentId) {
+      const result = await ref(agentId).refresh();
+      if (result === null) return null;
+      // An archived agent keeps the status it was archived in; it takes no prompt.
+      return result.agent.archivedAt ? "closed" : result.agent.status;
+    },
+    async commands(agentId) {
+      const { commands, error } = await ref(agentId).commands();
+      if (error !== null && commands.length === 0) throw new Error(error);
+      return commands.map((command) => command.name);
+    },
+    send: (agentId, text) => ref(agentId).send(text),
   };
 }

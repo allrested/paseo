@@ -55,14 +55,19 @@ function AttentionItem({ entry, styles, onSelect }: AttentionItemProps) {
 
 const HOST_DOT = { muted: "idle", warning: "warning", danger: "danger" } as const;
 
-interface HostItemProps {
+/** What the strip says of the host or of the janitor, and the card it opens. */
+export interface StripNote {
   note: HostNote;
-  styles: OfficeStyles;
   onOpen(): void;
 }
 
-/** The host in the strip's own shape: a dot, "Host", and its note. Opens the host card. */
-function HostItem({ note, styles, onOpen }: HostItemProps) {
+interface NoteItemProps extends StripNote {
+  title: string;
+  styles: OfficeStyles;
+}
+
+/** A card of the office in the strip's own shape: a dot, its name, and its note. Opens the card. */
+function NoteItem({ title, note, styles, onOpen }: NoteItemProps) {
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
@@ -73,7 +78,7 @@ function HostItem({ note, styles, onOpen }: HostItemProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Host: ${note.text}`}
+      accessibilityLabel={`${title}: ${note.text}`}
       onPress={onOpen}
       onPressIn={pressIn}
       onPressOut={pressOut}
@@ -87,7 +92,7 @@ function HostItem({ note, styles, onOpen }: HostItemProps) {
       </View>
       <View style={styles.stripBody}>
         <Text style={styles.stripTitle} numberOfLines={1}>
-          Host
+          {title}
         </Text>
         <Text style={styles.stripNote[note.tone]} numberOfLines={1}>
           {note.text}
@@ -100,14 +105,16 @@ function HostItem({ note, styles, onOpen }: HostItemProps) {
 export interface AttentionStripProps {
   entries: readonly AttentionEntry[];
   /** The host's note; null on a host that cannot be read. It comes after the agents. */
-  host: { note: HostNote; onOpen(): void } | null;
+  host: StripNote | null;
+  /** How full the contexts are; null in an office without agents. It comes last. */
+  janitor: StripNote | null;
   styles: OfficeStyles;
   onSelect(agentId: string): void;
 }
 
-/** The agents that need the user, then the host. On a phone this is the fast path. */
-export function AttentionStrip({ entries, host, styles, onSelect }: AttentionStripProps) {
-  if (entries.length === 0 && host === null) return null;
+/** The agents that need the user, then the host and the janitor. On a phone this is the fast path. */
+export function AttentionStrip({ entries, host, janitor, styles, onSelect }: AttentionStripProps) {
+  if (entries.length === 0 && host === null && janitor === null) return null;
   return (
     <View style={styles.stripRail}>
       <ScrollView
@@ -119,7 +126,12 @@ export function AttentionStrip({ entries, host, styles, onSelect }: AttentionStr
         {entries.map((entry) => (
           <AttentionItem key={entry.agentId} entry={entry} styles={styles} onSelect={onSelect} />
         ))}
-        {host ? <HostItem note={host.note} styles={styles} onOpen={host.onOpen} /> : null}
+        {host ? (
+          <NoteItem title="Host" note={host.note} styles={styles} onOpen={host.onOpen} />
+        ) : null}
+        {janitor ? (
+          <NoteItem title="Janitor" note={janitor.note} styles={styles} onOpen={janitor.onOpen} />
+        ) : null}
       </ScrollView>
     </View>
   );

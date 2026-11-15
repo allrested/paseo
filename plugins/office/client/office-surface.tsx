@@ -22,8 +22,10 @@ import { AttentionStrip } from "./attention-strip.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { HostSwitches } from "./host-switches.js";
+import { janitorNote, janitorRows } from "./context-text.js";
+import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
-import { hostNote } from "./machine-text.js";
+import { hostNote, type HostNote } from "./machine-text.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
@@ -36,6 +38,7 @@ import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
+import { useJanitor } from "./use-janitor.js";
 import { useMachine } from "./use-machine.js";
 import { useOffice, type OfficeState } from "./use-office.js";
 import { ViewSwitch } from "./view-switch.js";
@@ -420,6 +423,8 @@ interface SurfaceBodyProps {
   onOpenBoard(roomId: string): void;
   machine: Machine | null;
   onOpenMachine(): void;
+  janitor: HostNote | null;
+  onOpenJanitor(): void;
   onSceneProblem(message: string): void;
 }
 
@@ -440,6 +445,8 @@ function SurfaceBody({
   onOpenBoard,
   machine,
   onOpenMachine,
+  janitor,
+  onOpenJanitor,
   onSceneProblem,
 }: SurfaceBodyProps) {
   if (office.subscription.status === "error") {
@@ -490,6 +497,8 @@ function SurfaceBody({
         onSelectBoard={onOpenBoard}
         machine={machine}
         onOpenMachine={onOpenMachine}
+        janitor={janitor}
+        onOpenJanitor={onOpenJanitor}
       />
     );
   }
@@ -542,6 +551,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [machineOpen, setMachineOpen] = useState(false);
   const openMachine = useCallback(() => setMachineOpen(true), []);
   const closeMachine = useCallback(() => setMachineOpen(false), []);
+  const tidy = useJanitor();
+  const [janitorOpen, setJanitorOpen] = useState(false);
+  const openJanitor = useCallback(() => setJanitorOpen(true), []);
+  const closeJanitor = useCallback(() => setJanitorOpen(false), []);
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
@@ -586,6 +599,11 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     () => (machine === null ? null : { note: hostNote(machine), onOpen: openMachine }),
     [machine, openMachine],
   );
+  const contexts = useMemo(() => janitorRows(model.agents.values()), [model.agents]);
+  const janitorEntry = useMemo(() => {
+    const note = janitorNote(contexts);
+    return note === null ? null : { note, onOpen: openJanitor };
+  }, [contexts, openJanitor]);
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
@@ -608,6 +626,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           <AttentionStrip
             entries={model.attention}
             host={hostEntry}
+            janitor={janitorEntry}
             styles={styles}
             onSelect={selectFromStrip}
           />
@@ -633,6 +652,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onOpenBoard={board.open}
         machine={machine}
         onOpenMachine={openMachine}
+        janitor={janitorEntry?.note ?? null}
+        onOpenJanitor={openJanitor}
         onSceneProblem={setSceneProblem}
       />
       <AgentCard
@@ -649,6 +670,13 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         cleanUp={cleanUp}
         styles={styles}
         onClose={closeMachine}
+      />
+      <JanitorCard
+        rows={contexts}
+        open={janitorOpen && live}
+        tidy={tidy}
+        styles={styles}
+        onClose={closeJanitor}
       />
       <BoardSheet
         room={board.room}

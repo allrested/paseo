@@ -6,6 +6,7 @@ import {
   applyWorkspaceUpdate,
   projectAgent,
   projectWorkspace,
+  settleResets,
   sortAgents,
   sortWorkspaces,
   workspacesFromSnapshot,
@@ -177,4 +178,57 @@ test("agents sort by creation time, then id; workspaces by name, project, then i
     { id: "w1", name: "docs", projectName: "web" },
   ];
   expect(sortWorkspaces(workspaces).map((workspace) => workspace.id)).toEqual(["w1", "w2", "w3"]);
+});
+
+test("an agent carries how full its context is when its provider says both numbers", () => {
+  const context = (lastUsage: DirectoryAgentInput["lastUsage"]) =>
+    projectAgent(agentInput({ lastUsage }))?.context;
+  expect(context({ contextWindowUsedTokens: 164_000, contextWindowMaxTokens: 200_000 })).toEqual({
+    usedTokens: 164_000,
+    maxTokens: 200_000,
+  });
+  expect(context({ contextWindowUsedTokens: 0, contextWindowMaxTokens: 200_000 })).toEqual({
+    usedTokens: 0,
+    maxTokens: 200_000,
+  });
+  expect(context(undefined)).toBeUndefined();
+  expect(context({ contextWindowUsedTokens: 9000 })).toBeUndefined();
+  expect(context({ contextWindowMaxTokens: 200_000 })).toBeUndefined();
+  expect(context({ contextWindowUsedTokens: 9000, contextWindowMaxTokens: 0 })).toBeUndefined();
+  expect(context({ contextWindowUsedTokens: -1, contextWindowMaxTokens: 200_000 })).toBeUndefined();
+});
+
+test("a reset agent's context reads empty until its provider says another number", () => {
+  const full = { usedTokens: 164_000, maxTokens: 200_000 };
+  const agents = [
+    officeAgent({ id: "a1", context: full }),
+    officeAgent({ id: "a2", context: full }),
+  ];
+  const resets = new Map([["a1", 164_000]]);
+
+  const stale = settleResets(agents, resets);
+  expect(stale.agents).toEqual([
+    officeAgent({ id: "a1", context: { usedTokens: 0, maxTokens: 200_000 } }),
+    officeAgent({ id: "a2", context: full }),
+  ]);
+  expect([...stale.resets]).toEqual([["a1", 164_000]]);
+
+  const next = settleResets(
+    [officeAgent({ id: "a1", context: { usedTokens: 2100, maxTokens: 200_000 } })],
+    stale.resets,
+  );
+  expect(next.agents).toEqual([
+    officeAgent({ id: "a1", context: { usedTokens: 2100, maxTokens: 200_000 } }),
+  ]);
+  expect(next.resets.size).toBe(0);
+});
+
+test("a reset is forgotten with its agent, and with a context nobody reports any more", () => {
+  const resets = new Map([
+    ["gone", 5000],
+    ["silent", 7000],
+  ]);
+  const settled = settleResets([officeAgent({ id: "silent" })], resets);
+  expect(settled.agents).toEqual([officeAgent({ id: "silent" })]);
+  expect(settled.resets.size).toBe(0);
 });

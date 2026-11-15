@@ -18,6 +18,8 @@ export interface Tones {
   metalLight: string;
   screen: string;
   paper: string;
+  /** Every second sheet of a stack. */
+  paperShade: string;
   ink: string;
   plant: string;
   plantDark: string;
@@ -53,6 +55,7 @@ export const DAY: Tones = {
   metalLight: "#8A929E",
   screen: "#18212C",
   paper: "#F8F6F0",
+  paperShade: "#DDD8CC",
   ink: "#3A3F47",
   plant: "#4F9E5E",
   plantDark: "#377846",
@@ -86,6 +89,7 @@ export const NIGHT: Tones = {
   metalLight: "#7E8896",
   screen: "#0E141C",
   paper: "#DAD7CF",
+  paperShade: "#B9B6AE",
   ink: "#2B2F36",
   plant: "#3E7F4B",
   plantDark: "#2B5E37",
@@ -288,7 +292,6 @@ function deskGrid(): string[] {
     .fill(0, 10, 30, 1, "L")
     .fill(13, 10, 4, 1, "M")
     .fill(9, 12, 12, 2, "l")
-    .fill(24, 11, 3, 3, "p")
     .fill(0, 15, 30, 2, "W")
     .fill(1, 17, 2, 1, "W")
     .fill(27, 17, 2, 1, "W")
@@ -365,6 +368,39 @@ function serverGrid(): string[] {
     .fill(1, 5, 4, 1, "M")
     .fill(4, 2, 1, 1, "g")
     .grid();
+}
+
+/**
+ * The tray on a desk: a dark tray, a row of paper for each level, and a flag in a stack that
+ * is nearly full. The paper is the agent's context. White paper is 2.3:1 on a desk by day, so
+ * the tray's dark sides are what sets it off. A full tray with its flag is six pixels tall and
+ * the flag stands at its left: the bubble beside the screen ends just over it.
+ */
+function trayGrid(sheets: number, flag: boolean): string[] {
+  const art = canvas(6, 10).fill(0, 9, 6, 1, "M");
+  if (sheets > 0) art.fill(0, 9 - sheets, 6, sheets, "M");
+  for (let row = 0; row < sheets; row += 1) {
+    art.fill(1, 8 - row, 4, 1, row % 2 === 0 ? "p" : "P");
+  }
+  if (flag) art.fill(1, 6 - sheets, 1, 3, "l").fill(2, 6 - sheets, 2, 2, "R");
+  return art.grid();
+}
+
+/** The janitor's cart: a bucket on wheels with a mop standing in it. */
+function cartGrid(): string[] {
+  return canvas(12, 16)
+    .fill(8, 0, 1, 8, "h")
+    .fill(0, 7, 11, 1, "M")
+    .fill(1, 8, 9, 6, "c")
+    .fill(1, 12, 9, 2, "C")
+    .fill(1, 14, 2, 2, "M")
+    .fill(8, 14, 2, 2, "M")
+    .grid();
+}
+
+/** The janitor's broom, carried upright beside the body. */
+function broomGrid(): string[] {
+  return canvas(3, 14).fill(1, 0, 1, 11, "h").fill(0, 11, 3, 3, "c").grid();
 }
 
 function flameGrid(): string[] {
@@ -596,6 +632,12 @@ export interface Art {
   /** What the rocket stands on, under it. */
   pad: Sprite;
   flame: Sprite;
+  /** The paper on a desk, by its level (0 to 3); a flag stands in a stack that is nearly full. */
+  tray(sheets: number, flag: boolean): Sprite;
+  cart: Sprite;
+  /** The janitor: grey overalls and a yellow cap, the same in every pose. */
+  janitor(pose: Pose): Sprite;
+  broom: Sprite;
   server: Sprite;
   bubble: Sprite;
   icon(kind: IconKind): Sprite;
@@ -631,11 +673,26 @@ function buildArt(tones: Tones): Art {
     f: tones.fabric,
     F: tones.fabricDark,
     o: tones.pot,
+    P: tones.paperShade,
     g: LIGHT.green,
     b: LIGHT.blue,
     a: LIGHT.amber,
     y: "#F4DC7A",
     r: LIGHT.red,
+  };
+  // The cleaning things and the flag have the shirts' luminance of 0.2: 3.2:1 on both floors.
+  const cleaning = { ...furniture, c: "#B76724", C: "#98561E", h: "#8C7C2D", R: "#DA494E" };
+  // Overalls of the same luminance, so the janitor reads on both floors as everyone does.
+  const janitorTones = {
+    h: "#E3AE2B",
+    H: "#C0901D",
+    s: SKINS[1].skin,
+    S: SKINS[1].shade,
+    e: "#2B2B33",
+    c: "#757B86",
+    C: "#626873",
+    p: "#757B86",
+    b: tones.shoes,
   };
   const people = new Map<string, Sprite>();
   const chairTones = { k: tones.chair, K: tones.chairDark };
@@ -649,6 +706,9 @@ function buildArt(tones: Tones): Art {
     a: "#B77E19",
     b: "#3F7FE0",
   };
+  const trays = lazily((key: string) =>
+    compileSprite(trayGrid(Number(key[0]), key.endsWith("f")), cleaning),
+  );
   return {
     tones,
     person(look, pose) {
@@ -691,6 +751,10 @@ function buildArt(tones: Tones): Art {
     rocket: compileSprite(rocketGrid(), { ...furniture, p: "#F1F1EE", s: "#D5D5D0", r: "#D8484D" }),
     pad: compileSprite(padGrid(), furniture),
     flame: compileSprite(flameGrid(), furniture),
+    tray: (sheets, flag) => trays(`${sheets}${flag ? "f" : ""}`),
+    cart: compileSprite(cartGrid(), cleaning),
+    janitor: lazily((pose: Pose) => compileSprite(POSES[pose], janitorTones)),
+    broom: compileSprite(broomGrid(), cleaning),
     server: compileSprite(serverGrid(), furniture),
     bubble: compileSprite(BUBBLE, { i: "#3A3F47", p: "#F8F6F0" }),
     icon: lazily((kind: IconKind) => compileSprite(ICONS[kind], iconTones)),

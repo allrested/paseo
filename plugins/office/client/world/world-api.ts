@@ -21,6 +21,11 @@ export interface WorldSession {
   /** A red name tag: the agent ended in an error. */
   stuck: boolean;
   subs: never[];
+  /**
+   * The context window, in tokens: the paper on the desk grows with it, and a flag stands in it
+   * from 85%. Absent when the provider has not said.
+   */
+  usage?: { ctx: number; ctxMax: number };
 }
 
 /**
@@ -51,7 +56,9 @@ export type WorldEventType =
   | "deploy"
   | "testok"
   | "testfail"
-  | "testend";
+  | "testend"
+  /** The conversation was compacted or started over: the person takes the paper to the shredder. */
+  | "compact";
 
 export interface WorldBoardRow {
   id: string;

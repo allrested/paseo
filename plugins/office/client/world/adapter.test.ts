@@ -115,6 +115,17 @@ describe("the office's agents as the scene's people", () => {
     ]);
   });
 
+  it("gives a person the context of their agent, when its provider says it", () => {
+    const model = buildOfficeModel(
+      office([agent("1", { context: { usedTokens: 164_000, maxTokens: 200_000 } }), agent("2")]),
+    );
+
+    const { sessions } = worldPeople(model, PLAN_DESKS.pro);
+
+    expect(sessions[0]?.usage).toEqual({ ctx: 164_000, ctxMax: 200_000 });
+    expect(sessions[1]).not.toHaveProperty("usage");
+  });
+
   it("names a room's team, and nothing for a room that is gone", () => {
     const model = buildOfficeModel(office([agent("1")]));
 
@@ -168,6 +179,35 @@ describe("what changed, as things the people do", () => {
     expect(
       worldEvents(rememberPeople(waiting), people([agent("1", { status: "running" })])),
     ).toEqual([]);
+  });
+
+  it("carries the paper to the shredder when a context empties", () => {
+    const at = (usedTokens: number, patch: Partial<OfficeAgent> = {}) =>
+      people([agent("1", { context: { usedTokens, maxTokens: 200_000 }, ...patch })]);
+    const full = rememberPeople(at(164_000));
+
+    expect(worldEvents(full, at(30_000))).toEqual([{ sess: "1", type: "compact" }]);
+    expect(worldEvents(full, at(0))).toEqual([{ sess: "1", type: "compact" }]);
+    // A turn that starts with the compaction: the prompt comes first.
+    expect(worldEvents(full, at(30_000, { status: "running" }))).toEqual([
+      { sess: "1", type: "prompt" },
+      { sess: "1", type: "compact" },
+    ]);
+    // Told once.
+    expect(worldEvents(rememberPeople(at(30_000), full), at(30_000))).toEqual([]);
+  });
+
+  it("says nothing of a context that grows, shrinks a little or was never known", () => {
+    const at = (usedTokens: number) =>
+      people([agent("1", { context: { usedTokens, maxTokens: 200_000 } })]);
+
+    expect(worldEvents(rememberPeople(at(100_000)), at(164_000))).toEqual([]);
+    expect(worldEvents(rememberPeople(at(164_000)), at(120_000))).toEqual([]);
+    // Half of little is not a compaction.
+    expect(worldEvents(rememberPeople(at(16_000)), at(2000))).toEqual([]);
+    expect(worldEvents(rememberPeople(people([agent("1")])), at(2000))).toEqual([]);
+    expect(worldEvents(rememberPeople(at(164_000)), people([agent("1")]))).toEqual([]);
+    expect(worldEvents(null, at(2000))).toEqual([]);
   });
 
   it("sends a working agent to the place of each new tool call", () => {
