@@ -189,8 +189,11 @@ import {
   PluginFrameOpcode,
 } from "@getpaseo/protocol/binary-frames/index";
 import type {
+  CdpBrowserCookieImportResult,
+  CdpBrowserCookieSource,
   CdpBrowserElementSelection,
   CdpBrowserNavigateAction,
+  CdpBrowserProfile,
   CdpBrowserTabState,
   CdpBrowserViewInput,
   CdpBrowserViewport,
@@ -3013,6 +3016,78 @@ export class DaemonClient {
   cancelCdpBrowserElementPick(browserId: string): void {
     this.requireCdpBrowserPick();
     this.sendSessionMessage({ type: "browser.cdp.view.cancel_pick.request", browserId });
+  }
+
+  // Fork delta (browser profiles): named profiles of the Docker Chromium.
+  // COMPAT(cdpBrowserProfiles): added in v0.16.0, remove gate after 2027-05-15.
+  private requireCdpBrowserProfiles(): void {
+    if (this.getLastServerInfoMessage()?.features?.cdpBrowserProfiles !== true) {
+      throw new Error("This host has no browser profiles.");
+    }
+  }
+
+  /** The named profiles, and the one the workspace's new tabs open in; null is Shared. */
+  async listCdpBrowserProfiles(
+    workspaceId?: string,
+  ): Promise<{ profiles: CdpBrowserProfile[]; workspaceProfileId: string | null }> {
+    this.requireCdpBrowserProfiles();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.list.response">({
+        message: {
+          type: "browser.cdp.profile.list.request",
+          ...(workspaceId === undefined ? {} : { workspaceId }),
+        },
+      });
+    if (payload.error) throw new Error(payload.error);
+    return { profiles: payload.profiles, workspaceProfileId: payload.workspaceProfileId };
+  }
+
+  /** Rejects with the daemon's error code, such as browser_profile_name_taken. */
+  async createCdpBrowserProfile(name: string): Promise<CdpBrowserProfile> {
+    this.requireCdpBrowserProfiles();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.create.response">({
+        message: { type: "browser.cdp.profile.create.request", name },
+      });
+    if (!payload.profile) throw new Error(payload.error ?? "browser_unknown_error");
+    return payload.profile;
+  }
+
+  /** Closes the profile's tabs and forgets its cookies. Its workspaces go back to Shared. */
+  async deleteCdpBrowserProfile(profileId: string): Promise<void> {
+    this.requireCdpBrowserProfiles();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.delete.response">({
+        message: { type: "browser.cdp.profile.delete.request", profileId },
+      });
+    if (payload.error) throw new Error(payload.error);
+  }
+
+  /** The profile the workspace's new tabs open in; null is Shared. Open tabs keep theirs. */
+  async assignCdpBrowserProfile(workspaceId: string, profileId: string | null): Promise<void> {
+    this.requireCdpBrowserProfiles();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.assign.response">({
+        message: { type: "browser.cdp.profile.assign.request", workspaceId, profileId },
+      });
+    if (payload.error) throw new Error(payload.error);
+  }
+
+  /**
+   * Adds cookies to a named profile, from a cookie file's text or from the Shared profile for the
+   * sites named. Rejects with the daemon's error code, such as browser_cookies_unreadable.
+   */
+  async importCdpBrowserCookies(
+    profileId: string,
+    source: CdpBrowserCookieSource,
+  ): Promise<CdpBrowserCookieImportResult> {
+    this.requireCdpBrowserProfiles();
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.import.response">({
+        message: { type: "browser.cdp.profile.import.request", profileId, source },
+      });
+    if (!payload.result) throw new Error(payload.error ?? "browser_unknown_error");
+    return payload.result;
   }
 
   observeEvents(

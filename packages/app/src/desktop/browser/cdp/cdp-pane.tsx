@@ -1,6 +1,13 @@
 import { useCallback, useEffect, memo, useMemo, useRef, useState, type RefObject } from "react";
 import { PixelRatio, Text, View, type LayoutChangeEvent } from "react-native";
-import { ArrowLeft, ArrowRight, Keyboard, MousePointer2, RotateCw } from "lucide-react-native";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Keyboard,
+  MousePointer2,
+  RotateCw,
+  UserRound,
+} from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import type { CdpBrowserNavigateAction } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -25,6 +32,8 @@ import { buildElementAttachment } from "./element-attachment";
 import { CdpFrameImage } from "./frame-image";
 import { CdpInputLayer } from "./input-layer";
 import type { CdpKeyboardHandle } from "./input-layer-types";
+import { CdpProfileSheet } from "./profiles/profile-sheet";
+import { useTabProfile } from "./profiles/use-tab-profile";
 import { useCdpTabsStore } from "./tabs-store";
 import { reopenCdpTab } from "./tabs-sync";
 import { withHttpForHostPort } from "./workspace-browser";
@@ -43,6 +52,7 @@ const ThemedArrowRight = withUnistyles(ArrowRight);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedKeyboard = withUnistyles(Keyboard);
 const ThemedMousePointer = withUnistyles(MousePointer2);
+const ThemedUserRound = withUnistyles(UserRound);
 const ThemedUrlInput = withUnistyles(EditingTextInput);
 const iconMapping = (theme: { colors: { foregroundMuted: string } }) => ({
   color: theme.colors.foregroundMuted,
@@ -77,6 +87,10 @@ interface ToolbarProps {
   picking: boolean;
   /** No page to pick on, or an agent is using the tab. */
   pickBlocked: boolean;
+  /** Absent on a host without browser profiles. */
+  onOpenProfiles?: () => void;
+  /** The named profile the tab opened in; null is the Shared profile. */
+  profile: { id: string; name: string } | null;
 }
 
 const CdpToolbar = memo(function CdpToolbar({
@@ -90,6 +104,8 @@ const CdpToolbar = memo(function CdpToolbar({
   onTogglePick,
   picking,
   pickBlocked,
+  onOpenProfiles,
+  profile,
 }: ToolbarProps) {
   const { t } = useTranslation();
   // Native always reports a touch screen; on web a mouse-only desktop gets no keyboard button.
@@ -99,17 +115,23 @@ const CdpToolbar = memo(function CdpToolbar({
   const record = useBrowserStore((state) => state.browsersById[browserId] ?? null);
   const url = record?.url ?? "";
   const editing = useRef(false);
+  const [urlFocused, setUrlFocused] = useState(false);
   // The URL field shows the tab's URL until the user edits it.
   useEffect(() => {
     if (!editing.current) urlInputRef.current?.replaceText(url);
   }, [url, urlInputRef]);
   const handleUrlFocus = useCallback(() => {
     editing.current = true;
+    setUrlFocused(true);
   }, []);
   const handleUrlBlur = useCallback(() => {
     editing.current = false;
+    setUrlFocused(false);
     urlInputRef.current?.replaceText(url);
   }, [url, urlInputRef]);
+  // A phone's toolbar leaves the URL field a dozen characters. While the field is edited, the
+  // two buttons that act on the page or its profile make way for it.
+  const roomForPageButtons = !(compact && urlFocused);
   const submitUrl = useCallback(() => {
     const draft = urlInputRef.current?.getText() ?? "";
     onNavigate({ kind: "url", url: normalizeWorkspaceBrowserUrl(withHttpForHostPort(draft)) });
@@ -161,7 +183,7 @@ const CdpToolbar = memo(function CdpToolbar({
         style={styles.urlInput}
         uniProps={urlInputMapping}
       />
-      {onTogglePick ? (
+      {onTogglePick && roomForPageButtons ? (
         <ToolbarButton
           compact={compact}
           disabled={pickBlocked}
@@ -176,6 +198,22 @@ const CdpToolbar = memo(function CdpToolbar({
           <ThemedMousePointer
             size={ICON_SIZE}
             uniProps={picking ? activeIconMapping : iconMapping}
+          />
+        </ToolbarButton>
+      ) : null}
+      {onOpenProfiles && roomForPageButtons ? (
+        <ToolbarButton
+          compact={compact}
+          label={t("cdpBrowser.profiles.button", {
+            name: profile?.name ?? t("cdpBrowser.profiles.shared"),
+          })}
+          onPress={onOpenProfiles}
+          selected={profile !== null}
+          testID="cdp-profile-button"
+        >
+          <ThemedUserRound
+            size={ICON_SIZE}
+            uniProps={profile === null ? iconMapping : activeIconMapping}
           />
         </ToolbarButton>
       ) : null}
@@ -350,6 +388,8 @@ export function CdpBrowserPane({
 
   const blocked = status === "closed" || status === "unreachable";
 
+  const tabProfile = useTabProfile({ client, serverId, browserId });
+
   // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
   const canPick = useHostFeature(serverId, "cdpBrowserPick");
   const attachmentScope = useMemo(
@@ -406,7 +446,16 @@ export function CdpBrowserPane({
         onTogglePick={pick ? togglePick : undefined}
         pickBlocked={pickBlocked}
         picking={picking}
+        onOpenProfiles={tabProfile.openSheet}
+        profile={tabProfile.profile}
         urlInputRef={urlInput}
+      />
+      <CdpProfileSheet
+        visible={tabProfile.sheetOpen}
+        onClose={tabProfile.closeSheet}
+        client={tabProfile.client}
+        workspaceId={workspaceId}
+        tabProfile={tabProfile.profile}
       />
       <View onLayout={handleLayout} style={styles.viewport}>
         {frame && !blocked ? (

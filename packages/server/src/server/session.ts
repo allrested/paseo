@@ -12,6 +12,7 @@ import type { WorkspaceBaseBranchSetRequest } from "@getpaseo/protocol/messages"
 
 import { searchTimeline } from "./agent/chat-search/index.js";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
+import { CdpProfileSession } from "./browser-tools/cdp/profiles/profile-session.js";
 import { CdpViewSession } from "./browser-tools/cdp/view-session.js";
 import { BrowserAutomationHostCapabilitySchema } from "@getpaseo/protocol/browser-automation/capabilities";
 import type {
@@ -785,6 +786,7 @@ export class Session {
   );
   private readonly browserToolsBroker: SessionOptions["browserToolsBroker"];
   private readonly cdpView: CdpViewSession;
+  private readonly cdpProfiles: CdpProfileSession;
   private readonly clientId: string;
   private readonly authorization: SessionAuthorization;
   private appVersion: string | null;
@@ -991,6 +993,10 @@ export class Session {
       sessionId: this.sessionId,
     });
     this.cdpView = new CdpViewSession(
+      () => this.browserToolsBroker?.cdpBrowser ?? null,
+      this.sessionLogger,
+    );
+    this.cdpProfiles = new CdpProfileSession(
       () => this.browserToolsBroker?.cdpBrowser ?? null,
       this.sessionLogger,
     );
@@ -2660,6 +2666,16 @@ export class Session {
         return this.cdpView.openTab(msg, emit);
       case "browser.cdp.tab.close.request":
         return this.cdpView.closeTab(msg, emit);
+      case "browser.cdp.profile.list.request":
+        return this.cdpProfiles.list(msg, emit);
+      case "browser.cdp.profile.create.request":
+        return this.cdpProfiles.create(msg, emit);
+      case "browser.cdp.profile.delete.request":
+        return this.cdpProfiles.delete(msg, emit);
+      case "browser.cdp.profile.assign.request":
+        return this.cdpProfiles.assign(msg, emit);
+      case "browser.cdp.profile.import.request":
+        return this.cdpProfiles.importCookies(msg, emit);
       default:
         return undefined;
     }
