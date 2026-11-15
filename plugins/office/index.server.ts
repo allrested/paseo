@@ -1,9 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { join } from "node:path";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { readThreeAsset } from "./server/asset.js";
 import { createWorldScript, worldEntryPath, type WorldScript } from "./server/world-script.js";
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
@@ -16,9 +13,6 @@ import { createMachineWatch } from "./server/machine/watch.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import { boardsFile } from "./server/paths.js";
-import type { PagesPort } from "./server/render/page-host.js";
-import { createSheetPageHost, type SheetPageHost } from "./server/render/sheet-page-host.js";
-import { createSheetSessions } from "./server/render/sheet-sessions.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
   cleanupRpc,
@@ -27,9 +21,6 @@ import {
   officeStateSubscription,
   postRpc,
   setWakesPausedRpc,
-  sheetInputRpc,
-  sheetSpriteRpc,
-  sheetSubscription,
   updateRpc,
   worldRpc,
 } from "./shared/contracts.js";
@@ -38,8 +29,6 @@ import { officeHostSettings } from "./shared/settings.js";
 /** What the daemon passes a built-in beside the server context (as in plugins/default-skills). */
 interface BuiltinPluginInfo {
   directory: string;
-  /** Pages in the daemon's Chromium that no pane or agent sees; absent without a Chromium. */
-  offscreenPages?: PagesPort;
   /** Builds one self-contained browser script from an entry file. */
   bundleBrowserScript?: (entryPath: string) => Promise<string>;
 }
@@ -49,8 +38,6 @@ export interface OfficePluginDeps {
   store: BoardStore;
   clock: Clock;
   log(message: string): void;
-  /** Draws the office as pictures and positions on the host; null when the host has no browser. */
-  sheet: SheetPageHost | null;
   /** The 3D office's page script; null when the daemon cannot build one. */
   world: WorldScript | null;
   /** Where the host's processes are read, and how one is asked to end. */
@@ -76,17 +63,7 @@ export function createOfficePlugin(
 ): () => Promise<void> {
   const { log } = deps;
   const holder = createPaseoHolder();
-  const hub = createHub({
-    ...liveHubPorts(holder, deps.clock, log),
-    renderAvailable: () => deps.sheet !== null,
-  });
-  const sheetSessions = createSheetSessions({
-    host: deps.sheet,
-    hub,
-    clock: deps.clock,
-    newSheetId: randomUUID,
-    log,
-  });
+  const hub = createHub(liveHubPorts(holder, deps.clock, log));
   const office = createOffice({
     store: deps.store,
     clock: deps.clock,
@@ -153,14 +130,6 @@ export function createOfficePlugin(
       return { results };
     });
   });
-  // Resolves when the sheet ends, which closes the subscription. It never rejects: a sheet that
-  // cannot run says why in a problem event first.
-  server.handle(sheetSubscription, (input, context) => {
-    holder.remember(context.paseo);
-    return sheetSessions.attach(input, context);
-  });
-  server.handle(sheetInputRpc, (input) => sheetSessions.input(input));
-  server.handle(sheetSpriteRpc, (input) => sheetSessions.sprite(input));
   server.handle(postRpc, (input, context) => {
     holder.remember(context.paseo);
     return guarded("post", () => office.post(input));
@@ -232,7 +201,6 @@ export function createOfficePlugin(
 
   return async () => {
     for (const remove of removeHooks) remove();
-    await sheetSessions.stop();
     machine.stop();
     office.stop();
     await hub.stop();
@@ -244,7 +212,6 @@ export default function contribute(
   builtin?: BuiltinPluginInfo,
 ): () => Promise<void> {
   const log = (message: string) => console.error(message);
-  const vendorDirectory = builtin ? join(builtin.directory, "vendor") : null;
   return createOfficePlugin(server, {
     // Built-ins run in the daemon process, so process.env is the daemon's env.
     store: createBoardStore({
@@ -254,15 +221,6 @@ export default function contribute(
     }),
     clock: nodeClock,
     log,
-    sheet:
-      builtin?.offscreenPages && builtin.bundleBrowserScript
-        ? createSheetPageHost({
-            pages: builtin.offscreenPages,
-            bundle: builtin.bundleBrowserScript,
-            readThree: () => readThreeAsset(vendorDirectory),
-            pageEntry: join(builtin.directory, "render", "sheet-page.ts"),
-          })
-        : null,
     world: builtin?.bundleBrowserScript
       ? createWorldScript({
           bundle: builtin.bundleBrowserScript,

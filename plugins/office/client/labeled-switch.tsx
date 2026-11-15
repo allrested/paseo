@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId } from "react";
 import { Pressable, Text, View } from "react-native";
-import { listenForSpace } from "./scene/web-env.web.js";
+import { listenForSpace } from "./web-env.web.js";
 import type { OfficeStyles } from "./styles.js";
 
 export interface LabeledSwitchProps {
