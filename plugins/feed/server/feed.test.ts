@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { FeedEntry, FeedEvent, FeedState } from "../shared/contracts.js";
+import type { FeedEntry, FeedEvent, FeedState, RunningAgent } from "../shared/contracts.js";
 import { EMPTY_FEED } from "../shared/feed.js";
 import { createFeed, type FeedSubscriber } from "./feed.js";
 import type { FeedStore } from "./feed-store.js";
@@ -179,4 +179,139 @@ test("a subscriber that already left gets nothing", async () => {
   await feed.add(entry("e1"));
 
   expect(early.events).toEqual([]);
+});
+
+test("a mark reaches the subscribers and the file, and one that changes nothing does neither", async () => {
+  const stored: FeedState = { entries: [entry("old")], seenAt: "2026-11-15T10:00:00.000Z" };
+  const { store, saved } = memoryStore(stored);
+  const feed = createFeed({ store, log: () => {} });
+  const first = subscriber();
+  void feed.attach(first.made);
+  await settle();
+
+  await feed.mark("old", true);
+  await feed.mark("old", true);
+  await feed.mark("gone", true);
+  await feed.mark("old", false);
+
+  expect(first.events.slice(1)).toEqual([
+    { type: "marked", id: "old", unread: true },
+    { type: "marked", id: "old", unread: false },
+  ]);
+  expect(saved).toEqual([{ ...stored, unread: ["old"] }, stored]);
+  first.leave();
+});
+
+test("a permission left in the file goes at start, and its unread mark with it", async () => {
+  const stored: FeedState = {
+    entries: [entry("ask", { kind: "permission", requestId: "r1" }), entry("old")],
+    seenAt: null,
+    unread: ["ask", "old"],
+  };
+  const { store } = memoryStore(stored);
+  const feed = createFeed({ store, log: () => {} });
+  const first = subscriber();
+  void feed.attach(first.made);
+  await settle();
+  expect(first.events).toEqual([
+    { type: "state", state: { entries: [entry("old")], seenAt: null, unread: ["old"] } },
+  ]);
+  first.leave();
+});
+
+const turn = (
+  agentId: string,
+  since: string | null = "2026-11-15T09:10:00.000Z",
+): RunningAgent => ({
+  agentId,
+  title: "Checkout total",
+  folder: "/work/shop",
+  since,
+});
+
+test("a turn that starts and ends reaches the subscribers, and the file is left alone", async () => {
+  const { store, saved } = memoryStore();
+  const feed = createFeed({ store, log: () => {} });
+  const first = subscriber();
+  void feed.attach(first.made);
+  await settle();
+
+  await feed.started(turn("a1"));
+  await feed.released("a1");
+  // An agent that was not running is released without a word.
+  await feed.released("a1");
+
+  expect(first.events.slice(1)).toEqual([
+    { type: "started", agent: turn("a1") },
+    { type: "stopped", agentId: "a1" },
+  ]);
+  expect(saved).toEqual([]);
+  first.leave();
+});
+
+test("a subscriber that comes while an agent runs is told so", async () => {
+  const { store } = memoryStore();
+  const feed = createFeed({ store, log: () => {} });
+  await feed.started(turn("a1"));
+  const late = subscriber();
+  void feed.attach(late.made);
+  await settle();
+
+  expect(late.events).toEqual([{ type: "state", state: { ...EMPTY_FEED, running: [turn("a1")] } }]);
+  late.leave();
+});
+
+test("an entry saved while an agent runs keeps the agent in the feed", async () => {
+  const { store, saved } = memoryStore();
+  const feed = createFeed({ store, log: () => {} });
+  await feed.started(turn("a1"));
+
+  await feed.add(entry("new", { agentId: "other" }));
+
+  expect(saved).toHaveLength(1);
+  expect(saved[0].entries.map((each) => each.id)).toEqual(["new"]);
+  const late = subscriber();
+  void feed.attach(late.made);
+  await settle();
+  expect(late.events[0]).toMatchObject({ state: { running: [turn("a1")] } });
+  late.leave();
+});
+
+test("the turns found running are listed, but not one the feed saw start or end meanwhile", async () => {
+  const { store } = memoryStore();
+  const feed = createFeed({ store, log: () => {} });
+  const first = subscriber();
+  void feed.attach(first.made);
+  await settle();
+  let answer: (found: RunningAgent[]) => void = () => {};
+  const catching = feed.catchUp(() => new Promise((resolve) => (answer = resolve)));
+
+  // While the host's list is read: one agent starts a turn, one ends its turn.
+  await feed.started(turn("seen"));
+  await feed.released("ended");
+  answer([turn("seen", null), turn("ended", null), turn("found", null)]);
+  await catching;
+
+  expect(first.events.slice(1)).toEqual([
+    { type: "started", agent: turn("seen") },
+    { type: "started", agent: turn("found", null) },
+  ]);
+  // After the catch-up, a release is a release again.
+  await feed.released("found");
+  expect(first.events.at(-1)).toEqual({ type: "stopped", agentId: "found" });
+  first.leave();
+});
+
+test("a list that cannot be read rejects, and the feed goes on", async () => {
+  const { store } = memoryStore();
+  const feed = createFeed({ store, log: () => {} });
+
+  await expect(feed.catchUp(() => Promise.reject(new Error("no list")))).rejects.toThrow("no list");
+
+  await feed.started(turn("a1"));
+  const late = subscriber();
+  void feed.attach(late.made);
+  await settle();
+  expect(late.events[0]).toMatchObject({ state: { running: [turn("a1")] } });
+  late.leave();
 });

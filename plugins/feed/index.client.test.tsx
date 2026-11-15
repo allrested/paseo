@@ -111,7 +111,7 @@ async function send(event: FeedEvent): Promise<void> {
 }
 
 const count = () =>
-  container.querySelector("[aria-label$='new entry'], [aria-label$='new entries']");
+  container.querySelector("[aria-label$='unread entry'], [aria-label$='unread entries']");
 
 beforeEach(() => {
   observers = [];
@@ -158,7 +158,7 @@ test("the row shows how many entries came since the feed was last opened", async
     },
   });
   expect(count()?.textContent).toBe("2");
-  expect(count()?.getAttribute("aria-label")).toBe("2 new entries");
+  expect(count()?.getAttribute("aria-label")).toBe("2 unread entries");
 
   await send({ type: "added", entry: entry("e4", "2026-11-15T11:30:00.000Z") });
   expect(count()?.textContent).toBe("3");

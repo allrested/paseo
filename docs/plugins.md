@@ -384,19 +384,32 @@ Kiro's other layout, `~/.kiro/sessions/<hash>/sess_<id>/messages.jsonl`, is not 
 
 The `feed` built-in lists what the agents on a host did while you looked elsewhere: a turn that
 finished, a turn that failed, and a permission an agent waits on. A Feed item in the sidebar opens
-it and shows how many entries came since the feed was last opened, on any device; "Open feed" is in
-the Command Center. A row has the agent's title, its folder, how long ago, and one line: the first
-line of the agent's last message for a finished turn, the error for a failed one, what is asked for
-a permission. Tapping a row opens the agent. A stopped turn makes no entry, and helper agents
-(`background`) are left out. The daemon writes the entries from the `agent.turn.after` and
-`agent.permission.before` hooks and keeps the newest 200 in `$PASEO_HOME/feed/feed.json`. A
-finished turn's line is read from the newest 30 entries of the agent's timeline, so a turn with
-more than that after its last message has a row without a line. A permission's entry goes when the
-permission is answered, when the agent's turn ends, and when the agent closes or is archived. Those
-still in the file when the daemon starts are dropped: the process that asked is gone. A screen is
-not told whether it is in front, and the Feed screen stays mounted under the agent it opened, so
-the feed counts as seen when it opens and when it is pressed. An entry that comes while the screen
-is up stays in the count until then.
+it and shows how many entries are unread, on any device; "Open feed" is in the Command Center. An
+entry is unread when it came since the feed was last opened, or when you marked it with the button
+on its row. A mark stays until you mark the entry read or open its agent from the row. A row has
+the agent's title, its folder, how long ago, and one line: the first line of the agent's last
+message for a finished turn, the error for a failed one, what is asked for a permission. Tapping a
+row opens the agent. The field at the top keeps the rows that hold every word typed, in the title,
+the folder's name, the line, or what happened ("failed", "running"). A stopped turn makes no
+entry, and helper agents (`background`) are left out.
+
+The daemon writes the entries from the `agent.turn.after` and `agent.permission.before` hooks and
+keeps the newest 200 in `$PASEO_HOME/feed/feed.json`, with the unread marks. A finished turn's
+line is read from the newest 30 entries of the agent's timeline, so a turn with more than that
+after its last message has a row without a line. A permission's entry goes when the permission is
+answered, when the agent's turn ends, and when the agent closes or is archived. Those still in the
+file when the daemon starts are dropped: the process that asked is gone. A screen is not told
+whether it is in front, and the Feed screen stays mounted under the agent it opened, so the feed
+counts as seen when it opens and when it is pressed. An entry that comes while the screen is up
+stays in the count until then.
+
+Above the entries, the feed lists the agents in a turn now, under "Running". The app gives a
+plugin screen no agent state (`useAgents` and the other state hooks throw there; they work in a
+workspace panel, a popover, a timeline view, a file panel and an item host), so the daemon keeps
+this list from the `agent.turn.before` and `agent.turn.after` hooks and sends it with the feed.
+It is in memory only. A turn that began before the plugin started is found through `agents.list`
+when a device first opens the feed, and its row has no start time: the daemon does not keep when a
+turn began.
 
 The `tasks` built-in lists the open tasks of whoever connected a tracker: Jira Cloud issues
 assigned to the token's user and not done, open GitLab and GitHub issues assigned to them, and

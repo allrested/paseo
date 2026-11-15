@@ -7,7 +7,8 @@ import { FeedStateSchema, type FeedState } from "../shared/contracts.js";
 import { EMPTY_FEED } from "../shared/feed.js";
 import { errorMessage } from "./errors.js";
 
-const FeedFileSchema = FeedStateSchema.extend({ version: z.literal(1) });
+// What ran when the file was written does not run when it is read, so it is not in the file.
+const FeedFileSchema = FeedStateSchema.omit({ running: true }).extend({ version: z.literal(1) });
 
 export interface FeedStore {
   /** Runs after every earlier save. Never rejects: a missing or broken file is an empty feed. */
@@ -28,7 +29,8 @@ export function createFeedStore(options: { file: string; log(message: string): v
   async function read(): Promise<FeedState> {
     try {
       const parsed = FeedFileSchema.parse(JSON.parse(await readFile(file, "utf8")));
-      return { entries: parsed.entries, seenAt: parsed.seenAt };
+      const { version: _version, ...state } = parsed;
+      return state;
     } catch (error) {
       if (!isMissing(error)) {
         log(`[feed] ${file} is unreadable (${errorMessage(error)}); starting empty`);
@@ -37,7 +39,7 @@ export function createFeedStore(options: { file: string; log(message: string): v
     }
   }
 
-  async function write(state: FeedState): Promise<void> {
+  async function write({ running: _running, ...state }: FeedState): Promise<void> {
     temp += 1;
     const tempFile = `${file}.tmp-${temp}`;
     await mkdir(dirname(file), { recursive: true });

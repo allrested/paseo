@@ -79,3 +79,24 @@ test("a save that cannot write rejects and leaves no temp file", async () => {
   await expect(store().save(feed("Done"))).rejects.toThrow();
   expect(await readdir(directory)).toEqual(["feed"]);
 });
+
+test("the unread marks are saved and load back; a file from before them has none", async () => {
+  const marked = { ...feed("Done"), unread: ["e1"] };
+  await store().save(marked);
+  expect(await store().load()).toEqual(marked);
+  await writeFile(fileIn(), JSON.stringify({ version: 1, ...feed("Old") }), "utf8");
+  const old = await store().load();
+  expect(old).toEqual(feed("Old"));
+  expect("unread" in old).toBe(false);
+});
+
+test("the agents in a turn are not written down", async () => {
+  const running = [{ agentId: "a1", title: null, folder: "/work/shop", since: null }];
+  await store().save({ ...feed("Done"), running });
+
+  expect(await store().load()).toEqual(feed("Done"));
+  expect("running" in JSON.parse(await readFile(fileIn(), "utf8"))).toBe(false);
+  // A file that names some is read without them.
+  await writeFile(fileIn(), JSON.stringify({ version: 1, ...feed("Old"), running }), "utf8");
+  expect(await store().load()).toEqual(feed("Old"));
+});

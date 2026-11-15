@@ -1,5 +1,5 @@
 // Row text for the Feed screen: sentence case, no trailing period.
-import type { FeedEntry, FeedKind } from "../shared/contracts.js";
+import type { FeedEntry, FeedKind, RunningAgent } from "../shared/contracts.js";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -43,5 +43,51 @@ export function entryLabel(entry: Pick<FeedEntry, "kind" | "title">): string {
 
 /** The sidebar count, read aloud. */
 export function countLabel(count: number): string {
-  return count === 1 ? "1 new entry" : `${count} new entries`;
+  return count === 1 ? "1 unread entry" : `${count} unread entries`;
+}
+
+/** The words of a filter: every one has to be found. */
+export function filterWords(text: string): string[] {
+  return text.toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function holds(text: string, words: readonly string[]): boolean {
+  const lower = text.toLowerCase();
+  return words.every((word) => lower.includes(word));
+}
+
+/** An entry passes a filter by its agent, its folder, its line or what happened ("failed"). */
+export function entryMatches(entry: FeedEntry, words: readonly string[]): boolean {
+  if (words.length === 0) return true;
+  return holds(
+    `${entryTitle(entry)} ${folderName(entry.folder)} ${entry.text ?? ""} ${KIND_LABEL[entry.kind]}`,
+    words,
+  );
+}
+
+/** A running agent passes a filter by its title, its folder or the word "running". */
+export function agentMatches(
+  agent: Pick<RunningAgent, "title" | "folder">,
+  words: readonly string[],
+): boolean {
+  if (words.length === 0) return true;
+  return holds(`${entryTitle(agent)} ${folderName(agent.folder)} ${RUNNING}`, words);
+}
+
+export const RUNNING = "Running";
+
+/** A running agent's second line, after "Running": where it works and when its turn started. */
+export function runningMeta(agent: Pick<RunningAgent, "folder" | "since">, now: number): string {
+  const folder = folderName(agent.folder);
+  return agent.since === null ? folder : `${folder} · started ${ago(agent.since, now)}`;
+}
+
+/** A running agent's row read aloud. */
+export function runningLabel(agent: { title: string | null }): string {
+  return `${RUNNING}: ${entryTitle(agent)}. Open the agent`;
+}
+
+/** The button that marks an entry unread, or read again, read aloud. */
+export function markLabel(entry: Pick<FeedEntry, "title">, marked: boolean): string {
+  return `${marked ? "Mark read" : "Mark unread"}: ${entryTitle(entry)}`;
 }
