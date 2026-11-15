@@ -1,7 +1,7 @@
 // What the daemon's hooks say, as feed entries.
 import type { FeedEntry } from "../shared/contracts.js";
 import { errorMessage } from "./errors.js";
-import { lastMessage, oneLine, type TimelineEntry } from "./summary.js";
+import { firstLine, lastMessage, oneLine, type TimelineEntry } from "./summary.js";
 
 /** The newest timeline entries read for a turn's last message: it is at the turn's end. */
 export const TAIL_LIMIT = 30;
@@ -54,7 +54,7 @@ export async function turnEntry(
   const { agent, outcome } = turn;
   if (agent.background || outcome.kind === "canceled") return null;
   if (outcome.kind === "failed") {
-    return { ...entryOf(ports, agent), kind: "failed", text: oneLine(outcome.error.message) };
+    return { ...entryOf(ports, agent), kind: "failed", text: firstLine(outcome.error.message) };
   }
   let text: string | null = null;
   try {
@@ -78,7 +78,7 @@ export function permissionEntry(
   return {
     ...entryOf(ports, agent),
     kind: "permission",
-    text: oneLine(request.title ?? request.name),
+    text: firstLine(request.title ?? request.name),
     requestId: request.id,
   };
 }

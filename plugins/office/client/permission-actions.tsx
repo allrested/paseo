@@ -87,6 +87,11 @@ export function PermissionActions({
       <Text style={styles.permissionTitle} numberOfLines={2}>
         {permission.title}
       </Text>
+      {permission.detail === undefined ? null : (
+        <Text style={styles.permissionDetail} numberOfLines={4}>
+          {permission.detail}
+        </Text>
+      )}
       {answerableInOffice(permission.kind) ? (
         <View style={styles.actions}>
           <ActionButton

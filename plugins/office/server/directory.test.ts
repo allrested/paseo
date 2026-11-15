@@ -10,6 +10,7 @@ import {
   sortWorkspaces,
   workspacesFromSnapshot,
   type DirectoryAgentInput,
+  type DirectoryPermissionInput,
   type DirectoryWorkspaceInput,
 } from "./directory.js";
 
@@ -70,6 +71,40 @@ test("projects an agent with its parent and pending permissions", () => {
       ],
     }),
   );
+});
+
+test("a permission says what is asked: the command, the file, the address or the description", () => {
+  const asked = (request: Partial<DirectoryPermissionInput>) =>
+    projectAgent(
+      agentInput({ pendingPermissions: [{ id: "r", name: "Bash", kind: "tool", ...request }] }),
+    )?.permissions[0];
+
+  expect(asked({ detail: { type: "shell", command: "npm run\n  build" } })).toEqual({
+    id: "r",
+    kind: "tool",
+    title: "Bash",
+    detail: "npm run build",
+  });
+  expect(asked({ name: "Edit", detail: { type: "edit", filePath: "/work/a.ts" } })?.detail).toBe(
+    "/work/a.ts",
+  );
+  expect(
+    asked({ name: "Fetch", detail: { type: "fetch", url: "https://example.com/x" } })?.detail,
+  ).toBe("https://example.com/x");
+  expect(asked({ description: "Reads the board" })?.detail).toBe("Reads the board");
+  // Nothing more to say than the title already does.
+  expect(asked({ title: "npm test", detail: { type: "shell", command: "npm test" } })).toEqual({
+    id: "r",
+    kind: "tool",
+    title: "npm test",
+  });
+  expect(asked({ detail: { type: "unknown" }, description: "  " })).toEqual({
+    id: "r",
+    kind: "tool",
+    title: "Bash",
+  });
+  const long = asked({ detail: { type: "shell", command: "x".repeat(400) } })?.detail;
+  expect(long).toBe(`${"x".repeat(299)}…`);
 });
 
 test("an agent without a workspace sits in the lobby", () => {
