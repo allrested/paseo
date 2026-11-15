@@ -131,6 +131,8 @@ export const TaskDetailSchema = TaskRowSchema.extend({
   assignedToMe: z.boolean(),
   /** The pictures the description held; the text names each where it stood. */
   images: z.array(TaskImageSchema),
+  /** A merge request whose review threads `reviewThreadsRpc` reads. */
+  reviewThreads: z.boolean(),
 });
 export type TaskDetail = z.infer<typeof TaskDetailSchema>;
 
@@ -208,6 +210,48 @@ export const changeStatusRpc = defineRpc({
   name: "tasks.status.change",
   input: z.object({ id: TaskId, change: z.string().min(1).max(40) }),
   output: TaskDetailSchema,
+});
+
+/** One thread of a merge request's review: a first note and the answers to it. */
+export const ReviewThreadSchema = z.object({
+  id: z.string(),
+  resolved: z.boolean(),
+  resolvedBy: z.string().optional(),
+  /** The file and line it is about; absent for a thread about the whole request. */
+  where: z.string().optional(),
+  /** Oldest first. */
+  notes: z.array(TaskCommentSchema),
+});
+export type ReviewThread = z.infer<typeof ReviewThreadSchema>;
+
+/** The open threads first, then the resolved; each as the tracker lists them, oldest first. */
+export const ReviewThreadsSchema = z.object({
+  threads: z.array(ReviewThreadSchema),
+  /** The tracker holds more threads than were read. */
+  more: z.boolean(),
+});
+export type ReviewThreads = z.infer<typeof ReviewThreadsSchema>;
+
+const ThreadId = z.string().min(1).max(100);
+
+export const reviewThreadsRpc = defineRpc({
+  name: "tasks.threads.list",
+  input: z.object({ id: TaskId }),
+  output: ReviewThreadsSchema,
+});
+
+/** Answers a thread as the saved account, and answers with the threads as they then are. */
+export const replyThreadRpc = defineRpc({
+  name: "tasks.threads.reply",
+  input: z.object({ id: TaskId, thread: ThreadId, text: z.string().max(COMMENT_MAX) }),
+  output: ReviewThreadsSchema,
+});
+
+/** Resolves a thread or opens it again, and answers with the threads as they then are. */
+export const resolveThreadRpc = defineRpc({
+  name: "tasks.threads.resolve",
+  input: z.object({ id: TaskId, thread: ThreadId, resolved: z.boolean() }),
+  output: ReviewThreadsSchema,
 });
 
 /** A connected tracker a new issue can go to. `kinds` says its issues have a kind to pick. */

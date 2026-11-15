@@ -8,6 +8,8 @@ import {
   type Comment,
   type Issue,
   type IssueDetail,
+  type Review,
+  type ReviewThread,
   type TaskKind,
   type Tracker,
 } from "./issue.js";
@@ -27,6 +29,10 @@ const PROJECT = /^\d{1,12}$/;
 // A file dropped into a description: GitLab writes its link from the project, with a secret.
 const UPLOAD = /!\[([^\]]*)\]\(\/uploads\/([0-9a-f]{32})\/([^)\s]+)\)(?:\{[^}]*\})?/g;
 const UPLOAD_ID = /^[0-9a-f]{32}\/[^/?#\s]{1,200}$/;
+// A merge request's discussions come oldest first, system notes among them, a page at a time.
+const DISCUSSIONS = 100;
+const DISCUSSION_PAGES = 5;
+const DISCUSSION_ID = /^[0-9a-f]{8,64}$/;
 
 const Person = z.object({
   id: z.number().nullish(),
@@ -71,7 +77,27 @@ const NoteSchema = z.object({
   author: Person.nullish(),
   created_at: z.string().nullish(),
   system: z.boolean().nullish(),
+  /** True for a note of a review thread, which a merge request's page shows with its thread. */
+  resolvable: z.boolean().nullish(),
 });
+const DiscussionSchema = z.object({
+  id: z.string(),
+  notes: z.array(
+    NoteSchema.extend({
+      resolved: z.boolean().nullish(),
+      resolved_by: Person.nullish(),
+      position: z
+        .object({
+          new_path: z.string().nullish(),
+          old_path: z.string().nullish(),
+          new_line: z.number().nullish(),
+          old_line: z.number().nullish(),
+        })
+        .nullish(),
+    }),
+  ),
+});
+type Discussion = z.infer<typeof DiscussionSchema>;
 const ProjectSchema = z.object({ id: z.number(), path_with_namespace: z.string() });
 const CreatedSchema = z.object({ iid: z.number(), project_id: z.number() });
 const RefusalSchema = z.object({
@@ -181,6 +207,34 @@ function refusalReason(body: unknown): string | null {
   return described ?? error ?? null;
 }
 
+function toComment(note: z.infer<typeof NoteSchema>): Comment {
+  return {
+    id: String(note.id),
+    author: note.author ? personName(note.author) : "Someone",
+    at: isoTime(note.created_at) ?? "",
+    text: (note.body ?? "").trim(),
+  };
+}
+
+/** A discussion as a review thread; null for one that cannot be resolved (a plain comment). */
+function toThread(discussion: Discussion): ReviewThread | null {
+  const notes = discussion.notes.filter((note) => !note.system);
+  const resolvable = notes.filter((note) => note.resolvable);
+  if (resolvable.length === 0) return null;
+  const resolved = resolvable.every((note) => note.resolved);
+  const resolver = resolvable.findLast((note) => note.resolved_by)?.resolved_by;
+  const position = notes.find((note) => note.position)?.position;
+  const path = position?.new_path ?? position?.old_path;
+  const line = position?.new_line ?? position?.old_line;
+  return {
+    id: discussion.id,
+    resolved,
+    ...(resolved && resolver ? { resolvedBy: personName(resolver) } : {}),
+    ...(path ? { where: line ? `${path}:${line}` : path } : {}),
+    notes: notes.map(toComment),
+  };
+}
+
 // The link is the tracker's word; one that is no web address cannot be opened or attached.
 function linked<Item extends { web_url: string }>(items: Item[]): Item[] {
   return items.filter((item) => /^https?:\/\//.test(item.web_url));
@@ -249,7 +303,14 @@ export function createGitlab(options: GitlabOptions): Tracker {
     };
   }
 
-  async function comments(at: string): Promise<Comment[]> {
+  /**
+   * The newest comments of a task, and how many of its notes they account for. A merge request's
+   * review notes are left to its threads, and count as accounted for.
+   */
+  async function comments(
+    at: string,
+    kind: TaskKind,
+  ): Promise<{ shown: Comment[]; counted: number }> {
     const notes = await getJson({
       request,
       name: NAME,
@@ -258,20 +319,68 @@ export function createGitlab(options: GitlabOptions): Tracker {
       schema: z.array(NoteSchema),
       missing: MISSING,
     });
-    return notes
-      .filter((note) => !note.system)
-      .slice(0, COMMENTS)
-      .toReversed()
-      .map((note) => ({
-        id: String(note.id),
-        author: note.author ? personName(note.author) : "Someone",
-        at: isoTime(note.created_at) ?? "",
-        text: (note.body ?? "").trim(),
-      }));
+    const written = notes.filter((note) => !note.system);
+    const plain = kind === "mr" ? written.filter((note) => !note.resolvable) : written;
+    const shown = plain.slice(0, COMMENTS).toReversed().map(toComment);
+    return { shown, counted: shown.length + (written.length - plain.length) };
   }
+
+  /** The API address of one merge request's discussions, and of one of them. */
+  function reviewUrl(id: string, thread?: string): string {
+    const { kind, at } = taskUrl(id);
+    if (kind !== "mr") throw new TrackerError("Only a merge request has review threads.");
+    if (thread === undefined) return `${at}/discussions`;
+    if (!DISCUSSION_ID.test(thread)) throw new TrackerError("That is no GitLab thread.");
+    return `${at}/discussions/${thread}`;
+  }
+
+  const threadReview: Review = {
+    async list(id) {
+      const at = reviewUrl(id);
+      const threads: ReviewThread[] = [];
+      for (let page = 1; page <= DISCUSSION_PAGES; page += 1) {
+        const found = await getJson({
+          request,
+          name: NAME,
+          url: `${at}?per_page=${DISCUSSIONS}&page=${page}`,
+          headers,
+          schema: z.array(DiscussionSchema),
+          missing: MISSING,
+        });
+        threads.push(...found.flatMap((discussion) => toThread(discussion) ?? []));
+        if (found.length < DISCUSSIONS) return { threads, more: false };
+      }
+      return { threads, more: true };
+    },
+    async reply(id, thread, text) {
+      await sendJson({
+        request,
+        name: NAME,
+        method: "POST",
+        url: `${reviewUrl(id, thread)}/notes`,
+        headers,
+        body: { body: text },
+        reason: refusalReason,
+        missing: MISSING,
+      });
+    },
+    async resolve(id, thread, resolved) {
+      await sendJson({
+        request,
+        name: NAME,
+        method: "PUT",
+        url: `${reviewUrl(id, thread)}?resolved=${resolved}`,
+        headers,
+        body: {},
+        reason: refusalReason,
+        missing: MISSING,
+      });
+    },
+  };
 
   return {
     source: "gitlab",
+    review: threadReview,
     async search(query) {
       const base = baseUrl(options.url, NAME);
       const params = listParams(query.trim(), { scope: "assigned_to_me" });
@@ -331,15 +440,15 @@ export function createGitlab(options: GitlabOptions): Tracker {
       if (kind === "mr") {
         const [item, thread, mine] = await Promise.all([
           getJson({ ...read, schema: MergeRequestSchema }),
-          comments(at),
+          comments(at, kind),
           me(base),
         ]);
         const shaped = toMergeRequest(item);
         return {
           ...shaped,
           ...pageFacts(shaped, item.assignees, mine),
-          comments: thread,
-          earlierComments: Math.max(0, (item.user_notes_count ?? 0) - thread.length),
+          comments: thread.shown,
+          earlierComments: Math.max(0, (item.user_notes_count ?? 0) - thread.counted),
           // A merge request is merged or closed on GitLab, where its checks are.
           changes: [],
           markdown: true,
@@ -347,15 +456,15 @@ export function createGitlab(options: GitlabOptions): Tracker {
       }
       const [item, thread, mine] = await Promise.all([
         getJson({ ...read, schema: IssueSchema }),
-        comments(at),
+        comments(at, kind),
         me(base),
       ]);
       const shaped = toIssue(item);
       return {
         ...shaped,
         ...pageFacts(shaped, item.assignees, mine),
-        comments: thread,
-        earlierComments: Math.max(0, (item.user_notes_count ?? 0) - thread.length),
+        comments: thread.shown,
+        earlierComments: Math.max(0, (item.user_notes_count ?? 0) - thread.counted),
         changes:
           item.state === "closed"
             ? [{ id: "reopen", label: "Open" }]

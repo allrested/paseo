@@ -85,6 +85,26 @@ export function morePictures(count: number): string {
   return count === 1 ? "Show 1 more picture" : `Show ${count} more pictures`;
 }
 
+/** How a review stands: "2 open · 3 resolved". */
+export function threadCounts(open: number, resolved: number): string {
+  if (open === 0) return resolved === 1 ? "The one thread is resolved" : "Every thread is resolved";
+  return resolved === 0 ? `${open} open` : `${open} open · ${resolved} resolved`;
+}
+
+/** The button that shows or hides the threads that are resolved. */
+export function resolvedToggle(count: number, shown: boolean): string {
+  if (shown) return count === 1 ? "Hide the resolved thread" : "Hide the resolved threads";
+  return count === 1 ? "Show 1 resolved thread" : `Show ${count} resolved threads`;
+}
+
+/** What a thread is called aloud: where it is, or whose it is when it is about no line. */
+export function threadName(thread: {
+  where?: string;
+  notes: ReadonlyArray<{ author: string }>;
+}): string {
+  return thread.where ?? `${thread.notes[0]?.author ?? "Someone"}'s thread`;
+}
+
 /** What the list says when it holds nothing. */
 export function emptyList(query: string): string {
   const text = query.trim();

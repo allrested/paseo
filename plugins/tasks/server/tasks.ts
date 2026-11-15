@@ -6,6 +6,7 @@ import {
   type Connections,
   type LinkedWorkspaces,
   type NewTask,
+  type ReviewThreads,
   type Source,
   type Task,
   type TaskDetail,
@@ -19,7 +20,14 @@ import { taskBranch } from "../shared/branch.js";
 import { fillPrompt } from "../shared/prompt.js";
 import { createGithub } from "./github.js";
 import { createGitlab } from "./gitlab.js";
-import { TrackerError, errorMessage, type Issue, type IssueDetail, type Tracker } from "./issue.js";
+import {
+  TrackerError,
+  errorMessage,
+  type Issue,
+  type IssueDetail,
+  type Review,
+  type Tracker,
+} from "./issue.js";
 import { createJira } from "./jira.js";
 import { issueText } from "./text.js";
 import type { TokenStore } from "./token-store.js";
@@ -59,6 +67,11 @@ export interface Tasks {
   /** Assigns the task to the saved account and answers with it as it then is. */
   assign(id: string): Promise<TaskDetail>;
   image(input: { id: string; image: string }): Promise<TaskImageFile>;
+  /** A merge request's review threads: the open ones first. */
+  threads(id: string): Promise<ReviewThreads>;
+  /** Answers a thread and answers with the threads as they then are. */
+  replyThread(input: { id: string; thread: string; text: string }): Promise<ReviewThreads>;
+  resolveThread(input: { id: string; thread: string; resolved: boolean }): Promise<ReviewThreads>;
   tokens(): Promise<Tokens>;
   setToken(input: { source: Source; token: string }): Promise<Tokens>;
   test(source: Source): Promise<{ account: string }>;
@@ -127,7 +140,7 @@ function cut(text: string): string {
   return `${text.slice(0, TEXT_MAX)}\n\n[Cut here. The rest is on the task's page.]`;
 }
 
-function toDetail(detail: IssueDetail): TaskDetail {
+function toDetail(detail: IssueDetail, tracker: Tracker): TaskDetail {
   return {
     ...toRow(detail),
     description: cut(detail.description),
@@ -140,6 +153,7 @@ function toDetail(detail: IssueDetail): TaskDetail {
     ...(detail.kind === "issue" ? { branch: taskBranch(detail.branchPrefix, detail.title) } : {}),
     assignedToMe: detail.assignedToMe,
     images: detail.images,
+    reviewThreads: detail.kind === "mr" && tracker.review !== undefined,
   };
 }
 
@@ -257,7 +271,35 @@ export function createTasks(deps: TasksDeps): Tasks {
 
   async function detail(id: string): Promise<TaskDetail> {
     const { tracker, tail } = await locate(id);
-    return toDetail(await tracker.detail(tail));
+    return toDetail(await tracker.detail(tail), tracker);
+  }
+
+  /** The review of the tracker a task id names, which has to keep one. */
+  async function reviewOf(id: string): Promise<{ review: Review; tail: string }> {
+    const { tracker, tail } = await locate(id);
+    if (!tracker.review) {
+      throw new TrackerError(
+        `Paseo does not read ${SOURCE_NAME[tracker.source]}'s review threads here.`,
+      );
+    }
+    return { review: tracker.review, tail };
+  }
+
+  async function threads(id: string): Promise<ReviewThreads> {
+    const { review, tail } = await reviewOf(id);
+    const found = await review.list(tail);
+    const shaped = found.threads.map((thread) => ({
+      ...thread,
+      notes: thread.notes.map((note) => ({ ...note, text: cut(note.text) })),
+    }));
+    // What still asks for an answer comes first.
+    return {
+      threads: [
+        ...shaped.filter((thread) => !thread.resolved),
+        ...shaped.filter((thread) => thread.resolved),
+      ],
+      more: found.more,
+    };
   }
 
   async function tokenState(): Promise<Tokens> {
@@ -379,6 +421,19 @@ export function createTasks(deps: TasksDeps): Tasks {
       const { tracker, tail } = await locate(id);
       const file = await tracker.image(tail, image);
       return { mime: file.mime, data: Buffer.from(file.data).toString("base64") };
+    },
+    threads,
+    async replyThread({ id, thread, text }) {
+      const body = text.trim();
+      if (body === "") throw new TrackerError("Write the reply first.");
+      const { review, tail } = await reviewOf(id);
+      await review.reply(tail, thread, body);
+      return threads(id);
+    },
+    async resolveThread({ id, thread, resolved }) {
+      const { review, tail } = await reviewOf(id);
+      await review.resolve(tail, thread, resolved);
+      return threads(id);
     },
     tokens: tokenState,
     async setToken({ source, token }) {

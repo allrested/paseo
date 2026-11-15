@@ -1,13 +1,6 @@
 import { useCallback, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
-import {
-  ExternalLink,
-  Icon,
-  Markdown,
-  ScrollView,
-  TextInput,
-  useToast,
-} from "@getpaseo/plugin/client/ui";
+import { ExternalLink, Icon, ScrollView, TextInput, useToast } from "@getpaseo/plugin/client/ui";
 import {
   COMMENT_MAX,
   SOURCE_NAME,
@@ -20,22 +13,14 @@ import { useNow } from "./device.js";
 import { ago, commentMeta, earlierComments, kindName } from "./format.js";
 import { useLinkedWorkspaces, useRefreshLinked, workspacesOf } from "./linked.js";
 import { nextTask, useNextTask } from "./next-task.js";
+import { Prose } from "./prose.js";
+import { ReviewThreads } from "./review-threads.js";
 import { TaskImages } from "./task-images.js";
 import type { TasksStyles } from "./tasks-styles.js";
 import { useTaskDetail } from "./use-tasks.js";
 
 interface Styled {
   styles: TasksStyles;
-}
-
-/** A tracker's text. GitLab writes Markdown; Jira's is plain, and its marks are not emphasis. */
-function Prose({ text, markdown, styles }: Styled & { text: string; markdown: boolean }) {
-  if (markdown) return <Markdown>{text}</Markdown>;
-  return (
-    <Text selectable style={styles.body}>
-      {text}
-    </Text>
-  );
 }
 
 function Fact({ name, value, styles }: Styled & { name: string; value: string }) {
@@ -254,6 +239,20 @@ function Page({ task, stale, now, onMove, onPost, onAssign, onOpenWorkspace, sty
         )}
         <TaskImages taskId={task.id} images={task.images} styles={styles} />
       </View>
+      {task.reviewThreads ? (
+        <View style={styles.block}>
+          <Text accessibilityRole="header" style={styles.sectionTitle}>
+            Review threads
+          </Text>
+          <ReviewThreads
+            taskId={task.id}
+            markdown={task.markdown}
+            tracker={tracker}
+            now={now}
+            styles={styles}
+          />
+        </View>
+      ) : null}
       <View style={styles.block}>
         <Text accessibilityRole="header" style={styles.sectionTitle}>
           Comments

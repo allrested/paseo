@@ -10,8 +10,11 @@ import {
   morePictures,
   placeName,
   requestsTitle,
+  resolvedToggle,
   rowLabel,
   rowMeta,
+  threadCounts,
+  threadName,
 } from "./format.js";
 
 const NOW = Date.parse("2026-11-15T12:00:00.000Z");
@@ -104,4 +107,24 @@ test("the form says how each tracker reads a description", () => {
 test("the button for the pictures not yet read counts them", () => {
   expect(morePictures(1)).toBe("Show 1 more picture");
   expect(morePictures(5)).toBe("Show 5 more pictures");
+});
+
+test("a review's line counts the open and the resolved threads", () => {
+  expect(threadCounts(2, 0)).toBe("2 open");
+  expect(threadCounts(2, 3)).toBe("2 open · 3 resolved");
+  expect(threadCounts(0, 1)).toBe("The one thread is resolved");
+  expect(threadCounts(0, 4)).toBe("Every thread is resolved");
+});
+
+test("the resolved threads' button says how many it shows, and that it hides them", () => {
+  expect(resolvedToggle(1, false)).toBe("Show 1 resolved thread");
+  expect(resolvedToggle(3, false)).toBe("Show 3 resolved threads");
+  expect(resolvedToggle(1, true)).toBe("Hide the resolved thread");
+  expect(resolvedToggle(3, true)).toBe("Hide the resolved threads");
+});
+
+test("a thread is named by where it is, or by who opened it", () => {
+  expect(threadName({ where: "src/a.ts:4", notes: [{ author: "Rina" }] })).toBe("src/a.ts:4");
+  expect(threadName({ notes: [{ author: "Rina" }] })).toBe("Rina's thread");
+  expect(threadName({ notes: [] })).toBe("Someone's thread");
 });

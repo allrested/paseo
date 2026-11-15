@@ -88,6 +88,7 @@ const ISSUE_PAGE: TaskDetail = {
   branch: "BWLT-12-add-the-webhook",
   assignedToMe: true,
   images: [],
+  reviewThreads: false,
 };
 const REQUEST_PAGE: TaskDetail = {
   ...REQUEST,
@@ -99,6 +100,7 @@ const REQUEST_PAGE: TaskDetail = {
   changes: [],
   assignedToMe: true,
   images: [],
+  reviewThreads: false,
 };
 
 type Answer = unknown | Error | ((input: never) => unknown);
@@ -1047,4 +1049,182 @@ test("Space picks a chip and turns the check, as a browser's own controls do", a
     ["GitLab", "false"],
     ["GitHub", "true"],
   ]);
+});
+
+// A merge request's review threads.
+
+const OPEN_THREAD = {
+  id: "87805b7c09016a7058e91bdbe7b29d1f284a39e6",
+  resolved: false,
+  where: "src/limiter.ts:27",
+  notes: [
+    { id: "42", author: "Rina Putri", at: "2026-11-15T10:00:00.000Z", text: "Why **5**?" },
+    { id: "43", author: "Dimas", at: "2026-11-15T11:00:00.000Z", text: "The login default." },
+  ],
+};
+const WHOLE_THREAD = {
+  id: "4444444444444444444444444444444444444444",
+  resolved: false,
+  notes: [{ id: "46", author: "Rina Putri", at: "", text: "Split this in two?" }],
+};
+const DONE_THREAD = {
+  id: "3333333333333333333333333333333333333333",
+  resolved: true,
+  resolvedBy: "Dimas",
+  where: "src/limiter.test.ts:4",
+  notes: [{ id: "44", author: "Rina Putri", at: "", text: "Add a test for the cooldown." }],
+};
+const REVIEW = { threads: [OPEN_THREAD, WHOLE_THREAD, DONE_THREAD], more: false };
+
+async function review(threads: object = REVIEW): Promise<void> {
+  answers["tasks.detail"] = { ...REQUEST_PAGE, reviewThreads: true };
+  answers["tasks.threads.list"] = threads;
+  await mount({ task: "gitlab:mr:42:12" });
+  await settle();
+}
+
+test("a merge request's open threads show in full, each with where it is and what was said", async () => {
+  await review();
+  expect(sent("tasks.threads.list")).toEqual([{ id: "gitlab:mr:42:12" }]);
+  expect(headings()).toEqual(["Add the rate limiter", "Description", "Review threads", "Comments"]);
+  expect(text()).toContain("2 open · 1 resolved");
+  expect(text()).toContain("src/limiter.ts:27");
+  expect(text()).toContain("Rina Putri · 2 h agoWhy **5**?");
+  expect(text()).toContain("Dimas · 1 h agoThe login default.");
+  expect(text()).toContain("On the whole merge request");
+  // GitLab writes Markdown: a thread's note is rendered as the description is.
+  expect(
+    [...container.querySelectorAll("[data-markdown]")].map((each) => each.textContent),
+  ).toContain("Why **5**?");
+  // A resolved thread waits behind its button.
+  expect(text()).not.toContain("Add a test for the cooldown.");
+  expect(labels()).toEqual(
+    expect.arrayContaining([
+      "Reply on src/limiter.ts:27",
+      "Resolve the thread on src/limiter.ts:27",
+      "Reply on Rina Putri's thread",
+      "Resolve the thread on Rina Putri's thread",
+      "Show 1 resolved thread",
+    ]),
+  );
+});
+
+test("the resolved threads show on a press, each with who resolved it and a way to open it again", async () => {
+  await review();
+  await press("Show 1 resolved thread");
+  expect(text()).toContain("src/limiter.test.ts:4");
+  expect(text()).toContain("Resolved by Dimas");
+  expect(text()).toContain("Add a test for the cooldown.");
+  expect(labels()).toContain("Reopen the thread on src/limiter.test.ts:4");
+  await press("Hide the resolved thread");
+  expect(text()).not.toContain("Add a test for the cooldown.");
+});
+
+test("a reply is written in the thread's own box, sent, and the thread shows it", async () => {
+  await review();
+  expect(field("Write a reply on src/limiter.ts:27")).toBeNull();
+  await press("Reply on src/limiter.ts:27");
+  expect(disabled("Post the reply on src/limiter.ts:27")).toBe(true);
+  await type("Write a reply on src/limiter.ts:27", "Raised to 10.");
+  const answered = {
+    ...OPEN_THREAD,
+    notes: [...OPEN_THREAD.notes, { id: "47", author: "Fake Me", at: NOW, text: "Raised to 10." }],
+  };
+  answers["tasks.threads.reply"] = { threads: [answered, WHOLE_THREAD, DONE_THREAD], more: false };
+  await press("Post the reply on src/limiter.ts:27");
+  await settle();
+  expect(sent("tasks.threads.reply")).toEqual([
+    { id: "gitlab:mr:42:12", thread: OPEN_THREAD.id, text: "Raised to 10." },
+  ]);
+  expect(text()).toContain("Fake Me · just nowRaised to 10.");
+  // The box closes once the reply is in, and the threads are not read a second time.
+  expect(field("Write a reply on src/limiter.ts:27")).toBeNull();
+  expect(sent("tasks.threads.list")).toHaveLength(1);
+});
+
+test("a refused reply stays in its box with the reason, and Cancel closes the box", async () => {
+  await review();
+  await press("Reply on Rina Putri's thread");
+  await type("Write a reply on Rina Putri's thread", "One is enough.");
+  answers["tasks.threads.reply"] = failure(
+    "GitLab did not allow the change. Check what the saved token may do.",
+  );
+  await press("Post the reply on Rina Putri's thread");
+  await settle();
+  expect(alerts()).toEqual(["GitLab did not allow the change. Check what the saved token may do."]);
+  expect(field("Write a reply on Rina Putri's thread").value).toBe("One is enough.");
+  await press("Cancel the reply on Rina Putri's thread");
+  expect(field("Write a reply on Rina Putri's thread")).toBeNull();
+});
+
+test("resolving a thread sends it, and the thread joins the resolved ones", async () => {
+  await review();
+  answers["tasks.threads.resolve"] = {
+    threads: [WHOLE_THREAD, { ...OPEN_THREAD, resolved: true, resolvedBy: "Fake Me" }, DONE_THREAD],
+    more: false,
+  };
+  await press("Resolve the thread on src/limiter.ts:27");
+  await settle();
+  expect(sent("tasks.threads.resolve")).toEqual([
+    { id: "gitlab:mr:42:12", thread: OPEN_THREAD.id, resolved: true },
+  ]);
+  expect(text()).toContain("1 open · 2 resolved");
+  expect(text()).not.toContain("The login default.");
+  await press("Show 2 resolved threads");
+  expect(text()).toContain("Resolved by Fake Me");
+  answers["tasks.threads.resolve"] = REVIEW;
+  await press("Reopen the thread on src/limiter.ts:27");
+  await settle();
+  expect(sent("tasks.threads.resolve").at(-1)).toEqual({
+    id: "gitlab:mr:42:12",
+    thread: OPEN_THREAD.id,
+    resolved: false,
+  });
+  expect(text()).toContain("2 open · 1 resolved");
+});
+
+test("a thread that cannot be resolved says why under its button and stays open", async () => {
+  await review();
+  answers["tasks.threads.resolve"] = failure(
+    "GitLab did not allow the change. Check what the saved token may do.",
+  );
+  await press("Resolve the thread on src/limiter.ts:27");
+  await settle();
+  expect(alerts()).toEqual(["GitLab did not allow the change. Check what the saved token may do."]);
+  expect(text()).toContain("2 open · 1 resolved");
+});
+
+test("a review with every thread resolved says so, and one with none says that", async () => {
+  await review({ threads: [DONE_THREAD], more: false });
+  expect(text()).toContain("The one thread is resolved");
+  expect(labels()).toContain("Show 1 resolved thread");
+  queries.clear();
+  act(() => root.unmount());
+  root = createRoot(container);
+  await review({ threads: [], more: false });
+  expect(text()).toContain("No review threads");
+});
+
+test("a review longer than was read says where the rest is", async () => {
+  await review({ threads: [OPEN_THREAD], more: true });
+  expect(text()).toContain("GitLab holds more threads than are shown here");
+});
+
+test("threads that cannot be read say why, and Try again reads them; the page stays", async () => {
+  await review(failure("GitLab rejected the saved sign-in details."));
+  expect(alerts()).toEqual(["GitLab rejected the saved sign-in details."]);
+  expect(headings()).toContain("Comments");
+  answers["tasks.threads.list"] = REVIEW;
+  await press("Try again");
+  await settle();
+  expect(alerts()).toEqual([]);
+  expect(text()).toContain("2 open · 1 resolved");
+});
+
+test("a task whose review Paseo does not read asks for no threads", async () => {
+  answers["tasks.detail"] = REQUEST_PAGE;
+  await mount({ task: "gitlab:mr:42:12" });
+  await settle();
+  expect(sent("tasks.threads.list")).toEqual([]);
+  expect(headings()).not.toContain("Review threads");
 });
