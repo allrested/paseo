@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { Phase } from "../shared/contracts.js";
-import { baseUrl, getJson, sendJson } from "./http.js";
+import { baseUrl, getBytes, getJson, sendForJson, sendJson } from "./http.js";
 import {
+  IMAGE_MAX_BYTES,
   TrackerError,
   isoTime,
   type Comment,
@@ -10,6 +11,7 @@ import {
   type TaskKind,
   type Tracker,
 } from "./issue.js";
+import { takeImages } from "./text.js";
 
 const NAME = "GitLab";
 const LIMIT = "20";
@@ -21,8 +23,16 @@ const NOTES = String(COMMENTS * 2);
 const ID = /^(issue|mr):(\d{1,12}):(\d{1,12})$/;
 const MISSING = "GitLab has no such task, or the saved account cannot see it.";
 const PATH: Record<TaskKind, string> = { issue: "issues", mr: "merge_requests" };
+const PROJECT = /^\d{1,12}$/;
+// A file dropped into a description: GitLab writes its link from the project, with a secret.
+const UPLOAD = /!\[([^\]]*)\]\(\/uploads\/([0-9a-f]{32})\/([^)\s]+)\)(?:\{[^}]*\})?/g;
+const UPLOAD_ID = /^[0-9a-f]{32}\/[^/?#\s]{1,200}$/;
 
-const Person = z.object({ username: z.string(), name: z.string().nullish() });
+const Person = z.object({
+  id: z.number().nullish(),
+  username: z.string(),
+  name: z.string().nullish(),
+});
 const IssueSchema = z.object({
   iid: z.number(),
   project_id: z.number(),
@@ -34,6 +44,7 @@ const IssueSchema = z.object({
   references: z.object({ full: z.string() }).nullish(),
   updated_at: z.string().nullish(),
   user_notes_count: z.number().nullish(),
+  assignees: z.array(Person).nullish(),
 });
 const MergeRequestSchema = z.object({
   iid: z.number(),
@@ -49,6 +60,7 @@ const MergeRequestSchema = z.object({
   updated_at: z.string().nullish(),
   user_notes_count: z.number().nullish(),
   author: Person.nullish(),
+  assignees: z.array(Person).nullish(),
   reviewers: z.array(Person).nullish(),
   has_conflicts: z.boolean().nullish(),
   head_pipeline: z.object({ status: z.string().nullish() }).nullish(),
@@ -60,6 +72,8 @@ const NoteSchema = z.object({
   created_at: z.string().nullish(),
   system: z.boolean().nullish(),
 });
+const ProjectSchema = z.object({ id: z.number(), path_with_namespace: z.string() });
+const CreatedSchema = z.object({ iid: z.number(), project_id: z.number() });
 const RefusalSchema = z.object({
   message: z.unknown().optional(),
   error: z.string().nullish(),
@@ -81,6 +95,12 @@ function updated(value: string | null | undefined): { updatedAt?: string } {
   return updatedAt === undefined ? {} : { updatedAt };
 }
 
+/** Whose the task is, as one row of its facts; none when nobody has it. */
+function assignee(people: Array<z.infer<typeof Person>> | null | undefined): Issue["details"] {
+  if (!people || people.length === 0) return [];
+  return [["Assignee", people.map(personName).join(", ")]];
+}
+
 function toIssue(issue: z.infer<typeof IssueSchema>): Issue {
   const labels = (issue.labels ?? []).filter((label) => typeof label === "string");
   return {
@@ -92,7 +112,10 @@ function toIssue(issue: z.infer<typeof IssueSchema>): Issue {
     status: issue.state === "closed" ? "Closed" : "Open",
     url: issue.web_url,
     description: (issue.description ?? "").trim(),
-    details: labels.length > 0 ? [["Labels", labels.join(", ")]] : [],
+    details: [
+      ...(labels.length > 0 ? ([["Labels", labels.join(", ")]] as Issue["details"]) : []),
+      ...assignee(issue.assignees),
+    ],
     // GitLab's own branch names start with the issue number.
     branchPrefix: String(issue.iid),
     ...updated(issue.updated_at),
@@ -123,6 +146,7 @@ function toMergeRequest(request: z.infer<typeof MergeRequestSchema>, note?: stri
     details.push(["Branches", `${request.source_branch} → ${request.target_branch}`]);
   }
   if (request.author) details.push(["Author", personName(request.author)]);
+  details.push(...assignee(request.assignees));
   if (request.reviewers && request.reviewers.length > 0) {
     details.push(["Reviewers", request.reviewers.map(personName).join(", ")]);
   }
@@ -165,24 +189,39 @@ function linked<Item extends { web_url: string }>(items: Item[]): Item[] {
 export function createGitlab(options: GitlabOptions): Tracker {
   const { request } = options;
   const headers = { "PRIVATE-TOKEN": options.token };
-  // Asked once per tracker: the list of merge requests to review is asked by username.
-  let username: Promise<string> | null = null;
+  // Asked once per tracker: the merge requests to review are asked by username, and a task's
+  // page says whether the task is the signed-in user's.
+  let signedIn: Promise<z.infer<typeof Person>> | null = null;
 
-  function me(base: string): Promise<string> {
-    username ??= getJson({
+  function me(base: string): Promise<z.infer<typeof Person>> {
+    signedIn ??= getJson({
       request,
       name: NAME,
       url: `${base}/api/v4/user`,
       headers,
       schema: Person,
-    }).then(
-      (user) => user.username,
-      (error: unknown) => {
-        username = null;
-        throw error;
-      },
-    );
-    return username;
+    }).catch((error: unknown) => {
+      signedIn = null;
+      throw error;
+    });
+    return signedIn;
+  }
+
+  /** What a task's page adds to the task: whether it is mine, and the pictures of its text. */
+  function pageFacts(
+    task: Issue,
+    people: Array<z.infer<typeof Person>> | null | undefined,
+    mine: z.infer<typeof Person>,
+  ) {
+    const taken = takeImages(task.description, UPLOAD, ([, alt, secret, file]) => ({
+      id: `${secret}/${file}`,
+      name: alt && alt !== "image" ? alt : file,
+    }));
+    return {
+      description: taken.text,
+      images: taken.images,
+      assignedToMe: (people ?? []).some((person) => person.username === mine.username),
+    };
   }
 
   function listParams(text: string, more: Record<string, string>): URLSearchParams {
@@ -196,12 +235,18 @@ export function createGitlab(options: GitlabOptions): Tracker {
   }
 
   /** The API address of one task. The id comes from a client, so it must be numbers and no path. */
-  function taskUrl(id: string): { kind: TaskKind; at: string } {
+  function taskUrl(id: string): { kind: TaskKind; base: string; project: string; at: string } {
     const match = ID.exec(id);
     if (!match) throw new TrackerError("That is no GitLab task.");
     const kind = match[1] as TaskKind;
     const base = baseUrl(options.url, NAME);
-    return { kind, at: `${base}/api/v4/projects/${match[2]}/${PATH[kind]}/${match[3]}` };
+    const project = match[2];
+    return {
+      kind,
+      base,
+      project,
+      at: `${base}/api/v4/projects/${project}/${PATH[kind]}/${match[3]}`,
+    };
   }
 
   async function comments(at: string): Promise<Comment[]> {
@@ -251,7 +296,9 @@ export function createGitlab(options: GitlabOptions): Tracker {
           schema: z.array(MergeRequestSchema),
         });
       const [review, assigned] = await Promise.all([
-        me(base).then((name) => list(listParams(text, { scope: "all", reviewer_username: name }))),
+        me(base).then(({ username }) =>
+          list(listParams(text, { scope: "all", reviewer_username: username })),
+        ),
         list(listParams(text, { scope: "assigned_to_me" })),
       ]);
       // One that is both is listed once, as the review it waits for.
@@ -279,15 +326,18 @@ export function createGitlab(options: GitlabOptions): Tracker {
       }
     },
     async detail(id): Promise<IssueDetail> {
-      const { kind, at } = taskUrl(id);
+      const { kind, base, at } = taskUrl(id);
       const read = { request, name: NAME, url: at, headers, missing: MISSING };
       if (kind === "mr") {
-        const [item, thread] = await Promise.all([
+        const [item, thread, mine] = await Promise.all([
           getJson({ ...read, schema: MergeRequestSchema }),
           comments(at),
+          me(base),
         ]);
+        const shaped = toMergeRequest(item);
         return {
-          ...toMergeRequest(item),
+          ...shaped,
+          ...pageFacts(shaped, item.assignees, mine),
           comments: thread,
           earlierComments: Math.max(0, (item.user_notes_count ?? 0) - thread.length),
           // A merge request is merged or closed on GitLab, where its checks are.
@@ -295,12 +345,15 @@ export function createGitlab(options: GitlabOptions): Tracker {
           markdown: true,
         };
       }
-      const [item, thread] = await Promise.all([
+      const [item, thread, mine] = await Promise.all([
         getJson({ ...read, schema: IssueSchema }),
         comments(at),
+        me(base),
       ]);
+      const shaped = toIssue(item);
       return {
-        ...toIssue(item),
+        ...shaped,
+        ...pageFacts(shaped, item.assignees, mine),
         comments: thread,
         earlierComments: Math.max(0, (item.user_notes_count ?? 0) - thread.length),
         changes:
@@ -340,6 +393,81 @@ export function createGitlab(options: GitlabOptions): Tracker {
         body: { state_event: change },
         reason: refusalReason,
         missing: MISSING,
+      });
+    },
+    async places(query) {
+      const base = baseUrl(options.url, NAME);
+      const text = query.trim();
+      const params = new URLSearchParams({
+        membership: "true",
+        simple: "true",
+        order_by: "last_activity_at",
+        per_page: LIMIT,
+        ...(text ? { search: text } : {}),
+      });
+      const projects = await getJson({
+        request,
+        name: NAME,
+        url: `${base}/api/v4/projects?${params}`,
+        headers,
+        schema: z.array(ProjectSchema),
+      });
+      return projects.map((project) => ({
+        id: String(project.id),
+        label: project.path_with_namespace,
+      }));
+    },
+    async create({ place, title, description }) {
+      if (!PROJECT.test(place)) throw new TrackerError("That is no GitLab project.");
+      const base = baseUrl(options.url, NAME);
+      const made = await sendForJson({
+        request,
+        name: NAME,
+        method: "POST",
+        url: `${base}/api/v4/projects/${place}/issues`,
+        headers,
+        body: { title, description },
+        reason: refusalReason,
+        missing: "GitLab has no such project, or the saved account cannot see it.",
+        schema: CreatedSchema,
+      });
+      return `issue:${made.project_id}:${made.iid}`;
+    },
+    async assign(id) {
+      const { kind, base, at } = taskUrl(id);
+      const read = { request, name: NAME, url: at, headers, missing: MISSING };
+      const [mine, item] = await Promise.all([
+        me(base),
+        getJson({ ...read, schema: kind === "mr" ? MergeRequestSchema : IssueSchema }),
+      ]);
+      if (typeof mine.id !== "number")
+        throw new TrackerError("GitLab did not say who is signed in.");
+      const others = (item.assignees ?? []).flatMap((person) =>
+        typeof person.id === "number" && person.id !== mine.id ? [person.id] : [],
+      );
+      await sendJson({
+        request,
+        name: NAME,
+        method: "PUT",
+        url: at,
+        headers,
+        // First, because a GitLab without multiple assignees keeps one.
+        body: { assignee_ids: [mine.id, ...others] },
+        reason: refusalReason,
+        missing: MISSING,
+      });
+    },
+    async image(id, image) {
+      const { base, project } = taskUrl(id);
+      if (!UPLOAD_ID.test(image)) throw new TrackerError("That is no GitLab upload.");
+      return getBytes({
+        request,
+        name: NAME,
+        url: `${base}/api/v4/projects/${project}/uploads/${image}`,
+        headers,
+        // The API serves uploads from GitLab 17.4 on.
+        missing: "GitLab has no such upload here, or is older than 17.4 and cannot hand it out.",
+        maxBytes: IMAGE_MAX_BYTES,
       });
     },
     async account() {

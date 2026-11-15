@@ -112,11 +112,8 @@ async function refusedChange(input: SendJsonInput, response: Response): Promise<
   return `${name} refused the change: ${line.slice(0, REASON_MAX)}`;
 }
 
-/**
- * Sends a change and resolves when the tracker accepted it; its answer is not read. Rejects with
- * a `TrackerError`, as `getJson` does.
- */
-export async function sendJson(input: SendJsonInput): Promise<void> {
+/** Sends a change and answers with the tracker's response once it accepted it. */
+async function send(input: SendJsonInput): Promise<Response> {
   const { request, name, url, headers, method, body } = input;
   let response: Response;
   try {
@@ -132,4 +129,109 @@ export async function sendJson(input: SendJsonInput): Promise<void> {
     throw new TrackerError(`Could not reach ${name}: ${unreachable(error)}.`);
   }
   if (!response.ok) throw new TrackerError(await refusedChange(input, response), response.status);
+  return response;
+}
+
+/**
+ * Sends a change and resolves when the tracker accepted it; its answer is not read. Rejects with
+ * a `TrackerError`, as `getJson` does.
+ */
+export async function sendJson(input: SendJsonInput): Promise<void> {
+  await send(input);
+}
+
+export interface SendForJsonInput<Schema extends ZodType> extends SendJsonInput {
+  schema: Schema;
+}
+
+/** Sends a change and reads the tracker's answer to it: the issue it made, say. */
+export async function sendForJson<Schema extends ZodType>(
+  input: SendForJsonInput<Schema>,
+): Promise<ZodOutput<Schema>> {
+  const response = await send(input);
+  const body: unknown = await response.json().catch(() => null);
+  const parsed = input.schema.safeParse(body);
+  if (!parsed.success) {
+    throw new TrackerError(`${input.name} answered in a shape Paseo does not know.`);
+  }
+  return parsed.data;
+}
+
+export interface GetBytesInput extends CallInput {
+  /** A file over this is refused. */
+  maxBytes: number;
+}
+
+export interface FileBytes {
+  /** The file's type without its parameters, such as `image/png`. */
+  mime: string;
+  data: Uint8Array;
+}
+
+/** A body's bytes, or null once it holds more than `max`: the rest is not read. */
+async function readUpTo(response: Response, max: number): Promise<Uint8Array | null> {
+  if (!response.body) return new Uint8Array(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const data = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return data;
+}
+
+/**
+ * Reads one image. Trackers hand files out through signed links on another host, so one redirect
+ * is followed, to an https address and without the sign-in headers.
+ */
+export async function getBytes(input: GetBytesInput): Promise<FileBytes> {
+  const { request, name, url, headers, missing, maxBytes } = input;
+  const ask = async (target: string, signIn: Record<string, string>) => {
+    try {
+      return await request(target, {
+        headers: signIn,
+        redirect: "manual",
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw new TrackerError(`Could not reach ${name}: ${unreachable(error)}.`);
+    }
+  };
+  let response = await ask(url, headers);
+  const location = response.headers.get("location");
+  if (response.status >= 300 && response.status < 400 && location) {
+    const next = new URL(location, url);
+    // A tracker on this machine (plain http is allowed nowhere else) may hand its file out here
+    // too. Any other tracker must not send the daemon to its own loopback.
+    const local =
+      new URL(url).protocol === "http:" && next.protocol === "http:" && LOOPBACK.has(next.hostname);
+    if (next.protocol !== "https:" && !local) {
+      throw new TrackerError(`${name} sent the file to an address Paseo will not open.`);
+    }
+    response = await ask(next.href, {});
+  }
+  if (!response.ok) {
+    throw new TrackerError(refusal(name, response.status, missing), response.status);
+  }
+  const mime = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!mime.startsWith("image/")) throw new TrackerError(`${name} did not answer with an image.`);
+  const tooLarge = new TrackerError("The image is too large to show here.");
+  if (Number(response.headers.get("content-length") ?? 0) > maxBytes) throw tooLarge;
+  // The length a server states is its word only: the body is counted as it comes.
+  const data = await readUpTo(response, maxBytes);
+  if (data === null) throw tooLarge;
+  return { mime, data };
 }

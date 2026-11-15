@@ -409,9 +409,29 @@ where it stands, named by the status they lead to. A transition that needs a fie
 say) is refused, and the page shows Jira's reason under the button. A GitLab or GitHub issue
 closes and reopens. A merge request or pull request is read and commented on; it is merged or
 closed on its tracker, and a pull request's review threads stay in the workspace's pull request
-pane. GitLab and GitHub write Markdown and the page renders it. Jira's rich text is flattened to plain text
-(`plugins/tasks/server/adf.ts`), a comment goes to Jira as plain paragraphs, and a description
-over 20,000 characters is cut.
+pane. A task the saved account is not assigned to has "Assign to me", which adds the account and
+keeps who already has it. GitLab and GitHub write Markdown and the page renders it. Jira's rich
+text is flattened to plain text (`plugins/tasks/server/adf.ts`), a comment goes to Jira as plain
+paragraphs, and a description over 20,000 characters is cut.
+
+The pictures of a description show under its text: a Jira issue's image attachments, a GitLab
+description's uploads, a GitHub description's attached images. Where one stood, the text says
+`(image: name)`. The client has no sign-in, so the daemon reads each picture
+(`tasks.images.read`) and hands the bytes over, up to 4 MiB. The first four load with the page
+and the rest on a button. GitLab hands an upload out through its API from 17.4 on; an older
+server answers 404 and the page says so. A picture from any other address stays in the Markdown
+and the renderer loads it.
+
+The plus beside the list's search, and "New issue" in the Command Center, open a form on the
+same screen: the tracker when several are connected, then the Jira or GitLab project or the
+GitHub repository, a title and a description. GitLab lists the projects the account is a member
+of, and GitHub the 100 repositories it pushed to last that take issues. A Jira project also asks
+for the kind of issue; subtasks are left out because they need a parent. The issue is made
+first and assigned second, so one that cannot be assigned is still made and a toast says why. A
+Jira project that requires a field the form does not have refuses, and the form shows Jira's
+reason. The next form starts in the place the last issue went to. A plugin screen opens screens
+and cannot replace one, so on a phone Back from the new issue's page returns to the form, which
+is empty by then.
 
 A Task field on the New workspace screen names the new branch after the pick
 (`BWLT-12-add-the-webhook`, or GitLab's and GitHub's own form `7-rate-limit-the-login-form`) and
@@ -442,13 +462,15 @@ The addresses are the plugin's host settings. The tokens are not, because every 
 settings: they are in `$PASEO_HOME/tasks/tokens.json`, mode 600, and the RPCs about them say
 whether one is saved and replace or remove it. No RPC returns a token. Every comment and move is
 made as the token's user, for whoever uses the host. A GitLab token with `read_api` reads; a
-comment or a close needs `api`, and without it the page says the tracker did not allow the
-change. GitHub needs no address: a token alone connects github.com, and the address field is for
+comment, a close, a new issue or an assignment needs `api`, and without it the page says the
+tracker did not allow the change. GitHub needs no address: a token alone connects github.com, and the address field is for
 a GitHub Enterprise server, whose API is read under `/api/v3`. A classic GitHub token needs
-`repo`; a fine-grained one needs Issues and Pull requests, and lists only the repositories it
-was given. GitHub's lists come from its issue search, which allows 30 requests a minute. A
+`repo`; a fine-grained one needs Issues and Pull requests, with write access to comment, make
+an issue or assign one, and lists only the repositories it was given. GitHub's lists come from its issue search, which allows 30 requests a minute. A
 tracker's address must be https (http on loopback only), and requests follow no redirect, because
-the token's header would go with it. When one tracker fails and
+the token's header would go with it. A picture is the exception: trackers hand files out through
+a signed link on another host, so the daemon follows one redirect to an https address and sends
+no sign-in header there. When one tracker fails and
 the other answers, the list shows the other's tasks under a line that names the failure; "Test" on
 the connections screen shows it too.
 

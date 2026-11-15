@@ -26,6 +26,11 @@ function github(respond: (url: URL) => Response, url = "") {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const found = (...items: object[]) => json({ total_count: items.length, items });
 
+const USER = { login: "rina", name: "Rina Putri" };
+/** Answers who is signed in, which a task's page asks, and leaves the rest to `respond`. */
+const signedIn = (respond: (url: URL) => Response) => (url: URL) =>
+  url.pathname.endsWith("/user") ? json(USER) : respond(url);
+
 const ISSUE = {
   number: 7,
   title: "Rate limit the login form",
@@ -205,12 +210,13 @@ const COMMENTS = [
 ];
 
 test("a pull request's page reads it and its conversation, and offers no move", async () => {
-  const { calls, tracker } = github((url) =>
-    url.pathname.endsWith("/comments") ? json(COMMENTS) : json(PULL),
+  const { calls, tracker } = github(
+    signedIn((url) => (url.pathname.endsWith("/comments") ? json(COMMENTS) : json(PULL))),
   );
   const detail = await tracker.detail("mr:shop/web:12");
   expect(calls.map((call) => call.url.pathname + call.url.search)).toEqual([
     "/repos/shop/web/pulls/12",
+    "/user",
     "/repos/shop/web/issues/12/comments?per_page=20&page=1",
   ]);
   expect(detail).toEqual({
@@ -227,13 +233,15 @@ test("a pull request's page reads it and its conversation, and offers no move", 
     earlierComments: 0,
     changes: [],
     markdown: true,
+    assignedToMe: false,
+    images: [],
   });
 });
 
 test("a pull request's state is in words", async () => {
   const stands = async (pull: object) => {
-    const { tracker } = github((url) =>
-      url.pathname.endsWith("/comments") ? json([]) : json(pull),
+    const { tracker } = github(
+      signedIn((url) => (url.pathname.endsWith("/comments") ? json([]) : json(pull))),
     );
     const { status, phase } = await tracker.detail("mr:shop/web:12");
     return [status, phase];
@@ -252,15 +260,18 @@ test("an issue's page shows its newest 20 comments, read from the end of a long 
       user: { login: "rina" },
       created_at: "2026-11-14T04:00:00Z",
     }));
-  const { calls, tracker } = github((url) => {
-    if (!url.pathname.endsWith("/comments")) return json({ ...ISSUE, comments: 45 });
-    return url.searchParams.get("page") === "3" ? json(page(41, 5)) : json(page(21, 20));
-  });
+  const { calls, tracker } = github(
+    signedIn((url) => {
+      if (!url.pathname.endsWith("/comments")) return json({ ...ISSUE, comments: 45 });
+      return url.searchParams.get("page") === "3" ? json(page(41, 5)) : json(page(21, 20));
+    }),
+  );
   const detail = await tracker.detail("issue:shop/web:7");
   expect(calls.map((call) => call.url.pathname + call.url.search).toSorted()).toEqual([
     "/repos/shop/web/issues/7",
     "/repos/shop/web/issues/7/comments?per_page=20&page=2",
     "/repos/shop/web/issues/7/comments?per_page=20&page=3",
+    "/user",
   ]);
   expect(detail.comments).toHaveLength(20);
   expect(detail.comments[0].text).toBe("c26");
@@ -270,9 +281,12 @@ test("an issue's page shows its newest 20 comments, read from the end of a long 
 });
 
 test("an issue with no comments asks for none, and a closed one can be opened again", async () => {
-  const { calls, tracker } = github(() => json({ ...ISSUE, comments: 0, state: "closed" }));
+  const { calls, tracker } = github(
+    signedIn(() => json({ ...ISSUE, comments: 0, state: "closed" })),
+  );
   const detail = await tracker.detail("issue:shop/web:7");
-  expect(calls).toHaveLength(1);
+  // The issue and who is signed in: no page of comments.
+  expect(calls).toHaveLength(2);
   expect(detail).toMatchObject({
     status: "Closed",
     phase: "done",
@@ -370,5 +384,122 @@ test("one task is found by its id, with where it stands; one that is gone is not
   expect(await github(() => json({}, 404)).tracker.find("issue:shop/web:999")).toBeNull();
   await expect(github(() => json({}, 401)).tracker.find("issue:shop/web:7")).rejects.toThrow(
     "GitHub rejected the saved sign-in details.",
+  );
+});
+
+const ASSET = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+const OTHER_ASSET = "11111111-2222-4333-8444-555555555555";
+
+test("a task's page says whose the task is, and takes the attached pictures out of its text", async () => {
+  const issue = {
+    ...ISSUE,
+    comments: 0,
+    body:
+      `Before: ![screen shot](https://github.com/user-attachments/assets/${ASSET})\n\n` +
+      `<img width="300" alt="after" src="https://github.com/user-attachments/assets/${OTHER_ASSET}" />\n\n` +
+      "![badge](https://img.shields.io/badge/a-b-green)",
+    assignees: [{ login: "rina" }, { login: "dimas" }],
+  };
+  const { tracker } = github(signedIn(() => json(issue)));
+  const detail = await tracker.detail("issue:shop/web:7");
+  expect(detail.assignedToMe).toBe(true);
+  expect(detail.details).toContainEqual(["Assignee", "@rina, @dimas"]);
+  expect(detail.images).toEqual([
+    { id: ASSET, name: "screen shot" },
+    { id: OTHER_ASSET, name: "after" },
+  ]);
+  // A picture from elsewhere is the Markdown's own to show.
+  expect(detail.description).toBe(
+    "Before: (image: screen shot)\n\n(image: after)\n\n![badge](https://img.shields.io/badge/a-b-green)",
+  );
+  const theirs = github(
+    signedIn(() => json({ ...ISSUE, comments: 0, assignees: [{ login: "dimas" }] })),
+  );
+  expect(await theirs.tracker.detail("issue:shop/web:7")).toMatchObject({
+    assignedToMe: false,
+    images: [],
+  });
+});
+
+test("the repositories an issue can go to are the newest pushed that take issues", async () => {
+  const { calls, tracker } = github(() =>
+    json([
+      { full_name: "shop/web", has_issues: true },
+      { full_name: "shop/mirror", has_issues: false },
+      { full_name: "rina/notes" },
+    ]),
+  );
+  expect(await tracker.places("")).toEqual([
+    { id: "shop/web", label: "shop/web" },
+    { id: "rina/notes", label: "rina/notes" },
+  ]);
+  expect(await tracker.places(" NOTES ")).toEqual([{ id: "rina/notes", label: "rina/notes" }]);
+  expect(calls[0].url.pathname + calls[0].url.search).toBe("/user/repos?sort=pushed&per_page=100");
+  expect(tracker.kinds).toBeUndefined();
+});
+
+test("an issue is made in a repository, and its id is the one its page is asked by", async () => {
+  const { calls, tracker } = github(() => json({ number: 9 }, 201));
+  const id = await tracker.create({ place: "shop/web", title: "Cache it", description: "Soon." });
+  expect(id).toBe("issue:shop/web:9");
+  expect(calls.map((call) => [call.method, call.url.pathname, call.body])).toEqual([
+    ["POST", "/repos/shop/web/issues", { title: "Cache it", body: "Soon." }],
+  ]);
+  for (const place of ["shop", "shop/web/issues", "../web", "shop/.."]) {
+    await expect(tracker.create({ place, title: "t", description: "" })).rejects.toThrow(
+      "That is no GitHub repository.",
+    );
+  }
+  expect(calls).toHaveLength(1);
+});
+
+test("assigning a task to me adds me to its assignees", async () => {
+  const { calls, tracker } = github(signedIn(() => json({}, 201)));
+  await tracker.assign("mr:shop/web:12");
+  expect(calls.map((call) => [call.method, call.url.pathname, call.body])).toEqual([
+    ["GET", "/user", undefined],
+    ["POST", "/repos/shop/web/issues/12/assignees", { assignees: ["rina"] }],
+  ]);
+});
+
+test("a picture is read from the web host, and the token does not follow its signed link", async () => {
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const { calls, tracker } = github((url) =>
+    url.host === "github.com"
+      ? new Response(null, {
+          status: 302,
+          headers: { Location: "https://cdn.github.test/f?jwt=1" },
+        })
+      : new Response(png, { headers: { "Content-Type": "image/png" } }),
+  );
+  const image = await tracker.image("issue:shop/web:7", ASSET);
+  expect(image.mime).toBe("image/png");
+  expect(calls.map((call) => [call.url.href, call.headers])).toEqual([
+    [`https://github.com/user-attachments/assets/${ASSET}`, { Authorization: "Bearer ghp-s3cret" }],
+    ["https://cdn.github.test/f?jwt=1", {}],
+  ]);
+  await expect(tracker.image("issue:shop/web:7", "../../user")).rejects.toThrow(
+    "That is no GitHub attachment.",
+  );
+  await expect(tracker.image("shop/web#7", ASSET)).rejects.toThrow("That is no GitHub task.");
+  expect(calls).toHaveLength(2);
+});
+
+test("an Enterprise server's pictures are its own: github.com's link in its text is left alone", async () => {
+  const issue = {
+    ...ISSUE,
+    comments: 0,
+    body:
+      `![mine](https://ghe.team.test/user-attachments/assets/${ASSET}) ` +
+      `![theirs](https://github.com/user-attachments/assets/${OTHER_ASSET})`,
+  };
+  const { tracker } = github(
+    signedIn(() => json(issue)),
+    "https://ghe.team.test",
+  );
+  const detail = await tracker.detail("issue:shop/web:7");
+  expect(detail.images).toEqual([{ id: ASSET, name: "mine" }]);
+  expect(detail.description).toBe(
+    `(image: mine) ![theirs](https://github.com/user-attachments/assets/${OTHER_ASSET})`,
   );
 });
