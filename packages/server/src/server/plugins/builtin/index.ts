@@ -15,6 +15,7 @@ export const builtinPlugins = [
   "cursor-usage-source",
   "default-skills",
   "design",
+  "feed",
   "fx-provider",
   "grok-usage-source",
   "heavy-command-gate",
