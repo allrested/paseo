@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { TEXT_MAX } from "../shared/contracts.js";
-import { lastMessage, oneLine, type TimelineEntry } from "./summary.js";
+import { lastMessage, oneLine, firstLine, type TimelineEntry } from "./summary.js";
 
 const said = (text: string, turnId = "t2"): TimelineEntry => ({
   turnId,
@@ -55,4 +55,13 @@ test("a long line is cut to the row's length with an ellipsis", () => {
   expect(cut).toHaveLength(TEXT_MAX);
   expect(cut.endsWith("word…")).toBe(true);
   expect(oneLine("x".repeat(TEXT_MAX))).toBe("x".repeat(TEXT_MAX));
+});
+
+test("a line that is not Markdown keeps its marks", () => {
+  expect(firstLine("mcp__paseo__office_read")).toBe("mcp__paseo__office_read");
+  expect(firstLine("\n  Cannot read `__dirname`\n  at run (x.js:1)")).toBe(
+    "Cannot read `__dirname`",
+  );
+  expect(firstLine(" \n\t\n")).toBeNull();
+  expect(firstLine("x".repeat(TEXT_MAX + 5))).toBe(`${"x".repeat(TEXT_MAX - 1)}…`);
 });

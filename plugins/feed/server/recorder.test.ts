@@ -114,5 +114,12 @@ test("a permission's entry says what is asked and keeps the request's id", () =>
   expect(
     permissionEntry(made, { agent: AGENT, request: { id: "req-2", name: "Bash" } })?.text,
   ).toBe("Bash");
+  // A tool's name is not Markdown: its underscores are not emphasis marks.
+  expect(
+    permissionEntry(made, {
+      agent: AGENT,
+      request: { id: "req-3", name: "mcp__paseo__office_read" },
+    })?.text,
+  ).toBe("mcp__paseo__office_read");
   expect(permissionEntry(made, { agent: HELPER, request })).toBeNull();
 });
