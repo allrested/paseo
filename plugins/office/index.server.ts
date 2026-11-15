@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { readThreeAsset } from "./server/asset.js";
@@ -8,6 +9,10 @@ import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
 import { createHub } from "./server/hub.js";
 import { liveAgentPorts, liveHubPorts } from "./server/live-ports.js";
+import { cleanUpAgent } from "./server/machine/cleanup.js";
+import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.js";
+import { createMachineReader } from "./server/machine/machine.js";
+import { createMachineWatch } from "./server/machine/watch.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import { boardsFile } from "./server/paths.js";
@@ -16,7 +21,9 @@ import { createSheetPageHost, type SheetPageHost } from "./server/render/sheet-p
 import { createSheetSessions } from "./server/render/sheet-sessions.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
+  cleanupRpc,
   deleteRpc,
+  machineSubscription,
   officeStateSubscription,
   postRpc,
   setWakesPausedRpc,
@@ -46,6 +53,20 @@ export interface OfficePluginDeps {
   sheet: SheetPageHost | null;
   /** The 3D office's page script; null when the daemon cannot build one. */
   world: WorldScript | null;
+  /** Where the host's processes are read, and how one is asked to end. */
+  machine: MachineHost;
+}
+
+export interface MachineHost {
+  procRoot: string;
+  cgroupRoot: string;
+  /** `process.platform`. */
+  platform: string;
+  /** The daemon's pid: it and its ancestors are never asked to end. */
+  selfPid: number;
+  /** Sends SIGTERM. */
+  stop(pid: number): void;
+  sleep(ms: number): Promise<void>;
 }
 
 // Runs inside the daemon process: every handler, hook and timer catches its own errors.
@@ -74,6 +95,24 @@ export function createOfficePlugin(
     log,
   });
 
+  const machine = createMachineWatch({
+    read: createMachineReader({
+      procRoot: deps.machine.procRoot,
+      cgroupRoot: deps.machine.cgroupRoot,
+      platform: deps.machine.platform,
+      ...liveMachinePorts(holder, () => deps.clock.now()),
+    }).read,
+    timers: deps.clock,
+    log,
+  });
+  const cleanupPorts = {
+    procRoot: deps.machine.procRoot,
+    selfPid: deps.machine.selfPid,
+    stop: deps.machine.stop,
+    sleep: deps.machine.sleep,
+    ...liveCleanupPorts(holder),
+  };
+
   const settings = server.registerSettings(officeHostSettings);
 
   async function guarded<T>(name: string, work: () => Promise<T>): Promise<T> {
@@ -97,6 +136,23 @@ export function createOfficePlugin(
       return deps.world.read();
     }),
   );
+  // The readings stop with the last subscriber: nothing walks /proc while no office is open.
+  server.handle(machineSubscription, (_input, context) => {
+    holder.remember(context.paseo);
+    return machine.attach(context);
+  });
+  server.handle(cleanupRpc, (input, context) => {
+    holder.remember(context.paseo);
+    return guarded("cleanup", async () => {
+      // One at a time: each close waits for its runtime's processes.
+      const results = [];
+      for (const agentId of new Set(input.agentIds)) {
+        results.push(await cleanUpAgent(cleanupPorts, agentId));
+      }
+      machine.refresh();
+      return { results };
+    });
+  });
   // Resolves when the sheet ends, which closes the subscription. It never rejects: a sheet that
   // cannot run says why in a problem event first.
   server.handle(sheetSubscription, (input, context) => {
@@ -177,6 +233,7 @@ export function createOfficePlugin(
   return async () => {
     for (const remove of removeHooks) remove();
     await sheetSessions.stop();
+    machine.stop();
     office.stop();
     await hub.stop();
   };
@@ -212,5 +269,14 @@ export default function contribute(
           entryPath: worldEntryPath(builtin.directory),
         })
       : null,
+    // Built-ins run in the daemon process: process.pid is the daemon's.
+    machine: {
+      procRoot: "/proc",
+      cgroupRoot: "/sys/fs/cgroup",
+      platform: process.platform,
+      selfPid: process.pid,
+      stop: (pid) => void process.kill(pid, "SIGTERM"),
+      sleep: (ms) => delay(ms, undefined, { ref: false }),
+    },
   });
 }

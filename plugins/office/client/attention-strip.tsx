@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
+import type { HostNote } from "./machine-text.js";
 import type { AttentionEntry, AttentionReason } from "./model.js";
 import type { OfficeStyles } from "./styles.js";
 
@@ -52,15 +53,61 @@ function AttentionItem({ entry, styles, onSelect }: AttentionItemProps) {
   );
 }
 
+const HOST_DOT = { muted: "idle", warning: "warning", danger: "danger" } as const;
+
+interface HostItemProps {
+  note: HostNote;
+  styles: OfficeStyles;
+  onOpen(): void;
+}
+
+/** The host in the strip's own shape: a dot, "Host", and its note. Opens the host card. */
+function HostItem({ note, styles, onOpen }: HostItemProps) {
+  const [hovered, setHovered] = useState(false);
+  const hoverIn = useCallback(() => setHovered(true), []);
+  const hoverOut = useCallback(() => setHovered(false), []);
+  const [pressed, setPressed] = useState(false);
+  const pressIn = useCallback(() => setPressed(true), []);
+  const pressOut = useCallback(() => setPressed(false), []);
+  const lit = pressed || hovered;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Host: ${note.text}`}
+      onPress={onOpen}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      onHoverIn={hoverIn}
+      onHoverOut={hoverOut}
+      style={lit ? styles.stripItemPressed : styles.stripItem}
+    >
+      {lit ? <View style={styles.pressedFill} /> : null}
+      <View style={styles.lead}>
+        <View style={styles.dot[HOST_DOT[note.tone]]} />
+      </View>
+      <View style={styles.stripBody}>
+        <Text style={styles.stripTitle} numberOfLines={1}>
+          Host
+        </Text>
+        <Text style={styles.stripNote[note.tone]} numberOfLines={1}>
+          {note.text}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
 export interface AttentionStripProps {
   entries: readonly AttentionEntry[];
+  /** The host's note; null on a host that cannot be read. It comes after the agents. */
+  host: { note: HostNote; onOpen(): void } | null;
   styles: OfficeStyles;
   onSelect(agentId: string): void;
 }
 
-/** The agents that need the user. On a phone this is the fast path. */
-export function AttentionStrip({ entries, styles, onSelect }: AttentionStripProps) {
-  if (entries.length === 0) return null;
+/** The agents that need the user, then the host. On a phone this is the fast path. */
+export function AttentionStrip({ entries, host, styles, onSelect }: AttentionStripProps) {
+  if (entries.length === 0 && host === null) return null;
   return (
     <View style={styles.stripRail}>
       <ScrollView
@@ -72,6 +119,7 @@ export function AttentionStrip({ entries, styles, onSelect }: AttentionStripProp
         {entries.map((entry) => (
           <AttentionItem key={entry.agentId} entry={entry} styles={styles} onSelect={onSelect} />
         ))}
+        {host ? <HostItem note={host.note} styles={styles} onOpen={host.onOpen} /> : null}
       </ScrollView>
     </View>
   );

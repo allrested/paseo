@@ -58,6 +58,7 @@ function fakeContext(statuses: Map<string, string>, sent: Sent[]): PluginHandler
     signal: new AbortController().signal,
     paseo: {
       agents: {
+        list: async () => ({ entries: [], pageInfo: { hasMore: false, nextCursor: null } }),
         ref: (agentId: string) => ({
           refresh: async () => ({
             agent: {
@@ -124,6 +125,7 @@ function setup(read: () => Promise<SettingsState>) {
   const logs: string[] = [];
   const sent: Sent[] = [];
   const statuses = new Map<string, string>();
+  const stopped: number[] = [];
   const clock = createFakeClock(Date.parse("2026-11-11T09:00:00.000Z"));
   const context = fakeContext(statuses, sent);
   const stop = createOfficePlugin(fakeServer(recorded, read), {
@@ -132,13 +134,21 @@ function setup(read: () => Promise<SettingsState>) {
     log: (message) => logs.push(message),
     sheet: null,
     world: null,
+    machine: {
+      procRoot: "/nonexistent-proc",
+      cgroupRoot: "/nonexistent-cgroup",
+      platform: "linux",
+      selfPid: 1,
+      stop: (pid) => void stopped.push(pid),
+      sleep: async () => undefined,
+    },
   });
   async function open(
     overrides: Partial<PluginSessionOpenRequest> = {},
   ): Promise<PluginSessionOpenRequest | undefined> {
     return recorded.hooks.get("agent.open.before")?.({ request: openRequest(overrides) }, context);
   }
-  return { recorded, logs, sent, statuses, clock, context, stop, open };
+  return { recorded, logs, sent, statuses, stopped, clock, context, stop, open };
 }
 
 test("an interactive session keeps its own tools and gets the three office tools", async () => {
@@ -234,12 +244,70 @@ test("a post for a running agent goes out when its turn ends", async () => {
   await stop();
 });
 
-test("the entry serves the office state, the 3D page script, the sheet and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the machine is read for a subscriber and no longer once it left", async () => {
+  const { recorded, clock, context, stop } = setup(async () => ON);
+  const events: unknown[] = [];
+  const leaving = new AbortController();
+  const machine = recorded.handlers.get("office.machine");
+  const done = machine?.({}, {
+    ...context,
+    signal: leaving.signal,
+    push: async (event: unknown) => void events.push(event),
+  } as never);
+  // The reading asks the file system, which takes longer than a round of promises.
+  for (let round = 0; round < 200 && events.length === 0; round += 1) await settle();
+
+  // No /proc at the test's root: a reading with nothing in it, not a failure.
+  expect(events).toEqual([
+    {
+      type: "reading",
+      machine: {
+        readAt: "2026-11-11T09:00:00.000Z",
+        memory: null,
+        cpuPercent: null,
+        agents: [],
+      },
+    },
+  ]);
+  // The hourly prune and the next reading.
+  expect(clock.pending()).toBe(2);
+  leaving.abort();
+  await done;
+  expect(clock.pending()).toBe(1);
+  await stop();
+});
+
+test("a cleanup answers for each agent once, and leaves one that could not resume", async () => {
+  const { recorded, statuses, stopped, context, stop } = setup(async () => ON);
+  statuses.set("busy", "running");
+  const cleanup = recorded.handlers.get("office.machine.cleanup.request");
+
+  expect(await cleanup?.({ agentIds: ["busy", "idle", "busy"] }, context)).toEqual({
+    results: [
+      {
+        agentId: "busy",
+        ok: false,
+        error: "The agent is not idle; clean up once its turn has ended",
+      },
+      {
+        agentId: "idle",
+        ok: false,
+        error: "This agent has no saved session to resume, so it stays open",
+      },
+    ],
+  });
+  expect(stopped).toEqual([]);
+  await stop();
+});
+
+test("the entry serves the office state, the 3D page script, the machine, the sheet and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
     "office.state",
     "office.world.request",
+    "office.machine",
+    "office.machine.cleanup.request",
     "office.sheet",
     "office.sheet.input.request",
     "office.sheet.sprite.request",

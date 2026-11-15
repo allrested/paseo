@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
 import {
+  MachineEventSchema,
+  cleanupRpc,
+  machineSubscription,
   OfficeEventSchema,
   OfficeSnapshotSchema,
   PostSchema,
@@ -198,4 +201,38 @@ test("a sprite request names its sheet, and the answer may be null", () => {
   );
   expect(sheetSpriteRpc.output.safeParse(null).success).toBe(true);
   expect(sheetInputRpc.input.safeParse({ sheetId: "s1" }).success).toBe(true);
+});
+
+test("the host's readings and the cleanup call are named and bounded", () => {
+  expect(machineSubscription.name).toBe("office.machine");
+  expect(cleanupRpc.name).toBe("office.machine.cleanup.request");
+  expect(MachineEventSchema.safeParse({ type: "unavailable" }).success).toBe(true);
+  const reading = {
+    type: "reading",
+    machine: {
+      readAt: "2026-11-16T12:00:00.000Z",
+      memory: null,
+      cpuPercent: null,
+      agents: [
+        {
+          agentId: "a",
+          title: null,
+          status: "closed",
+          rssBytes: 1024,
+          processCount: 1,
+          ports: [5173],
+          idleSince: null,
+          forgotten: true,
+        },
+      ],
+    },
+  };
+  expect(MachineEventSchema.parse(reading)).toEqual(reading);
+  expect(cleanupRpc.input.safeParse({ agentIds: [] }).success).toBe(false);
+  expect(cleanupRpc.input.safeParse({ agentIds: [""] }).success).toBe(false);
+  expect(cleanupRpc.input.safeParse({ agentIds: ["a"] }).success).toBe(true);
+  expect(
+    cleanupRpc.input.safeParse({ agentIds: Array.from({ length: 51 }, (_v, i) => `a${i}`) })
+      .success,
+  ).toBe(false);
 });

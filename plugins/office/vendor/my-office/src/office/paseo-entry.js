@@ -25,6 +25,7 @@ import { STATIONS } from './people/navigation.js';
 import { applaud } from './people/gatherings.js';
 import { launchRocket } from './world/room-update.js';
 import { printPage } from './world/props/printer.js';
+import { lostObj, syncDevBoxes } from './world/props/dev-servers.js';
 import { shredAction } from './world/props/shredder.js';
 import { clearRun, onTest } from './life/tests.js';
 import { onTurnDone } from './life/your-turn.js';
@@ -36,6 +37,7 @@ let seated = false;
 let limits = [];
 let boardRows = [];
 let problem = () => {};
+let onMachine = null;
 let stopped = false;
 
 /** What upstream's page markup gives the kept modules: the stage, the place card, two controls. */
@@ -76,19 +78,27 @@ function applyColors(colors, dark) {
 const teamOf = (tag) => tag.key.split('|').slice(0, -3).join('|');
 
 /** A team's chip opens that team's board in Paseo: a button, by pointer and by keyboard. */
+/** A label of the scene that opens something: a button for the keyboard too (upstream's own click stays). */
+function asButton(chip, open) {
+  chip.setAttribute('role', 'button');
+  chip.tabIndex = 0;
+  chip.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    if (!event.repeat) open();
+  });
+}
 function makeTeamChipsButtons() {
   for (const tag of live.teamTags || []) {
-    const chip = tag.o.element;
-    chip.setAttribute('role', 'button');
-    chip.tabIndex = 0;
     const open = () => { const team = teamOf(tag); if (team) host.board(team); };
-    chip.addEventListener('click', open);
-    chip.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      if (!event.repeat) open();
-    });
+    tag.o.element.addEventListener('click', open);
+    asButton(tag.o.element, open);
   }
+}
+/** The server room's chip, the racks, the wall screen and the dev boxes open Paseo's panel: no reading, no panel. */
+function showMachine(on) {
+  host.machine = on && onMachine ? () => onMachine() : null;
+  document.querySelector('.zone[data-place="server"]')?.toggleAttribute('hidden', !host.machine);
 }
 
 /** What the place cards and the wall screen count an event as. */
@@ -157,7 +167,8 @@ const api = {
     host.night = options.dark === true;
     host.select = (id) => options.onSelect?.(id);
     host.board = (project) => options.onBoard?.(typeof project === 'string' ? project : null);
-    host.machine = typeof options.onMachine === 'function' ? () => options.onMachine() : null;
+    onMachine = typeof options.onMachine === 'function' ? options.onMachine : null;
+    host.machine = null;
     host.toast = (text) => options.onToast?.(text);
     host.limits = () => limits;
     host.boardRows = () => boardRows;
@@ -187,8 +198,9 @@ const api = {
     if (PLACES?.board) PLACES.board.open = () => host.board();
     // (upstream marks the lounge with its sparkle; the cup that marks who rests there says what the place is for)
     for (const place of Object.values(PLACES || {})) if (place.icon === 'sparkle') place.el?.querySelector('.z-ico')?.replaceChildren(icon('coffee'));
-    // (the server room's chip opens Paseo's machine panel: no panel, no chip)
-    if (!host.machine) document.querySelector('.zone[data-place="server"]')?.setAttribute('hidden', '');
+    showMachine(false);
+    // (the tag over the boxes left behind opens the panel; upstream listens for its click already)
+    if (lostObj) asButton(lostObj.element, () => host.machine?.());
     renderer.domElement.addEventListener('webglcontextlost', () => { if (!stopped) problem('the graphics context was lost'); });
     renderer.domElement.setAttribute('aria-hidden', 'true');
     let reported = false;
@@ -242,7 +254,12 @@ const api = {
   /** The whiteboard's rows: [{ id, name, color, text, state: 'doing' | 'wait' | 'done' }]. */
   setBoardRows(rows) { boardRows = Array.isArray(rows) ? rows : []; state.boardDirty = true; },
   /** The host's readings, for the server racks and the wall screen; null when unknown. */
-  setMachine(snapshot) { setMacSnap(snapshot || null); },
+  setMachine(snapshot) {
+    if (!started) return;
+    setMacSnap(snapshot || null);
+    showMachine(!!snapshot);
+    syncDevBoxes(snapshot || null);
+  },
   /** Usage windows of the accounts in use: [{ key, pct, resetsAt }]. */
   setLimits(list) { limits = Array.isArray(list) ? list : []; },
 };

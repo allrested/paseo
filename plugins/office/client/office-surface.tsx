@@ -14,6 +14,7 @@ import {
   type PluginScreenProps,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
+import type { Machine } from "../shared/contracts.js";
 import { officeDeviceSettings } from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
 import { AgentCard } from "./agent-card.js";
@@ -22,6 +23,8 @@ import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { HostSwitches } from "./host-switches.js";
 import { LabeledSwitch } from "./labeled-switch.js";
+import { MachineCard } from "./machine-card.js";
+import { hostNote } from "./machine-text.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
@@ -35,6 +38,7 @@ import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
+import { useMachine } from "./use-machine.js";
 import { useOffice, type OfficeState } from "./use-office.js";
 import { WorldView } from "./world/world-view.js";
 
@@ -398,6 +402,8 @@ interface SurfaceBodyProps {
   onSelectAgent(agentId: string | null): void;
   onOpenSession: ((agentId: string) => void) | undefined;
   onOpenBoard(roomId: string): void;
+  machine: Machine | null;
+  onOpenMachine(): void;
   onSceneProblem(message: string): void;
 }
 
@@ -417,6 +423,8 @@ function SurfaceBody({
   onSelectAgent,
   onOpenSession,
   onOpenBoard,
+  machine,
+  onOpenMachine,
   onSceneProblem,
 }: SurfaceBodyProps) {
   if (office.subscription.status === "error") {
@@ -461,6 +469,8 @@ function SurfaceBody({
         selectedAgentId={selectedAgentId}
         onSelectAgent={onSelectAgent}
         onSelectBoard={onOpenBoard}
+        machine={machine}
+        onOpenMachine={onOpenMachine}
         onProblem={onSceneProblem}
       />
     );
@@ -510,6 +520,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const office = useOffice();
   const actions = useAgentActions();
   const boardActions = useBoardActions();
+  const { machine, cleanUp } = useMachine();
+  const [machineOpen, setMachineOpen] = useState(false);
+  const openMachine = useCallback(() => setMachineOpen(true), []);
+  const closeMachine = useCallback(() => setMachineOpen(false), []);
   const threeD = useThreeD(layout.platform, office.state.render?.available === true);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
@@ -554,6 +568,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   useEffect(() => {
     if (kept !== selectedId) setSelectedId(kept);
   }, [kept, selectedId]);
+  const hostEntry = useMemo(
+    () => (machine === null ? null : { note: hostNote(machine), onOpen: openMachine }),
+    [machine, openMachine],
+  );
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
@@ -575,7 +593,12 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           ) : null}
         </HostSwitches>
         {live ? (
-          <AttentionStrip entries={model.attention} styles={styles} onSelect={selectFromStrip} />
+          <AttentionStrip
+            entries={model.attention}
+            host={hostEntry}
+            styles={styles}
+            onSelect={selectFromStrip}
+          />
         ) : null}
       </View>
       {view === "fallback" && sceneProblem !== null ? (
@@ -597,6 +620,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onSelectAgent={setSelectedId}
         onOpenSession={navigation ? openSession : undefined}
         onOpenBoard={board.open}
+        machine={machine}
+        onOpenMachine={openMachine}
         onSceneProblem={setSceneProblem}
       />
       <AgentCard
@@ -606,6 +631,13 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         navigation={navigation}
         styles={styles}
         onClose={closeCard}
+      />
+      <MachineCard
+        machine={live ? machine : null}
+        open={machineOpen}
+        cleanUp={cleanUp}
+        styles={styles}
+        onClose={closeMachine}
       />
       <BoardSheet
         room={board.room}
