@@ -2041,6 +2041,7 @@ export const es: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Rebobinar a este mensaje",

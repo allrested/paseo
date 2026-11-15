@@ -2040,6 +2040,7 @@ export const fr: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Revenir à ce message",

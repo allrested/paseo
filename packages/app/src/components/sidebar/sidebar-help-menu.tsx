@@ -25,6 +25,7 @@ import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
 import { resolveAppVersion } from "@/utils/app-version";
 import { openChangelog } from "@/changelog";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { getBrand, PRODUCT_NAME } from "@/brand/brand";
 
 const DISCORD_URL = "https://discord.gg/jz8T2uahpH";
 const GITHUB_ISSUE_URL = "https://github.com/getpaseo/paseo/issues/new";
@@ -165,6 +166,12 @@ export function SidebarHelpMenuItems() {
         >
           {t("sidebar.help.appName")}
         </DropdownMenuHint>
+        {getBrand()?.name ? (
+          // Under a host's own name, the menu still says what the software is.
+          <DropdownMenuHint style={styles.versionHint} testID="sidebar-help-based-on">
+            {t("brand.basedOn", { product: PRODUCT_NAME })}
+          </DropdownMenuHint>
+        ) : null}
         {hosts.map((host) => (
           <HostVersionHint key={host.serverId} host={host} />
         ))}

@@ -17,6 +17,7 @@ import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { pluginDisplayName, usePluginList } from "@/plugins/plugin-list";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
+import { branded } from "@/brand/brand";
 import { CLIENT_SLASH_COMMANDS, type ClientSlashCommand } from "@/client-slash-commands";
 import type { PluginClientSlashCommand } from "@/plugins/client-slash-commands";
 import { mergeSlashCommandSources } from "@/plugins/client-slash-commands/model";
@@ -197,7 +198,7 @@ function mapCommandToOption(
       command: entry.command,
       icon: CLIENT_COMMAND_ICONS[entry.command.kind],
       description: context.t(entry.command.descriptionKey),
-      tag: "Paseo",
+      tag: branded("Paseo"),
     };
   }
   if (entry.source === "plugin") {

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { expandTilde } from "../utils/path.js";
 
 import type { PaseoDaemonConfig } from "./bootstrap.js";
+import type { BrandInput } from "./brand.js";
 import {
   loadPersistedConfig,
   LogFormatSchema,
@@ -390,6 +391,26 @@ function resolveServiceProxyConfig(
 interface ResolvedWebUi {
   enabled: boolean;
   distDir: string | null;
+  /** Present when the environment sets a brand; `loadBrand` checks it. */
+  brand?: BrandInput;
+}
+
+/** The brand settings as given, with their paths resolved against the Paseo home. */
+function resolveBrandInput(paseoHome: string, env: NodeJS.ProcessEnv): BrandInput | undefined {
+  const file = (raw: string | undefined) => {
+    const trimmed = raw?.trim();
+    if (!trimmed) return undefined;
+    const expanded = expandTilde(trimmed);
+    return path.resolve(path.isAbsolute(expanded) ? expanded : paseoHome, expanded);
+  };
+  const brand: BrandInput = {
+    name: env.PASEO_BRAND_NAME,
+    logo: file(env.PASEO_BRAND_LOGO),
+    icon: file(env.PASEO_BRAND_ICON),
+    color: env.PASEO_BRAND_COLOR,
+  };
+  const set = Object.values(brand).some((value) => value !== undefined && value.trim() !== "");
+  return set ? brand : undefined;
 }
 
 function resolveWebUiConfig(
@@ -408,9 +429,11 @@ function resolveWebUiConfig(
   const distDir = trimmedDistDir
     ? path.resolve(path.isAbsolute(trimmedDistDir) ? trimmedDistDir : paseoHome, trimmedDistDir)
     : BUNDLED_WEB_UI_DIST_DIR;
+  const brand = resolveBrandInput(paseoHome, env);
   return {
     enabled,
     distDir,
+    ...(brand ? { brand } : {}),
   };
 }
 

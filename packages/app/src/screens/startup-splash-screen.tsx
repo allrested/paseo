@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { BookOpen, Copy, RotateCw, TriangleAlert } from "lucide-react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { getBrand } from "@/brand/brand";
 import { PaseoLogo } from "@/components/icons/paseo-logo";
 import { Button } from "@/components/ui/button";
 import { getDesktopDaemonLogs, type DesktopDaemonLogs } from "@/desktop/daemon/desktop-daemon";
@@ -81,6 +82,11 @@ function ensureWebSplashShimmerKeyframes() {
 
 function LogoShimmer() {
   const { theme } = useUnistyles();
+
+  // The shimmer is cut to the shape of Paseo's mark: a host's own logo is shown as it is.
+  if (getBrand()?.logoUrl) {
+    return <PaseoLogo size={LOGO_SIZE} />;
+  }
 
   if (isWeb) {
     return <WebLogoShimmer color={theme.colors.foreground} />;
