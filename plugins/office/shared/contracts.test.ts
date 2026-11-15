@@ -119,7 +119,7 @@ test("a sheet's events parse, and a tile over 1024 pixels is refused", () => {
         x: 10,
         y: 20,
         phase: 0,
-        joining: false,
+        walk: null,
         fresh: true,
       },
     ],
@@ -137,6 +137,34 @@ test("a sheet's events parse, and a tile over 1024 pixels is refused", () => {
   expect(event.safeParse({ type: "sheet", sheet }).success).toBe(true);
   expect(event.safeParse({ type: "sheet", sheet: { ...sheet, tiles: 0 } }).success).toBe(false);
   expect(event.safeParse({ type: "problem", message: "no browser" }).success).toBe(true);
+});
+
+test("a robot's walk has at least one leg, and each leg ends within the walk's time", () => {
+  const leg = { x: 10, y: 20, until: 1, key: "walk|idle|#fff|off|#aaa|2", inside: true };
+  const walk = { id: 1, ms: 1500, x: 10, y: 90, legs: [leg] };
+  const withWalk = (value: unknown) =>
+    sheetSubscription.event.safeParse({
+      type: "sheet",
+      sheet: {
+        version: 1,
+        tiles: 1,
+        width: 780,
+        height: 1814,
+        ratio: 2,
+        scale: 47.4,
+        frame: { width: 155, height: 204, chest: { x: 84, y: 107.6 } },
+        robots: [{ agentId: "a", key: "k", x: 10, y: 20, phase: 0, walk: value, fresh: false }],
+        rooms: [],
+        notes: [],
+        mentions: [],
+      },
+    }).success;
+
+  expect(withWalk(walk)).toBe(true);
+  expect(withWalk({ ...walk, legs: [] })).toBe(false);
+  expect(withWalk({ ...walk, legs: [{ ...leg, until: 0 }] })).toBe(false);
+  expect(withWalk({ ...walk, legs: [{ ...leg, until: 1.5 }] })).toBe(false);
+  expect(withWalk(undefined)).toBe(false);
 });
 
 test("a sheet viewer's size is bounded", () => {
