@@ -1,5 +1,11 @@
 // Text for the tasks screen: sentence case, no trailing period.
-import { SOURCE_NAME, type Source, type TaskComment, type TaskRow } from "../shared/contracts.js";
+import {
+  SOURCE_NAME,
+  requestName,
+  type Source,
+  type TaskComment,
+  type TaskRow,
+} from "../shared/contracts.js";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -35,9 +41,17 @@ export function rowLabel(row: Pick<TaskRow, "key" | "title">, hasWorkspace = fal
   return `${row.key} ${row.title}.${hasWorkspace ? " Has a workspace." : ""} Open the task`;
 }
 
-/** What a task is, above its title: "Jira issue", "GitLab merge request". */
+/** What a task is, above its title: "Jira issue", "GitLab merge request", "GitHub pull request". */
 export function kindName(task: Pick<TaskRow, "source" | "kind">): string {
-  return `${SOURCE_NAME[task.source]} ${task.kind === "mr" ? "merge request" : "issue"}`;
+  return `${SOURCE_NAME[task.source]} ${task.kind === "mr" ? requestName(task.source) : "issue"}`;
+}
+
+/** The list's second section, named for what it holds: GitLab's requests, GitHub's, or both. */
+export function requestsTitle(rows: ReadonlyArray<Pick<TaskRow, "source">>): string {
+  const pulls = rows.some((row) => row.source === "github");
+  const merges = rows.some((row) => row.source !== "github");
+  if (pulls && merges) return "Pull and merge requests";
+  return pulls ? "Pull requests" : "Merge requests";
 }
 
 export function commentMeta(comment: Pick<TaskComment, "author" | "at">, now: number): string {
@@ -55,6 +69,6 @@ export function earlierComments(count: number, source: Source): string {
 /** What the list says when it holds nothing. */
 export function emptyList(query: string): string {
   const text = query.trim();
-  if (text === "") return "No open issues or merge requests are assigned to you";
+  if (text === "") return "No open issues, merge requests or pull requests are assigned to you";
   return `Nothing matches "${text}"`;
 }

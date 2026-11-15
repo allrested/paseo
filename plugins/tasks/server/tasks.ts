@@ -13,6 +13,7 @@ import {
 } from "../shared/contracts.js";
 import { taskBranch } from "../shared/branch.js";
 import { fillPrompt } from "../shared/prompt.js";
+import { createGithub } from "./github.js";
 import { createGitlab } from "./gitlab.js";
 import { TrackerError, errorMessage, type Issue, type IssueDetail, type Tracker } from "./issue.js";
 import { createJira } from "./jira.js";
@@ -55,6 +56,7 @@ const NOT_CONNECTED =
 const NEEDS: Record<Source, string> = {
   jira: "Save the Jira site, email and API token first.",
   gitlab: "Save the GitLab address and access token first.",
+  github: "Save the GitHub access token first.",
 };
 /** What a task's page shows of a long description or comment; the rest is on the tracker. */
 const TEXT_MAX = 20_000;
@@ -143,7 +145,13 @@ export function createTasks(deps: TasksDeps): Tasks {
   /** The trackers that have everything they need to sign in. */
   async function trackers(): Promise<Tracker[]> {
     const [saved, tokens] = await Promise.all([deps.connections(), deps.tokens.read()]);
-    const key = JSON.stringify([saved.jiraSite, saved.jiraEmail, saved.gitlabUrl, tokens]);
+    const key = JSON.stringify([
+      saved.jiraSite,
+      saved.jiraEmail,
+      saved.gitlabUrl,
+      saved.githubUrl,
+      tokens,
+    ]);
     if (kept?.key === key) return kept.list;
     const list: Tracker[] = [];
     if (saved.jiraSite && saved.jiraEmail && tokens.jira) {
@@ -153,6 +161,10 @@ export function createTasks(deps: TasksDeps): Tasks {
     }
     if (saved.gitlabUrl && tokens.gitlab) {
       list.push(createGitlab({ url: saved.gitlabUrl, token: tokens.gitlab, request }));
+    }
+    // An empty address is github.com, so the token alone connects it.
+    if (tokens.github) {
+      list.push(createGithub({ url: saved.githubUrl, token: tokens.github, request }));
     }
     kept = { key, list };
     return list;
@@ -233,6 +245,7 @@ export function createTasks(deps: TasksDeps): Tasks {
     return {
       jira: { hasToken: Boolean(tokens.jira) },
       gitlab: { hasToken: Boolean(tokens.gitlab) },
+      github: { hasToken: Boolean(tokens.github) },
     };
   }
 

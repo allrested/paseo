@@ -6,6 +6,7 @@ import {
   earlierComments,
   emptyList,
   kindName,
+  requestsTitle,
   rowLabel,
   rowMeta,
 } from "./format.js";
@@ -51,6 +52,15 @@ test("a row is read aloud with what pressing it does", () => {
 test("a task is named by its tracker and kind", () => {
   expect(kindName(ROW)).toBe("GitLab merge request");
   expect(kindName({ source: "jira", kind: "issue" })).toBe("Jira issue");
+  expect(kindName({ source: "github", kind: "mr" })).toBe("GitHub pull request");
+});
+
+test("the requests section is named for what it holds", () => {
+  const gitlab = { source: "gitlab" } as const;
+  const github = { source: "github" } as const;
+  expect(requestsTitle([gitlab])).toBe("Merge requests");
+  expect(requestsTitle([github, github])).toBe("Pull requests");
+  expect(requestsTitle([gitlab, github])).toBe("Pull and merge requests");
 });
 
 test("a comment says who wrote it, and when if the tracker said", () => {
@@ -66,6 +76,8 @@ test("the earlier comments are counted in a sentence", () => {
 });
 
 test("an empty list says why it is empty", () => {
-  expect(emptyList("  ")).toBe("No open issues or merge requests are assigned to you");
+  expect(emptyList("  ")).toBe(
+    "No open issues, merge requests or pull requests are assigned to you",
+  );
   expect(emptyList(" webhook ")).toBe('Nothing matches "webhook"');
 });
