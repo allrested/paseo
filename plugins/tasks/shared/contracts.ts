@@ -7,10 +7,19 @@ import {
 import { z } from "zod";
 import { DEFAULT_PROMPT } from "./prompt.js";
 
-export const SourceSchema = z.enum(["jira", "gitlab"]);
+export const SourceSchema = z.enum(["jira", "gitlab", "github"]);
 export type Source = z.infer<typeof SourceSchema>;
 export const SOURCES = SourceSchema.options;
-export const SOURCE_NAME: Record<Source, string> = { jira: "Jira", gitlab: "GitLab" };
+export const SOURCE_NAME: Record<Source, string> = {
+  jira: "Jira",
+  gitlab: "GitLab",
+  github: "GitHub",
+};
+
+/** What GitLab calls a merge request, GitHub calls a pull request. */
+export function requestName(source: Source): string {
+  return source === "github" ? "pull request" : "merge request";
+}
 
 /** The settings screen's id, for `openSettings`. */
 export const CONNECTIONS_SCREEN = "connections";
@@ -37,6 +46,8 @@ export const connections = defineSettings({
     jiraSite: z.string().trim().max(200).default(""),
     jiraEmail: z.string().trim().max(200).default(""),
     gitlabUrl: z.string().trim().max(200).default(""),
+    /** Empty for github.com: a token alone connects it. */
+    githubUrl: z.string().trim().max(200).default(""),
     /** Filled by `fillPrompt`; an empty one is the default. */
     promptTemplate: z.string().max(PROMPT_MAX).default(DEFAULT_PROMPT),
   }),
@@ -63,7 +74,10 @@ const TaskId = z.string().min(1).max(200);
 
 /** One task on the tasks screen's list. */
 export const TaskRowSchema = z.object({
-  /** Unique across trackers: `jira:BWLT-12`, `gitlab:issue:42:7`, `gitlab:mr:42:12`. */
+  /**
+   * Unique across trackers: `jira:BWLT-12`, `gitlab:issue:42:7`, `gitlab:mr:42:12`,
+   * `github:issue:shop/web:7`. A GitHub pull request is kind `mr`: `github:mr:shop/web:12`.
+   */
   id: TaskId,
   source: SourceSchema,
   kind: TaskKindSchema,
@@ -197,7 +211,11 @@ export const searchAttachmentsRpc = defineRpc({
 });
 
 const TokenStateSchema = z.object({ hasToken: z.boolean() });
-export const TokensSchema = z.object({ jira: TokenStateSchema, gitlab: TokenStateSchema });
+export const TokensSchema = z.object({
+  jira: TokenStateSchema,
+  gitlab: TokenStateSchema,
+  github: TokenStateSchema,
+});
 export type Tokens = z.infer<typeof TokensSchema>;
 
 /** Which trackers have a token saved. The tokens themselves have no RPC that returns them. */

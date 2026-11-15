@@ -4,7 +4,7 @@ import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
 import type { LinkedWorkspace, TaskRow } from "../shared/contracts.js";
 import { Button } from "./button.js";
 import { useDebounced, useNow } from "./device.js";
-import { emptyList, rowLabel, rowMeta } from "./format.js";
+import { emptyList, requestsTitle, rowLabel, rowMeta } from "./format.js";
 import { useLinkedWorkspaces, workspacesOf } from "./linked.js";
 import type { TasksStyles } from "./tasks-styles.js";
 import { useTaskList, type TaskListState } from "./use-tasks.js";
@@ -120,7 +120,7 @@ function Body({ list, query, onConnect, ...section }: BodyProps) {
     return (
       <View style={styles.block}>
         <Text style={styles.muted}>No tracker is connected</Text>
-        <Button label="Connect Jira or GitLab" onPress={onConnect} styles={styles} />
+        <Button label="Connect Jira, GitLab or GitHub" onPress={onConnect} styles={styles} />
       </View>
     );
   }
@@ -140,7 +140,7 @@ function Body({ list, query, onConnect, ...section }: BodyProps) {
         <Text style={styles.muted}>{emptyList(query)}</Text>
       ) : null}
       <Section title="Issues" rows={value.issues} {...section} />
-      <Section title="Merge requests" rows={value.mergeRequests} {...section} />
+      <Section title={requestsTitle(value.mergeRequests)} rows={value.mergeRequests} {...section} />
     </>
   );
 }

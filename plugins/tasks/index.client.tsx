@@ -35,7 +35,16 @@ export default function contribute(client: PluginClientContext) {
       id: "open-tasks",
       title: "Open tasks",
       icon: ICON,
-      keywords: ["jira", "gitlab", "issue", "ticket", "merge request", "review"],
+      keywords: [
+        "jira",
+        "gitlab",
+        "github",
+        "issue",
+        "ticket",
+        "merge request",
+        "pull request",
+        "review",
+      ],
       context: "global",
       onSelect({ openScreen }) {
         openScreen({ screenId: TASKS_SCREEN });
@@ -51,7 +60,7 @@ export default function contribute(client: PluginClientContext) {
       id: "open-connections",
       title: "Task connections",
       icon: ICON,
-      keywords: ["jira", "gitlab", "issue", "ticket", "tracker"],
+      keywords: ["jira", "gitlab", "github", "issue", "ticket", "tracker"],
       context: "global",
       onSelect({ openSettings }) {
         openSettings(CONNECTIONS_SCREEN);

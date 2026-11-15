@@ -11,6 +11,7 @@ import {
   type StatusChange,
   type Tracker,
 } from "./issue.js";
+import { searchWords } from "./text.js";
 
 const NAME = "Jira";
 const FIELDS = "summary,status,description,issuetype,priority,updated";
@@ -69,17 +70,6 @@ export interface JiraOptions {
   email: string;
   token: string;
   request: typeof fetch;
-}
-
-/**
- * The words of a query for JQL's text match. Its operators (quotes, `-`, `~`, `*` and the rest)
- * are dropped, so what the user typed cannot change the query.
- */
-function searchWords(query: string): string {
-  return query
-    .replace(/[^\p{L}\p{N}_]+/gu, " ")
-    .trim()
-    .replace(/\s+/g, " ");
 }
 
 /** Jira's reasons for refusing a change: its messages, then what it says about each field. */

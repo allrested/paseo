@@ -399,21 +399,23 @@ the feed counts as seen when it opens and when it is pressed. An entry that come
 is up stays in the count until then.
 
 The `tasks` built-in lists the open tasks of whoever connected a tracker: Jira Cloud issues
-assigned to the token's user and not done, open GitLab issues assigned to them, and open GitLab
-merge requests that ask for their review or are assigned to them. A Tasks item in the sidebar
+assigned to the token's user and not done, open GitLab and GitHub issues assigned to them, and
+open GitLab merge requests and GitHub pull requests that ask for their review or are assigned to
+them. A Tasks item in the sidebar
 opens the list, and so does "Open tasks" in the Command Center. A row opens the task's page on the
 same screen: its facts, its description, its newest 20 comments, a box that posts a comment, and
 the statuses it can move to. For a Jira issue those are the transitions its workflow offers from
 where it stands, named by the status they lead to. A transition that needs a field (a resolution,
-say) is refused, and the page shows Jira's reason under the button. A GitLab issue closes and
-reopens. A merge request is read and commented on; it is merged or closed on GitLab. GitLab writes
-Markdown and the page renders it. Jira's rich text is flattened to plain text
+say) is refused, and the page shows Jira's reason under the button. A GitLab or GitHub issue
+closes and reopens. A merge request or pull request is read and commented on; it is merged or
+closed on its tracker, and a pull request's review threads stay in the workspace's pull request
+pane. GitLab and GitHub write Markdown and the page renders it. Jira's rich text is flattened to plain text
 (`plugins/tasks/server/adf.ts`), a comment goes to Jira as plain paragraphs, and a description
 over 20,000 characters is cut.
 
 A Task field on the New workspace screen names the new branch after the pick
-(`BWLT-12-add-the-webhook`, or GitLab's own form `7-rate-limit-the-login-form`) and leaves
-`tasks.id`, `tasks.key` and `tasks.url` in the workspace's metadata. "Use for the next
+(`BWLT-12-add-the-webhook`, or GitLab's and GitHub's own form `7-rate-limit-the-login-form`) and
+leaves `tasks.id`, `tasks.key` and `tasks.url` in the workspace's metadata. "Use for the next
 workspace" on an issue's page fills that field ahead of time. Once a task is picked, the composer
 on that screen has a Task prompt control. It puts the saved template, filled with the task, at
 the cursor and sends nothing. The template is on the connections screen and holds `{key}`,
@@ -441,8 +443,12 @@ settings: they are in `$PASEO_HOME/tasks/tokens.json`, mode 600, and the RPCs ab
 whether one is saved and replace or remove it. No RPC returns a token. Every comment and move is
 made as the token's user, for whoever uses the host. A GitLab token with `read_api` reads; a
 comment or a close needs `api`, and without it the page says the tracker did not allow the
-change. A tracker's address must be https (http on loopback only), and requests follow no
-redirect, because GitLab's `PRIVATE-TOKEN` header would go with it. When one tracker fails and
+change. GitHub needs no address: a token alone connects github.com, and the address field is for
+a GitHub Enterprise server, whose API is read under `/api/v3`. A classic GitHub token needs
+`repo`; a fine-grained one needs Issues and Pull requests, and lists only the repositories it
+was given. GitHub's lists come from its issue search, which allows 30 requests a minute. A
+tracker's address must be https (http on loopback only), and requests follow no redirect, because
+the token's header would go with it. When one tracker fails and
 the other answers, the list shows the other's tasks under a line that names the failure; "Test" on
 the connections screen shows it too.
 

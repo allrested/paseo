@@ -15,7 +15,7 @@ test("with no tracker connected the list offers to connect one", () => {
     {
       kind: "setup",
       id: "tasks:setup",
-      label: "Connect Jira or GitLab",
+      label: "Connect Jira, GitLab or GitHub",
       description: "Opens the task connections",
     },
   ]);

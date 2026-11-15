@@ -147,7 +147,7 @@ test("with no tracker connected the one row opens the connections and changes no
   found = { configured: false, tasks: [] };
   await mount();
   const items = await shown.search({ query: "" });
-  expect(items.map((item) => item.label)).toEqual(["Connect Jira or GitLab"]);
+  expect(items.map((item) => item.label)).toEqual(["Connect Jira, GitLab or GitHub"]);
   await shown.onSelect({ item: items[0] });
   expect(opened).toEqual(["connections"]);
   expect(commands).toEqual([]);
