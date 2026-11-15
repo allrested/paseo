@@ -14,7 +14,7 @@ import * as whiteboard from './ui/whiteboard.js';
 import * as backdrops from './world/backdrops/index.js';
 import * as cameraBar from './ui/camera-bar.js';
 import { ACT, bubbleText } from './ui/event-text.js';
-import { icon } from './ui/icons.js';
+import { TYPE_ICON, icon } from './ui/icons.js';
 import { closeSession, openSession } from './ui/session-drawer.js';
 import { setMacSnap } from './ui/mac-drawer.js';
 import { PLACES } from './interact/place-chips.js';
@@ -186,6 +186,8 @@ const api = {
     // Upstream's streamer mode says "a file" and "a command" where it would show a name. Paseo sends no names, so it is
     // always on (set here, after ui/event-text.js read upstream's own setting).
     state.streamer = true;
+    // (upstream gives a compaction its sparkle; what the person carries to the shredder is paper)
+    TYPE_ICON.compact = 'file';
     cameraBar.setup();
     // Escape closes the place card and gives the keyboard back to the chip that opened it.
     document.addEventListener('keydown', (event) => {
@@ -222,8 +224,9 @@ const api = {
   },
   /**
    * Everyone in the office now, in upstream's session shape: { id, name, title, dir, git: { repo },
-   * status: 'work' | 'wait' | 'rest', agent, lastPrompt, last, stuck, subs }. The first list is
-   * seated at once; later a newcomer walks in from the lift and someone who is gone walks out.
+   * status: 'work' | 'wait' | 'rest', agent, lastPrompt, last, stuck, subs, usage: { ctx, ctxMax } }.
+   * The first list is seated at once; later a newcomer walks in from the lift and someone who is
+   * gone walks out. `usage` is the context window in tokens: the paper on the desk and in its bin.
    */
   setSessions(list) {
     if (!started) return;

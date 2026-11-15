@@ -60,6 +60,9 @@ export interface FloorPlan {
   sofa: Point | null;
   plant: Point;
   coffee: Point;
+  /** The janitor's cart, and where the janitor stands beside it. */
+  cart: Point;
+  janitor: Point;
   rocket: Point;
   /** The lounge's top: the floor below the last desks. */
   loungeY: number;
@@ -81,6 +84,7 @@ export const SIZE = {
   sofa: { w: 30, h: 14 },
   coffee: { w: 12, h: 18 },
   plant: { w: 10, h: 16 },
+  cart: { w: 12, h: 16 },
   rocket: { w: 14, h: 26 },
   bubble: { w: 12, h: 14 },
 } as const;
@@ -192,6 +196,20 @@ export function planFloor(teams: readonly PlanTeam[], widthPx: number): FloorPla
   const coffee = { x: plant.x + SIZE.plant.w + 4, y: ground - SIZE.coffee.h };
   const rocket = { x: width - SIDE - SIZE.rocket.w - 4, y: ground - SIZE.rocket.h };
   const loungeSpotY = ground + 4 - SIZE.person.h;
+  // Left to right: the coffee machine and who drinks there, the cart and the janitor, who waits
+  // at the pad, the rocket. A narrow room has one spot at the machine, and at the pad as many
+  // as fit.
+  const coffeeSpots = (width >= 180 ? [0, 1] : [0]).map(
+    (index) => coffee.x + SIZE.coffee.w + 3 + index * SPOT_STEP,
+  );
+  const cart = {
+    x: (coffeeSpots.at(-1) ?? coffee.x) + SIZE.person.w + 3,
+    y: ground - SIZE.cart.h,
+  };
+  const janitor = { x: cart.x + SIZE.cart.w - 1, y: loungeSpotY };
+  const padSpots = [0, 1]
+    .map((index) => rocket.x - 16 - index * SPOT_STEP)
+    .filter((x, index) => index === 0 || x > janitor.x + SIZE.person.w);
 
   return {
     scale,
@@ -205,6 +223,8 @@ export function planFloor(teams: readonly PlanTeam[], widthPx: number): FloorPla
     sofa,
     plant,
     coffee,
+    cart,
+    janitor,
     rocket,
     loungeY,
     plates,
@@ -217,11 +237,8 @@ export function planFloor(teams: readonly PlanTeam[], widthPx: number): FloorPla
       },
       board: { y: wallY, xs: [2, 16, 30].map((offset) => board.x + offset) },
       racks: { y: wallY, xs: racks.map((rack) => rack.x + 1) },
-      coffee: {
-        y: loungeSpotY,
-        xs: [0, 1].map((index) => coffee.x + SIZE.coffee.w + 3 + index * SPOT_STEP),
-      },
-      pad: { y: loungeSpotY, xs: [0, 1].map((index) => rocket.x - 16 - index * SPOT_STEP) },
+      coffee: { y: loungeSpotY, xs: coffeeSpots },
+      pad: { y: loungeSpotY, xs: padSpots },
     },
   };
 }

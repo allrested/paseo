@@ -32,6 +32,7 @@ import {
   boardRoom,
   boardText,
   floorNote,
+  fullness,
   isDarkTheme,
   worldChanges,
   worldPeople,
@@ -40,11 +41,16 @@ import {
 } from "../world/adapter.js";
 import {
   NO_BREAKS,
+  NO_VISITS,
   breaksAfter,
   castOf,
   nextBreakEnd,
+  trayOf,
+  visitsAfter,
+  visitsSwept,
   type Breaks,
   type CastMember,
+  type Visits,
 } from "./actors.js";
 import {
   SHIRTS,
@@ -87,6 +93,9 @@ export interface PixelOfficeProps {
   /** The host's readings; null when the host has none, and then the racks are furniture. */
   machine: Machine | null;
   onOpenMachine(): void;
+  /** How full the contexts are, in a few words; null in an office without agents. */
+  janitor: HostNote | null;
+  onOpenJanitor(): void;
 }
 
 const NATIVE = Platform.OS !== "web";
@@ -96,6 +105,8 @@ const NATIVE = Platform.OS !== "web";
  */
 const WALK_SPEED = 64;
 const FLIGHT_MS = 2600;
+/** How long the janitor sweeps at a desk before its tray is empty. */
+const SWEEP_MS = 2400;
 /** Legs step at every frame; a screen scrolls at every second one, the racks at every fourth. */
 const FRAME_MS = 200;
 const FRAMES = createTicker(FRAME_MS);
@@ -129,17 +140,37 @@ function useReduceMotion(): boolean {
   return reduce;
 }
 
-/** Who is on a coffee break: a turn that ended starts one, and its time or new work ends it. */
-function useBreaks(people: WorldPeople, still: boolean): Breaks {
+interface FloorLife {
+  breaks: Breaks;
+  /** The desks the janitor is due at. */
+  visits: Visits;
+  /** The janitor swept at this agent's desk. */
+  swept(agentId: string): void;
+}
+
+/**
+ * What the floor remembers. Who is on a coffee break: a turn that ended starts one, and its time
+ * or new work ends it. And the janitor's round: a context that emptied calls the janitor to
+ * that desk.
+ */
+function useFloorLife(people: WorldPeople, still: boolean): FloorLife {
   const [breaks, setBreaks] = useState<Breaks>(NO_BREAKS);
+  const [visits, setVisits] = useState<Visits>(NO_VISITS);
   const memory = useRef<WorldMemory | null>(null);
   const sessions = useRef(people.sessions);
   useEffect(() => {
     sessions.current = people.sessions;
-    const changes = worldChanges(memory.current, people);
+    const known = memory.current;
+    const changes = worldChanges(known, people);
     memory.current = changes.memory;
+    const seated = new Set(people.sessions.map((session) => session.id));
     setBreaks((before) => breaksAfter(before, changes.events, people.sessions, Date.now()));
+    setVisits((before) => visitsAfter(before, changes.events, known, seated));
   }, [people]);
+  const swept = useCallback(
+    (agentId: string) => setVisits((before) => visitsSwept(before, agentId)),
+    [],
+  );
   useEffect(() => {
     const end = nextBreakEnd(breaks);
     if (end === null) return undefined;
@@ -149,8 +180,9 @@ function useBreaks(people: WorldPeople, still: boolean): Breaks {
     );
     return () => clearTimeout(timer);
   }, [breaks]);
-  // With motion reduced nobody walks, so nobody is shown away for a break either.
-  return still ? NO_BREAKS : breaks;
+  // With motion reduced nobody walks: nobody is shown away for a break, and a tray is empty
+  // without a visit.
+  return still ? { breaks: NO_BREAKS, visits: NO_VISITS, swept } : { breaks, visits, swept };
 }
 
 interface PixelStyles {
@@ -177,6 +209,8 @@ interface PixelStyles {
   personHit: ViewStyle;
   bubbleAtDesk: ViewStyle;
   bubbleOverHead: ViewStyle;
+  /** The janitor and the broom beside them; taps go to the button at the cart. */
+  janitor: ViewStyle;
 }
 
 const TOUCH_TARGET = 44;
@@ -259,9 +293,11 @@ function pixelStyles(art: Art, plan: FloorPlan | null): PixelStyles {
     personAway: person,
     // Wider than the person: 12 by 16 art pixels are 24 by 32 on a phone, a touch target is 44.
     personHit: { position: "absolute", left: -10, right: -10, top: -8, bottom: -4 },
-    // Beside the screen, over the desk's right half: the screen stays readable.
+    // Beside the screen, over the desk's right half: the screen stays readable, and so does
+    // the tray under it.
     bubbleAtDesk: { ...bubble, left: 13 * scale, top: -17 * scale },
     bubbleOverHead: { ...bubble, left: 0, top: -SIZE.bubble.h * scale },
+    janitor: { ...person, width: (SIZE.person.w + 4) * scale, pointerEvents: "none" },
   };
 }
 
@@ -520,6 +556,9 @@ interface DeskViewProps {
   label: string;
   /** The agent has a port open: a server box stands on the desk. */
   serving: boolean;
+  /** The paper in the desk's tray, 0 to 3 levels, and the flag of a context that is nearly full. */
+  sheets: number;
+  flag: boolean;
   art: Art;
   scale: number;
   tagHeight: number;
@@ -534,6 +573,8 @@ const DeskView = memo(function DeskView({
   member,
   label,
   serving,
+  sheets,
+  flag,
   art,
   scale,
   tagHeight,
@@ -570,6 +611,7 @@ const DeskView = memo(function DeskView({
       <SpriteView sprite={art.desk} scale={scale} x={inset} y={0} />
       <SpriteView sprite={art.screen(picture)} scale={scale} x={inset + 9} y={1} />
       {serving ? <SpriteView sprite={art.server} scale={scale} x={inset + 1} y={3} /> : null}
+      <SpriteView sprite={art.tray(sheets, flag)} scale={scale} x={inset + 23} y={4} />
       <SpriteView sprite={art.chair} scale={scale} x={inset + 9} y={12} />
       <View style={styles.tag}>
         <View style={mark} />
@@ -760,6 +802,192 @@ const PersonView = memo(function PersonView({
   );
 });
 
+type JanitorMotion = { kind: "home" } | { kind: "sweeping" } | { kind: "walking"; up: boolean };
+
+const AT_HOME: JanitorMotion = { kind: "home" };
+const SWEEPING: JanitorMotion = { kind: "sweeping" };
+
+function janitorPose(motion: JanitorMotion, frame: number): Pose {
+  if (motion.kind === "home") return "front";
+  const step = frame % 2 === 0;
+  // The desk is up the room from its aisle: the janitor sweeps with the back to the viewer.
+  if (motion.kind === "sweeping" || motion.up) return step ? "backA" : "backB";
+  return step ? "frontA" : "frontB";
+}
+
+interface JanitorViewProps {
+  /** The desk the janitor is due at: whose it is and where to stand; null when no desk is. */
+  dueId: string | null;
+  dueX: number;
+  dueY: number;
+  homeX: number;
+  homeY: number;
+  laneX: number;
+  art: Art;
+  scale: number;
+  styles: PixelStyles;
+  onSwept(agentId: string): void;
+}
+
+/**
+ * The janitor: beside the cart until a desk is due, then on the way there, sweeping, and on to
+ * the next desk or back. A room that changed shape under a janitor who stays puts them there at
+ * once.
+ */
+const JanitorView = memo(function JanitorView({
+  dueId,
+  dueX,
+  dueY,
+  homeX,
+  homeY,
+  laneX,
+  art,
+  scale,
+  styles,
+  onSwept,
+}: JanitorViewProps) {
+  const goalX = dueId === null ? homeX : dueX;
+  const goalY = dueId === null ? homeY : dueY;
+  const position = useRef(new Animated.ValueXY({ x: goalX * scale, y: goalY * scale })).current;
+  const at = useRef<Point>({ x: goalX, y: goalY });
+  const [motion, setMotionState] = useState<JanitorMotion>(AT_HOME);
+  const motionNow = useRef(motion);
+  const setMotion = useCallback((next: JanitorMotion) => {
+    motionNow.current = next;
+    setMotionState(next);
+  }, []);
+  const walk = useRef(0);
+  const goal = dueId ?? "home";
+  const lastGoal = useRef(goal);
+
+  useEffect(() => {
+    const moved = lastGoal.current !== goal;
+    lastGoal.current = goal;
+    walk.current += 1;
+    const id = walk.current;
+    const end = { x: goalX, y: goalY };
+    let sweeping: ReturnType<typeof setTimeout> | null = null;
+    const arrive = () => {
+      at.current = end;
+      position.setValue({ x: goalX * scale, y: goalY * scale });
+      if (dueId === null) {
+        setMotion(AT_HOME);
+        return;
+      }
+      setMotion(SWEEPING);
+      sweeping = setTimeout(() => onSwept(dueId), SWEEP_MS);
+    };
+    if (moved) {
+      position.stopAnimation((value) => {
+        if (id !== walk.current) return;
+        const here =
+          motionNow.current.kind === "walking"
+            ? { x: Math.round(value.x / scale), y: Math.round(value.y / scale) }
+            : at.current;
+        position.setValue({ x: here.x * scale, y: here.y * scale });
+        walkAlong(
+          {
+            position,
+            corners: routeBetween(here, end, laneX),
+            scale,
+            current: () => id === walk.current,
+            onLeg: (up) => setMotion({ kind: "walking", up }),
+            onCorner: (corner) => {
+              at.current = corner;
+            },
+            onArrive: arrive,
+          },
+          here,
+          0,
+        );
+      });
+    } else {
+      position.stopAnimation();
+      arrive();
+    }
+    return () => {
+      if (sweeping !== null) clearTimeout(sweeping);
+    };
+  }, [goal, dueId, goalX, goalY, laneX, scale, position, setMotion, onSwept]);
+
+  useEffect(
+    () => () => {
+      walk.current += 1;
+      position.stopAnimation();
+    },
+    [position],
+  );
+
+  const frame = useFrame(motion.kind !== "home");
+  const box = useMemo(
+    () => [styles.janitor, { transform: position.getTranslateTransform() }],
+    [styles, position],
+  );
+  // At the cart the mop stands in the bucket; away from it the janitor has the broom in hand,
+  // and a sweep moves it a pixel to and fro.
+  const reach = motion.kind === "sweeping" && frame % 2 === 1 ? 1 : 0;
+  return (
+    <Animated.View style={box}>
+      <SpriteView sprite={art.janitor(janitorPose(motion, frame))} scale={scale} x={0} y={0} />
+      {motion.kind === "home" ? null : (
+        <SpriteView sprite={art.broom} scale={scale} x={SIZE.person.w - 1 + reach} y={2} />
+      )}
+    </Animated.View>
+  );
+});
+
+interface JanitorButtonProps {
+  cart: Point;
+  /** How full the contexts are, in a few words. */
+  note: HostNote;
+  art: Art;
+  scale: number;
+  veil: ViewStyle;
+  onOpen(): void;
+}
+
+/** The cart and the janitor's place beside it: a tap opens the janitor's card. */
+const JanitorButton = memo(function JanitorButton({
+  cart,
+  note,
+  art,
+  scale,
+  veil,
+  onOpen,
+}: JanitorButtonProps) {
+  const styles = useMemo(() => {
+    // The cart and the janitor are 23 art pixels wide and 16 tall: on a phone 46 px by 32, so
+    // the target reaches up to a touch target's 44.
+    const width = (SIZE.cart.w - 1 + SIZE.person.w) * scale;
+    const height = Math.max(SIZE.cart.h * scale, TOUCH_TARGET);
+    const hit: ViewStyle = {
+      position: "absolute",
+      left: cart.x * scale,
+      top: (cart.y + SIZE.cart.h) * scale - height,
+      width,
+      height,
+    };
+    const bubble: ViewStyle = {
+      position: "absolute",
+      left: cart.x * scale,
+      top: (cart.y - SIZE.bubble.h - 1) * scale,
+      width: SIZE.bubble.w * scale,
+      height: SIZE.bubble.h * scale,
+      pointerEvents: "none",
+    };
+    return { hit, bubble };
+  }, [cart, scale]);
+  const alert = ALERT[note.tone];
+  return (
+    <>
+      {alert === null ? null : (
+        <Bubble icon={alert} art={art} scale={scale} style={styles.bubble} />
+      )}
+      <Hit label={`Janitor: ${note.text}`} box={styles.hit} veil={veil} onPress={onOpen} />
+    </>
+  );
+});
+
 interface RocketProps {
   at: Point;
   /** What is being shipped, or null: a new one launches the rocket. */
@@ -835,7 +1063,8 @@ function teamsOf(rooms: readonly OfficeRoom[], people: WorldPeople): PlanTeam[] 
  * The office as a pixel-art floor, drawn with plain views: it runs on a phone, in a browser
  * without WebGL and on a slow machine. The same agents as the 3D office, and the same places:
  * the library for reading, the racks for commands and tests, the whiteboard for plans, the desk
- * for edits, the pad for a push or a deploy, the coffee machine after a turn.
+ * for edits, the pad for a push or a deploy, the coffee machine after a turn. The paper on a
+ * desk is its agent's context, and the janitor sweeps it away when the context empties.
  */
 export function PixelOffice({
   model,
@@ -847,6 +1076,8 @@ export function PixelOffice({
   onSelectBoard,
   machine,
   onOpenMachine,
+  janitor,
+  onOpenJanitor,
 }: PixelOfficeProps) {
   const [widthPx, setWidthPx] = useState(0);
   const measure = useCallback(
@@ -858,8 +1089,18 @@ export function PixelOffice({
   // The floor seats the surface's order, so a workspace tab has its own team at the top.
   const ordered = useMemo((): OfficeModel => ({ ...model, rooms: [...rooms] }), [model, rooms]);
   const people = useMemo(() => worldPeople(ordered, FLOOR_DESKS), [ordered]);
-  const breaks = useBreaks(people, still);
+  const { breaks, visits, swept } = useFloorLife(people, still);
   const cast = useMemo(() => castOf(people, breaks), [people, breaks]);
+  // A desk the janitor is due at keeps its paper until the janitor has swept.
+  const trays = useMemo(() => {
+    const due = new Map(visits.map((visit) => [visit.agentId, visit.from]));
+    return new Map(
+      people.sessions.map((session) => [
+        session.id,
+        trayOf(due.get(session.id) ?? fullness(session)),
+      ]),
+    );
+  }, [people, visits]);
   const teams = useMemo(() => teamsOf(rooms, people), [rooms, people]);
   const plan = useMemo(() => (widthPx > 0 ? planFloor(teams, widthPx) : null), [teams, widthPx]);
   const styles = useMemo(() => pixelStyles(art, plan), [art, plan]);
@@ -907,6 +1148,8 @@ export function PixelOffice({
 
   const members = useMemo(() => new Map(cast.map((member) => [member.id, member])), [cast]);
   const text = floorNote(model.agents.size, people.overflow);
+  const dueId = visits[0]?.agentId ?? null;
+  const dueDesk = plan?.desks.find((desk) => desk.agentId === dueId);
   return (
     <View style={styles.floor} onLayout={measure}>
       {plan === null ? null : (
@@ -942,6 +1185,8 @@ export function PixelOffice({
                       member={member}
                       label={labels.get(desk.agentId) ?? member.name}
                       serving={serving.has(desk.agentId)}
+                      sheets={trays.get(desk.agentId)?.sheets ?? 0}
+                      flag={trays.get(desk.agentId)?.flag ?? false}
                       art={art}
                       scale={plan.scale}
                       tagHeight={plan.tagHeight}
@@ -954,6 +1199,16 @@ export function PixelOffice({
               </Fragment>
             ))}
             <Rocket at={plan.rocket} launch={launch} art={art} scale={plan.scale} still={still} />
+            {janitor === null ? null : (
+              <JanitorButton
+                cart={plan.cart}
+                note={janitor}
+                art={art}
+                scale={plan.scale}
+                veil={styles.lit}
+                onOpen={onOpenJanitor}
+              />
+            )}
             {plan.desks.map((desk) => {
               const member = members.get(desk.agentId);
               if (member === undefined) return null;
@@ -975,6 +1230,18 @@ export function PixelOffice({
                 />
               );
             })}
+            <JanitorView
+              dueId={dueDesk === undefined ? null : dueDesk.agentId}
+              dueX={dueDesk === undefined ? 0 : dueDesk.x + SIZE.desk.w - SIZE.person.w}
+              dueY={dueDesk?.aisleY ?? 0}
+              homeX={plan.janitor.x}
+              homeY={plan.janitor.y}
+              laneX={plan.laneX}
+              art={art}
+              scale={plan.scale}
+              styles={styles}
+              onSwept={swept}
+            />
           </View>
           {text === null ? null : <Text style={styles.note}>{text}</Text>}
         </ScrollView>

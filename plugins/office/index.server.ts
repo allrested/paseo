@@ -5,7 +5,8 @@ import { createWorldScript, worldEntryPath, type WorldScript } from "./server/wo
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
 import { createHub } from "./server/hub.js";
-import { liveAgentPorts, liveHubPorts } from "./server/live-ports.js";
+import { tidyAgent } from "./server/janitor.js";
+import { liveAgentPorts, liveHubPorts, liveJanitorPorts } from "./server/live-ports.js";
 import { cleanUpAgent } from "./server/machine/cleanup.js";
 import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.js";
 import { createMachineReader } from "./server/machine/machine.js";
@@ -17,6 +18,7 @@ import { nodeClock, type Clock } from "./server/timers.js";
 import {
   cleanupRpc,
   deleteRpc,
+  janitorRpc,
   machineSubscription,
   officeStateSubscription,
   postRpc,
@@ -90,6 +92,8 @@ export function createOfficePlugin(
     ...liveCleanupPorts(holder),
   };
 
+  const janitorPorts = liveJanitorPorts(holder);
+
   const settings = server.registerSettings(officeHostSettings);
 
   async function guarded<T>(name: string, work: () => Promise<T>): Promise<T> {
@@ -128,6 +132,14 @@ export function createOfficePlugin(
       }
       machine.refresh();
       return { results };
+    });
+  });
+  server.handle(janitorRpc, (input, context) => {
+    holder.remember(context.paseo);
+    return guarded("janitor", async () => {
+      const result = await tidyAgent(janitorPorts, input.agentId, input.action);
+      if (result.ok && input.action === "reset") hub.contextReset(input.agentId);
+      return result;
     });
   });
   server.handle(postRpc, (input, context) => {

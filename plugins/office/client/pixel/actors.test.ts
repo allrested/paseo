@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityStep } from "../../shared/contracts.js";
 import type { WorldSession } from "../world/world-api.js";
-import { BREAK_MS, NO_BREAKS, breaksAfter, castOf, nextBreakEnd, standingOf } from "./actors.js";
+import type { WorldMemory } from "../world/adapter.js";
+import {
+  BREAK_MS,
+  NO_BREAKS,
+  NO_VISITS,
+  breaksAfter,
+  castOf,
+  nextBreakEnd,
+  standingOf,
+  trayOf,
+  visitsAfter,
+  visitsSwept,
+} from "./actors.js";
 
 function session(id: string, patch: Partial<WorldSession> = {}): WorldSession {
   return {
@@ -143,5 +155,62 @@ describe("castOf", () => {
       ["c", null, 0],
       ["d", "library", 1],
     ]);
+  });
+});
+
+describe("trayOf", () => {
+  it("stacks more paper as a context fills, and flags one that is nearly full", () => {
+    expect(trayOf(null)).toEqual({ sheets: 0, flag: false });
+    expect(trayOf(0)).toEqual({ sheets: 0, flag: false });
+    expect(trayOf(0.1)).toEqual({ sheets: 1, flag: false });
+    expect(trayOf(0.5)).toEqual({ sheets: 2, flag: false });
+    expect(trayOf(0.84)).toEqual({ sheets: 3, flag: false });
+    expect(trayOf(0.85)).toEqual({ sheets: 3, flag: true });
+    expect(trayOf(1)).toEqual({ sheets: 3, flag: true });
+  });
+});
+
+describe("the janitor's round", () => {
+  const told = (full: number | null) => ({
+    status: "rest" as const,
+    stuck: false,
+    step: null,
+    testing: false,
+    full,
+  });
+  const before: WorldMemory = new Map([
+    ["a", told(0.9)],
+    ["b", told(0.6)],
+    ["c", told(null)],
+  ]);
+  const seated = new Set(["a", "b", "c"]);
+  const compact = (sess: string) => ({ sess, type: "compact" as const });
+
+  it("calls the janitor to a desk whose context emptied, with the tray as full as it was", () => {
+    const visits = visitsAfter(NO_VISITS, [compact("b"), compact("a")], before, seated);
+    expect(visits).toEqual([
+      { agentId: "b", from: 0.6 },
+      { agentId: "a", from: 0.9 },
+    ]);
+  });
+
+  it("is one visit for a desk that is called twice before the janitor came", () => {
+    const first = visitsAfter(NO_VISITS, [compact("a")], before, seated);
+    expect(visitsAfter(first, [compact("a")], new Map([["a", told(0.1)]]), seated)).toBe(first);
+  });
+
+  it("ignores other events, people without a desk and a memory that knows nothing", () => {
+    expect(visitsAfter(NO_VISITS, [{ sess: "a", type: "stop" }], before, seated)).toBe(NO_VISITS);
+    expect(visitsAfter(NO_VISITS, [compact("z")], before, seated)).toBe(NO_VISITS);
+    expect(visitsAfter(NO_VISITS, [compact("c")], null, seated)).toEqual([
+      { agentId: "c", from: 0 },
+    ]);
+  });
+
+  it("drops a desk whose person left, and a desk that was swept", () => {
+    const visits = visitsAfter(NO_VISITS, [compact("a"), compact("b")], before, seated);
+    expect(visitsAfter(visits, [], before, new Set(["b"]))).toEqual([{ agentId: "b", from: 0.6 }]);
+    expect(visitsSwept(visits, "a")).toEqual([{ agentId: "b", from: 0.6 }]);
+    expect(visitsSwept(visits, "z")).toBe(visits);
   });
 });

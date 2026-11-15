@@ -65,6 +65,8 @@ export interface OfficeStyles {
   machineRow: ViewStyle;
   machineRowHead: ViewStyle;
   machineRowTitle: TextStyle;
+  janitorBody: ViewStyle;
+  janitorRows: ViewStyle;
   card: ViewStyle;
   cardHeader: ViewStyle;
   cardTitle: TextStyle;
@@ -382,6 +384,9 @@ export function useOfficeStyles(
       machineRow: { gap: 8 },
       machineRowHead: { flexDirection: "row", alignItems: "baseline", gap: 12 },
       machineRowTitle: { ...base, flex: 1, minWidth: 0, color: colors.foreground },
+      janitorBody: { gap: 4 },
+      // Wider than a row's own gap, so its buttons stay with it.
+      janitorRows: { gap: 20 },
       card: {
         backgroundColor: colors.surface1,
         borderRadius: 8,

@@ -24,6 +24,10 @@ const OURS = {
   'events.verb.push': 'push the code',
   'events.verb.agent': 'start a subagent',
   'events.bubble.agent': 'Handing off to a subagent',
+  // (a context empties by a compaction or by a new conversation, and Paseo does not say which)
+  'events.verb.compact': 'tidy the conversation',
+  'events.bubble.compact': 'Tidying the conversation',
+  'people.shred.go': 'Off to shred the paper',
   'world.dev.lost': { one: '{n} agent left something running', other: '{n} agents left something running' },
   'places.library.today': { one: '{n} read since the office opened', other: '{n} reads since the office opened' },
   'places.window.empty': 'Nobody has searched the web since the office opened.',

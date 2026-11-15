@@ -40,6 +40,8 @@ function loungeBoxes(plan: FloorPlan): Box[] {
     ...(plan.sofa === null ? [] : [{ ...plan.sofa, ...SIZE.sofa }]),
     { ...plan.plant, ...SIZE.plant },
     { ...plan.coffee, ...SIZE.coffee },
+    { ...plan.cart, ...SIZE.cart, w: SIZE.cart.w - 1 },
+    person(plan.janitor.x, plan.janitor.y),
     { ...plan.rocket, ...SIZE.rocket },
     ...plan.spots.coffee.xs.map((x) => person(x, plan.spots.coffee.y)),
     ...plan.spots.pad.xs.map((x) => person(x, plan.spots.pad.y)),
@@ -82,7 +84,7 @@ describe("planFloor", () => {
     expect(plan.loungeY).toBeGreaterThan(plan.wallHeight);
   });
 
-  it.each([300, 320, 390, 600, 800, 960, 1120, 1280, 1600, 2560])(
+  it.each([300, 320, 360, 390, 600, 800, 960, 1120, 1280, 1600, 2560])(
     "keeps everything inside a %i px room, with no two things on one spot",
     (widthPx) => {
       const plan = planFloor([team("a", 7), team("b", 3)], widthPx);
@@ -111,6 +113,18 @@ describe("planFloor", () => {
     expect(first && first.aisleY).toBeGreaterThanOrEqual(
       (first?.seat.y ?? 0) + SIZE.seated.h + plan.tagHeight,
     );
+  });
+
+  it("parks the janitor's cart in the lounge, with the janitor on the lounge's line", () => {
+    for (const widthPx of [300, 390, 1280]) {
+      const plan = planFloor([team("a", 3)], widthPx);
+      expect(plan.janitor.y).toBe(plan.spots.coffee.y);
+      expect(plan.cart.y + SIZE.cart.h).toBe(plan.plant.y + SIZE.plant.h);
+    }
+    // A narrow room has one place at the coffee machine, and a wide one two at the pad.
+    expect(planFloor([], 300).spots.coffee.xs).toHaveLength(1);
+    expect(planFloor([], 360).spots.pad.xs).toHaveLength(1);
+    expect(planFloor([], 390).spots.pad.xs).toHaveLength(2);
   });
 
   it("has more shelves in a wider room and one rack in a narrow one", () => {

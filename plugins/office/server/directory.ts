@@ -1,6 +1,7 @@
 import {
   AgentStatusSchema,
   PermissionKindSchema,
+  type AgentContext,
   type OfficeAgent,
   type OfficeWorkspace,
   type PermissionKind,
@@ -51,6 +52,7 @@ export interface DirectoryAgentInput {
   archivedAt?: string | null;
   internal?: boolean;
   background?: boolean;
+  lastUsage?: { contextWindowMaxTokens?: number; contextWindowUsedTokens?: number };
 }
 
 export type AgentUpdateInput =
@@ -74,12 +76,20 @@ function permissionKind(kind: string): PermissionKind {
   return parsed.success ? parsed.data : "other";
 }
 
+function contextOf(agent: DirectoryAgentInput): AgentContext | undefined {
+  const usedTokens = agent.lastUsage?.contextWindowUsedTokens;
+  const maxTokens = agent.lastUsage?.contextWindowMaxTokens;
+  if (usedTokens === undefined || maxTokens === undefined) return undefined;
+  return usedTokens >= 0 && maxTokens > 0 ? { usedTokens, maxTokens } : undefined;
+}
+
 /** The office's view of an agent, or null when the office does not show it. */
 export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
   if (agent.internal === true || agent.background === true || agent.archivedAt) return null;
   const status = AgentStatusSchema.safeParse(agent.status);
   if (!status.success || status.data === "closed") return null;
   const parent = agent.labels?.[PARENT_AGENT_ID_LABEL]?.trim() ?? "";
+  const context = contextOf(agent);
   return {
     id: agent.id,
     title: agent.title,
@@ -99,7 +109,28 @@ export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
       };
     }),
     createdAt: agent.createdAt,
+    ...(context === undefined ? {} : { context }),
   };
+}
+
+/**
+ * The agents, with the context of each one the office reset read as empty. A provider says how
+ * full a context is when a turn ends, so after a reset the number from before stays until the
+ * next turn. `resets` holds that number per agent; an entry lasts while the provider still says
+ * it, and goes with its agent.
+ */
+export function settleResets(
+  agents: readonly OfficeAgent[],
+  resets: ReadonlyMap<string, number>,
+): { agents: OfficeAgent[]; resets: Map<string, number> } {
+  const kept = new Map<string, number>();
+  const settled = agents.map((agent) => {
+    const before = resets.get(agent.id);
+    if (before === undefined || agent.context?.usedTokens !== before) return agent;
+    kept.set(agent.id, before);
+    return { ...agent, context: { ...agent.context, usedTokens: 0 } };
+  });
+  return { agents: settled, resets: kept };
 }
 
 export function agentsFromSnapshot(
