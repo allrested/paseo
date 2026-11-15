@@ -411,6 +411,25 @@ It is in memory only. A turn that began before the plugin started is found throu
 when a device first opens the feed, and its row has no start time: the daemon does not keep when a
 turn began.
 
+The `agent-stats` built-in counts the agents' turns. A Stats item in the sidebar ("Agent stats" in
+the Command Center) shows, for the last 7, 30 or 90 days, how many turns ended, how many failed,
+and the time agents spent in turns, by day and by workspace. Agent time adds every agent up, so
+two agents at once count twice. Helper agents (`background`) are left out: a helper works inside
+its parent's turn.
+
+The daemon counts from the `agent.turn.before` and `agent.turn.after` hooks into hours of UTC,
+per workspace, in `$PASEO_HOME/stats/stats.json`, and keeps 120 days. The client adds the hours
+up into its own days, so a day is the reader's day wherever the daemon runs; in a zone half an
+hour off, the hour that holds midnight goes to the day it starts in. A turn counts in the hour
+it ended, and its time in every hour it ran through. A turn that was running when the daemon
+started has no start and counts without time, and a turn cut off by a daemon stop is not counted.
+Counting begins when the plugin first runs; the screen says since when if that is inside the
+range. A workspace that is gone keeps its numbers under its folder's name.
+
+The chart's bars are neutral ink, not the accent: the accent is under 3:1 against a dark surface
+in several themes. The chart is for a pointer and a finger. The table button beside its title
+gives the same days as text, which is what a keyboard and a screen reader get.
+
 The `tasks` built-in lists the open tasks of whoever connected a tracker: Jira Cloud issues
 assigned to the token's user and not done, open GitLab and GitHub issues assigned to them, and
 open GitLab merge requests and GitHub pull requests that ask for their review or are assigned to
