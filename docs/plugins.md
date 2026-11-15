@@ -399,23 +399,37 @@ the feed counts as seen when it opens and when it is pressed. An entry that come
 is up stays in the count until then.
 
 The `tasks` built-in lists the open tasks of whoever connected a tracker: Jira Cloud issues
-assigned to the token's user and not done, and open GitLab issues assigned to them. A Task field on
-the New workspace screen names the new branch after the pick (`BWLT-12-add-the-webhook`, or
-GitLab's own form `7-rate-limit-the-login-form`) and leaves `tasks.key` and `tasks.url` in the
-workspace's metadata. "Attach Task" in a composer's attach menu sends the task's key, title,
-status and description as text. A Jira key typed in either place finds that issue whoever has it.
-The connections screen opens from the Task field while no tracker is connected, and from "Task
-connections" in the Command Center, which lists plugin items only on a screen that belongs to a
-host (a workspace, a plugin screen), not on New workspace or the start page.
+assigned to the token's user and not done, open GitLab issues assigned to them, and open GitLab
+merge requests that ask for their review or are assigned to them. A Tasks item in the sidebar
+opens the list, and so does "Open tasks" in the Command Center. A row opens the task's page on the
+same screen: its facts, its description, its newest 20 comments, a box that posts a comment, and
+the statuses it can move to. For a Jira issue those are the transitions its workflow offers from
+where it stands, named by the status they lead to. A transition that needs a field (a resolution,
+say) is refused, and the page shows Jira's reason under the button. A GitLab issue closes and
+reopens. A merge request is read and commented on; it is merged or closed on GitLab. GitLab writes
+Markdown and the page renders it. Jira's rich text is flattened to plain text
+(`plugins/tasks/server/adf.ts`), a comment goes to Jira as plain paragraphs, and a description
+over 20,000 characters is cut.
+
+A Task field on the New workspace screen names the new branch after the pick
+(`BWLT-12-add-the-webhook`, or GitLab's own form `7-rate-limit-the-login-form`) and leaves
+`tasks.key` and `tasks.url` in the workspace's metadata. "Use for the next workspace" on an
+issue's page fills that field ahead of time. "Attach Task" in a composer's attach menu sends an
+issue's or a merge request's key, title, status and description as text. A Jira key typed in a
+search finds that issue whoever has it. The connections screen opens from the Task field and from
+the list while no tracker is connected, and from "Task connections" in the Command Center, which
+lists plugin items only on a screen that belongs to a host (a workspace, a plugin screen), not on
+New workspace or the start page.
 
 The addresses are the plugin's host settings. The tokens are not, because every client reads the
 settings: they are in `$PASEO_HOME/tasks/tokens.json`, mode 600, and the RPCs about them say
-whether one is saved and replace or remove it. No RPC returns a token. A tracker's address must be
-https (http on loopback only), and requests follow no redirect, because GitLab's `PRIVATE-TOKEN`
-header would go with it. When one tracker fails and the other answers, the list shows the other's
-tasks and the daemon log has the reason; "Test" on the connections screen shows it too. Jira's
-rich text is flattened to plain text (`plugins/tasks/server/adf.ts`), and a description over
-20,000 characters is cut.
+whether one is saved and replace or remove it. No RPC returns a token. Every comment and move is
+made as the token's user, for whoever uses the host. A GitLab token with `read_api` reads; a
+comment or a close needs `api`, and without it the page says the tracker did not allow the
+change. A tracker's address must be https (http on loopback only), and requests follow no
+redirect, because GitLab's `PRIVATE-TOKEN` header would go with it. When one tracker fails and
+the other answers, the list shows the other's tasks under a line that names the failure; "Test" on
+the connections screen shows it too.
 
 The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which

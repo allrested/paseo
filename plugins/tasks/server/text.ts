@@ -14,7 +14,7 @@ function description(issue: Issue): string {
 /** The whole task as the text an agent gets. */
 export function issueText(issue: Issue): string {
   return [
-    `${SOURCE_NAME[issue.source]} issue ${issue.key}: ${issue.title}`,
+    `${SOURCE_NAME[issue.source]} ${issue.kind === "mr" ? "merge request" : "issue"} ${issue.key}: ${issue.title}`,
     `URL: ${issue.url}`,
     `Status: ${issue.status}`,
     ...issue.details.map(([name, value]) => `${name}: ${value}`),
