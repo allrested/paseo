@@ -23,7 +23,7 @@ Out of scope: automatic failover (Paseo never moves an agent by itself) and movi
 
 | Question              | Decision                                                                                                                      |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Trigger               | Manual "Move session…" action, plus a banner after a turn fails on the account's limit. The user always picks the target.     |
+| Trigger               | Manual "Move session…" action, plus a banner after a turn fails on the account's limit. The move is always the user's tap.    |
 | After the move        | The new agent takes over the original's tab; the original is archived and linked.                                             |
 | Cross-provider pickup | A "Continue automatically" switch in the move dialog, on by default.                                                          |
 | Chain history         | The live agent's stored record carries the whole session's history (`moveHistory`), because archived agents keep no timeline. |
@@ -99,7 +99,7 @@ All additions are optional fields or new messages, per `docs/protocol-compatibil
   - Model picker, defaulting to the target's default model.
   - "Continue automatically" switch, on by default.
 - **Banner** on the agent screen:
-  - When the agent's `limitReached` is set: "<account> limit reached, resets <time> · Move to…". The account and reset come from the agent's own move target, and the reset is named only while that target is at 100% and the reset is still ahead, so a 429 under full usage names none. Each notice reads the targets again when it appears.
+  - When the agent's `limitReached` is set: the handoff card (`handoff-card.tsx`). It draws the agent's own account and the account with the most room as two usage bars, with "Limit reached · resets in <time>" under the first and one action, "Continue on <account>", which moves to that account on its default model and continues. "Other accounts" opens the move dialog. The account and reset come from the agent's own move target, and the reset is named only while that target is at 100% and the reset is still ahead, so a 429 under full usage names none. An account without reported usage gets no bar and no number. With nowhere to go the second account gives way to one line: the accounts are still loading, none has room, or they could not be read. Each notice reads the targets again when it appears.
   - After a move: "Moved from <account> · Move back", highlighted when that account's usage is under 100%. While Move back is on screen and the account is at its limit, the banner reads the targets again every five minutes, the lifetime of the daemon's usage cache. Move back from the banner returns to the direct moved-from agent and continues.
   - The limit notice wins over the move back. The banner fetches the move targets only while a notice is on screen in an active panel.
 - **Tab swap.** On `agent.moved`, retarget the workspace layout tab (`stores/workspace-layout-actions.ts`) from the old agent id to the new one; when the new agent already has a tab, close the old one and focus that tab. Whenever the agent list, the fetched agent details or the layout changes, a tab whose agent is archived with `paseo.moved-to-agent-id` follows the chain to the live agent. This covers root agent tabs on clients that were offline during the move.

@@ -51,10 +51,12 @@ The banner reads the agent's move targets, as it already does, while its panel i
 5 minutes (the lifetime of the daemon's usage cache). The current target carries the tightest
 window's `usedPct`, `resetsAt`, `runsOutAt`, and `windowLabel`.
 
-Example: **Claude (work) 84% of weekly · on pace to run out Thu 14:00, resets Fri 09:00**, with
-**Move to Kiro CLI · 12%**, **More…** (the move dialog), and a dismiss control. Move goes through the
-same path as the move dialog and continues automatically. With no available target the notice shows
-only the facts and **More…**.
+The notice is the handoff card the limit uses (`handoff-card.tsx`): the agent's own account and the
+best target as two usage bars. Under the first stands the countdown, **resets in 1d 1h · Fri 09:00**,
+or **runs out in 6h · resets Fri 09:00** while the window is on pace to run out. The actions are
+**Move to Kiro CLI**, **Other accounts** (the move dialog) and **Dismiss**. Move goes through the same
+path as the move dialog and continues automatically. With no available target the card says
+**No other account has room** and keeps **Other accounts**.
 
 ## Notification
 

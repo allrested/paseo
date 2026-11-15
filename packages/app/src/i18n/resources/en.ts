@@ -2035,26 +2035,26 @@ export const en = {
       moving: "Moving...",
     },
     banner: {
-      limitReached: "{{account}} limit reached",
-      limitReachedResets: "{{account}} limit reached, {{reset}}",
-      moveTo: "Move to…",
       movedFrom: "Moved from {{label}}",
       movedFromUnknown: "Moved from another account",
       moveBack: "Move back",
       movingBack: "Moving back...",
     },
-    // Fork delta (usage heads-up): the move banner's heads-up copy.
+    // The card above the composer when the agent's account hit its limit or is about to: that
+    // account next to the one the chat can continue on.
+    handoff: {
+      limitReached: "Limit reached",
+      continueOn: "Continue on {{label}}",
+      otherAccounts: "Other accounts",
+      checking: "Checking other accounts...",
+      noRoom: "No other account has room",
+      unknown: "Could not read the other accounts",
+    },
+    // Fork delta (usage heads-up): the card's copy before the limit.
     headsUp: {
-      usage: "{{account}} {{used}}",
-      usageOfWindow: "{{account}} {{used}} of {{window}}",
-      withTiming: "{{facts}} · {{timing}}",
-      runsOutResets: "on pace to run out {{runsOut}}, resets {{reset}}",
-      runsOut: "on pace to run out {{runsOut}}",
       resets: "resets {{reset}}",
       moveTo: "Move to {{label}}",
-      moveToUsage: "Move to {{label}} · {{used}}",
       moving: "Moving...",
-      more: "More...",
       dismiss: "Dismiss",
     },
   },

@@ -11,9 +11,10 @@ import { useAppVisible } from "@/hooks/use-app-visible";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
-import { formatResetLabel, formatResetTime } from "@/usage/format";
 import { useRelativeTimeTick } from "@/usage/use-relative-time-tick";
 import { storeFetchedAgentDetail } from "@/utils/fetched-agent-detail";
+import { HandoffCard } from "./handoff-card";
+import { describeHandoff, type HandoffView } from "./handoff-view";
 import {
   selectMoveBannerFacts,
   selectMovedFromAgentToFetch,
@@ -22,17 +23,11 @@ import {
 import {
   resolveMoveBannerKind,
   resolveMoveBannerView,
-  upcomingLimitReset,
   type MoveBannerKind,
 } from "./move-banner-view";
 import { openMoveDialog } from "./move-dialog-store";
 import { useAgentMove, useSupportsAgentMove } from "./use-agent-move";
-import {
-  describeUsageHeadsUp,
-  isUsageHeadsUpDismissed,
-  resolveUsageHeadsUp,
-  type UsageHeadsUp,
-} from "./usage-heads-up";
+import { isUsageHeadsUpDismissed, resolveUsageHeadsUp } from "./usage-heads-up";
 import {
   dismissUsageHeadsUp,
   selectUsageHeadsUpDismissal,
@@ -151,11 +146,13 @@ function MoveBannerNotice({
     [agentId, serverId, workspaceId],
   );
   const moveBackAndContinue = useCallback(() => moveBack({ continueWork: true }), [moveBack]);
-  const bestTarget = visibleHeadsUp?.best ?? null;
+  const view = resolveMoveBannerView({ facts, targets, headsUp: visibleHeadsUp });
+  const handoff = view.kind === "limit" || view.kind === "heads-up" ? view.handoff : null;
+  const nextTarget = handoff?.next.kind === "ready" ? handoff.next.target : null;
   // The dialog's path: the target's default model, and the agent continues on its own.
-  const moveToBest = useCallback(() => {
-    if (bestTarget) move({ target: bestTarget, model: undefined, continueWork: true });
-  }, [bestTarget, move]);
+  const moveToNext = useCallback(() => {
+    if (nextTarget) move({ target: nextTarget, model: undefined, continueWork: true });
+  }, [move, nextTarget]);
   const dismissHeadsUp = useCallback(() => {
     if (!visibleHeadsUp) return;
     dismissUsageHeadsUp({
@@ -168,24 +165,18 @@ function MoveBannerNotice({
       },
     });
   }, [serverId, visibleHeadsUp]);
-  const view = resolveMoveBannerView({ facts, targets, headsUp: visibleHeadsUp });
 
-  if (view.kind === "limit") {
+  if (handoff) {
     return (
-      <LimitReachedNotice account={view.account} resetsAt={view.resetsAt} onMove={openDialog} />
-    );
-  }
-  if (view.kind === "heads-up") {
-    return (
-      <UsageHeadsUpNotice
-        headsUp={view.headsUp}
-        now={now}
+      <HandoffNotice
+        handoff={handoff}
         canMove={canMove}
         isMoving={status.kind === "loading"}
         error={status.kind === "error" ? status.message : null}
-        onMove={moveToBest}
+        onMove={moveToNext}
         onMore={openDialog}
-        onDismiss={dismissHeadsUp}
+        onDismiss={view.kind === "heads-up" ? dismissHeadsUp : undefined}
+        testID={view.kind === "limit" ? "move-banner-limit" : "move-banner-heads-up"}
       />
     );
   }
@@ -204,85 +195,31 @@ function MoveBannerNotice({
   return null;
 }
 
-function LimitReachedNotice({
-  account,
-  resetsAt,
-  onMove,
-}: {
-  account: string;
-  resetsAt: string | null;
-  onMove: () => void;
-}) {
-  const { t } = useTranslation();
-  const now = useRelativeTimeTick({ enabled: resetsAt !== null });
-  const reset = formatResetLabel(upcomingLimitReset(resetsAt, now), false, now);
-  const message = reset
-    ? t("sessionMove.banner.limitReachedResets", { account, reset })
-    : t("sessionMove.banner.limitReached", { account });
-  return (
-    <NoticeRail>
-      <Alert size="sm" variant="warning" description={message} testID="move-banner-limit">
-        <Button variant="outline" onPress={onMove} testID="move-banner-move">
-          {t("sessionMove.banner.moveTo")}
-        </Button>
-      </Alert>
-    </NoticeRail>
-  );
-}
-
-interface UsageHeadsUpNoticeProps {
-  headsUp: UsageHeadsUp;
-  now: number;
+interface HandoffNoticeProps {
+  handoff: HandoffView;
   canMove: boolean;
   isMoving: boolean;
   error: string | null;
   onMove: () => void;
   onMore: () => void;
-  onDismiss: () => void;
+  onDismiss?: () => void;
+  testID: string;
 }
 
-/** The agent's account is about to run out. */
-function UsageHeadsUpNotice({
-  headsUp,
-  now,
-  canMove,
-  isMoving,
-  error,
-  onMove,
-  onMore,
-  onDismiss,
-}: UsageHeadsUpNoticeProps) {
-  const { t } = useTranslation();
-  const formatClock = useCallback((iso: string | null) => formatResetTime(iso, now, t), [now, t]);
-  const { message, moveLabel } = describeUsageHeadsUp(headsUp, { t, formatClock });
-  const isDanger = headsUp.tone === "danger";
+/** The agent's account hit its limit or is about to: where its chat can continue, one tap away. */
+function HandoffNotice({ handoff, ...card }: HandoffNoticeProps) {
+  const { t, i18n } = useTranslation();
+  // The countdown under the account ticks; without a reset or a run-out nothing does.
+  const now = useRelativeTimeTick({
+    enabled: handoff.resetsAt !== null || handoff.runsOutAt !== null,
+  });
+  const copy = useMemo(
+    () => describeHandoff(handoff, { now, t, locale: i18n.resolvedLanguage }),
+    [handoff, i18n.resolvedLanguage, now, t],
+  );
   return (
     <NoticeRail>
-      <Alert
-        size="sm"
-        variant={error || isDanger ? "error" : "warning"}
-        title={error ? message : undefined}
-        description={error ?? message}
-        testID="move-banner-heads-up"
-      >
-        {moveLabel ? (
-          <Button
-            variant="outline"
-            onPress={onMove}
-            disabled={!canMove}
-            loading={isMoving}
-            testID="move-banner-heads-up-move"
-          >
-            {isMoving ? t("sessionMove.headsUp.moving") : moveLabel}
-          </Button>
-        ) : null}
-        <Button variant="outline" onPress={onMore} testID="move-banner-heads-up-more">
-          {t("sessionMove.headsUp.more")}
-        </Button>
-        <Button variant="ghost" onPress={onDismiss} testID="move-banner-heads-up-dismiss">
-          {t("sessionMove.headsUp.dismiss")}
-        </Button>
-      </Alert>
+      <HandoffCard copy={copy} isChecking={handoff.next.kind === "loading"} {...card} />
     </NoticeRail>
   );
 }
@@ -345,7 +282,7 @@ const styles = StyleSheet.create((theme) => ({
     width: "100%",
     alignItems: "center",
     paddingHorizontal: theme.spacing[4],
-    paddingTop: theme.spacing[2],
+    paddingVertical: theme.spacing[2],
   },
   content: {
     width: "100%",

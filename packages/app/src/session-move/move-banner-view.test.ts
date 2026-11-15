@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AgentMoveTarget } from "@getpaseo/protocol/messages";
 import type { MoveBannerFacts } from "./move-banner-facts";
-import {
-  resolveMoveBannerKind,
-  resolveMoveBannerView,
-  upcomingLimitReset,
-} from "./move-banner-view";
+import { resolveHeadsUpHandoff, resolveLimitHandoff } from "./handoff-view";
+import { resolveMoveBannerKind, resolveMoveBannerView } from "./move-banner-view";
 import type { AgentMoveTargetsView } from "./move-targets";
 import type { UsageHeadsUp } from "./usage-heads-up";
 
@@ -117,42 +114,33 @@ describe("resolveMoveBannerView", () => {
     ).toEqual({ kind: "none" });
   });
 
-  it("names the agent's own target and its reset when that account is used up", () => {
-    expect(
-      resolveMoveBannerView({
-        headsUp: null,
-        facts: limited,
-        targets: readyTargets(target({ provider: "codex", family: "codex" }), currentTarget(100)),
-      }),
-    ).toEqual({ kind: "limit", account: "Claude (work)", resetsAt: TARGET_RESETS_AT });
+  it("shows the agent's own account and where its chat can continue when it hit the limit", () => {
+    const targets = readyTargets(
+      target({ provider: "codex", family: "codex" }),
+      currentTarget(100),
+    );
+
+    expect(resolveMoveBannerView({ headsUp: null, facts: limited, targets })).toEqual({
+      kind: "limit",
+      handoff: resolveLimitHandoff({ provider: "claude-work", targets }),
+    });
   });
 
-  it("names no reset when the agent's account is not used up", () => {
-    expect(
-      [99, null].map((usedPct) =>
-        resolveMoveBannerView({
-          headsUp: null,
-          facts: limited,
-          targets: readyTargets(currentTarget(usedPct)),
-        }),
-      ),
-    ).toEqual([
-      { kind: "limit", account: "Claude (work)", resetsAt: null },
-      { kind: "limit", account: "Claude (work)", resetsAt: null },
-    ]);
-  });
-
-  it("names the provider while the targets load or the host is away", () => {
+  it("shows the limit while the targets load or the host is away", () => {
     const views: AgentMoveTargetsView[] = [LOADING_TARGETS, { kind: "disconnected" }];
     expect(
       views.map((targets) => resolveMoveBannerView({ headsUp: null, facts: limited, targets })),
-    ).toEqual([
-      { kind: "limit", account: "claude-work", resetsAt: null },
-      { kind: "limit", account: "claude-work", resetsAt: null },
-    ]);
+    ).toEqual(
+      views.map((targets) => ({
+        kind: "limit",
+        handoff: resolveLimitHandoff({ provider: "claude-work", targets }),
+      })),
+    );
   });
 
   it("shows the limit rather than the move back for a moved agent at its limit", () => {
+    const targets = readyTargets(currentTarget(100));
+
     expect(
       resolveMoveBannerView({
         headsUp: null,
@@ -161,9 +149,12 @@ describe("resolveMoveBannerView", () => {
           movedFromAgentId: "original",
           movedFromProvider: "claude",
         }),
-        targets: readyTargets(currentTarget(100)),
+        targets,
       }),
-    ).toEqual({ kind: "limit", account: "Claude (work)", resetsAt: TARGET_RESETS_AT });
+    ).toEqual({
+      kind: "limit",
+      handoff: resolveLimitHandoff({ provider: "claude-work", targets }),
+    });
   });
 
   it("shows the heads-up for an agent that is neither limited nor moved", () => {
@@ -173,17 +164,21 @@ describe("resolveMoveBannerView", () => {
         facts: facts(),
         targets: readyTargets(currentTarget(84)),
       }),
-    ).toEqual({ kind: "heads-up", headsUp: HEADS_UP });
+    ).toEqual({
+      kind: "heads-up",
+      headsUp: HEADS_UP,
+      handoff: resolveHeadsUpHandoff(HEADS_UP),
+    });
   });
 
   it("keeps the limit notice ahead of the heads-up", () => {
-    expect(
-      resolveMoveBannerView({
-        headsUp: HEADS_UP,
-        facts: limited,
-        targets: readyTargets(currentTarget(100)),
-      }),
-    ).toEqual({ kind: "limit", account: "Claude (work)", resetsAt: TARGET_RESETS_AT });
+    const view = resolveMoveBannerView({
+      headsUp: HEADS_UP,
+      facts: limited,
+      targets: readyTargets(currentTarget(100)),
+    });
+
+    expect(view.kind).toBe("limit");
   });
 
   it("puts the heads-up ahead of Moved from", () => {
@@ -193,7 +188,11 @@ describe("resolveMoveBannerView", () => {
         facts: facts({ movedFromAgentId: "original", movedFromProvider: "claude" }),
         targets: readyTargets(currentTarget(84)),
       }),
-    ).toEqual({ kind: "heads-up", headsUp: HEADS_UP });
+    ).toEqual({
+      kind: "heads-up",
+      headsUp: HEADS_UP,
+      handoff: resolveHeadsUpHandoff(HEADS_UP),
+    });
   });
 
   it("shows no heads-up for an inactive agent", () => {
@@ -263,19 +262,5 @@ describe("resolveMoveBannerView", () => {
         }),
       ).toEqual({ kind: "moved-from", label: null, highlighted: false });
     });
-  });
-});
-
-describe("upcomingLimitReset", () => {
-  const resetAt = Date.parse(TARGET_RESETS_AT);
-
-  it("keeps a reset that is still ahead", () => {
-    expect(upcomingLimitReset(TARGET_RESETS_AT, resetAt - 60_000)).toBe(TARGET_RESETS_AT);
-  });
-
-  it("drops a reset that has passed, since nothing reads the targets again", () => {
-    expect(upcomingLimitReset(TARGET_RESETS_AT, resetAt)).toBeNull();
-    expect(upcomingLimitReset(TARGET_RESETS_AT, resetAt + 60_000)).toBeNull();
-    expect(upcomingLimitReset(null, resetAt)).toBeNull();
   });
 });
