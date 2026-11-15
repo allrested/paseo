@@ -209,7 +209,26 @@ export const SheetSchema = z.object({
       x: z.number(),
       y: z.number(),
       phase: z.number().int().nonnegative(),
-      joining: z.boolean(),
+      walk: z
+        .object({
+          id: z.number().int().positive(),
+          ms: z.number().positive(),
+          x: z.number(),
+          y: z.number(),
+          legs: z
+            .array(
+              z.object({
+                x: z.number(),
+                y: z.number(),
+                until: z.number().positive().max(1),
+                key: z.string(),
+                inside: z.boolean(),
+              }),
+            )
+            .min(1)
+            .max(64),
+        })
+        .nullable(),
       fresh: z.boolean(),
     }),
   ),

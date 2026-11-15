@@ -61,6 +61,8 @@ export interface OfficeStills {
   overlay(): void;
   /** One robot at its seat with its desk, screen, glow and shadow. On a clear ground. */
   robot(robot: RobotPlan, motion: RobotFrame): void;
+  /** One robot on foot, with its shadow and no desk, as `motion` has it. On a clear ground. */
+  walker(robot: RobotPlan, motion: RobotFrame): void;
   /** One paper plane over `at`, heading across the screen to the right. On a clear ground. */
   plane(at: Point, height: number): void;
   /**
@@ -207,6 +209,13 @@ export function createOfficeStills({ three, canvas }: OfficeStillsOptions): Offi
       writeDesks(stage, [desk], now.palette);
       // A main desk's shadow is in the backdrop already; twice, it would be twice as dark.
       if (!robot.side) finishLayer(layers.deskShadows, 0);
+      const perUnit = pixelsPerUnit(now.frame.view, now.frame.viewport);
+      writeRobotFrames(stage, rig, [{ robot, motion }], perUnit);
+      draw(false);
+    },
+    walker(robot, motion) {
+      const now = current();
+      empty();
       const perUnit = pixelsPerUnit(now.frame.view, now.frame.viewport);
       writeRobotFrames(stage, rig, [{ robot, motion }], perUnit);
       draw(false);
