@@ -23,6 +23,7 @@ import {
   type GestureResponderEvent,
   type LayoutChangeEvent,
 } from "react-native";
+import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSubscription } from "@getpaseo/plugin/client";
 import {
   sheetInputRpc,
@@ -40,13 +41,8 @@ import {
   type SpritePicture,
 } from "../../shared/sheet.js";
 import { PLANE_MS } from "../scene/scene-plan.js";
-import {
-  KEEP_ALIVE_MS,
-  resizeToSend,
-  sizeAfterLayout,
-  streamShown,
-  type StreamViewProps,
-} from "../scene/stream-view.js";
+import type { FocusRequest } from "../scene/scene-view.js";
+import type { OfficeStyles } from "../styles.js";
 import {
   TAP_SLOP_PX,
   firstTransform,
@@ -69,6 +65,7 @@ import {
   type Viewer,
 } from "./sheet-motion.js";
 import { INITIAL_SHEET, sheetReducer } from "./sheet-state.js";
+import { KEEP_ALIVE_MS, resizeToSend, sizeAfterLayout, viewShown } from "./viewer.js";
 
 const HOST_CLOSED = "the host closed the 3D view";
 const LOADING = "Loading the 3D view...";
@@ -129,7 +126,19 @@ function createClocks() {
 }
 type Clocks = ReturnType<typeof createClocks>;
 
-export function SheetView(props: StreamViewProps) {
+export interface SheetViewProps {
+  theme: PluginTheme;
+  styles: OfficeStyles;
+  /** The workspace tab's room; the view starts on it. */
+  focusRoomId: string | null;
+  focusRequest: FocusRequest | null;
+  onSelectAgent(agentId: string): void;
+  onSelectBoard(roomId: string): void;
+  /** The sheet could not start or has ended. */
+  onProblem(message: string): void;
+}
+
+export function SheetView(props: SheetViewProps) {
   const { styles } = props;
   const [size, setSize] = useState<Viewer | null>(null);
   const onLayout = useCallback((event: LayoutChangeEvent) => {
@@ -146,7 +155,7 @@ export function SheetView(props: StreamViewProps) {
   const sceneStyle = useMemo(() => [styles.scene, CLIP], [styles.scene]);
   return (
     <View style={sceneStyle} onLayout={onLayout}>
-      {streamShown(size, appState) ? (
+      {viewShown(size, appState) ? (
         <Session key={themeKey} size={size} {...props} />
       ) : (
         <Text style={styles.sceneStatus}>{LOADING}</Text>
@@ -164,7 +173,7 @@ function Session({
   onSelectAgent,
   onSelectBoard,
   onProblem,
-}: StreamViewProps & { size: Viewer }) {
+}: SheetViewProps & { size: Viewer }) {
   // The subscription opens at the first size; later sizes go to the host as a resize, because a
   // new subscription input would open a new page.
   const [input] = useState<SheetInput>(() => ({
@@ -522,7 +531,7 @@ function Session({
     };
   }, [glideTo, place]);
 
-  const touchStyle = useMemo(() => [styles.streamTouch, CLIP], [styles.streamTouch]);
+  const touchStyle = useMemo(() => [styles.sheetTouch, CLIP], [styles.sheetTouch]);
   const contentStyle = useMemo(
     () => ({
       position: "absolute" as const,
