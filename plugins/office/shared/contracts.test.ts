@@ -6,7 +6,7 @@ import {
   sheetInputRpc,
   sheetSpriteRpc,
   sheetSubscription,
-  assetRpc,
+  worldRpc,
   deleteRpc,
   officeStateSubscription,
   postRpc,
@@ -32,14 +32,14 @@ test("contract names follow the dotted request convention", () => {
     updateRpc.name,
     deleteRpc.name,
     setWakesPausedRpc.name,
-    assetRpc.name,
+    worldRpc.name,
   ]).toEqual([
     "office.state",
     "office.post.request",
     "office.update.request",
     "office.delete.request",
     "office.set_wakes_paused.request",
-    "office.asset.request",
+    "office.world.request",
   ]);
 });
 
@@ -66,11 +66,6 @@ test("a post longer than 2,000 characters is refused at the boundary", () => {
   const input = { board: "lobby", kind: "note", text: "x".repeat(2001) };
   expect(postRpc.input.safeParse(input).success).toBe(false);
   expect(postRpc.input.safeParse({ ...input, text: "x".repeat(2000) }).success).toBe(true);
-});
-
-test("the asset RPC returns bytes", () => {
-  expect(assetRpc.output.safeParse(new Uint8Array([1, 2])).success).toBe(true);
-  expect(assetRpc.output.safeParse("bytes").success).toBe(false);
 });
 
 test("a snapshot says whether the host can draw 3D, and one without it still parses", () => {

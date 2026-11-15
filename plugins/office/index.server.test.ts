@@ -130,8 +130,8 @@ function setup(read: () => Promise<SettingsState>) {
     store: memoryStore(),
     clock,
     log: (message) => logs.push(message),
-    vendorDirectory: null,
     sheet: null,
+    world: null,
   });
   async function open(
     overrides: Partial<PluginSessionOpenRequest> = {},
@@ -234,12 +234,12 @@ test("a post for a running agent goes out when its turn ends", async () => {
   await stop();
 });
 
-test("the entry serves the office state, the asset, the sheet and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the entry serves the office state, the 3D page script, the sheet and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
     "office.state",
-    "office.asset.request",
+    "office.world.request",
     "office.sheet",
     "office.sheet.input.request",
     "office.sheet.sprite.request",

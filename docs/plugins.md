@@ -578,21 +578,31 @@ that opens the session, sends a prompt, answers a tool, mode or other permission
 question says to answer it in the session), or stops the running turn with the SDK's `cancel()`.
 The server keeps one directory from subscribed `agents.list` and `workspaces.list` calls (the
 first 200 of each) and streams a compact projection over the `office.state` subscription; the
-directory and the 5 s "doing now" reads run only while an office surface is open. On web, with
-WebGL2, the office draws the same model as a small 3D office, one glass room per workspace and one
-robot per agent whose pose shows its state; a per-device "3D view" switch turns it off. A robot
-whose agent moves to another workspace walks there: out of its door, round the rooms between, in
-at the other door (`plugins/office/client/scene/walk.ts`). It is at its new desk at once when the
-rooms were dealt again in the same change, or with reduced motion. The 3D view loads the plugin's
-vendored three.js r170 (`plugins/office/vendor`) through the `office.asset.request` RPC the first
-time it is shown on a page, evaluates it from a Blob URL, and draws only while something moves.
+directory and the 5 s "doing now" reads run only while an office surface is open.
+
+On web, with WebGL2, the office is a 3D floor: an agent is a person at a desk, and a workspace's
+agents sit together as a team. A per-device "3D view" switch turns it off. The floor is the scene
+of [my-office](https://github.com/khanh020905/my-office), vendored under
+`plugins/office/vendor/my-office`; `plugins/office/vendor/SOURCES.md` says what is taken, what
+stands in for the rest, and how to take a newer version. The daemon bundles the scene's entry once
+per run with `bundleBrowserScript` and serves the script through `office.world.request`. The
+client runs it in an `<iframe srcdoc>` and drives it through the `PaseoOfficeWorld` object the
+script sets (`plugins/office/client/world/world-api.ts`), mapping the office model to the scene's
+people in `client/world/adapter.ts`. The scene is one app per page: module state, a stylesheet for
+`html` and `body`, listeners on its window. The frame keeps that out of the app's page, and
+removing the frame ends it. Keys pressed inside a frame do not reach the app's shortcuts, so a
+press on the scene, and anything the scene opens in the app (the agent card, a board), gives
+keyboard focus back to the app's window. The floor has 12 desks. With more agents, the ones that
+need the user and the ones at work sit first, and a line over the scene says how many are only in
+the list. Design: [the spec](superpowers/specs/2026-11-16-office-my-office-port-design.md).
 
 A client that cannot draw, which is the installed app (plugin code there has React Native views
-only) and a browser without WebGL2, composes the same office itself from pictures the host draws
-once, when the daemon has a Chromium (`PASEO_BROWSER_CDP_URL`, with WebGL on: see
-[docker.md](docker.md)). The office opens a page there that no pane and no agent sees
-(`plugins/office/render/sheet-page.ts`), feeds it the `office.state` events, and relays what it
-draws over `office.sheet`:
+only) and a browser without WebGL2, composes an office itself from pictures the host draws once,
+when the daemon has a Chromium (`PASEO_BROWSER_CDP_URL`, with WebGL on: see
+[docker.md](docker.md)). The host draws the plugin's first scene, one glass room per workspace
+and one robot per agent (`plugins/office/client/scene`, with the vendored three.js r170). The
+office opens a page there that no pane and no agent sees (`plugins/office/render/sheet-page.ts`),
+feeds it the `office.state` events, and relays what it draws over `office.sheet`:
 
 - A backdrop of the still parts, as JPEG tiles of at most 1024 pixels a side. Android's image
   loader shrinks a picture over 2048 pixels, which would move every robot off its desk.
