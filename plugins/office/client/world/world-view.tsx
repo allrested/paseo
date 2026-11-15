@@ -17,10 +17,9 @@ import type { OfficeStyles } from "../styles.js";
 import {
   boardRoom,
   isDarkTheme,
-  rememberPeople,
   teamOfRoom,
   worldBoardRows,
-  worldEvents,
+  worldChanges,
   worldPeople,
   type WorldMemory,
   type WorldPlan,
@@ -202,8 +201,9 @@ export function WorldView({
     if (api === null) return;
     api.setSessions(people.sessions);
     api.setBoardRows(worldBoardRows(model, people.sessions));
-    for (const event of worldEvents(memory.current, people.sessions)) api.event(event);
-    memory.current = rememberPeople(people.sessions);
+    const changes = worldChanges(memory.current, people);
+    for (const event of changes.events) api.event(event);
+    memory.current = changes.memory;
   }, [people, model, started]);
 
   const focusTeam = useMemo(() => teamOfRoom(model, focusRoomId), [model, focusRoomId]);

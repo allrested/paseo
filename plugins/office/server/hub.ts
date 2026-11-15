@@ -6,6 +6,7 @@ import type {
   Post,
   WakeState,
 } from "../shared/contracts.js";
+import type { ActivityLines, ActivitySteps } from "./activity.js";
 import { errorMessage } from "./errors.js";
 import type { Timers } from "./timers.js";
 
@@ -35,7 +36,7 @@ export interface HubPorts {
   ): Promise<() => Promise<void>>;
   startActivity(
     running: () => readonly string[],
-    onChange: (activity: Readonly<Record<string, string>>) => void,
+    onChange: (activity: ActivityLines, doing: ActivitySteps) => void,
   ): () => void;
   timers: Timers;
   log(message: string): void;
@@ -69,7 +70,8 @@ export function createHub(ports: HubPorts): Hub {
   let view = EMPTY_VIEW;
   let sentAgents = "";
   let sentWorkspaces = "";
-  let activity: Readonly<Record<string, string>> = {};
+  let activity: ActivityLines = {};
+  let doing: ActivitySteps = {};
   let boards: Record<string, readonly Post[]> = {};
   let wake: WakeState = { paused: false, queued: {} };
   let starting: Promise<void> | null = null;
@@ -88,6 +90,7 @@ export function createHub(ports: HubPorts): Hub {
       agents: [...view.agents],
       workspaces: [...view.workspaces],
       activity: { ...activity },
+      doing: { ...doing },
       boards: copy,
       wake: { paused: wake.paused, queued: { ...wake.queued } },
       ...(ports.renderAvailable ? { render: { available: ports.renderAvailable() } } : {}),
@@ -130,9 +133,10 @@ export function createHub(ports: HubPorts): Hub {
     }, DIRECTORY_FLUSH_MS);
   }
 
-  function onActivity(next: Readonly<Record<string, string>>): void {
+  function onActivity(next: ActivityLines, steps: ActivitySteps): void {
     activity = next;
-    broadcast({ type: "activity", activity: { ...next } });
+    doing = steps;
+    broadcast({ type: "activity", activity: { ...next }, doing: { ...steps } });
   }
 
   function running(): readonly string[] {
@@ -224,6 +228,7 @@ export function createHub(ports: HubPorts): Hub {
     stopActivity?.();
     stopActivity = null;
     activity = {};
+    doing = {};
     const stop = stopDirectory;
     stopDirectory = null;
     view = EMPTY_VIEW;

@@ -110,6 +110,21 @@ test("doing now shows for running agents only; closed agents are left out", () =
   expect(model.agents.has("z")).toBe(false);
 });
 
+test("a running agent's row has the tool call it is at; an agent that stopped has none", () => {
+  const model = buildOfficeModel(
+    snapshot({
+      agents: [agent("a", { status: "running" }), agent("b"), agent("c", { status: "running" })],
+      doing: { a: { kind: "read", key: "c1" }, b: { kind: "command", key: "c2" } },
+    }),
+  );
+  const rows = model.rooms.flatMap((room) => room.rows);
+  expect(rows.map((row) => [row.agent.id, row.step])).toEqual([
+    ["a", { kind: "read", key: "c1" }],
+    ["b", null],
+    ["c", null],
+  ]);
+});
+
 test("the attention list puts permissions before errors, each by title", () => {
   const permission = { id: "r1", kind: "tool" as const, title: "Run tests" };
   const model = buildOfficeModel(

@@ -81,7 +81,8 @@ function placeContent(id) {
     case 'deploy': {
       const ev = recentEvents(['deploy', 'push', 'commit', 'cired', 'cigreen']), foot = el('div', 'pl-foot-row'), body = el('div');
       // one row per repository the open sessions work in: branch, uncommitted files, unpushed commits, CI
-      const repos = new Map(); for (const x of list) if (x.git && !repos.has(x.git.repo)) repos.set(x.git.repo, x.git);
+      // PASEO: upstream fills this from its own polling of each repository (branch, uncommitted files, CI). Paseo sends none of that, so no row is built.
+      const repos = new Map();
       if (repos.size) {
         const box = el('div', 'pl-rows'), CI = { red: ['alert', 'red', tr('places.deploy.ciRed')], running: ['sparkle', 'amber', tr('places.deploy.ciRunning')], green: ['check', 'green', tr('places.deploy.ciGreen')] };
         for (const g of repos.values()) {

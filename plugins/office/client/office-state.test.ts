@@ -43,7 +43,11 @@ test("a snapshot replaces the state and each change replaces its part", () => {
     type: "workspaces",
     workspaces: [{ id: "w1", name: "main", projectName: "paseo" }],
   });
-  state = applyOfficeEvent(state, { type: "activity", activity: { b: "Thinking" } });
+  state = applyOfficeEvent(state, {
+    type: "activity",
+    activity: { b: "Thinking" },
+    doing: { b: { kind: "read", key: "c1" } },
+  });
   state = applyOfficeEvent(state, { type: "board", board: "lobby", posts: [] });
   state = applyOfficeEvent(state, { type: "board-removed", board: "w1" });
   state = applyOfficeEvent(state, { type: "wake", wake: { paused: true, queued: { b: 1 } } });
@@ -52,6 +56,7 @@ test("a snapshot replaces the state and each change replaces its part", () => {
     agents: [agent("b")],
     workspaces: [{ id: "w1", name: "main", projectName: "paseo" }],
     activity: { b: "Thinking" },
+    doing: { b: { kind: "read", key: "c1" } },
     boards: { lobby: [] },
     wake: { paused: true, queued: { b: 1 } },
   });

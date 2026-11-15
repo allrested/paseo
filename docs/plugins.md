@@ -573,7 +573,12 @@ The `office` built-in shows every agent on the host in one place: an Office item
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which
 lists that workspace's room first. Each workspace is a room, and the lobby holds agents without a
 workspace. A row shows the agent's state, provider and model, and for a running agent a "doing
-now" line taken from the newest timeline item's kind, never its text. Tapping a row opens a card
+now" line taken from the newest timeline item's kind, never its text. When that item is a tool
+call, the same read gives the agent's step: the kind of work (a read, a search, an edit, a
+command, a test run, a commit, a push, a deploy), the call's id, and for a test run how it ended.
+The host decides the kind, from the tool call's normalised detail and for a shell call from its
+command (`plugins/office/server/activity.ts`); the command, a file name or a query never leave
+it. Tapping a row opens a card
 that opens the session, sends a prompt, answers a tool, mode or other permission (a plan or a
 question says to answer it in the session), or stops the running turn with the SDK's `cancel()`.
 The server keeps one directory from subscribed `agents.list` and `workspaces.list` calls (the
@@ -594,7 +599,12 @@ removing the frame ends it. Keys pressed inside a frame do not reach the app's s
 press on the scene, and anything the scene opens in the app (the agent card, a board), gives
 keyboard focus back to the app's window. The floor has 12 desks. With more agents, the ones that
 need the user and the ones at work sit first, and a line over the scene says how many are only in
-the list. Design: [the spec](superpowers/specs/2026-11-16-office-my-office-port-design.md).
+the list. A step sends its person to that work's place: the library for a read or a search, the
+desk for an edit, the server room for a command, the test board for a test run. A commit prints a
+page, and a push or a deploy launches the rocket. The reads are 5 s apart, so a tool call that
+starts and ends between two of them is never shown. Designs:
+[the floor](superpowers/specs/2026-11-16-office-my-office-port-design.md),
+[the places](superpowers/specs/2026-11-16-office-activity-places-design.md).
 
 A client that cannot draw, which is the installed app (plugin code there has React Native views
 only) and a browser without WebGL2, composes an office itself from pictures the host draws once,

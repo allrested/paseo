@@ -23,11 +23,13 @@ export interface WorldSession {
   subs: never[];
 }
 
-/** Something a person did; `type` is a key of the scene's action table. */
+/**
+ * Something a person did; `type` is a key of the scene's action table. No text goes with it:
+ * the scene says "a file" and "a command", never which.
+ */
 export interface WorldEvent {
   sess: string;
   type: WorldEventType;
-  label: string;
 }
 
 export type WorldEventType =
@@ -43,11 +45,13 @@ export type WorldEventType =
   | "mcp"
   | "agent"
   | "plan"
-  | "compact"
+  | "test"
   | "commit"
   | "push"
   | "deploy"
-  | "other";
+  | "testok"
+  | "testfail"
+  | "testend";
 
 export interface WorldBoardRow {
   id: string;

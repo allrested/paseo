@@ -1,7 +1,18 @@
 import { agentTitle, attentionReason, type OfficeModel, type OfficeRow } from "../model.js";
-import type { OfficeAgent } from "../../shared/contracts.js";
+import type {
+  ActivityKind,
+  ActivityStep,
+  OfficeAgent,
+  TestResult,
+} from "../../shared/contracts.js";
 import { relativeLuminance } from "../scene/palette.js";
-import type { WorldBoardRow, WorldColors, WorldEvent, WorldSession } from "./world-api.js";
+import type {
+  WorldBoardRow,
+  WorldColors,
+  WorldEvent,
+  WorldEventType,
+  WorldSession,
+} from "./world-api.js";
 
 /** Desks of each floor plan of the vendored scene; who does not fit stays in the list view. */
 export const PLAN_DESKS = { pro: 12, cozy: 9 } as const;
@@ -11,6 +22,8 @@ export interface WorldPeople {
   sessions: WorldSession[];
   /** Agents without a desk on this plan. */
   overflow: number;
+  /** The tool call each seated agent is at, for the ones at one. */
+  steps: ReadonlyMap<string, ActivityStep>;
 }
 
 function statusOf(agent: OfficeAgent): WorldSession["status"] {
@@ -51,15 +64,23 @@ function toSession(row: OfficeRow, team: string): WorldSession {
 
 /** The office's agents as the scene's people: a room is a team, seated together. */
 export function worldPeople(model: OfficeModel, plan: WorldPlan): WorldPeople {
-  const all = model.rooms.flatMap((room) => room.rows.map((row) => toSession(row, room.name)));
+  const rows = model.rooms.flatMap((room) => room.rows.map((row) => ({ row, team: room.name })));
+  const all = rows.map(({ row, team }) => toSession(row, team));
   const desks = PLAN_DESKS[plan];
-  if (all.length <= desks) return { sessions: all, overflow: 0 };
   const order = new Map(all.map((session, index) => [session.id, index]));
-  const seated = [...all]
-    .sort((a, b) => rank(a) - rank(b) || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
-    .slice(0, desks)
-    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  return { sessions: seated, overflow: all.length - desks };
+  const seated =
+    all.length <= desks
+      ? all
+      : [...all]
+          .sort((a, b) => rank(a) - rank(b) || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+          .slice(0, desks)
+          .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  const atDesk = new Set(seated.map((session) => session.id));
+  const steps = new Map<string, ActivityStep>();
+  for (const { row } of rows) {
+    if (row.step !== null && atDesk.has(row.agent.id)) steps.set(row.agent.id, row.step);
+  }
+  return { sessions: seated, overflow: all.length - seated.length, steps };
 }
 
 function boardState(session: WorldSession): WorldBoardRow["state"] {
@@ -92,41 +113,105 @@ export function worldBoardRows(
     }));
 }
 
-/** What the scene writes after "Error:" over someone whose turn failed; Paseo knows no more. */
-const FAILED = "the agent stopped";
+/** A kind of work, as the scene names it: each has a place the person walks to. */
+const STEP_EVENT: Readonly<Record<ActivityKind, WorldEventType>> = {
+  read: "read",
+  search: "grep",
+  edit: "edit",
+  write: "write",
+  command: "bash",
+  web: "web",
+  tool: "mcp",
+  subagent: "agent",
+  plan: "plan",
+  test: "test",
+  commit: "commit",
+  push: "push",
+  deploy: "deploy",
+};
 
-/** What the scene was last told about each person. */
-export type WorldMemory = ReadonlyMap<string, { status: WorldSession["status"]; stuck: boolean }>;
+const RESULT_EVENT: Readonly<Record<TestResult, WorldEventType>> = {
+  passed: "testok",
+  failed: "testfail",
+};
 
-export function rememberPeople(sessions: readonly WorldSession[]): WorldMemory {
-  return new Map(
-    sessions.map((session) => [session.id, { status: session.status, stuck: session.stuck }]),
-  );
+/** What the scene was last told about a person. */
+interface Told {
+  status: WorldSession["status"];
+  stuck: boolean;
+  /** The key of the step the person was sent to; null when at none. */
+  step: string | null;
+  /** That step is a test run, and the scene has not been told how it ended. */
+  testing: boolean;
+}
+export type WorldMemory = ReadonlyMap<string, Told>;
+
+export interface WorldChanges {
+  events: WorldEvent[];
+  /** What the scene knows once it has the events. */
+  memory: WorldMemory;
+}
+
+/** A turn that starts, one that ends, a new error; none for someone seen for the first time. */
+function turnEvent(session: WorldSession, was: Told | undefined): WorldEventType | null {
+  if (was === undefined) return null;
+  if (session.stuck && !was.stuck) return "fail";
+  if (was.status === "rest" && session.status === "work") return "prompt";
+  return was.status !== "rest" && session.status === "rest" && !session.stuck ? "stop" : null;
+}
+
+function stepEvents(
+  session: WorldSession,
+  step: ActivityStep | undefined,
+  was: Told | undefined,
+): { events: WorldEventType[]; step: string | null; testing: boolean } {
+  const events: WorldEventType[] = [];
+  let told = was?.step ?? null;
+  let testing = was?.testing ?? false;
+  if (testing && step?.key !== told) {
+    // The run's end was never seen: its lamp on the test board goes out.
+    events.push("testend");
+    testing = false;
+  }
+  if (step === undefined) return { events, step: null, testing };
+  if (testing) {
+    if (step.result !== undefined) {
+      events.push(RESULT_EVENT[step.result]);
+      testing = false;
+    }
+  } else if (session.status === "work" && step.key !== told) {
+    told = step.key;
+    testing = step.kind === "test" && step.result === undefined;
+    events.push(step.result === undefined ? STEP_EVENT[step.kind] : RESULT_EVENT[step.result]);
+  }
+  return { events, step: told, testing };
 }
 
 /**
- * What changed since the scene was last told, as things its people do: a turn that starts is a
+ * What changed since the scene was last told, as things its people do. A turn that starts is a
  * prompt carried to the desk, one that ends is reported and followed by a rest, an error is a
- * failure. Someone new walks in by being in the list; nothing is said about them.
+ * failure. A new tool call of an agent at work sends the person to that work's place, and that
+ * is said at once, so an office just opened shows what everyone is at. A call seen while its
+ * agent waits for the user is told once the agent works again: the approval is often for it.
+ * A test run is told twice, when it starts and when it ends.
  */
-export function worldEvents(
-  before: WorldMemory | null,
-  sessions: readonly WorldSession[],
-): WorldEvent[] {
-  if (before === null) return [];
+export function worldChanges(before: WorldMemory | null, people: WorldPeople): WorldChanges {
   const events: WorldEvent[] = [];
-  for (const session of sessions) {
-    const was = before.get(session.id);
-    if (was === undefined) continue;
-    if (session.stuck && !was.stuck) {
-      events.push({ sess: session.id, type: "fail", label: FAILED });
-    } else if (was.status === "rest" && session.status === "work") {
-      events.push({ sess: session.id, type: "prompt", label: "" });
-    } else if (was.status !== "rest" && session.status === "rest" && !session.stuck) {
-      events.push({ sess: session.id, type: "stop", label: "" });
-    }
+  const memory = new Map<string, Told>();
+  for (const session of people.sessions) {
+    const was = before?.get(session.id);
+    const turn = turnEvent(session, was);
+    if (turn !== null) events.push({ sess: session.id, type: turn });
+    const steps = stepEvents(session, people.steps.get(session.id), was);
+    for (const type of steps.events) events.push({ sess: session.id, type });
+    memory.set(session.id, {
+      status: session.status,
+      stuck: session.stuck,
+      step: steps.step,
+      testing: steps.testing,
+    });
   }
-  return events;
+  return { events, memory };
 }
 
 /** The team name of a room, as the scene knows it; null for a room that is not there. */

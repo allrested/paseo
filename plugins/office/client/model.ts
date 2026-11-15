@@ -1,4 +1,4 @@
-import type { OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
+import type { ActivityStep, OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
 import { LOBBY } from "../shared/names.js";
 
 export const LOBBY_NAME = "Lobby";
@@ -9,6 +9,8 @@ export interface OfficeRow {
   depth: 0 | 1;
   /** The "doing now" line; running agents only. */
   activity: string | null;
+  /** The tool call a running agent is at, when its newest timeline item is one. */
+  step: ActivityStep | null;
 }
 
 export interface OfficeRoom {
@@ -80,6 +82,7 @@ function byCreation(left: OfficeAgent, right: OfficeAgent): number {
 function orderRows(
   agents: readonly OfficeAgent[],
   activity: Readonly<Record<string, string>>,
+  doing: Readonly<Record<string, ActivityStep>>,
 ): OfficeRow[] {
   const sorted = [...agents].sort(byCreation);
   const ids = new Set(sorted.map((agent) => agent.id));
@@ -98,8 +101,13 @@ function orderRows(
   function visit(agent: OfficeAgent, depth: 0 | 1): void {
     if (seen.has(agent.id)) return;
     seen.add(agent.id);
-    const line = agent.status === "running" ? (activity[agent.id] ?? null) : null;
-    rows.push({ agent, depth, activity: line });
+    const running = agent.status === "running";
+    rows.push({
+      agent,
+      depth,
+      activity: running ? (activity[agent.id] ?? null) : null,
+      step: running ? (doing[agent.id] ?? null) : null,
+    });
     for (const child of children.get(agent.id) ?? []) visit(child, 1);
   }
   for (const root of roots) visit(root, 0);
@@ -154,7 +162,7 @@ export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
       name,
       subtitle,
       lobby,
-      rows: orderRows(byRoom.get(id) ?? [], state.activity),
+      rows: orderRows(byRoom.get(id) ?? [], state.activity, state.doing ?? {}),
       posts: visiblePosts(state.boards[id] ?? []),
     };
   }

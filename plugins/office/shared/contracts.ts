@@ -11,7 +11,10 @@ import {
 } from "./sheet.js";
 
 // In their own file, so code that needs only a name does not load the schemas (the render page).
-export { LOBBY, USER_AUTHOR } from "./names.js";
+import { ACTIVITY_KINDS, TEST_RESULTS } from "./names.js";
+
+export { ACTIVITY_KINDS, LOBBY, USER_AUTHOR } from "./names.js";
+export type { ActivityKind, ActivityStep, TestResult } from "./names.js";
 export const POST_TEXT_MAX = 2000;
 export const BOARD_POST_MAX = 200;
 export const DONE_TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -90,11 +93,20 @@ export const WakeStateSchema = z.object({
 });
 export type WakeState = z.output<typeof WakeStateSchema>;
 
+/** A running agent's newest tool call: what it is for, and a key that changes with each call. */
+export const ActivityStepSchema = z.object({
+  kind: z.enum(ACTIVITY_KINDS),
+  key: z.string(),
+  result: z.enum(TEST_RESULTS).optional(),
+});
+
 export const OfficeSnapshotSchema = z.object({
   agents: z.array(OfficeAgentSchema),
   workspaces: z.array(OfficeWorkspaceSchema),
   /** The "doing now" line of each running agent that has one. */
   activity: z.record(z.string(), z.string()),
+  /** The step of each running agent whose newest timeline item is a tool call. */
+  doing: z.record(z.string(), ActivityStepSchema).optional(),
   boards: z.record(z.string(), z.array(PostSchema)),
   wake: WakeStateSchema,
   /** Whether the host can draw the office's pictures for a device that cannot (office.sheet). */
@@ -106,7 +118,11 @@ export const OfficeEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("snapshot"), state: OfficeSnapshotSchema }),
   z.object({ type: z.literal("agents"), agents: z.array(OfficeAgentSchema) }),
   z.object({ type: z.literal("workspaces"), workspaces: z.array(OfficeWorkspaceSchema) }),
-  z.object({ type: z.literal("activity"), activity: z.record(z.string(), z.string()) }),
+  z.object({
+    type: z.literal("activity"),
+    activity: z.record(z.string(), z.string()),
+    doing: z.record(z.string(), ActivityStepSchema).optional(),
+  }),
   z.object({ type: z.literal("board"), board: z.string(), posts: z.array(PostSchema) }),
   z.object({ type: z.literal("board-removed"), board: z.string() }),
   z.object({ type: z.literal("wake"), wake: WakeStateSchema }),

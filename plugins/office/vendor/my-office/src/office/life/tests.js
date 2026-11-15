@@ -59,6 +59,8 @@ export function onTest(e) {
   dirty = true;
   if (e.type === 'testfail') visit(e.sess);
 }
+// PASEO: a run whose end Paseo never learns (the turn stopped, the agent moved on) goes back to no run.
+export function clearRun(id) { if (runs.get(id)?.st === 'run') { runs.delete(id); dirty = true; } }
 // a failure: someone resting nearby comes over to have a look (one at a time, not more than once a minute)
 function visit(id) {
   if (state.sim - visitAt < 60 || !B.look) return;

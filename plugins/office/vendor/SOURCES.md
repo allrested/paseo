@@ -24,11 +24,15 @@ The scene: the floor plans, the furniture, the people and how they move, the lab
 the place cards. Upstream's files are copied unchanged, except that `'three'` and
 `'three/addons/...'` imports are rewritten to relative paths, so the bundle needs no resolver.
 
-Two copied files are changed by hand, and each change starts with `// PASEO:`:
+Three copied files are changed by hand, and each change starts with `// PASEO:`:
 
 - `src/office/core/env.js`: the build flag upstream reads from `process.env` is a constant, and
   the floor plan comes from Paseo, not from the page's address and storage.
-- `src/office/interact/place-cards.js`: the lounge's card has a cup for its icon, not a sparkle.
+- `src/office/interact/place-cards.js`: the lounge's card has a cup for its icon, not a sparkle,
+  and the launch pad's card lists no repositories (a team is a workspace, and Paseo sends no
+  repository state).
+- `src/office/life/tests.js`: `clearRun` puts out the lamp of a test run whose end Paseo never
+  learns.
 
 ### What is not taken
 
@@ -42,7 +46,7 @@ with `// PASEO: stand-in`. Most export what is asked of them and do nothing. The
 
 | Stand-in                    | What it does                                                           |
 | --------------------------- | ---------------------------------------------------------------------- |
-| `i18n/index.js`             | English only; drops the emoji upstream ends its lines with             |
+| `i18n/index.js`             | English only; drops the emoji upstream ends its lines with; Paseo's wording where upstream's line needs a file name or a command |
 | `ui/session-drawer.js`      | A chosen person is told to Paseo, which opens its agent card           |
 | `ui/whiteboard.js`          | Draws Paseo's rows on the board; picks people and furniture            |
 | `ui/camera-bar.js`          | One view: the floor fitted to the frame                                |
@@ -55,6 +59,17 @@ Paseo's own files sit beside upstream's and are named for it: `paseo-entry.js` (
 entry: builds the page, starts the modules in upstream's order, sets `PaseoOfficeWorld`),
 `paseo-host.js` (what the stand-ins read and call), `paseo-style.js` (the page's stylesheet, in
 Paseo's design language), and `paseo-modules.js` (generated: the kept modules in start-up order).
+
+### What the scene is told
+
+Paseo sends the scene who is there and what kind of thing each person does (`client/world/
+world-api.ts`), never a file name, a command or a prompt. The scene runs in upstream's streamer
+mode, which writes "a file" and "a command" where upstream would write the name, and the entry
+keeps the feed and the counts upstream's server would keep, from the moment the office opens.
+
+The scene writes three things to the app origin's `localStorage`, under keys that start with
+`office-`: which team sits where, the plants, and the graphics level. It reads a few more
+`office-` keys that nothing here writes. It makes no network call.
 
 ### Taking a newer upstream
 
