@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentListPage, AgentListRequest, AgentsPort, AgentSummary } from "./agents.js";
+import { kiroStore } from "./kiro.js";
 import { MAX_CHATS, searchChats } from "./search.js";
+import { claudeStore } from "./stores.js";
 
 let root: string;
 
@@ -72,11 +74,12 @@ describe.skipIf(process.platform === "win32")("searchChats", () => {
       ],
     ]);
 
-    const result = await searchChats(" Rounding ", { roots: [root], agents });
+    const result = await searchChats(" Rounding ", { stores: [claudeStore([root])], agents });
 
     expect(result).toEqual({
       chats: [
         {
+          provider: "claude",
           sessionId: "s-new",
           agentId: "agent-new",
           title: "Checkout total",
@@ -94,6 +97,7 @@ describe.skipIf(process.platform === "win32")("searchChats", () => {
           ],
         },
         {
+          provider: "claude",
           sessionId: "s-old",
           agentId: "agent-old",
           // An agent without a title takes the chat's own.
@@ -114,6 +118,7 @@ describe.skipIf(process.platform === "win32")("searchChats", () => {
       ],
       others: [
         {
+          provider: "claude",
           sessionId: "s-terminal",
           agentId: null,
           title: "Explain ROUNDING modes",
@@ -135,13 +140,54 @@ describe.skipIf(process.platform === "win32")("searchChats", () => {
     });
   });
 
+  it("searches every store as one list: each hit names its provider, the newest first", async () => {
+    const kiro = join(root, "kiro");
+    mkdirSync(kiro);
+    const kiroChat = (sessionId: string, changed: string, said: string) => {
+      const file = join(kiro, `${sessionId}.jsonl`);
+      writeFileSync(
+        file,
+        line({
+          version: "v1",
+          kind: "Prompt",
+          data: { content: [{ kind: "text", data: said }], meta: { timestamp: 1_794_000_000 } },
+        }),
+      );
+      writeFileSync(join(kiro, `${sessionId}.json`), JSON.stringify({ cwd: "/work/api" }));
+      utimesSync(file, new Date(changed), new Date(changed));
+    };
+    // Claude's chats in a folder of their own, so Kiro's folder is not taken for a project.
+    const project = "claude/-work-shop";
+    chat("c-old", "2026-11-10T08:00:00Z", prompt("the needle, long ago"), project);
+    kiroChat("k-mid", "2026-11-12T08:00:00Z", "the needle in Kiro");
+    chat("c-new", "2026-11-14T08:00:00Z", prompt("the needle today"), project);
+    kiroChat("k-agent", "2026-11-13T08:00:00Z", "a needle for an agent");
+    const agents = agentsOf([
+      [{ id: "agent-k", title: "Kiro agent", persistence: { sessionId: "k-agent" } }],
+    ]);
+
+    const result = await searchChats("needle", {
+      stores: [claudeStore([join(root, "claude")]), kiroStore(kiro)],
+      agents,
+    });
+
+    expect(result.chats.map((hit) => [hit.provider, hit.sessionId, hit.agentId])).toEqual([
+      ["kiro", "k-agent", "agent-k"],
+    ]);
+    expect(result.others.map((hit) => [hit.provider, hit.sessionId, hit.folder])).toEqual([
+      ["claude", "c-new", "/work/shop"],
+      ["kiro", "k-mid", "/work/api"],
+      ["claude", "c-old", "/work/shop"],
+    ]);
+  });
+
   it("asks for every agent, archived and background ones too, page after page", async () => {
     chat("s-2", "2026-11-14T08:00:00Z", prompt("needle"));
     const agents = agentsOf([
       [{ id: "a1", title: "One", persistence: { sessionId: "s-1" } }],
       [{ id: "a2", title: "Two", persistence: null, runtimeInfo: { sessionId: "s-2" } }],
     ]);
-    const result = await searchChats("needle", { roots: [root], agents });
+    const result = await searchChats("needle", { stores: [claudeStore([root])], agents });
     expect(result.chats.map((hit) => hit.agentId)).toEqual(["a2"]);
     expect(agents.requests).toEqual([
       {
@@ -162,7 +208,10 @@ describe.skipIf(process.platform === "win32")("searchChats", () => {
       const minute = String(i + 1).padStart(2, "0");
       chat(`s-${minute}`, `2026-10-01T08:${minute}:00Z`, prompt("needle"));
     }
-    const result = await searchChats("needle", { roots: [root], agents: agentsOf([[]]) });
+    const result = await searchChats("needle", {
+      stores: [claudeStore([root])],
+      agents: agentsOf([[]]),
+    });
     expect(result.more).toBe(true);
     expect(result.others).toHaveLength(MAX_CHATS);
     expect(result.others[0]?.sessionId).toBe("s-42");
@@ -171,14 +220,17 @@ describe.skipIf(process.platform === "win32")("searchChats", () => {
 
   it("finds words made of punctuation", async () => {
     chat("s-1", "2026-11-14T08:00:00Z", prompt("is a !== b right?"));
-    const result = await searchChats("!== ", { roots: [root], agents: agentsOf([[]]) });
+    const result = await searchChats("!== ", {
+      stores: [claudeStore([root])],
+      agents: agentsOf([[]]),
+    });
     expect(result.others.map((hit) => hit.snippets[0]?.match)).toEqual(["!=="]);
   });
 
   it("refuses fewer than three characters before it reads anything", async () => {
     const agents = agentsOf([[]]);
     const list = vi.spyOn(agents, "list");
-    await expect(searchChats(" ab ", { roots: [root], agents })).rejects.toThrow(
+    await expect(searchChats(" ab ", { stores: [claudeStore([root])], agents })).rejects.toThrow(
       "Type at least 3 characters",
     );
     expect(list).not.toHaveBeenCalled();
@@ -187,7 +239,12 @@ describe.skipIf(process.platform === "win32")("searchChats", () => {
   it("is empty on a host with no transcripts, without asking for the agents", async () => {
     const agents = agentsOf([[]]);
     const list = vi.spyOn(agents, "list");
-    expect(await searchChats("needle", { roots: [], agents })).toEqual({
+    expect(
+      await searchChats("needle", {
+        stores: [claudeStore([]), kiroStore(join(root, "no-kiro"))],
+        agents,
+      }),
+    ).toEqual({
       chats: [],
       others: [],
       more: false,

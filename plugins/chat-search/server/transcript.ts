@@ -10,6 +10,7 @@ import { grepPattern } from "./pattern.js";
 const BEFORE = 60;
 const AFTER = 120;
 const TITLE_LENGTH = 80;
+export const UNTITLED = "Untitled chat";
 // Claude Code writes a title line with its type first, and a message's type somewhere inside.
 const TITLE_PATTERN = String.raw`^\{"type":"ai-title"`;
 const USER_LINE = '"type":"user"';
@@ -32,7 +33,7 @@ export interface TranscriptRead {
 
 type Entry = Record<string, unknown>;
 
-function isEntry(value: unknown): value is Entry {
+export function isEntry(value: unknown): value is Entry {
   return typeof value === "object" && value !== null;
 }
 
@@ -91,7 +92,8 @@ export function cutSnippet(
   };
 }
 
-function firstLine(text: string): string {
+/** The first line with text on it, cut to a title's length. */
+export function firstLine(text: string): string {
   const line =
     text
       .split("\n")
@@ -100,7 +102,7 @@ function firstLine(text: string): string {
   return line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH - 1)}…` : line;
 }
 
-function parse(line: string): unknown {
+export function parseLine(line: string): unknown {
   try {
     return JSON.parse(line);
   } catch {
@@ -123,8 +125,19 @@ function take(reading: Reading, entry: unknown, words: string, maxSnippets: numb
   if (entry.type === "ai-title" && typeof entry.aiTitle === "string")
     reading.aiTitle = entry.aiTitle;
   const message = messageOf(entry);
-  if (message === null) return;
-  // grep found the words somewhere on the line; only here is it known to be in the message.
+  if (message !== null) noteMatch(reading, message, words, maxSnippets);
+}
+
+/**
+ * Counts a message that holds the words, and keeps its snippet while there is room. grep found
+ * the words somewhere on the message's line; only here is it known to be in the message.
+ */
+export function noteMatch(
+  reading: { matches: number; snippets: Snippet[] },
+  message: Message,
+  words: string,
+  maxSnippets: number,
+): void {
   const cut = cutSnippet(message.text, words);
   if (cut === null) return;
   reading.matches += 1;
@@ -133,14 +146,21 @@ function take(reading: Reading, entry: unknown, words: string, maxSnippets: numb
   }
 }
 
-// What the user typed first, for a chat Claude Code never titled.
-async function firstPrompt(file: string): Promise<string | null> {
+/**
+ * What the user typed first, for a chat its provider never titled. `marker` is text every
+ * prompt's line holds, so the other lines are not parsed; `read` tells a prompt from the rest.
+ */
+export async function firstPrompt(
+  file: string,
+  marker: string,
+  read: (entry: unknown) => Message | null,
+): Promise<string | null> {
   try {
     const input = createReadStream(file, "utf8");
     try {
       let seen = 0;
       for await (const line of createInterface({ input, crlfDelay: Infinity })) {
-        const message = line.includes(USER_LINE) ? messageOf(parse(line)) : null;
+        const message = line.includes(marker) ? read(parseLine(line)) : null;
         if (message?.role === "user") return firstLine(message.text);
         seen += 1;
         if (seen === FIRST_PROMPT_LINES) break;
@@ -169,12 +189,12 @@ export async function readTranscript(
 ): Promise<TranscriptRead | null> {
   const reading: Reading = { aiTitle: null, folder: null, matches: 0, snippets: [] };
   for await (const line of linesHolding(file, [grepPattern(words), TITLE_PATTERN], grep)) {
-    take(reading, parse(line), words, maxSnippets);
+    take(reading, parseLine(line), words, maxSnippets);
     if (reading.matches === MAX_COUNTED) break;
   }
   if (reading.matches === 0) return null;
   return {
-    title: reading.aiTitle ?? (await firstPrompt(file)) ?? "Untitled chat",
+    title: reading.aiTitle ?? (await firstPrompt(file, USER_LINE, messageOf)) ?? UNTITLED,
     folder: reading.folder,
     matches: reading.matches,
     snippets: reading.snippets,
