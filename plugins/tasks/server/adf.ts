@@ -1,6 +1,31 @@
 // Jira Cloud keeps rich text as an Atlassian Document Format tree. An agent reads text, so this
 // keeps the words and the structure a reader needs (headings, lists, code, quotes, table rows)
 // and drops the styling.
+/**
+ * Plain text as a document, for a comment: a blank line starts a paragraph and a line break
+ * stays one. Nothing in the text is read as markup.
+ */
+export function textToAdf(text: string): unknown {
+  const paragraphs = text
+    .replace(/\r\n?/g, "\n")
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph !== "");
+  return {
+    type: "doc",
+    version: 1,
+    content: paragraphs.map((paragraph) => {
+      const content: unknown[] = [];
+      for (const [index, line] of paragraph.split("\n").entries()) {
+        if (index > 0) content.push({ type: "hardBreak" });
+        // An empty text node is no valid document.
+        if (line !== "") content.push({ type: "text", text: line });
+      }
+      return { type: "paragraph", content };
+    }),
+  };
+}
+
 interface AdfNode {
   type?: unknown;
   text?: unknown;
