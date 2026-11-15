@@ -18,6 +18,7 @@ import {
 import { Button } from "./button.js";
 import { useNow } from "./device.js";
 import { ago, commentMeta, earlierComments, kindName } from "./format.js";
+import { useLinkedWorkspaces, useRefreshLinked, workspacesOf } from "./linked.js";
 import { nextTask, useNextTask } from "./next-task.js";
 import type { TasksStyles } from "./tasks-styles.js";
 import { useTaskDetail } from "./use-tasks.js";
@@ -57,14 +58,45 @@ function Move({ change, onMove, styles }: MoveProps) {
   return <Button label={change.label} pendingLabel="Moving..." onPress={move} styles={styles} />;
 }
 
+interface OpenWorkspaceProps extends Styled {
+  label: string;
+  workspaceId: string;
+  onOpen(workspaceId: string): void;
+}
+
+function OpenWorkspace({ label, workspaceId, onOpen, styles }: OpenWorkspaceProps) {
+  const open = useCallback(() => onOpen(workspaceId), [onOpen, workspaceId]);
+  return <Button label={label} onPress={open} styles={styles} />;
+}
+
+interface WorkspacesProps extends Styled {
+  task: TaskDetail;
+  onOpen(workspaceId: string): void;
+}
+
+/** A way into each workspace that was started on this task; one alone needs no name. */
+function Workspaces({ task, onOpen, styles }: WorkspacesProps) {
+  const found = workspacesOf(useLinkedWorkspaces().data?.linked ?? [], task);
+  return found.map((each) => (
+    <OpenWorkspace
+      key={each.workspaceId}
+      label={found.length === 1 ? "Open workspace" : `Open ${each.name}`}
+      workspaceId={each.workspaceId}
+      onOpen={onOpen}
+      styles={styles}
+    />
+  ));
+}
+
 interface WorkspacePickProps extends Styled {
+  taskId: string;
   taskKey: string;
   url: string;
   branch: string;
 }
 
 /** Hands an issue to the New workspace screen's Task field, or takes it back. */
-function WorkspacePick({ taskKey, url, branch, styles }: WorkspacePickProps) {
+function WorkspacePick({ taskId, taskKey, url, branch, styles }: WorkspacePickProps) {
   const picked = useNextTask()?.key === taskKey;
   const toast = useToast();
   const toggle = useCallback(() => {
@@ -72,9 +104,9 @@ function WorkspacePick({ taskKey, url, branch, styles }: WorkspacePickProps) {
       nextTask.set(null);
       return;
     }
-    nextTask.set({ key: taskKey, url, branch });
+    nextTask.set({ id: taskId, key: taskKey, url, branch });
     toast.show(`New workspace will start on ${taskKey}`);
-  }, [picked, taskKey, url, branch, toast]);
+  }, [picked, taskId, taskKey, url, branch, toast]);
   return (
     <Button
       label={picked ? "Do not use for the next workspace" : "Use for the next workspace"}
@@ -148,9 +180,11 @@ interface PageProps extends Styled {
   now: number;
   onMove(change: string): Promise<void>;
   onPost(text: string): Promise<void>;
+  /** Absent on a host whose screens cannot open a workspace. */
+  onOpenWorkspace?: (workspaceId: string) => void;
 }
 
-function Page({ task, stale, now, onMove, onPost, styles }: PageProps) {
+function Page({ task, stale, now, onMove, onPost, onOpenWorkspace, styles }: PageProps) {
   const tracker = SOURCE_NAME[task.source];
   return (
     <>
@@ -185,8 +219,17 @@ function Page({ task, stale, now, onMove, onPost, styles }: PageProps) {
         </View>
       )}
       <View style={styles.actions}>
+        {onOpenWorkspace === undefined ? null : (
+          <Workspaces task={task} onOpen={onOpenWorkspace} styles={styles} />
+        )}
         {task.branch === undefined ? null : (
-          <WorkspacePick taskKey={task.key} url={task.url} branch={task.branch} styles={styles} />
+          <WorkspacePick
+            taskId={task.id}
+            taskKey={task.key}
+            url={task.url}
+            branch={task.branch}
+            styles={styles}
+          />
         )}
         <ExternalLink href={task.url}>{`Open in ${tracker}`}</ExternalLink>
       </View>
@@ -217,12 +260,24 @@ export interface TaskDetailPaneProps extends Styled {
   id: string;
   /** Returns to the list, where the page covers it and the host's header has no way back. */
   onBack?: () => void;
+  /** Opens a workspace that was started on the task. Absent on a host that cannot. */
+  onOpenWorkspace?: (workspaceId: string) => void;
 }
 
 /** One task's page: what it is, where it can move, what was said, and a box to answer. */
-export function TaskDetailPane({ id, styles, onBack }: TaskDetailPaneProps) {
+export function TaskDetailPane({ id, styles, onBack, onOpenWorkspace }: TaskDetailPaneProps) {
   const task = useTaskDetail(id);
   const now = useNow();
+  const refreshLinked = useRefreshLinked();
+  const { change } = task;
+  // The sidebar's badge shows how the task stands: it is read again once the task has moved.
+  const move = useCallback(
+    async (to: string) => {
+      await change(to);
+      refreshLinked();
+    },
+    [change, refreshLinked],
+  );
   const backStyle = useCallback(
     ({ pressed }: PressableStateCallbackType) => (pressed ? styles.backPressed : styles.back),
     [styles],
@@ -235,8 +290,9 @@ export function TaskDetailPane({ id, styles, onBack }: TaskDetailPaneProps) {
           task={task.value}
           stale={task.error}
           now={now}
-          onMove={task.change}
+          onMove={move}
           onPost={task.comment}
+          onOpenWorkspace={onOpenWorkspace}
           styles={styles}
         />
       </ScrollView>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import {
   useRpc,
   useSettings,
@@ -11,9 +11,11 @@ import {
   SettingsCard,
   SettingsInput,
   SettingsSection,
+  TextInput,
   type SettingsInputHandle,
 } from "@getpaseo/plugin/client/ui";
 import {
+  PROMPT_MAX,
   connections,
   setTokenRpc,
   testConnectionRpc,
@@ -22,14 +24,18 @@ import {
   type Source,
   type Tokens,
 } from "../shared/contracts.js";
+import { DEFAULT_PROMPT, PROMPT_WORDS } from "../shared/prompt.js";
 import { reason } from "./reason.js";
-import { useScreenStyles } from "./styles.js";
+import { useScreenStyles, type ScreenStyles } from "./styles.js";
 
 type ConnectionsState = SettingsState<typeof connections.schema>;
 type ReadySettings = Extract<ConnectionsState, { status: "ready" }>;
 
+/** The connections that are addresses, each with a one-line field. */
+type Address = Exclude<keyof Connections, "promptTemplate">;
+
 interface Field {
-  key: keyof Connections;
+  key: Address;
   label: string;
   placeholder: string;
 }
@@ -227,15 +233,83 @@ function FieldInput({ field, settings, draft, disabled }: FieldInputProps) {
   );
 }
 
+const PROMPT_INFO = `What the Task prompt control on New workspace puts in the composer once a task is picked. It can hold ${PROMPT_WORDS}.`;
+
+/** The template the New workspace composer's Task prompt control fills with the picked task. */
+function PromptSection({ settings, styles }: { settings: ReadySettings; styles: ScreenStyles }) {
+  const saved = settings.values.promptTemplate;
+  const [text, setText] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<Outcome>(null);
+  // The settings hook holds the reason, and every section reads the same hook.
+  const [refused, setRefused] = useState(false);
+
+  const store = useCallback(
+    async (promptTemplate: string) => {
+      setBusy(true);
+      setDone(null);
+      setRefused(false);
+      try {
+        const values = { ...settings.values, promptTemplate };
+        if (await settings.save(values, settings.revision)) {
+          setText(promptTemplate);
+          setDone({ kind: "ok", text: "Saved" });
+        } else {
+          setRefused(true);
+        }
+      } catch (error) {
+        setDone({ kind: "error", text: reason(error) });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [settings],
+  );
+  const save = useCallback(() => store(text), [store, text]);
+  const useDefault = useCallback(() => store(DEFAULT_PROMPT), [store]);
+
+  const disabled = busy || settings.saving;
+  let saveError: string | null | undefined;
+  if (done?.kind === "error") saveError = done.text;
+  else if (refused) saveError = settings.saveError;
+  return (
+    <SettingsSection title="Task prompt" info={PROMPT_INFO}>
+      <SettingsCard>
+        <View style={styles.block}>
+          <TextInput
+            multiline
+            value={text}
+            onChangeText={setText}
+            editable={!disabled}
+            maxLength={PROMPT_MAX}
+            accessibilityLabel="Task prompt template"
+            style={styles.editor}
+          />
+        </View>
+        <SettingsAction
+          label="Save the prompt"
+          hint={done?.kind === "ok" ? done.text : undefined}
+          error={saveError}
+          actionLabel={busy ? "Working..." : "Save"}
+          disabled={disabled}
+          onPress={save}
+        />
+        {saved === DEFAULT_PROMPT ? null : (
+          <SettingsAction
+            label="Use the default prompt"
+            actionLabel="Reset"
+            disabled={disabled}
+            onPress={useDefault}
+          />
+        )}
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
 const NO_TOKENS: Tokens = { jira: { hasToken: false }, gitlab: { hasToken: false } };
 
-function Trackers({
-  settings,
-  styles,
-}: {
-  settings: ReadySettings;
-  styles: ReturnType<typeof useScreenStyles>;
-}) {
+function Trackers({ settings, styles }: { settings: ReadySettings; styles: ScreenStyles }) {
   const readTokens = useRpc(tokensRpc);
   const [tokens, setTokens] = useState<Tokens>(NO_TOKENS);
   const [error, setError] = useState<string | null>(null);
@@ -273,11 +347,12 @@ function Trackers({
         hasToken={tokens.gitlab.hasToken}
         onTokens={setTokens}
       />
+      <PromptSection settings={settings} styles={styles} />
     </>
   );
 }
 
-/** Where the trackers are and the tokens that sign in to them. */
+/** Where the trackers are, the tokens that sign in to them, and the prompt a task starts with. */
 export function ConnectionsScreen({ theme }: PluginSurfaceProps) {
   const styles = useScreenStyles(theme);
   const settings = useSettings(connections);

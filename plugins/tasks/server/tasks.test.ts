@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import type { Connections, Source } from "../shared/contracts.js";
+import { DEFAULT_PROMPT } from "../shared/prompt.js";
 import { TrackerError } from "./issue.js";
 import { createTasks } from "./tasks.js";
 import type { SavedTokens, TokenStore } from "./token-store.js";
@@ -8,8 +9,9 @@ const BOTH: Connections = {
   jiraSite: "https://team.atlassian.net",
   jiraEmail: "me@team.test",
   gitlabUrl: "https://git.team.test",
+  promptTemplate: DEFAULT_PROMPT,
 };
-const NONE: Connections = { jiraSite: "", jiraEmail: "", gitlabUrl: "" };
+const NONE: Connections = { ...BOTH, jiraSite: "", jiraEmail: "", gitlabUrl: "" };
 
 const JIRA_ISSUE = {
   key: "BWLT-12",
@@ -433,4 +435,95 @@ test("a tracker is kept while its sign-in stays the same, and made again when it
   saved.gitlab = "another-token";
   await tasks.list("");
   expect(users()).toBe(2);
+});
+
+const LINK = {
+  name: "BWLT-12-add-the-webhook",
+  key: "BWLT-12",
+  url: "https://team.atlassian.net/browse/BWLT-12",
+  taskId: "jira:BWLT-12",
+};
+const GITLAB_LINK = {
+  workspaceId: "wks_3",
+  name: "7-rate-limit",
+  key: "shop/web#7",
+  url: "https://git.team.test/shop/web/-/issues/7",
+  taskId: "gitlab:issue:42:7",
+};
+
+function standing(key: string): Respond {
+  return () =>
+    json({
+      ...JIRA_ISSUE,
+      fields: { ...JIRA_ISSUE.fields, status: { name: "In Review", statusCategory: { key } } },
+    });
+}
+
+test("a linked workspace carries how its task stands now, and a task is asked once", async () => {
+  const { tasks, asked } = setup({ jira: standing("indeterminate") });
+  const found = {
+    workspaceIds: ["wks_1", "wks_2", "wks_3", "wks_4"],
+    linked: [{ workspaceId: "wks_1", ...LINK }, { workspaceId: "wks_2", ...LINK }, GITLAB_LINK],
+  };
+  expect(await tasks.linked(found)).toEqual({
+    workspaceIds: ["wks_1", "wks_2", "wks_3", "wks_4"],
+    linked: [
+      { workspaceId: "wks_1", ...LINK, status: "In Review", phase: "doing" },
+      { workspaceId: "wks_2", ...LINK, status: "In Review", phase: "doing" },
+      { ...GITLAB_LINK, status: "Open", phase: "todo" },
+    ],
+  });
+  expect(asked.toSorted()).toEqual([
+    "git.team.test/api/v4/projects/42/issues/7",
+    "team.atlassian.net/rest/api/3/issue/BWLT-12",
+  ]);
+});
+
+test("a task that is gone, or a tracker that fails, leaves its workspace linked with no status", async () => {
+  const { tasks, logs } = setup({
+    jira: () => json({ errorMessages: ["Issue does not exist"] }, 404),
+    gitlab: () => json({}, 500),
+  });
+  const found = {
+    workspaceIds: ["wks_1", "wks_3"],
+    linked: [{ workspaceId: "wks_1", ...LINK }, GITLAB_LINK],
+  };
+  expect(await tasks.linked(found)).toEqual(found);
+  expect(logs).toEqual(["[tasks] GitLab answered HTTP 500."]);
+});
+
+test("a link with no task id, or to a tracker that is not connected, asks nobody", async () => {
+  const { tasks, asked } = setup({ tokens: { gitlab: "gitlab-token" } });
+  const { taskId: _none, ...byKey } = GITLAB_LINK;
+  const found = {
+    workspaceIds: ["wks_1", "wks_3"],
+    linked: [{ workspaceId: "wks_1", ...LINK }, byKey],
+  };
+  expect(await tasks.linked(found)).toEqual(found);
+  expect(asked).toEqual([]);
+});
+
+test("with nothing linked the trackers and the saved sign-in are left alone", async () => {
+  const { tasks, asked } = setup();
+  expect(await tasks.linked({ workspaceIds: ["wks_9"], linked: [] })).toEqual({
+    workspaceIds: ["wks_9"],
+    linked: [],
+  });
+  expect(asked).toEqual([]);
+});
+
+test("a task's prompt is the saved template filled with the task", async () => {
+  const { tasks } = setup({
+    saved: { ...BOTH, promptTemplate: "Plan {key} ({title}). {description} See {url}" },
+  });
+  expect(await tasks.prompt("gitlab:issue:42:7")).toEqual({
+    text: "Plan shop/web#7 (Rate limit the login form). Five tries a minute. See https://git.team.test/shop/web/-/issues/7",
+  });
+});
+
+test("a prompt for a task that cannot be read is the tracker's refusal", async () => {
+  const { tasks } = setup({ jira: () => json({}, 404) });
+  await expect(tasks.prompt("jira:BWLT-999")).rejects.toThrow(
+    "Jira has no such task, or the saved account cannot see it.",
+  );
 });

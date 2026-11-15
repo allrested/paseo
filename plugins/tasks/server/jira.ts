@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Phase } from "../shared/contracts.js";
 import { adfToText, textToAdf } from "./adf.js";
 import { baseUrl, getJson, sendJson } from "./http.js";
 import {
@@ -23,11 +24,16 @@ const TRANSITION = /^\d{1,12}$/;
 const MISSING = "Jira has no such issue, or the saved account cannot see it.";
 
 const Named = z.object({ name: z.string() }).nullish();
+const Status = z
+  .object({ name: z.string(), statusCategory: z.object({ key: z.string() }).nullish() })
+  .nullish();
+// Jira's three status categories, by their keys.
+const PHASES: Record<string, Phase> = { new: "todo", indeterminate: "doing", done: "done" };
 const IssueSchema = z.object({
   key: z.string(),
   fields: z.object({
     summary: z.string().nullish(),
-    status: Named,
+    status: Status,
     issuetype: Named,
     priority: Named,
     description: z.unknown().optional(),
@@ -117,6 +123,7 @@ export function createJira(options: JiraOptions): Tracker {
     if (fields.issuetype) details.push(["Type", fields.issuetype.name]);
     if (fields.priority) details.push(["Priority", fields.priority.name]);
     const updatedAt = isoTime(fields.updated);
+    const phase = PHASES[fields.status?.statusCategory?.key ?? ""];
     return {
       source: "jira",
       kind: "issue",
@@ -129,6 +136,7 @@ export function createJira(options: JiraOptions): Tracker {
       details,
       branchPrefix: issue.key,
       ...(updatedAt === undefined ? {} : { updatedAt }),
+      ...(phase === undefined ? {} : { phase }),
     };
   }
 
@@ -177,6 +185,11 @@ export function createJira(options: JiraOptions): Tracker {
         schema: SearchSchema,
       });
       return found.issues.map((issue) => toIssue(base, issue));
+    },
+    async find(id) {
+      const { base } = issueUrl(id);
+      const [issue] = await byKey(base, id.toUpperCase());
+      return issue ?? null;
     },
     async detail(id): Promise<IssueDetail> {
       const { base, at } = issueUrl(id);

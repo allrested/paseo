@@ -63,6 +63,7 @@ test("an empty query lists the open issues assigned to me", async () => {
       details: [["Labels", "security, backend"]],
       branchPrefix: "7",
       updatedAt: "2026-11-14T03:00:00.000Z",
+      phase: "todo",
     },
   ]);
 });
@@ -94,6 +95,7 @@ test("an issue with no reference, labels or description still lists", async () =
       description: "",
       details: [],
       branchPrefix: "3",
+      phase: "todo",
     },
   ]);
 });
@@ -155,6 +157,7 @@ const SHAPED = {
   ],
   branchPrefix: "12",
   updatedAt: "2026-11-14T04:00:00.000Z",
+  phase: "doing",
 };
 
 test("merge requests are the open ones that wait for my review, then the ones assigned to me", async () => {
@@ -199,6 +202,7 @@ test("merge requests are the open ones that wait for my review, then the ones as
       status: "Draft",
       branchPrefix: "13",
       note: "Assigned to you",
+      phase: "todo",
     },
   ]);
 });
@@ -345,4 +349,34 @@ test("a refused change carries GitLab's reason, or says the token may not write"
   await expect(scope.tracker.comment("issue:42:7", "hi")).rejects.toThrow(
     "GitLab did not allow the change. Check what the saved token may do.",
   );
+});
+
+test("one task is found by its id, with where it stands", async () => {
+  const { calls, tracker } = gitlab((url) =>
+    json(url.pathname.includes("/merge_requests/") ? { ...MERGE_REQUEST, draft: true } : ISSUE),
+  );
+  expect(await tracker.find("issue:42:7")).toMatchObject({
+    id: "issue:42:7",
+    status: "Open",
+    phase: "todo",
+  });
+  expect(await tracker.find("mr:42:12")).toMatchObject({ status: "Draft", phase: "todo" });
+  expect(calls.map((call) => call.url.pathname)).toEqual([
+    "/api/v4/projects/42/issues/7",
+    "/api/v4/projects/42/merge_requests/12",
+  ]);
+  const closed = gitlab(() => json({ ...ISSUE, state: "closed" }));
+  expect((await closed.tracker.find("issue:42:7"))?.phase).toBe("done");
+  const open = gitlab(() => json(MERGE_REQUEST));
+  expect((await open.tracker.find("mr:42:12"))?.phase).toBe("doing");
+});
+
+test("a task that is gone is found as nothing; a refusal is an error; a bad id is refused", async () => {
+  expect(await gitlab(() => json({}, 404)).tracker.find("issue:42:999")).toBeNull();
+  await expect(gitlab(() => json({}, 401)).tracker.find("issue:42:7")).rejects.toThrow(
+    "GitLab rejected the saved sign-in details.",
+  );
+  const { calls, tracker } = gitlab(() => json(ISSUE));
+  await expect(tracker.find("issue:shop/web:7")).rejects.toThrow("That is no GitLab task.");
+  expect(calls).toEqual([]);
 });

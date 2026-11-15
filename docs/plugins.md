@@ -413,13 +413,28 @@ over 20,000 characters is cut.
 
 A Task field on the New workspace screen names the new branch after the pick
 (`BWLT-12-add-the-webhook`, or GitLab's own form `7-rate-limit-the-login-form`) and leaves
-`tasks.key` and `tasks.url` in the workspace's metadata. "Use for the next workspace" on an
-issue's page fills that field ahead of time. "Attach Task" in a composer's attach menu sends an
-issue's or a merge request's key, title, status and description as text. A Jira key typed in a
-search finds that issue whoever has it. The connections screen opens from the Task field and from
-the list while no tracker is connected, and from "Task connections" in the Command Center, which
-lists plugin items only on a screen that belongs to a host (a workspace, a plugin screen), not on
-New workspace or the start page.
+`tasks.id`, `tasks.key` and `tasks.url` in the workspace's metadata. "Use for the next
+workspace" on an issue's page fills that field ahead of time. Once a task is picked, the composer
+on that screen has a Task prompt control. It puts the saved template, filled with the task, at
+the cursor and sends nothing. The template is on the connections screen and holds `{key}`,
+`{title}`, `{description}` and `{url}`; an empty one is the default. "Attach Task" in a
+composer's attach menu sends an issue's or a merge request's key, title, status and description
+as text. A Jira key typed in a search finds that issue whoever has it. The connections screen
+opens from the Task field and from the list while no tracker is connected, and from "Task
+connections" in the Command Center, which lists plugin items only on a screen that belongs to a
+host (a workspace, a plugin screen), not on New workspace or the start page.
+
+A workspace that carries a task shows it under its name in the sidebar, with the task's status
+(`BWLT-12 · In Review`) coloured by where the status stands. The task's page has "Open
+workspace", and its row in the list is marked. A client cannot read a workspace's metadata, so
+one RPC (`tasks.workspaces.linked`) lists the host's workspaces and asks the trackers once for
+each task, and every sidebar row, the list and the page read that one answer. The app asks again
+every five minutes, after a move made on a task's page, and when a row appears for a workspace
+the last answer did not know. A tracker that fails leaves the key with no status. A workspace
+made before `tasks.id` was kept is matched by its key: a Jira key is the issue's id, so its
+status shows; a GitLab key holds the project's path where the API wants its number, so that
+workspace shows the key alone. The phone app is upstream's, and one from before sidebar rows
+took plugin items registers no badge (`plugins/tasks/index.client.tsx`).
 
 The addresses are the plugin's host settings. The tokens are not, because every client reads the
 settings: they are in `$PASEO_HOME/tasks/tokens.json`, mode 600, and the RPCs about them say

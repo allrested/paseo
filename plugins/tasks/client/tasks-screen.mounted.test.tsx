@@ -6,9 +6,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PluginRpcProvider } from "@getpaseo/plugin/client/host";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import type { TaskDetail, TaskList, TaskRow } from "../shared/contracts.js";
+import type { LinkedWorkspaces, TaskDetail, TaskList, TaskRow } from "../shared/contracts.js";
 import { nextTask } from "./next-task.js";
 import { forgetSearch } from "./task-list.js";
 import { createTasksScreen, splitListWidth } from "./tasks-screen.js";
@@ -101,8 +102,19 @@ let answers: Record<string, Answer>;
 let opened: unknown[];
 let container: HTMLElement;
 let root: Root;
+/** The workspaces started on a task, and how often the screen read them. */
+let linked: LinkedWorkspaces;
+let linkedReads: number;
+let queries: QueryClient;
+/** False for a host from before screens could open a workspace. */
+let navigates: boolean;
 
 async function invoke(method: string, input: unknown): Promise<unknown> {
+  // Read beside the trackers' own calls, and counted apart from them.
+  if (method === "tasks.workspaces.linked") {
+    linkedReads += 1;
+    return linked;
+  }
   calls.push([method, input]);
   const answer = answers[method];
   const value = typeof answer === "function" ? (answer as () => unknown)() : answer;
@@ -125,6 +137,14 @@ function props(params: Record<string, string>, compact = true): PluginScreenProp
     layout: { compact, platform: "web" },
     host: { id: "host", label: "Host" },
     params,
+    ...(navigates
+      ? {
+          navigation: {
+            openWorkspace: (input: object) => void opened.push(["workspace", input]),
+            openAgent: () => {},
+          },
+        }
+      : {}),
   } as unknown as PluginScreenProps;
 }
 
@@ -134,9 +154,11 @@ const settle = (ms = 0) =>
 async function mount(params: Record<string, string> = {}, compact = true): Promise<void> {
   await act(async () => {
     root.render(
-      <PluginRpcProvider invoke={invoke} subscribe={subscribe}>
-        <TasksScreen {...props(params, compact)} />
-      </PluginRpcProvider>,
+      <QueryClientProvider client={queries}>
+        <PluginRpcProvider invoke={invoke} subscribe={subscribe}>
+          <TasksScreen {...props(params, compact)} />
+        </PluginRpcProvider>
+      </QueryClientProvider>,
     );
   });
   await settle();
@@ -190,6 +212,10 @@ beforeEach(() => {
     "tasks.comments.add": ISSUE_PAGE,
     "tasks.status.change": ISSUE_PAGE,
   };
+  linked = { workspaceIds: [], linked: [] };
+  linkedReads = 0;
+  navigates = true;
+  queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   forgetTasks();
   forgetSearch();
   nextTask.set(null);
@@ -200,6 +226,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  queries.clear();
   container.remove();
   vi.useRealTimers();
 });
@@ -381,6 +408,7 @@ test("an issue can be handed to the next workspace, and taken back", async () =>
   await mount({ task: "jira:BWLT-12" });
   await press("Use for the next workspace");
   expect(nextTask.get()).toEqual({
+    id: "jira:BWLT-12",
     key: "BWLT-12",
     url: ISSUE.url,
     branch: "BWLT-12-add-the-webhook",
@@ -467,4 +495,88 @@ test("going back to the list shows what it held at once, then reads it again", a
   // The answer is still on its way, and the rows are up.
   expect(headings()).toEqual(["Issues", "Merge requests"]);
   expect(calls.filter(([method]) => method === "tasks.list")).toHaveLength(2);
+});
+
+const WORKSPACE = {
+  workspaceId: "wks_1",
+  name: "BWLT-12-add-the-webhook",
+  key: "BWLT-12",
+  url: ISSUE.url,
+  taskId: "jira:BWLT-12",
+  status: "In Progress",
+  phase: "doing" as const,
+};
+
+test("a task that has a workspace opens it from its page", async () => {
+  linked = { workspaceIds: ["wks_1"], linked: [WORKSPACE] };
+  await mount({ task: "jira:BWLT-12" });
+  await press("Open workspace");
+  expect(opened).toEqual([["workspace", { workspaceId: "wks_1" }]]);
+  // A second workspace can still be started on it.
+  expect(button("Use for the next workspace")).toBeTruthy();
+});
+
+test("a task with several workspaces names each; one with none offers none", async () => {
+  linked = {
+    workspaceIds: ["wks_1", "wks_2", "wks_3"],
+    linked: [
+      WORKSPACE,
+      { ...WORKSPACE, workspaceId: "wks_2", name: "BWLT-12-second-try" },
+      { ...WORKSPACE, workspaceId: "wks_3", name: "other", key: "BWLT-13", taskId: "jira:BWLT-13" },
+    ],
+  };
+  await mount({ task: "jira:BWLT-12" });
+  const labels = buttons().map((each) => each.getAttribute("aria-label"));
+  expect(labels.filter((label) => label?.startsWith("Open"))).toEqual([
+    "Open BWLT-12-add-the-webhook",
+    "Open BWLT-12-second-try",
+  ]);
+  await press("Open BWLT-12-second-try");
+  expect(opened).toEqual([["workspace", { workspaceId: "wks_2" }]]);
+  answers["tasks.detail"] = REQUEST_PAGE;
+  await mount({ task: "gitlab:mr:42:12" });
+  expect(buttons().some((each) => each.getAttribute("aria-label")?.startsWith("Open "))).toBe(
+    false,
+  );
+});
+
+test("a workspace from before the task's id was kept is found by its key", async () => {
+  const { taskId: _none, ...byKey } = WORKSPACE;
+  linked = { workspaceIds: ["wks_1"], linked: [byKey] };
+  await mount({ task: "jira:BWLT-12" });
+  expect(button("Open workspace")).toBeTruthy();
+});
+
+test("a host that cannot open a workspace from a screen offers no button for it", async () => {
+  navigates = false;
+  linked = { workspaceIds: ["wks_1"], linked: [WORKSPACE] };
+  await mount({ task: "jira:BWLT-12" });
+  expect(buttons().some((each) => each.getAttribute("aria-label") === "Open workspace")).toBe(
+    false,
+  );
+});
+
+test("a row whose task has a workspace is marked, and says so aloud", async () => {
+  linked = { workspaceIds: ["wks_1"], linked: [WORKSPACE] };
+  await mount();
+  const row = button("BWLT-12 Add the webhook. Has a workspace. Open the task");
+  expect(row.querySelector('[data-testid="icon-FolderGit2"]')).not.toBeNull();
+  const other = button("shop/web!12 Add the rate limiter. Open the task");
+  expect(other.querySelector('[data-testid="icon-FolderGit2"]')).toBeNull();
+});
+
+test("the list and the page beside it read the linked workspaces once between them", async () => {
+  linked = { workspaceIds: ["wks_1"], linked: [WORKSPACE] };
+  await mount({ task: "jira:BWLT-12" }, false);
+  expect(linkedReads).toBe(1);
+});
+
+test("a move reads the linked workspaces again, so the sidebar's badge follows", async () => {
+  linked = { workspaceIds: ["wks_1"], linked: [WORKSPACE] };
+  answers["tasks.status.change"] = { ...ISSUE_PAGE, status: "In Review", updatedAt: NOW };
+  await mount({ task: "jira:BWLT-12" });
+  expect(linkedReads).toBe(1);
+  await press("In Review");
+  await settle();
+  expect(linkedReads).toBe(2);
 });
