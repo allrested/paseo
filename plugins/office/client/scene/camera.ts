@@ -19,7 +19,7 @@ export const SCALE_LIMITS = { min: 10, max: 90 };
 /** A focus on a robot comes at least this close, in CSS pixels per world unit. */
 export const FOCUS_SCALE = 45;
 export const CAMERA_EASE_MS = 450;
-// Declared in shared/, because the host replays a streamed view's touches by the same rule.
+// Declared in shared/, because the view made of the host's pictures taps by the same rule.
 export { TAP_SLOP_PX };
 /** Ground distance towards the camera per unit of screen height (1 / sin of the tilt). */
 export const GROUND_SCALE = CAMERA_REACH / CAMERA_HEIGHT;

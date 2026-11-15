@@ -414,13 +414,13 @@ test("threeDMode draws locally on web with WebGL2, whatever the host can do", ()
   expect(threeDMode({ platform: "web", webgl2: true, hostRender: false })).toBe("local");
 });
 
-test("threeDMode streams in the installed app when the host can draw", () => {
-  expect(threeDMode({ platform: "ios", webgl2: false, hostRender: true })).toBe("stream");
-  expect(threeDMode({ platform: "android", webgl2: false, hostRender: true })).toBe("stream");
+test("threeDMode asks the host for pictures in the installed app when the host can draw", () => {
+  expect(threeDMode({ platform: "ios", webgl2: false, hostRender: true })).toBe("sheet");
+  expect(threeDMode({ platform: "android", webgl2: false, hostRender: true })).toBe("sheet");
 });
 
-test("threeDMode streams on web without WebGL2 when the host can draw", () => {
-  expect(threeDMode({ platform: "web", webgl2: false, hostRender: true })).toBe("stream");
+test("threeDMode asks the host for pictures on web without WebGL2 when the host can draw", () => {
+  expect(threeDMode({ platform: "web", webgl2: false, hostRender: true })).toBe("sheet");
 });
 
 test("threeDMode is none when neither the device nor the host can draw", () => {

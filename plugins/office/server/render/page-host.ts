@@ -1,15 +1,6 @@
-// Opens a render page in the daemon's Chromium and speaks to it. The only file that knows how
-// three.js and the page script get into the page.
-import type { PluginTheme } from "@getpaseo/plugin";
-import type { OfficeEvent, PointerStep } from "../../shared/contracts.js";
-import {
-  RENDER_GLOBAL,
-  TAP_SLOP_PX,
-  THREE_GLOBAL,
-  type RenderFocus,
-  type RenderStart,
-  type RenderTake,
-} from "../../shared/render.js";
+// Opens a page in the daemon's Chromium with three.js and a page script in it. The only file
+// that knows how the two get into the page.
+import { THREE_GLOBAL } from "../../shared/render.js";
 
 export const NO_WEBGL = "The host browser has no WebGL";
 
@@ -33,37 +24,13 @@ export interface PagesPort {
   open(viewport: RenderViewport): Promise<PagePort>;
 }
 
-export interface RenderPage {
-  state(event: OfficeEvent): Promise<void>;
-  focus(target: RenderFocus): Promise<void>;
-  pointer(steps: readonly PointerStep[]): Promise<void>;
-  resize(viewport: RenderViewport): Promise<void>;
-  take(): Promise<RenderTake>;
-  close(): Promise<void>;
-  onClosed(listener: () => void): () => void;
-}
-
-export interface RenderPageInput {
-  viewport: RenderViewport;
-  colors: PluginTheme["colors"];
-  coarsePointer: boolean;
-}
-
-export interface RenderPageHost {
-  /** Opens a page, loads three.js and the page script, and starts the scene. */
-  open(input: RenderPageInput): Promise<RenderPage>;
-}
-
 export interface RenderPageHostDeps {
   pages: PagesPort;
   bundle(entryPath: string): Promise<string>;
   readThree(): Promise<Uint8Array>;
-  /** The path of render/page.ts. */
+  /** The path of the page script, render/sheet-page.ts. */
   pageEntry: string;
 }
-
-const call = (method: string, argument?: unknown) =>
-  `globalThis[${JSON.stringify(RENDER_GLOBAL)}].${method}(${argument === undefined ? "" : JSON.stringify(argument)})`;
 
 /** three.js is an ES module, which only `import()` can run: from a blob URL, as the web UI does. */
 function loadThree(source: string): string {
@@ -76,51 +43,6 @@ function loadThree(source: string): string {
     }
     return true;
   })()`;
-}
-
-function mouse(type: string, at: { x: number; y: number }, pressed: boolean) {
-  return {
-    type,
-    x: at.x,
-    y: at.y,
-    button: pressed || type !== "mouseMoved" ? "left" : "none",
-    buttons: pressed ? 1 : 0,
-    clickCount: type === "mouseMoved" ? 0 : 1,
-  };
-}
-
-/**
- * The scene captures the pointer on press, which refuses an event a script made up, so steps go in
- * as real mouse events. A mouse has no cancel: a cancelled press is moved past the tap slop and
- * back before its release, so the scene pans nothing and picks nothing.
- */
-function pointerSender(page: PagePort) {
-  let down: { x: number; y: number } | null = null;
-  let dragged = false;
-  const send = (type: string, at: { x: number; y: number }, pressed: boolean) =>
-    page.send("Input.dispatchMouseEvent", mouse(type, at, pressed));
-  return async (steps: readonly PointerStep[]): Promise<void> => {
-    for (const step of steps) {
-      if (step.type === "down") {
-        down = { x: step.x, y: step.y };
-        dragged = false;
-        await send("mousePressed", step, true);
-      } else if (step.type === "move") {
-        if (down !== null && Math.hypot(step.x - down.x, step.y - down.y) > TAP_SLOP_PX) {
-          dragged = true;
-        }
-        await send("mouseMoved", step, down !== null);
-      } else if (down !== null) {
-        if (step.type === "cancel" && !dragged) {
-          await send("mouseMoved", { x: down.x + TAP_SLOP_PX + 2, y: down.y }, true);
-          await send("mouseMoved", down, true);
-        }
-        const at = step.type === "cancel" ? down : step;
-        down = null;
-        await send("mouseReleased", at, false);
-      }
-    }
-  };
 }
 
 /**
@@ -158,36 +80,5 @@ export function scriptedPages(
       throw error;
     }
     return page;
-  };
-}
-
-export function createRenderPageHost(deps: RenderPageHostDeps): RenderPageHost {
-  const openPage = scriptedPages(deps);
-
-  return {
-    async open({ viewport, colors, coarsePointer }) {
-      const page = await openPage(viewport);
-      try {
-        const start: RenderStart = { colors, coarsePointer };
-        await page.evaluate(call("start", start));
-      } catch (error) {
-        await page.close();
-        throw error;
-      }
-      const pointer = pointerSender(page);
-      return {
-        state: async (event) => {
-          await page.evaluate(call("state", event));
-        },
-        focus: async (target) => {
-          await page.evaluate(call("focus", target));
-        },
-        pointer,
-        resize: (next) => page.setViewport(next),
-        take: () => page.evaluate<RenderTake>(call("take")),
-        close: () => page.close(),
-        onClosed: (listener) => page.onClosed(listener),
-      };
-    },
   };
 }
