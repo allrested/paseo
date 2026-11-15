@@ -1,4 +1,4 @@
-import type { Source, TaskKind } from "../shared/contracts.js";
+import type { Phase, Source, TaskKind } from "../shared/contracts.js";
 
 export type { TaskKind };
 
@@ -23,6 +23,8 @@ export interface Issue {
   updatedAt?: string;
   /** Why a merge request is listed: "Review requested", "Assigned to you". */
   note?: string;
+  /** Where the status stands; absent when the tracker does not say. */
+  phase?: Phase;
 }
 
 export interface Comment {
@@ -60,6 +62,8 @@ export interface Tracker {
    * Absent on a tracker that holds none.
    */
   mergeRequests?(query: string): Promise<Issue[]>;
+  /** One task by its `Issue.id` and nothing else of it; null when it is gone or hidden. */
+  find(id: string): Promise<Issue | null>;
   /** One task by its `Issue.id`, with its comments and the statuses it can move to. */
   detail(id: string): Promise<IssueDetail>;
   comment(id: string, text: string): Promise<void>;

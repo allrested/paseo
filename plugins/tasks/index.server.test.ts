@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { createTasksPlugin } from "./index.server.js";
 import type { TokenStore } from "./server/token-store.js";
 
-type Handler = (input: object) => unknown;
+type Handler = (input: object, context?: object) => unknown;
 
 /** The parts of the daemon's plugin API that the plugin calls. */
 function setup(read: () => Promise<object>) {
@@ -46,10 +46,12 @@ test("registers the connection settings and one handler per RPC", () => {
     "tasks.connections.test",
     "tasks.detail",
     "tasks.list",
+    "tasks.prompt.fill",
     "tasks.search",
     "tasks.status.change",
     "tasks.tokens.read",
     "tasks.tokens.write",
+    "tasks.workspaces.linked",
   ]);
   expect(() => dispose()).not.toThrow();
 });
@@ -74,4 +76,46 @@ test("settings that cannot be read fail the search in words", async () => {
     "The task connections cannot be read: Unsupported version 9",
   );
   expect(asked).toEqual([]);
+});
+
+test("the linked workspaces come from the host's own list, by way of the handler's Paseo API", async () => {
+  const { handlers, asked } = setup(async () => READY);
+  const listed: object[] = [];
+  const paseo = {
+    workspaces: {
+      list: async (request: object) => {
+        listed.push(request);
+        return {
+          entries: [
+            { id: "wks_1", name: "main" },
+            {
+              id: "wks_2",
+              name: "7-rate-limit",
+              metadata: {
+                "tasks.id": "gitlab:issue:42:7",
+                "tasks.key": "shop/web#7",
+                "tasks.url": "https://git.team.test/shop/web/-/issues/7",
+              },
+            },
+          ],
+          pageInfo: { hasMore: false, nextCursor: null },
+        };
+      },
+    },
+  };
+  // The stand-in tracker answers "[]", which is no issue: the link stays, with no status.
+  expect(await handlers.get("tasks.workspaces.linked")?.({}, { paseo })).toEqual({
+    workspaceIds: ["wks_1", "wks_2"],
+    linked: [
+      {
+        workspaceId: "wks_2",
+        name: "7-rate-limit",
+        key: "shop/web#7",
+        url: "https://git.team.test/shop/web/-/issues/7",
+        taskId: "gitlab:issue:42:7",
+      },
+    ],
+  });
+  expect(listed).toEqual([{ page: { limit: 200 } }]);
+  expect(asked).toEqual(["https://git.team.test/api/v4/projects/42/issues/7"]);
 });

@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 
 /** A task picked on its page for the next workspace, until the New workspace screen takes it. */
 export interface NextTask {
+  id: string;
   key: string;
   url: string;
   branch: string;

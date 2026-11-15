@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Phase } from "../shared/contracts.js";
 import { baseUrl, getJson, sendJson } from "./http.js";
 import {
   TrackerError,
@@ -95,6 +96,7 @@ function toIssue(issue: z.infer<typeof IssueSchema>): Issue {
     // GitLab's own branch names start with the issue number.
     branchPrefix: String(issue.iid),
     ...updated(issue.updated_at),
+    phase: issue.state === "closed" ? "done" : "todo",
   };
 }
 
@@ -102,6 +104,12 @@ function mergeRequestStatus(request: z.infer<typeof MergeRequestSchema>): string
   if (request.state === "merged") return "Merged";
   if (request.state === "closed") return "Closed";
   return request.draft ? "Draft" : "Open";
+}
+
+/** An open merge request is being worked on; a draft is not yet up for it. */
+function mergeRequestPhase(request: z.infer<typeof MergeRequestSchema>): Phase {
+  if (request.state === "merged" || request.state === "closed") return "done";
+  return request.draft ? "todo" : "doing";
 }
 
 /** GitLab's pipeline status as its pages word it. */
@@ -135,6 +143,7 @@ function toMergeRequest(request: z.infer<typeof MergeRequestSchema>, note?: stri
     branchPrefix: String(request.iid),
     ...updated(request.updated_at),
     ...(note === undefined ? {} : { note }),
+    phase: mergeRequestPhase(request),
   };
 }
 
@@ -256,6 +265,18 @@ export function createGitlab(options: GitlabOptions): Tracker {
         if (!found.has(shaped.id)) found.set(shaped.id, shaped);
       }
       return [...found.values()];
+    },
+    async find(id) {
+      const { kind, at } = taskUrl(id);
+      const read = { request, name: NAME, url: at, headers };
+      try {
+        return kind === "mr"
+          ? toMergeRequest(await getJson({ ...read, schema: MergeRequestSchema }))
+          : toIssue(await getJson({ ...read, schema: IssueSchema }));
+      } catch (error) {
+        if (error instanceof TrackerError && error.status === 404) return null;
+        throw error;
+      }
     },
     async detail(id): Promise<IssueDetail> {
       const { kind, at } = taskUrl(id);

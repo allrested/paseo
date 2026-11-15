@@ -30,7 +30,7 @@ export function splitListWidth(width: number): number | null {
  * so it has an address and Back returns to the list.
  */
 export function createTasksScreen(ports: TasksScreenPorts) {
-  return function TasksScreen({ theme, layout, params }: PluginScreenProps) {
+  return function TasksScreen({ theme, layout, params, navigation }: PluginScreenProps) {
     // Asked once for the screen's life, like the app: a mouse plugged into a tablet does not
     // shrink its controls.
     const touchScreen = useMemo(() => hasTouchScreen(layout.platform), [layout.platform]);
@@ -49,11 +49,24 @@ export function createTasksScreen(ports: TasksScreenPorts) {
     );
     const close = useCallback(() => ports.openScreen({ screenId: TASKS_SCREEN }), []);
     const connect = useCallback(() => ports.openSettings(CONNECTIONS_SCREEN), []);
+    const openWorkspace = useMemo(
+      () =>
+        navigation === undefined
+          ? undefined
+          : (workspaceId: string) => navigation.openWorkspace({ workspaceId }),
+      [navigation],
+    );
     const list = <TaskList styles={styles} selected={selected} onOpen={open} onConnect={connect} />;
     // Keyed by the task: a comment half written for one is not left in the box of the next.
     const page = (onBack?: () => void) =>
       selected === null ? null : (
-        <TaskDetailPane key={selected} id={selected} styles={styles} onBack={onBack} />
+        <TaskDetailPane
+          key={selected}
+          id={selected}
+          styles={styles}
+          onBack={onBack}
+          onOpenWorkspace={openWorkspace}
+        />
       );
     // A phone's header has the way back; a wide window's has none, so the page brings its own.
     if (layout.compact) return <View style={styles.screen}>{page() ?? list}</View>;

@@ -1,9 +1,5 @@
 import type { Task } from "../shared/contracts.js";
 
-/** The workspace metadata a picked task leaves: its key and its link. */
-export const TASK_KEY = "tasks.key";
-export const TASK_URL = "tasks.url";
-
 interface Row {
   id: string;
   label: string;

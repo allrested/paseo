@@ -30,9 +30,9 @@ export function rowMeta(row: TaskRow, now: number): string {
   return parts.join(" · ");
 }
 
-/** A row read aloud: the task, and what pressing it does. */
-export function rowLabel(row: Pick<TaskRow, "key" | "title">): string {
-  return `${row.key} ${row.title}. Open the task`;
+/** A row read aloud: the task, its mark when it has a workspace, and what pressing it does. */
+export function rowLabel(row: Pick<TaskRow, "key" | "title">, hasWorkspace = false): string {
+  return `${row.key} ${row.title}.${hasWorkspace ? " Has a workspace." : ""} Open the task`;
 }
 
 /** What a task is, above its title: "Jira issue", "GitLab merge request". */

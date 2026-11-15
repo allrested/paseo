@@ -3,7 +3,9 @@ import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plug
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { ConnectionsScreen } from "./client/connections-screen.js";
 import { createTaskField } from "./client/task-field.js";
+import { TaskPrompt } from "./client/task-prompt.js";
 import { createTasksScreen } from "./client/tasks-screen.js";
+import { TaskBadge } from "./client/workspace-badge.js";
 import { CONNECTIONS_SCREEN, TASKS_SCREEN, taskAttachments } from "./shared/contracts.js";
 
 const ICON = "CircleDot";
@@ -59,8 +61,20 @@ export default function contribute(client: PluginClientContext) {
       id: "task",
       Component: createTaskField((id) => client.openSettings(id)),
     }),
+    client.addComposerItem({ id: "task-prompt", Component: TaskPrompt }),
     client.addAttachmentSource(taskAttachments),
   ];
+  // The phone app is upstream's, and one from before sidebar rows took items has no such method.
+  if (client.addWorkspaceRowBadgeItem) {
+    removers.push(
+      client.addWorkspaceRowBadgeItem({
+        id: "task",
+        title: "Task",
+        icon: ICON,
+        Component: TaskBadge,
+      }),
+    );
+  }
   return () => {
     for (const remove of removers) remove();
   };
