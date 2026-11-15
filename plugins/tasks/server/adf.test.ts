@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { adfToText } from "./adf.js";
+import { adfToText, textToAdf } from "./adf.js";
 
 const text = (value: string) => ({ type: "text", text: value });
 const paragraph = (...content: unknown[]) => ({ type: "paragraph", content });
@@ -91,4 +91,27 @@ test("returns a plain string trimmed, and nothing for a missing or odd value", (
   expect(adfToText(null)).toBe("");
   expect(adfToText(undefined)).toBe("");
   expect(adfToText(7)).toBe("");
+});
+
+test("plain text becomes paragraphs, with line breaks kept and nothing read as markup", () => {
+  expect(textToAdf("Looks *good*.\r\nOne nit below.\n\n\n  [link](x)  \n")).toEqual({
+    type: "doc",
+    version: 1,
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Looks *good*." },
+          { type: "hardBreak" },
+          { type: "text", text: "One nit below." },
+        ],
+      },
+      { type: "paragraph", content: [{ type: "text", text: "[link](x)" }] },
+    ],
+  });
+});
+
+test("text written as a document reads back as the same text", () => {
+  const written = "First line\nsecond line\n\nNext paragraph";
+  expect(adfToText(textToAdf(written))).toBe(written);
 });

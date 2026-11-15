@@ -5,10 +5,14 @@ import { tokensFile } from "./server/paths.js";
 import { createTasks } from "./server/tasks.js";
 import { createTokenStore, type TokenStore } from "./server/token-store.js";
 import {
+  addCommentRpc,
+  changeStatusRpc,
   connections,
+  listTasksRpc,
   searchAttachmentsRpc,
   searchTasksRpc,
   setTokenRpc,
+  taskDetailRpc,
   testConnectionRpc,
   tokensRpc,
 } from "./shared/contracts.js";
@@ -35,6 +39,10 @@ export function createTasksPlugin(server: PluginServerContext, deps: TasksPlugin
 
   server.handle(searchTasksRpc, ({ query }) => tasks.search(query));
   server.handle(searchAttachmentsRpc, ({ query }) => tasks.attachments(query));
+  server.handle(listTasksRpc, ({ query }) => tasks.list(query));
+  server.handle(taskDetailRpc, ({ id }) => tasks.detail(id));
+  server.handle(addCommentRpc, (input) => tasks.comment(input));
+  server.handle(changeStatusRpc, (input) => tasks.change(input));
   server.handle(tokensRpc, () => tasks.tokens());
   server.handle(setTokenRpc, (input) => tasks.setToken(input));
   server.handle(testConnectionRpc, ({ source }) => tasks.test(source));

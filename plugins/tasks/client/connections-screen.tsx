@@ -63,7 +63,7 @@ const GITLAB: TrackerForm = {
   info: `Lists the open GitLab issues assigned to you. ${WHERE}`,
   fields: [{ key: "gitlabUrl", label: "Address", placeholder: "https://gitlab.example.com" }],
   tokenLabel: "Access token",
-  tokenHint: "A personal access token with the read_api scope",
+  tokenHint: "A personal access token: read_api to read, api to comment and close",
 };
 
 const TOKEN_KEPT = "Saved on the host. Type a new one to replace it";

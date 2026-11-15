@@ -221,7 +221,9 @@ test("shows each tracker's saved address and asks for its token", async () => {
   expect(field("Jira", "API token").type).toBe("password");
   expect(field("Jira", "API token").placeholder).toBe("Paste the token");
   expect(hint("Jira", "API token")).toBe("Made at id.atlassian.com under Security, API tokens");
-  expect(hint("GitLab", "Access token")).toBe("A personal access token with the read_api scope");
+  expect(hint("GitLab", "Access token")).toBe(
+    "A personal access token: read_api to read, api to comment and close",
+  );
 });
 
 test("a saved token is never shown: its row says it is kept and offers to remove it", async () => {
