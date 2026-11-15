@@ -6,6 +6,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { nextTask } from "./next-task.js";
 import type { FieldItem } from "./picker.js";
 import { createTaskField } from "./task-field.js";
 
@@ -21,12 +22,18 @@ let metadata: Record<string, unknown>;
 let commands: Array<[string, unknown]>;
 let found: { configured: boolean; tasks: object[] } | Error;
 let queries: string[];
+let toasts: string[];
+/** Set to make the host refuse the branch. */
+let refusal: Error | null;
 
 vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@getpaseo/plugin/client")>()),
   useNewWorkspace: () => ({
     metadata,
-    setBranch: async (name: string | null) => void commands.push(["setBranch", name]),
+    setBranch: async (name: string | null) => {
+      if (refusal) throw refusal;
+      commands.push(["setBranch", name]);
+    },
     setMetadata: async (patch: object) => void commands.push(["setMetadata", patch]),
   }),
   useRpc:
@@ -38,12 +45,16 @@ vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
     },
 }));
 
-vi.mock("@getpaseo/plugin/client/ui", () => ({
-  Combobox: (props: Shown) => {
-    shown = props;
-    return null;
-  },
-}));
+vi.mock("@getpaseo/plugin/client/ui", () => {
+  const toast = { show: () => {}, error: (message: string) => void toasts.push(message) };
+  return {
+    Combobox: (props: Shown) => {
+      shown = props;
+      return null;
+    },
+    useToast: () => toast,
+  };
+});
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
@@ -69,6 +80,9 @@ beforeEach(() => {
   metadata = {};
   commands = [];
   queries = [];
+  toasts = [];
+  refusal = null;
+  nextTask.set(null);
   opened = [];
   found = { configured: true, tasks: [TASK] };
   container = document.createElement("div");
@@ -132,4 +146,36 @@ test("with no tracker connected the one row opens the connections and changes no
   await shown.onSelect({ item: items[0] });
   expect(opened).toEqual(["connections"]);
   expect(commands).toEqual([]);
+});
+
+const NEXT = { key: TASK.key, url: TASK.url, branch: TASK.branch };
+const TAKEN = [
+  ["setBranch", "BWLT-12-add-the-webhook"],
+  ["setMetadata", { "tasks.key": "BWLT-12", "tasks.url": TASK.url }],
+];
+
+test("a task picked on its page is taken when the field mounts, and only once", async () => {
+  nextTask.set(NEXT);
+  await mount();
+  expect(commands).toEqual(TAKEN);
+  expect(nextTask.get()).toBeNull();
+  await mount();
+  expect(commands).toEqual(TAKEN);
+});
+
+test("a task picked while the field is up is taken too", async () => {
+  await mount();
+  expect(commands).toEqual([]);
+  await act(async () => nextTask.set(NEXT));
+  expect(commands).toEqual(TAKEN);
+  expect(toasts).toEqual([]);
+});
+
+test("a picked task the host refuses says so, and is not tried again", async () => {
+  refusal = new Error("Request failed: No project is chosen. requestType=x code=handler_error");
+  nextTask.set(NEXT);
+  await mount();
+  expect(commands).toEqual([]);
+  expect(toasts).toEqual(["BWLT-12 could not be used: No project is chosen."]);
+  expect(nextTask.get()).toBeNull();
 });

@@ -42,8 +42,12 @@ test("registers the connection settings and one handler per RPC", () => {
   expect(settingsIds).toEqual(["connections"]);
   expect([...handlers.keys()].sort()).toEqual([
     "tasks.attachments.search",
+    "tasks.comments.add",
     "tasks.connections.test",
+    "tasks.detail",
+    "tasks.list",
     "tasks.search",
+    "tasks.status.change",
     "tasks.tokens.read",
     "tasks.tokens.write",
   ]);

@@ -1,14 +1,18 @@
 import type { PluginAttachmentItem } from "@getpaseo/plugin";
 import {
   SOURCE_NAME,
+  SourceSchema,
   type Connections,
   type Source,
   type Task,
+  type TaskDetail,
+  type TaskList,
+  type TaskRow,
   type Tokens,
 } from "../shared/contracts.js";
 import { taskBranch } from "../shared/branch.js";
 import { createGitlab } from "./gitlab.js";
-import { TrackerError, errorMessage, type Issue, type Tracker } from "./issue.js";
+import { TrackerError, errorMessage, type Issue, type IssueDetail, type Tracker } from "./issue.js";
 import { createJira } from "./jira.js";
 import { issueText } from "./text.js";
 import type { TokenStore } from "./token-store.js";
@@ -25,6 +29,13 @@ export interface Tasks {
   /** `configured` is false while no tracker has both an address and a token. */
   search(query: string): Promise<{ configured: boolean; tasks: Task[] }>;
   attachments(query: string): Promise<{ items: PluginAttachmentItem[] }>;
+  /** The tasks screen's list: issues and merge requests of every connected tracker. */
+  list(query: string): Promise<TaskList>;
+  detail(id: string): Promise<TaskDetail>;
+  /** Posts a comment and answers with the task as it then is. */
+  comment(input: { id: string; text: string }): Promise<TaskDetail>;
+  /** Moves the task and answers with it as it then is. */
+  change(input: { id: string; change: string }): Promise<TaskDetail>;
   tokens(): Promise<Tokens>;
   setToken(input: { source: Source; token: string }): Promise<Tokens>;
   test(source: Source): Promise<{ account: string }>;
@@ -36,14 +47,20 @@ const NEEDS: Record<Source, string> = {
   jira: "Save the Jira site, email and API token first.",
   gitlab: "Save the GitLab address and access token first.",
 };
+/** What a task's page shows of a long description or comment; the rest is on the tracker. */
+const TEXT_MAX = 20_000;
 
 function subtitle(issue: Issue): string {
   return `${SOURCE_NAME[issue.source]} · ${issue.status}`;
 }
 
+function taskId(issue: Issue): string {
+  return `${issue.source}:${issue.id}`;
+}
+
 function toTask(issue: Issue): Task {
   return {
-    id: `${issue.source}:${issue.key}`,
+    id: taskId(issue),
     label: `${issue.key} ${issue.title}`.trim(),
     description: subtitle(issue),
     key: issue.key,
@@ -54,22 +71,68 @@ function toTask(issue: Issue): Task {
 
 function toAttachment(issue: Issue): PluginAttachmentItem {
   return {
-    id: `${issue.source}:${issue.key}`,
+    id: taskId(issue),
     identifier: issue.key,
     title: issue.title,
     subtitle: subtitle(issue),
     url: issue.url,
     text: issueText(issue),
-    resourceType: "issue",
+    resourceType: issue.kind === "mr" ? "merge_request" : "issue",
   };
+}
+
+function toRow(issue: Issue): TaskRow {
+  return {
+    id: taskId(issue),
+    source: issue.source,
+    kind: issue.kind,
+    key: issue.key,
+    title: issue.title,
+    status: issue.status,
+    url: issue.url,
+    ...(issue.updatedAt === undefined ? {} : { updatedAt: issue.updatedAt }),
+    ...(issue.note === undefined ? {} : { note: issue.note }),
+  };
+}
+
+function cut(text: string): string {
+  if (text.length <= TEXT_MAX) return text;
+  return `${text.slice(0, TEXT_MAX)}\n\n[Cut here. The rest is on the task's page.]`;
+}
+
+function toDetail(detail: IssueDetail): TaskDetail {
+  return {
+    ...toRow(detail),
+    description: cut(detail.description),
+    markdown: detail.markdown,
+    details: detail.details,
+    comments: detail.comments.map((comment) => ({ ...comment, text: cut(comment.text) })),
+    earlierComments: detail.earlierComments,
+    changes: detail.changes,
+    // A merge request has its branch already.
+    ...(detail.kind === "issue" ? { branch: taskBranch(detail.branchPrefix, detail.title) } : {}),
+  };
+}
+
+/** Each tracker's issues, and its merge requests when it holds any. */
+function everything(list: readonly Tracker[], query: string): Array<Promise<Issue[]>> {
+  return list.flatMap((tracker) => [
+    tracker.search(query),
+    ...(tracker.mergeRequests ? [tracker.mergeRequests(query)] : []),
+  ]);
 }
 
 export function createTasks(deps: TasksDeps): Tasks {
   const { request, log } = deps;
+  // The trackers are kept while what they sign in with stays the same, so what one learned (the
+  // GitLab username) is asked once. The key holds the tokens and stays in this closure.
+  let kept: { key: string; list: Tracker[] } | null = null;
 
   /** The trackers that have everything they need to sign in. */
   async function trackers(): Promise<Tracker[]> {
     const [saved, tokens] = await Promise.all([deps.connections(), deps.tokens.read()]);
+    const key = JSON.stringify([saved.jiraSite, saved.jiraEmail, saved.gitlabUrl, tokens]);
+    if (kept?.key === key) return kept.list;
     const list: Tracker[] = [];
     if (saved.jiraSite && saved.jiraEmail && tokens.jira) {
       list.push(
@@ -79,27 +142,50 @@ export function createTasks(deps: TasksDeps): Tasks {
     if (saved.gitlabUrl && tokens.gitlab) {
       list.push(createGitlab({ url: saved.gitlabUrl, token: tokens.gitlab, request }));
     }
+    kept = { key, list };
     return list;
   }
 
   /**
-   * Every connected tracker's answer. One tracker that fails does not hide the other's tasks: its
-   * reason is logged and the connection test shows it. When none answers, the first reason is
-   * the error.
+   * Every answer of `asks`, and the reasons of the ones that failed. One list that fails does not
+   * hide the others. When none answers, the first reason is the error.
    */
-  async function issues(query: string): Promise<{ configured: boolean; issues: Issue[] }> {
-    const list = await trackers();
-    if (list.length === 0) return { configured: false, issues: [] };
-    const results = await Promise.allSettled(list.map((tracker) => tracker.search(query)));
+  async function gather(
+    asks: Array<Promise<Issue[]>>,
+  ): Promise<{ found: Issue[]; problems: string[] }> {
+    const results = await Promise.allSettled(asks);
     const found: Issue[] = [];
     const failures: unknown[] = [];
     for (const result of results) {
       if (result.status === "fulfilled") found.push(...result.value);
       else failures.push(result.reason);
     }
-    if (failures.length === results.length) throw failures[0];
-    for (const failure of failures) log(`[tasks] ${errorMessage(failure)}`);
+    if (results.length > 0 && failures.length === results.length) throw failures[0];
+    const problems = [...new Set(failures.map(errorMessage))];
+    for (const problem of problems) log(`[tasks] ${problem}`);
+    return { found, problems };
+  }
+
+  async function issues(query: string): Promise<{ configured: boolean; issues: Issue[] }> {
+    const list = await trackers();
+    if (list.length === 0) return { configured: false, issues: [] };
+    const { found } = await gather(list.map((tracker) => tracker.search(query)));
     return { configured: true, issues: found };
+  }
+
+  /** The tracker a task id names, and the task's name to it. */
+  async function locate(id: string): Promise<{ tracker: Tracker; tail: string }> {
+    const at = id.indexOf(":");
+    const source = SourceSchema.safeParse(id.slice(0, Math.max(at, 0)));
+    if (!source.success) throw new TrackerError("That is no task Paseo knows.");
+    const tracker = (await trackers()).find((candidate) => candidate.source === source.data);
+    if (!tracker) throw new TrackerError(NEEDS[source.data]);
+    return { tracker, tail: id.slice(at + 1) };
+  }
+
+  async function detail(id: string): Promise<TaskDetail> {
+    const { tracker, tail } = await locate(id);
+    return toDetail(await tracker.detail(tail));
   }
 
   async function tokenState(): Promise<Tokens> {
@@ -116,9 +202,36 @@ export function createTasks(deps: TasksDeps): Tasks {
       return { configured: found.configured, tasks: found.issues.map(toTask) };
     },
     async attachments(query) {
-      const found = await issues(query);
-      if (!found.configured) throw new TrackerError(NOT_CONNECTED);
-      return { items: found.issues.map(toAttachment) };
+      const list = await trackers();
+      if (list.length === 0) throw new TrackerError(NOT_CONNECTED);
+      const { found } = await gather(everything(list, query));
+      return { items: found.map(toAttachment) };
+    },
+    async list(query) {
+      const list = await trackers();
+      if (list.length === 0) {
+        return { configured: false, issues: [], mergeRequests: [], problems: [] };
+      }
+      const { found, problems } = await gather(everything(list, query));
+      return {
+        configured: true,
+        issues: found.filter((issue) => issue.kind === "issue").map(toRow),
+        mergeRequests: found.filter((issue) => issue.kind === "mr").map(toRow),
+        problems,
+      };
+    },
+    detail,
+    async comment({ id, text }) {
+      const body = text.trim();
+      if (body === "") throw new TrackerError("Write the comment first.");
+      const { tracker, tail } = await locate(id);
+      await tracker.comment(tail, body);
+      return detail(id);
+    },
+    async change({ id, change }) {
+      const { tracker, tail } = await locate(id);
+      await tracker.change(tail, change);
+      return detail(id);
     },
     tokens: tokenState,
     async setToken({ source, token }) {
