@@ -605,12 +605,19 @@ command the heavy-command gate runs counts for its agent here and for the gate t
 can differ while one runs. Linux only: elsewhere the subscription answers `unavailable` and the
 entry is not shown.
 
-On web, with WebGL2, the office is a 3D floor: an agent is a person at a desk, and a workspace's
-agents sit together as a team. A per-device "3D view" switch turns it off. The floor is the scene
-of [my-office](https://github.com/khanh020905/my-office), vendored under
+The office has three views: a 3D floor, a 2D floor and the list. The header's switch chooses one
+per device and keeps it in the `office-device` setting. A device that never chose shows the 3D
+floor where it can draw it, which is a browser with WebGL2, and the 2D floor anywhere else. A 3D
+floor that fails gives way to the 2D one, under a banner with a way to try again.
+
+On the 3D floor an agent is a person at a desk, and a workspace's agents sit together as a team.
+The floor is the scene of [my-office](https://github.com/khanh020905/my-office), vendored under
 `plugins/office/vendor/my-office`; `plugins/office/vendor/SOURCES.md` says what is taken, what
 stands in for the rest, and how to take a newer version. The daemon bundles the scene's entry once
-per run with `bundleBrowserScript` and serves the script through `office.world.request`. The
+per run with `bundleBrowserScript` and serves the script through `office.world.request`.
+`bundleBrowserScript` is one of two things the daemon hands built-ins beside their directory
+(`BuiltinPluginInfo`); the other, `offscreenPages`, opens pages in the daemon's Chromium that no
+pane and no agent sees, and no built-in uses it now. Directory plugins get neither. The
 client runs it in an `<iframe srcdoc>` and drives it through the `PaseoOfficeWorld` object the
 script sets (`plugins/office/client/world/world-api.ts`), mapping the office model to the scene's
 people in `client/world/adapter.ts`. The scene is one app per page: module state, a stylesheet for
@@ -630,40 +637,31 @@ room under a red light. Designs:
 [the places](superpowers/specs/2026-11-16-office-activity-places-design.md),
 [the host](superpowers/specs/2026-11-16-office-server-care-design.md).
 
-A client that cannot draw, which is the installed app (plugin code there has React Native views
-only) and a browser without WebGL2, composes an office itself from pictures the host draws once,
-when the daemon has a Chromium (`PASEO_BROWSER_CDP_URL`, with WebGL on: see
-[docker.md](docker.md)). The host draws the plugin's first scene, one glass room per workspace
-and one robot per agent (`plugins/office/client/scene`, with the vendored three.js r170). The
-office opens a page there that no pane and no agent sees (`plugins/office/render/sheet-page.ts`),
-feeds it the `office.state` events, and relays what it draws over `office.sheet`:
+The 2D floor (`plugins/office/client/pixel`) is pixel art drawn with plain views, one per
+rectangle of colour. Plugin code in the installed app has React Native views only, with no canvas
+and no SVG, and a scaled image is smoothed there, so views are the one way to get sharp pixels on
+every platform. The floor needs nothing from the host beyond `office.state` and
+`office.machine`, so it is also what a slow machine can choose. A picture is a grid of letters in
+`art.ts`, compiled to rectangles once per theme tone. One art pixel is a whole number of screen
+pixels, 2 on a phone and up to 4 on a wide surface; the room is as wide as the surface and scrolls
+down, never sideways. It has 40 desks: more would make a phone lay out thousands more views, and
+the line under the room says how many agents are only in the list.
 
-- A backdrop of the still parts, as JPEG tiles of at most 1024 pixels a side. Android's image
-  loader shrinks a picture over 2048 pixels, which would move every robot off its desk.
-- An overlay of what stands in front of robots (each room's right and front wall, notes on desks,
-  name plates), as PNG tiles.
-- A sheet of positions in backdrop pixels after every office change: robots far to near, boards,
-  name plates, notes, mentions, and for a robot on its way the legs of its walk.
+The places are the 3D floor's: the library for a read or a search, the racks for a command or a
+test run, the whiteboard for a plan or a subagent, the pad for a push or a deploy, which launches
+the rocket, and the desk for everything else. Whoever needs you stays at the desk, where a tap
+opens the card. Where a person stands follows from the agent's state alone
+(`client/pixel/actors.ts`), so an office opened in the middle of a turn shows everyone in place.
+The one thing remembered is the coffee break: 30 seconds away from the desk after a turn ends. A
+desk opens its agent's card, a team's plate and the whiteboard open a board, and the racks open
+the Host card. With a host reading, a bubble beside the racks says that something was left
+running or that memory is high, and an agent with a port open has a small server on its desk. A
+person away from the desk can be tapped too, but only the desk is a stop for the keyboard and a
+screen reader, and it says what its agent is at. With reduced motion nobody walks and nobody
+takes a break. Design:
+[the 2D floor](superpowers/specs/2026-11-16-office-pixel-office-design.md).
 
-Each robot look (pose, colours, lit screen, side desk) is one PNG grid of frames, asked for once
-through `office.sheet.sprite.request`. The camera is orthographic, so one picture serves every
-seat. The client lays tiles and sprites out as `Image`s, steps a robot through its frames on the
-native driver, and pans, zooms and picks on the device: nothing is sent per frame, and a robot's
-change never draws a new backdrop. A walking robot is one more grid per look and direction, of
-eight. The client plays a walk when a sheet first names it and runs it on its own clock; it plays
-none from the first sheet it gets, so an office opened mid-walk shows robots at their desks. The
-client has two layers to put a walker in: a leg inside a room goes under the overlay, a leg on the
-open floor over it. `plugins/office/server/render/sheet-page.local.e2e.test.ts`
-is the hand-run check that the pictures add up to the scene; run it after a change to what the
-scene draws. The daemon hands built-ins the two things this needs beside their directory:
-`offscreenPages` and `bundleBrowserScript` (`BuiltinPluginInfo`); directory plugins get neither.
-Two viewers at most per host, and a viewer that says nothing for 30 seconds is closed. Without a
-Chromium or without WebGL in it, with 3D off, and after the host ended the view, the client
-shows the list.
-
-Server code of a plugin cannot import from its `client/` folder (the compiler refuses it), and
-the render page must not import `shared/contracts.ts`, which would add the schema library to a
-script that only draws: names both sides need live in `shared/names.ts` and `shared/render.ts`.
+Server code of a plugin cannot import from its `client/` folder (the compiler refuses it).
 
 Each room has a board, and the lobby has one for the host: posts are tasks (open, claimed, done) or
 notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days). A

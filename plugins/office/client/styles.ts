@@ -19,6 +19,15 @@ export interface OfficeStyles {
   switchOff: ViewStyle;
   switchOnThumb: ViewStyle;
   switchOffThumb: ViewStyle;
+  /** The view switch: a row of pills, the chosen one filled. */
+  segments: ViewStyle;
+  segmentsDisabled: ViewStyle;
+  segment: ViewStyle;
+  /** The chosen pill's fill, and a fainter one under a pointer or a finger: layers, as buttonFill is. */
+  segmentFill: ViewStyle;
+  segmentHoverFill: ViewStyle;
+  segmentText: TextStyle;
+  segmentTextSelected: TextStyle;
   placeholderColor: string;
   content: ViewStyle;
   muted: TextStyle;
@@ -133,8 +142,6 @@ export interface OfficeStyles {
   /** A line over a corner of the 3D office: it lies above the frame and takes no pointer. */
   sceneNote: ViewStyle;
   sceneNoteText: TextStyle;
-  /** The office composed from the host's pictures: the area that takes touches. */
-  sheetTouch: ViewStyle;
 }
 
 // The app's two control sizes (packages/app/src/components/ui/control-geometry.ts).
@@ -237,6 +244,7 @@ export function useOfficeStyles(
       gap: 8,
       minHeight: controlHeight,
     };
+    const segments: ViewStyle = { flexDirection: "row", alignItems: "center", gap: 4 };
     const switchSize = touch ? TOUCH_SWITCH : POINTER_SWITCH;
     // The thumb sits inside the track, at the end the track's alignItems names.
     const track: ViewStyle = {
@@ -297,6 +305,23 @@ export function useOfficeStyles(
       },
       switchOnThumb: { ...thumb, backgroundColor: colors.accentForeground },
       switchOffThumb: { ...thumb, backgroundColor: colors.surface0 },
+      segments,
+      segmentsDisabled: { ...segments, opacity: 0.5 },
+      // As tall as the row's other controls and at least a touch target wide.
+      segment: {
+        minHeight: controlHeight,
+        minWidth: TOUCH_CONTROL,
+        paddingHorizontal: 12,
+        borderRadius: 9999,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      },
+      // The app's chosen segment is surface3, which PluginTheme lacks: the plain button's grey.
+      segmentFill: fill,
+      segmentHoverFill: { ...fill, opacity: 0.1 },
+      segmentText: { ...base, color: colors.foregroundMuted },
+      segmentTextSelected: { ...base, color: colors.foreground },
       placeholderColor: colors.foregroundMuted,
       content: { ...column, paddingHorizontal: pad, paddingTop: pad, paddingBottom: 24, gap: 12 },
       muted: { ...base, color: colors.foregroundMuted },
@@ -498,7 +523,6 @@ export function useOfficeStyles(
       chipText: { ...base, color: colors.foregroundMuted },
       chipTextSelected: { ...base, color: colors.foreground },
       scene: { flex: 1, minHeight: SCENE_MIN_HEIGHT },
-      sheetTouch: { flex: 1 },
       sceneStatus: { ...column, ...base, color: colors.foregroundMuted, padding: pad },
       sceneNote: {
         position: "absolute",

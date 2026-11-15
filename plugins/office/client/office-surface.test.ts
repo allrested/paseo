@@ -1,80 +1,107 @@
 import { expect, test } from "vitest";
 import {
+  IDLE_SWITCH,
+  chosenView,
   hasTouchScreen,
   keptSelection,
   nextFocusRequest,
-  sceneModelFor,
+  nextSwitchStep,
   officeView,
   problemText,
-  IDLE_SWITCH,
-  nextSwitchStep,
-  savedThreeD,
+  savedView,
   switchSync,
   switchUnsaved,
-  threeDMode,
-  type OfficeView,
+  viewOnDevice,
+  viewOptions,
   type PointerFacts,
   type StoredSwitch,
   type SwitchEvent,
   type SwitchStep,
   type SwitchSync,
-  type ThreeDSetting,
 } from "./office-surface.js";
-import { buildOfficeModel, type OfficeModel } from "./model.js";
-import { EMPTY_OFFICE } from "./office-state.js";
 
 function agents(...ids: string[]): ReadonlyMap<string, unknown> {
   return new Map(ids.map((id): [string, unknown] => [id, { id }]));
 }
 
-function saved(setting: ThreeDSetting): boolean | null {
-  return savedThreeD(setting);
-}
-
-function view(available: boolean, threeD: boolean | null, problem: string | null): OfficeView {
-  return officeView({ available, threeD, problem });
-}
-
-test("the saved switch is the device's choice once it was read", () => {
+test("the saved view is the device's choice once it was read", () => {
   const choices = [
-    saved({ status: "ready", values: { threeD: true } }),
-    saved({ status: "ready", values: { threeD: false } }),
+    savedView({ status: "ready", values: { threeD: true, view: "2d" } }),
+    savedView({ status: "ready", values: { threeD: true, view: "list" } }),
+    savedView({ status: "ready", values: { threeD: false, view: "3d" } }),
   ];
-  expect(choices).toEqual([true, false]);
+  expect(choices).toEqual(["2d", "list", "3d"]);
 });
 
-test("the saved switch is not known while the device's setting is being read", () => {
-  expect(saved({ status: "loading" })).toEqual(null);
+test("a setting from before there were three views keeps what its 3D switch said", () => {
+  const choices = [
+    savedView({ status: "ready", values: { threeD: true } }),
+    savedView({ status: "ready", values: { threeD: false } }),
+  ];
+  // On chose nothing a device could not draw: it is left to the device. Off was the list.
+  expect(choices).toEqual(["auto", "list"]);
+  expect([chosenView({ threeD: true }), chosenView({ threeD: false })]).toEqual([null, "list"]);
 });
 
-test("a setting that cannot be read counts as on, the default", () => {
-  const choices = [saved({ status: "error" }), saved({ status: "invalid" })];
-  expect(choices).toEqual([true, true]);
+test("the saved view is not known while the device's setting is being read", () => {
+  expect(savedView({ status: "loading" })).toEqual(null);
 });
 
-test("3D on shows the scene", () => {
-  expect(view(true, true, null)).toEqual("scene");
+test("a setting that cannot be read leaves the view to the device", () => {
+  expect([savedView({ status: "error" }), savedView({ status: "invalid" })]).toEqual([
+    "auto",
+    "auto",
+  ]);
 });
 
-test("3D off shows the structure view", () => {
-  expect(view(true, false, null)).toEqual("structure");
+test("a device that can draw 3D shows it where nobody chose, and the 2D office where it cannot", () => {
+  expect([viewOnDevice("auto", true), viewOnDevice("auto", false)]).toEqual(["3d", "2d"]);
 });
 
-test("the view waits while the switch is not known", () => {
-  expect(view(true, null, null)).toEqual("pending");
+test("a 3D choice on a device that cannot draw it is the 2D office", () => {
+  expect(viewOnDevice("3d", false)).toEqual("2d");
 });
 
-test("a device without 3D shows the structure view whatever the switch says", () => {
-  const views = [view(false, true, null), view(false, null, null), view(false, true, "lost")];
-  expect(views).toEqual(["structure", "structure", "structure"]);
+test("the 2D office and the list are shown wherever they were chosen", () => {
+  const views = [
+    viewOnDevice("2d", true),
+    viewOnDevice("2d", false),
+    viewOnDevice("list", true),
+    viewOnDevice("list", false),
+  ];
+  expect(views).toEqual(["2d", "2d", "list", "list"]);
 });
 
-test("a 3D failure falls back to the structure view with a way to try again", () => {
-  expect(view(true, true, "lost")).toEqual("fallback");
+test("the switch offers 3D only where the device can draw it", () => {
+  expect([viewOptions(true), viewOptions(false)]).toEqual([
+    ["3d", "2d", "list"],
+    ["2d", "list"],
+  ]);
 });
 
-test("a 3D failure does not show while 3D is off", () => {
-  expect(view(true, false, "lost")).toEqual("structure");
+test("the surface shows the chosen view", () => {
+  const views = [
+    officeView({ choice: "3d", problem: null }),
+    officeView({ choice: "2d", problem: null }),
+    officeView({ choice: "list", problem: null }),
+  ];
+  expect(views).toEqual(["3d", "2d", "list"]);
+});
+
+test("the view waits while the choice is not known", () => {
+  expect(officeView({ choice: null, problem: "lost" })).toEqual("pending");
+});
+
+test("a 3D failure gives way to the 2D office", () => {
+  expect(officeView({ choice: "3d", problem: "lost" })).toEqual("2d");
+});
+
+test("a 3D failure changes nothing while another view is chosen", () => {
+  const views = [
+    officeView({ choice: "2d", problem: "lost" }),
+    officeView({ choice: "list", problem: "lost" }),
+  ];
+  expect(views).toEqual(["2d", "list"]);
 });
 
 test("a selected agent still in the model is kept", () => {
@@ -167,35 +194,40 @@ test("a reason that already starts with Unable to is shown as it is", () => {
   expect(texts).toEqual(["Unable to create a WebGL2 context", "Unable to reach the host."]);
 });
 
-const WAIT: SwitchStep = { kind: "wait" };
-const SETTLE: SwitchStep = { kind: "settle" };
-const GIVE_UP: SwitchStep = { kind: "give-up" };
+// The sync is the same for any switch; these run it with two sides, as a switch with on and off.
+type Step = SwitchStep<boolean>;
+type Event = SwitchEvent<boolean>;
+type Sync = SwitchSync<boolean>;
 
-function stored(value: boolean | null, revision: string): StoredSwitch {
+const WAIT: Step = { kind: "wait" };
+const SETTLE: Step = { kind: "settle" };
+const GIVE_UP: Step = { kind: "give-up" };
+
+function stored(value: boolean | null, revision: string): StoredSwitch<boolean> {
   return { value, revision };
 }
 
-function save(value: boolean, against: string, retry = false): SwitchStep {
+function save(value: boolean, against: string, retry = false): Step {
   return { kind: "save", value, against, retry };
 }
 
-function tap(value: boolean): SwitchEvent {
+function tap(value: boolean): Event {
   return { type: "tap", value };
 }
 
-function returned(ok: boolean): SwitchEvent {
+function returned(ok: boolean): Event {
   return { type: "returned", stored: ok };
 }
 
-const CHECKED: SwitchEvent = { type: "checked" };
+const CHECKED: Event = { type: "checked" };
 
 /** The surface starting the save a step asks for. */
-function start(step: SwitchStep): SwitchEvent {
-  if (step.kind !== "save") throw new Error(`expected a save, got ${step.kind}`);
+function start(step: Step | undefined): Event {
+  if (step?.kind !== "save") throw new Error(`expected a save, got ${step?.kind}`);
   return { type: "start", value: step.value, against: step.against, retry: step.retry };
 }
 
-function apply(sync: SwitchSync, ...events: SwitchEvent[]): SwitchSync {
+function apply(sync: Sync, ...events: Event[]): Sync {
   return events.reduce((state, event) => switchSync(state, event), sync);
 }
 
@@ -220,8 +252,8 @@ test("a tap while the first save is in flight does not start a second save at on
 });
 
 test("off then on quickly ends stored on, saved in tap order", () => {
-  const steps: SwitchStep[] = [];
-  let sync = apply(IDLE_SWITCH, tap(false));
+  const steps: Step[] = [];
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   steps.push(nextSwitchStep(sync, stored(true, "r0")));
   sync = apply(sync, start(steps[0]), tap(true), returned(true));
   // Stored, but the store's new revision has not been read yet.
@@ -237,8 +269,8 @@ test("off then on quickly ends stored on, saved in tap order", () => {
 });
 
 test("three taps end stored on the third", () => {
-  const steps: SwitchStep[] = [];
-  let sync = apply(IDLE_SWITCH, tap(false));
+  const steps: Step[] = [];
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   steps.push(nextSwitchStep(sync, stored(true, "r0")));
   sync = apply(sync, start(steps[0]), tap(true), returned(true));
   steps.push(nextSwitchStep(sync, stored(false, "r1")));
@@ -252,20 +284,20 @@ test("three taps end stored on the third", () => {
 });
 
 test("taps that come back to the stored side settle without another save", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   const step = nextSwitchStep(sync, stored(true, "r0"));
   sync = apply(sync, start(step), tap(true), tap(false), returned(true));
   expect(nextSwitchStep(sync, stored(false, "r1"))).toEqual(SETTLE);
 });
 
 test("a refused save is judged only after the store was read again", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false));
   expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(WAIT);
 });
 
 test("a save refused for another reason gives up and keeps the tapped side", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
   // The store did not move, so the save was not refused for a conflict: no retry, ever.
   const steps = [
@@ -276,8 +308,8 @@ test("a save refused for another reason gives up and keeps the tapped side", () 
 });
 
 test("a conflict retries once against the store's revision, and a second conflict gives up", () => {
-  const steps: SwitchStep[] = [];
-  let sync = apply(IDLE_SWITCH, tap(false));
+  const steps: Step[] = [];
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   steps.push(nextSwitchStep(sync, stored(true, "r0")));
   sync = apply(sync, start(steps[0]), returned(false), CHECKED);
   // Another writer stored a revision of its own meanwhile.
@@ -292,13 +324,13 @@ test("a conflict retries once against the store's revision, and a second conflic
 });
 
 test("a conflict whose writer stored the tapped side settles without a retry", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
   expect(nextSwitchStep(sync, stored(false, "r1"))).toEqual(SETTLE);
 });
 
 test("a tap after giving up tries again", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
   sync = apply(sync, tap(true), tap(false));
   expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(save(false, "r0"));
@@ -309,25 +341,21 @@ test("a stored value that cannot be read is overwritten by the tap", () => {
   expect(nextSwitchStep(sync, stored(null, "missing"))).toEqual(save(true, "missing"));
 });
 
-function liveModel(): OfficeModel {
-  return buildOfficeModel({
-    ...EMPTY_OFFICE,
-    workspaces: [{ id: "w1", name: "main", projectName: "paseo" }],
-  });
-}
-
-test("the scene draws the live model, the one the list view shows", () => {
-  const model = liveModel();
-  expect(sceneModelFor("scene", model) === model).toEqual(true);
+test("a view chosen where the device held none is saved against its revision", () => {
+  const sync = switchSync<"3d" | "2d" | "list">(IDLE_SWITCH, { type: "tap", value: "2d" });
+  const steps = [
+    nextSwitchStep(sync, { value: null, revision: "r0" }),
+    nextSwitchStep(sync, { value: "list", revision: "r0" }),
+    nextSwitchStep(sync, { value: "2d", revision: "r0" }),
+  ];
+  expect(steps).toEqual([
+    { kind: "save", value: "2d", against: "r0", retry: false },
+    { kind: "save", value: "2d", against: "r0", retry: false },
+    { kind: "settle" },
+  ]);
 });
 
-test("no scene model while the list, the fallback or the wait is shown", () => {
-  const model = liveModel();
-  const views: OfficeView[] = ["structure", "fallback", "pending"];
-  expect(views.map((shown) => sceneModelFor(shown, model))).toEqual([null, null, null]);
-});
-
-test("a strip tap asks the camera for its robot with a nonce the scene has not seen", () => {
+test("a strip tap asks for its agent with a nonce the view has not seen", () => {
   const first = nextFocusRequest(null, "a1");
   const again = nextFocusRequest(first, "a1");
   const other = nextFocusRequest(again, "a2");
@@ -339,12 +367,12 @@ test("a strip tap asks the camera for its robot with a nonce the scene has not s
   ]);
 });
 
-function giveUp(revision: string): SwitchEvent {
+function giveUp(revision: string): Event {
   return { type: "give-up", revision };
 }
 
 test("a tap while a save is stored but not yet read keeps that save in flight", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(true), tap(true));
   expect({ phase: sync.save?.phase, wanted: sync.wanted }).toEqual({
     phase: "saved",
@@ -354,14 +382,14 @@ test("a tap while a save is stored but not yet read keeps that save in flight", 
 });
 
 test("a refused save whose tap already matches the store settles instead of giving up", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), tap(true));
   sync = apply(sync, returned(false), CHECKED);
   expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(SETTLE);
 });
 
 test("after giving up, a change stored from elsewhere wins and nothing is saved again", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
   expect(nextSwitchStep(sync, stored(true, "r0"))).toEqual(GIVE_UP);
   sync = apply(sync, giveUp("r0"));
@@ -373,7 +401,7 @@ test("after giving up, a change stored from elsewhere wins and nothing is saved 
 });
 
 test("after a second conflict gives up, a later writer is not overwritten", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r1"))), returned(false), CHECKED);
   expect(nextSwitchStep(sync, stored(true, "r2"))).toEqual(GIVE_UP);
@@ -382,7 +410,7 @@ test("after a second conflict gives up, a later writer is not overwritten", () =
 });
 
 test("giving up twice for the same revision changes nothing", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
   const once = apply(sync, giveUp("r0"));
   const same: boolean = apply(once, giveUp("r0")) === once;
@@ -390,7 +418,7 @@ test("giving up twice for the same revision changes nothing", () => {
 });
 
 test("a switch whose save was refused for good is unsaved until the next tap or a change from elsewhere", () => {
-  let sync = apply(IDLE_SWITCH, tap(false));
+  let sync: Sync = apply(IDLE_SWITCH, tap(false));
   const before = [switchUnsaved(IDLE_SWITCH), switchUnsaved(sync)];
   sync = apply(sync, start(nextSwitchStep(sync, stored(true, "r0"))), returned(false), CHECKED);
   // Refused, but the surface has not given up yet: the store is still being read.
@@ -407,23 +435,4 @@ test("a switch whose save was refused for good is unsaved until the next tap or 
     givenUp: true,
     after: [false, false],
   });
-});
-
-test("threeDMode draws locally on web with WebGL2, whatever the host can do", () => {
-  expect(threeDMode({ platform: "web", webgl2: true, hostRender: true })).toBe("local");
-  expect(threeDMode({ platform: "web", webgl2: true, hostRender: false })).toBe("local");
-});
-
-test("threeDMode asks the host for pictures in the installed app when the host can draw", () => {
-  expect(threeDMode({ platform: "ios", webgl2: false, hostRender: true })).toBe("sheet");
-  expect(threeDMode({ platform: "android", webgl2: false, hostRender: true })).toBe("sheet");
-});
-
-test("threeDMode asks the host for pictures on web without WebGL2 when the host can draw", () => {
-  expect(threeDMode({ platform: "web", webgl2: false, hostRender: true })).toBe("sheet");
-});
-
-test("threeDMode is none when neither the device nor the host can draw", () => {
-  expect(threeDMode({ platform: "android", webgl2: false, hostRender: false })).toBe("none");
-  expect(threeDMode({ platform: "web", webgl2: false, hostRender: false })).toBe("none");
 });

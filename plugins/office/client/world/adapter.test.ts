@@ -6,6 +6,7 @@ import {
   type WorldMemory,
   type WorldPeople,
   boardRoom,
+  floorNote,
   isDarkTheme,
   teamOfRoom,
   worldBoardRows,
@@ -61,7 +62,7 @@ describe("the office's agents as the scene's people", () => {
       ]),
     );
 
-    const { sessions, overflow } = worldPeople(model, "pro");
+    const { sessions, overflow } = worldPeople(model, PLAN_DESKS.pro);
 
     expect(overflow).toBe(0);
     expect(sessions.map((s) => [s.id, s.git.repo, s.status, s.stuck, s.agent])).toEqual([
@@ -84,7 +85,7 @@ describe("the office's agents as the scene's people", () => {
       ]),
     );
 
-    const { sessions, overflow } = worldPeople(model, "cozy");
+    const { sessions, overflow } = worldPeople(model, PLAN_DESKS.cozy);
 
     expect(overflow).toBe(2);
     expect(sessions).toHaveLength(PLAN_DESKS.cozy);
@@ -104,7 +105,7 @@ describe("the office's agents as the scene's people", () => {
       ),
     );
 
-    const rows = worldBoardRows(model, worldPeople(model, "pro").sessions);
+    const rows = worldBoardRows(model, worldPeople(model, PLAN_DESKS.pro).sessions);
 
     expect(rows).toEqual([
       { id: "3", name: "Agent 3", text: "Waiting for your answer", state: "wait" },
@@ -126,7 +127,7 @@ describe("the office's agents as the scene's people", () => {
 
 describe("what changed, as things the people do", () => {
   const people = (agents: OfficeAgent[], doing: Record<string, ActivityStep> = {}) =>
-    worldPeople(buildOfficeModel(office(agents, {}, doing)), "pro");
+    worldPeople(buildOfficeModel(office(agents, {}, doing)), PLAN_DESKS.pro);
   const step = (kind: ActivityStep["kind"], key = "c1"): ActivityStep => ({ kind, key });
   const worldEvents = (before: WorldMemory | null, now: WorldPeople) =>
     worldChanges(before, now).events;
@@ -381,5 +382,14 @@ describe("day and night", () => {
   it("draws the office by night under a dark theme", () => {
     expect(isDarkTheme({ surface0: "#101012" })).toBe(true);
     expect(isDarkTheme({ surface0: "#F7F5F0" })).toBe(false);
+  });
+});
+
+describe("floorNote", () => {
+  it("says an empty office is empty, and who has no desk on a full floor", () => {
+    expect(floorNote(0, 0)).toBe("No agents on this host yet. One that starts takes a desk here.");
+    expect(floorNote(5, 0)).toBe(null);
+    expect(floorNote(13, 1)).toBe("1 agent has no desk on this floor. The list shows everyone.");
+    expect(floorNote(15, 3)).toBe("3 agents have no desk on this floor. The list shows everyone.");
   });
 });

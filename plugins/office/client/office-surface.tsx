@@ -15,14 +15,13 @@ import {
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
 import type { Machine } from "../shared/contracts.js";
-import { officeDeviceSettings } from "../shared/settings.js";
+import { OFFICE_VIEWS, officeDeviceSettings, type OfficeViewChoice } from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
 import { AgentCard } from "./agent-card.js";
 import { AttentionStrip } from "./attention-strip.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { HostSwitches } from "./host-switches.js";
-import { LabeledSwitch } from "./labeled-switch.js";
 import { MachineCard } from "./machine-card.js";
 import { hostNote } from "./machine-text.js";
 import {
@@ -32,14 +31,15 @@ import {
   type OfficeRoom,
 } from "./model.js";
 import type { FocusRequest } from "./focus-request.js";
-import { hasWebGL2 } from "./scene/web-env.web.js";
-import { SheetView } from "./sheet/sheet-view.js";
+import { PixelOffice } from "./pixel/pixel-office.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
 import { useMachine } from "./use-machine.js";
 import { useOffice, type OfficeState } from "./use-office.js";
+import { ViewSwitch } from "./view-switch.js";
+import { hasWebGL2 } from "./web-env.web.js";
 import { WorldView } from "./world/world-view.js";
 
 export type OfficeSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
@@ -99,27 +99,56 @@ export function keptSelection(
   return selectedId;
 }
 
-/** The device's 3D setting, as far as the surface reads it. */
-export type ThreeDSetting =
+/** The device's view setting, as far as the surface reads it. */
+export type ViewSetting =
   | { status: "loading" | "error" | "invalid" }
-  | { status: "ready"; values: { threeD: boolean } };
+  | { status: "ready"; values: { threeD: boolean; view?: OfficeViewChoice | undefined } };
 
-/** The saved switch: not known while it is read, and on, the default, when it cannot be read. */
-export function savedThreeD(setting: ThreeDSetting): boolean | null {
-  if (setting.status === "loading") return null;
-  return setting.status === "ready" ? setting.values.threeD : true;
+/** What a device holds: the view somebody chose there, or "auto" where nobody did. */
+export type SavedView = OfficeViewChoice | "auto";
+
+/**
+ * The view somebody chose in a stored setting; null where nobody did. A setting from before
+ * there were three views has the 3D switch alone: off was the list, on chose nothing.
+ */
+export function chosenView(values: {
+  threeD: boolean;
+  view?: OfficeViewChoice | undefined;
+}): OfficeViewChoice | null {
+  return values.view ?? (values.threeD ? null : "list");
 }
 
-/** The device's 3D setting as the switch's saves see it; null while it is read or unreadable. */
-export interface StoredSwitch {
-  /** Null when the stored document is not a valid setting: any tap overwrites it. */
-  value: boolean | null;
+/** The saved view: not known while it is read, and "auto" when it cannot be read. */
+export function savedView(setting: ViewSetting): SavedView | null {
+  if (setting.status === "loading") return null;
+  if (setting.status !== "ready") return "auto";
+  return chosenView(setting.values) ?? "auto";
+}
+
+/**
+ * The view a saved choice means on this device. Only a browser with WebGL2 draws the 3D office;
+ * anywhere else that choice, and no choice, is the 2D one.
+ */
+export function viewOnDevice(saved: SavedView, webgl2: boolean): OfficeViewChoice {
+  if (saved === "2d" || saved === "list") return saved;
+  return webgl2 ? "3d" : "2d";
+}
+
+/** The views a device offers, in the switch's order. */
+export function viewOptions(webgl2: boolean): readonly OfficeViewChoice[] {
+  return webgl2 ? OFFICE_VIEWS : OFFICE_VIEWS.filter((view) => view !== "3d");
+}
+
+/** A device setting as a switch's saves see it; null while it is read or unreadable. */
+export interface StoredSwitch<Value> {
+  /** Null when the store holds no choice or no valid setting: any tap overwrites it. */
+  value: Value | null;
   revision: string;
 }
 
 /** A save of the switch the surface started, and how far it got. */
-export interface SwitchSave {
-  value: boolean;
+export interface SwitchSave<Value> {
+  value: Value;
   /** The revision it was saved against. */
   against: string;
   /**
@@ -130,18 +159,18 @@ export interface SwitchSave {
   phase: "saving" | "saved" | "failed" | "checked" | "given-up";
 }
 
-/** The switch's taps against the device store: at most one save in flight. */
-export interface SwitchSync {
+/** A switch's taps against the device store: at most one save in flight. */
+export interface SwitchSync<Value> {
   /** The last tap while it is not known to be stored; null shows the stored value. */
-  wanted: boolean | null;
-  save: SwitchSave | null;
+  wanted: Value | null;
+  save: SwitchSave<Value> | null;
   /** Saves retried after a conflict since the last tap. */
   retries: number;
 }
 
-export type SwitchEvent =
-  | { type: "tap"; value: boolean }
-  | { type: "start"; value: boolean; against: string; retry: boolean }
+export type SwitchEvent<Value> =
+  | { type: "tap"; value: Value }
+  | { type: "start"; value: Value; against: string; retry: boolean }
   | { type: "returned"; stored: boolean }
   | { type: "checked" }
   | { type: "give-up"; revision: string }
@@ -153,16 +182,19 @@ export type SwitchEvent =
  * give-up: the store refused it; the switch keeps showing the tap until the next tap, a change
  * from elsewhere or the surface closes.
  */
-export type SwitchStep =
+export type SwitchStep<Value> =
   | { kind: "idle" | "wait" | "settle" | "give-up" }
-  | { kind: "save"; value: boolean; against: string; retry: boolean };
+  | { kind: "save"; value: Value; against: string; retry: boolean };
 
-export const IDLE_SWITCH: SwitchSync = { wanted: null, save: null, retries: 0 };
+export const IDLE_SWITCH: SwitchSync<never> = { wanted: null, save: null, retries: 0 };
 
 /** One retry per conflict; a second conflict for the same tap gives up. */
 const CONFLICT_RETRIES = 1;
 
-export function switchSync(sync: SwitchSync, event: SwitchEvent): SwitchSync {
+export function switchSync<Value>(
+  sync: SwitchSync<Value>,
+  event: SwitchEvent<Value>,
+): SwitchSync<Value> {
   switch (event.type) {
     case "tap": {
       // A save still on its way stays in flight; a refused one is forgotten, so the tap tries anew.
@@ -198,7 +230,10 @@ export function switchSync(sync: SwitchSync, event: SwitchEvent): SwitchSync {
  * A refused save is judged once the store was read again: a revision that moved is a conflict
  * and is retried once; one that did not move is a refusal for another reason, never retried.
  */
-export function nextSwitchStep(sync: SwitchSync, stored: StoredSwitch | null): SwitchStep {
+export function nextSwitchStep<Value>(
+  sync: SwitchSync<Value>,
+  stored: StoredSwitch<Value> | null,
+): SwitchStep<Value> {
   if (sync.wanted === null) return { kind: "idle" };
   if (stored === null) return { kind: "wait" };
   const { save } = sync;
@@ -225,79 +260,60 @@ export function nextSwitchStep(sync: SwitchSync, stored: StoredSwitch | null): S
  * The switch shows a tap the device refused to store: the view follows it until the surface
  * closes, and after a reload the stored value is back.
  */
-export function switchUnsaved(sync: SwitchSync): boolean {
+export function switchUnsaved(sync: SwitchSync<unknown>): boolean {
   return sync.save?.phase === "given-up";
 }
 
-const UNSAVED_3D =
-  "Unable to save the 3D view setting on this device. It holds until the office is closed.";
+const UNSAVED_VIEW = "Unable to save the view on this device. It holds until the office is closed.";
 
 /** The view's next request for an agent. Nonces start at 1: the scene counts 0 as handled. */
 export function nextFocusRequest(previous: FocusRequest | null, agentId: string): FocusRequest {
   return { agentId, nonce: (previous?.nonce ?? 0) + 1 };
 }
 
-/** "fallback" is the structure view under the "Try 3D again" banner. */
-export type OfficeView = "pending" | "scene" | "fallback" | "structure";
-
-/** Where the 3D view is drawn: by this device's WebGL, from the host's pictures, or nowhere. */
-export type ThreeDMode = "local" | "sheet" | "none";
-
-export interface ThreeDModeInput {
-  platform: Platform;
-  /** This device can draw: a browser with WebGL2. */
-  webgl2: boolean;
-  /** The host can draw for a device that cannot (the snapshot's `render.available`). */
-  hostRender: boolean;
-}
-
-/** A device that can draw does; the installed app and a browser without WebGL2 ask the host. */
-export function threeDMode({ platform, webgl2, hostRender }: ThreeDModeInput): ThreeDMode {
-  if (platform === "web" && webgl2) return "local";
-  return hostRender ? "sheet" : "none";
-}
+/** What the surface shows; "pending" while the device's choice is being read. */
+export type OfficeView = "pending" | OfficeViewChoice;
 
 export interface OfficeViewInput {
-  /** 3D can be drawn, here or on the host. */
-  available: boolean;
-  /** The 3D switch; null while the device's setting is being read. */
-  threeD: boolean | null;
+  /** The view chosen on this device; null while the device's setting is being read. */
+  choice: OfficeViewChoice | null;
   /** Why 3D failed on this surface, if it did. */
   problem: string | null;
 }
 
-/** What the surface shows. It waits for the switch, so the list never flashes before the scene. */
-export function officeView({ available, threeD, problem }: OfficeViewInput): OfficeView {
-  if (!available || threeD === false) return "structure";
-  if (threeD === null) return "pending";
-  return problem === null ? "scene" : "fallback";
+/**
+ * What the surface shows. It waits for the choice, so no other view flashes before the chosen
+ * one. A 3D office that failed gives way to the 2D one, under a banner with a way to try again.
+ */
+export function officeView({ choice, problem }: OfficeViewInput): OfficeView {
+  if (choice === null) return "pending";
+  return choice === "3d" && problem !== null ? "2d" : choice;
 }
 
-/** The model the scene draws: the live one, the same the list view shows; none without a scene. */
-export function sceneModelFor(view: OfficeView, model: OfficeModel): OfficeModel | null {
-  return view === "scene" ? model : null;
-}
-
-interface ThreeDState {
-  mode: ThreeDMode;
-  /** 3D can be drawn, here or on the host: the switch is shown. */
-  available: boolean;
-  /** The switch's position; null while the device's setting is being read. */
-  on: boolean | null;
+interface ViewChoiceState {
+  /** The views this device offers. */
+  options: readonly OfficeViewChoice[];
+  /** The chosen view; null while the device's setting is being read. */
+  choice: OfficeViewChoice | null;
   /** The device refused to store the last tap. */
   unsaved: boolean;
-  toggle(next: boolean): void;
+  choose(next: OfficeViewChoice): void;
 }
 
-/** The per-device 3D switch. Off, and everywhere 3D is unavailable, the scene is never loaded. */
-function useThreeD(platform: Platform, hostRender: boolean): ThreeDState {
+function viewSync(
+  sync: SwitchSync<OfficeViewChoice>,
+  event: SwitchEvent<OfficeViewChoice>,
+): SwitchSync<OfficeViewChoice> {
+  return switchSync(sync, event);
+}
+
+/** The per-device view. The 3D office is loaded only where it is the chosen view. */
+function useViewChoice(platform: Platform): ViewChoiceState {
   const settings = useSettings(officeDeviceSettings);
   const webgl2 = useMemo(() => platform === "web" && hasWebGL2(), [platform]);
-  const mode = threeDMode({ platform, webgl2, hostRender });
-  const available = mode !== "none";
-  // The view follows the switch at once. A choice the device could not store stays here, so the
+  // The view follows the tap at once. A choice the device could not store stays here, so the
   // switch still does what it says until the surface closes.
-  const [sync, dispatch] = useReducer(switchSync, IDLE_SWITCH);
+  const [sync, dispatch] = useReducer(viewSync, IDLE_SWITCH);
   // A save or a read that comes back after the surface closed sets nothing and saves nothing.
   const mounted = useRef(true);
   useEffect(() => {
@@ -308,7 +324,7 @@ function useThreeD(platform: Platform, hostRender: boolean): ThreeDState {
   }, []);
   const revision =
     settings.status === "ready" || settings.status === "invalid" ? settings.revision : null;
-  const storedValue = settings.status === "ready" ? settings.values.threeD : null;
+  const storedValue = settings.status === "ready" ? chosenView(settings.values) : null;
   const { save, reload } = settings;
   useEffect(() => {
     const stored = revision === null ? null : { value: storedValue, revision };
@@ -319,8 +335,8 @@ function useThreeD(platform: Platform, hostRender: boolean): ThreeDState {
     }
     if (step.kind !== "save") return;
     dispatch({ type: "start", value: step.value, against: step.against, retry: step.retry });
-    async function store(value: boolean, against: string): Promise<void> {
-      const ok = await save({ threeD: value }, against);
+    async function store(value: OfficeViewChoice, against: string): Promise<void> {
+      const ok = await save({ threeD: value !== "list", view: value }, against);
       if (!mounted.current) return;
       dispatch({ type: "returned", stored: ok });
       if (ok) return;
@@ -330,13 +346,17 @@ function useThreeD(platform: Platform, hostRender: boolean): ThreeDState {
     }
     void store(step.value, step.against);
   }, [sync, revision, storedValue, save, reload]);
-  const toggle = useCallback((next: boolean) => dispatch({ type: "tap", value: next }), []);
+  const choose = useCallback(
+    (next: OfficeViewChoice) => dispatch({ type: "tap", value: next }),
+    [],
+  );
+  const options = useMemo(() => viewOptions(webgl2), [webgl2]);
+  const saved = sync.wanted ?? savedView(settings);
   return {
-    mode,
-    available,
-    on: available ? (sync.wanted ?? savedThreeD(settings)) : false,
-    unsaved: available && switchUnsaved(sync),
-    toggle,
+    options,
+    choice: saved === null ? null : viewOnDevice(saved, webgl2),
+    unsaved: switchUnsaved(sync),
+    choose,
   };
 }
 
@@ -383,13 +403,9 @@ function SceneProblem({ message, onRetry, styles }: SceneProblemProps) {
 
 interface SurfaceBodyProps {
   office: OfficeState;
+  model: OfficeModel;
   rooms: readonly OfficeRoom[];
-  /** The model the scene draws; null shows the structure view. */
-  sceneModel: OfficeModel | null;
-  /** Who draws that scene. */
-  sceneMode: ThreeDMode;
-  /** The 3D switch is still being read: neither view yet. */
-  waiting: boolean;
+  view: OfficeView;
   theme: PluginTheme;
   focusRoomId: string | null;
   focusRequest: FocusRequest | null;
@@ -409,10 +425,9 @@ interface SurfaceBodyProps {
 
 function SurfaceBody({
   office,
+  model,
   rooms,
-  sceneModel,
-  sceneMode,
-  waiting,
+  view,
   theme,
   focusRoomId,
   focusRequest,
@@ -443,25 +458,13 @@ function SurfaceBody({
       />
     );
   }
-  if (!office.loaded || waiting) return <Text style={styles.sceneStatus}>Loading...</Text>;
-  if (sceneModel !== null && sceneMode === "sheet") {
-    // The host draws from its own copy of the office, so this view takes no model.
-    return (
-      <SheetView
-        theme={theme}
-        styles={styles}
-        focusRoomId={focusRoomId}
-        focusRequest={focusRequest}
-        onSelectAgent={onSelectAgent}
-        onSelectBoard={onOpenBoard}
-        onProblem={onSceneProblem}
-      />
-    );
+  if (!office.loaded || view === "pending") {
+    return <Text style={styles.sceneStatus}>Loading...</Text>;
   }
-  if (sceneModel !== null) {
+  if (view === "3d") {
     return (
       <WorldView
-        model={sceneModel}
+        model={model}
         theme={theme}
         styles={styles}
         focusRoomId={focusRoomId}
@@ -472,6 +475,21 @@ function SurfaceBody({
         machine={machine}
         onOpenMachine={onOpenMachine}
         onProblem={onSceneProblem}
+      />
+    );
+  }
+  if (view === "2d") {
+    return (
+      <PixelOffice
+        model={model}
+        rooms={rooms}
+        theme={theme}
+        focusRoomId={focusRoomId}
+        focusRequest={focusRequest}
+        onSelectAgent={onSelectAgent}
+        onSelectBoard={onOpenBoard}
+        machine={machine}
+        onOpenMachine={onOpenMachine}
       />
     );
   }
@@ -524,7 +542,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [machineOpen, setMachineOpen] = useState(false);
   const openMachine = useCallback(() => setMachineOpen(true), []);
   const closeMachine = useCallback(() => setMachineOpen(false), []);
-  const threeD = useThreeD(layout.platform, office.state.render?.available === true);
+  const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
@@ -539,7 +557,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const closeCard = useCallback(() => setSelectedId(null), []);
-  // The strip is the phone's fast path: it opens the card and moves the camera to the robot.
+  // The strip is the phone's fast path: it opens the card and brings the agent's desk into view.
   const selectFromStrip = useCallback((agentId: string) => {
     setSelectedId(agentId);
     setFocusRequest((previous) => nextFocusRequest(previous, agentId));
@@ -549,20 +567,16 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     [navigation],
   );
   const retryScene = useCallback(() => setSceneProblem(null), []);
-  // Turning the switch asks for 3D anew, so an old failure does not stand in its way.
-  const { toggle } = threeD;
-  const changeThreeD = useCallback(
-    (next: boolean) => {
+  // Choosing a view asks for 3D anew, so an old failure does not stand in its way.
+  const { choose } = viewChoice;
+  const changeView = useCallback(
+    (next: OfficeViewChoice) => {
       setSceneProblem(null);
-      toggle(next);
+      choose(next);
     },
-    [toggle],
+    [choose],
   );
-  const view = officeView({
-    available: threeD.available,
-    threeD: threeD.on,
-    problem: sceneProblem,
-  });
+  const view = officeView({ choice: viewChoice.choice, problem: sceneProblem });
   const kept = keptSelection(selectedId, model.agents, live);
   // A selection whose agent left is dropped, so the card does not reopen if that agent returns.
   useEffect(() => {
@@ -581,16 +595,14 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           wake={office.loaded && live ? office.state.wake : null}
           actions={boardActions}
           styles={styles}
-          deviceProblem={threeD.unsaved ? UNSAVED_3D : null}
+          deviceProblem={viewChoice.unsaved ? UNSAVED_VIEW : null}
         >
-          {threeD.available ? (
-            <LabeledSwitch
-              label="3D view"
-              value={threeD.on}
-              onChange={changeThreeD}
-              styles={styles}
-            />
-          ) : null}
+          <ViewSwitch
+            options={viewChoice.options}
+            value={viewChoice.choice}
+            onChange={changeView}
+            styles={styles}
+          />
         </HostSwitches>
         {live ? (
           <AttentionStrip
@@ -601,15 +613,14 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           />
         ) : null}
       </View>
-      {view === "fallback" && sceneProblem !== null ? (
+      {viewChoice.choice === "3d" && sceneProblem !== null ? (
         <SceneProblem message={sceneProblem} onRetry={retryScene} styles={styles} />
       ) : null}
       <SurfaceBody
         office={office}
+        model={model}
         rooms={rooms}
-        sceneModel={sceneModelFor(view, model)}
-        sceneMode={threeD.mode}
-        waiting={view === "pending"}
+        view={view}
         theme={theme}
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}

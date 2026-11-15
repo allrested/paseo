@@ -1,0 +1,147 @@
+import { describe, expect, it } from "vitest";
+import type { ActivityStep } from "../../shared/contracts.js";
+import type { WorldSession } from "../world/world-api.js";
+import { BREAK_MS, NO_BREAKS, breaksAfter, castOf, nextBreakEnd, standingOf } from "./actors.js";
+
+function session(id: string, patch: Partial<WorldSession> = {}): WorldSession {
+  return {
+    id,
+    name: id,
+    title: id,
+    dir: "team",
+    git: { repo: "team" },
+    status: "work",
+    agent: "claude",
+    lastPrompt: "",
+    stuck: false,
+    subs: [],
+    ...patch,
+  };
+}
+
+const step = (kind: ActivityStep["kind"], patch: Partial<ActivityStep> = {}): ActivityStep => ({
+  kind,
+  key: `${kind}-1`,
+  ...patch,
+});
+
+describe("standingOf", () => {
+  it("sends each kind of work to its place", () => {
+    const at = (kind: ActivityStep["kind"]) => standingOf(session("a"), step(kind), false);
+    expect(at("read")).toEqual({ place: "library", icon: "read", screen: "code" });
+    expect(at("search")).toEqual({ place: "library", icon: "search", screen: "code" });
+    expect(at("command")).toEqual({ place: "racks", icon: "command", screen: "code" });
+    expect(at("test")).toEqual({ place: "racks", icon: "test", screen: "code" });
+    expect(at("plan")).toEqual({ place: "board", icon: "plan", screen: "code" });
+    expect(at("subagent")).toEqual({ place: "board", icon: "subagent", screen: "code" });
+    expect(at("push")).toEqual({ place: "pad", icon: "ship", screen: "code" });
+    expect(at("deploy")).toEqual({ place: "pad", icon: "ship", screen: "code" });
+    for (const kind of ["edit", "write", "commit", "web", "tool"] as const) {
+      expect(at(kind).place).toBeNull();
+      expect(at(kind).icon).not.toBeNull();
+    }
+  });
+
+  it("shows how a test run ended, at the racks", () => {
+    expect(standingOf(session("a"), step("test", { result: "passed" }), false)).toEqual({
+      place: "racks",
+      icon: "passed",
+      screen: "code",
+    });
+    expect(standingOf(session("a"), step("test", { result: "failed" }), false).icon).toBe("failed");
+  });
+
+  it("types at the desk when the agent works at no tool call", () => {
+    expect(standingOf(session("a"), undefined, false)).toEqual({
+      place: null,
+      icon: null,
+      screen: "code",
+    });
+  });
+
+  it("keeps whoever needs the user at the desk, an error before a question", () => {
+    const reading = step("read");
+    expect(standingOf(session("a", { status: "wait" }), reading, false)).toEqual({
+      place: null,
+      icon: "wait",
+      screen: "wait",
+    });
+    expect(standingOf(session("a", { status: "wait", stuck: true }), reading, true)).toEqual({
+      place: null,
+      icon: "fail",
+      screen: "fail",
+    });
+  });
+
+  it("rests at the desk with the screen off, but for a break", () => {
+    const resting = session("a", { status: "rest" });
+    expect(standingOf(resting, undefined, false)).toEqual({
+      place: null,
+      icon: null,
+      screen: "off",
+    });
+    expect(standingOf(resting, undefined, true)).toEqual({
+      place: "coffee",
+      icon: "coffee",
+      screen: "off",
+    });
+  });
+});
+
+describe("breaksAfter", () => {
+  const resting = [session("a", { status: "rest" }), session("b", { status: "rest" })];
+
+  it("starts a break when a turn ends", () => {
+    const breaks = breaksAfter(NO_BREAKS, [{ sess: "a", type: "stop" }], resting, 1_000);
+    expect([...breaks]).toEqual([["a", 1_000 + BREAK_MS]]);
+    expect(nextBreakEnd(breaks)).toBe(1_000 + BREAK_MS);
+  });
+
+  it("ends a break when its time is up, the agent works again or it left", () => {
+    const started = breaksAfter(
+      NO_BREAKS,
+      [
+        { sess: "a", type: "stop" },
+        { sess: "b", type: "stop" },
+      ],
+      resting,
+      0,
+    );
+    expect(breaksAfter(started, [], resting, BREAK_MS).size).toBe(0);
+    const working = [session("a"), session("b", { status: "rest" })];
+    expect([...breaksAfter(started, [], working, 1).keys()]).toEqual(["b"]);
+    expect([...breaksAfter(started, [], [session("a", { status: "rest" })], 1).keys()]).toEqual([
+      "a",
+    ]);
+  });
+
+  it("gives no break to an agent that stopped on an error", () => {
+    const stuck = [session("a", { status: "rest", stuck: true })];
+    expect(breaksAfter(NO_BREAKS, [{ sess: "a", type: "stop" }], stuck, 0).size).toBe(0);
+  });
+
+  it("returns the map it was given when nothing changed", () => {
+    const started = breaksAfter(NO_BREAKS, [{ sess: "a", type: "stop" }], resting, 0);
+    expect(breaksAfter(started, [{ sess: "b", type: "read" }], resting, 5)).toBe(started);
+    expect(breaksAfter(NO_BREAKS, [], resting, 5)).toBe(NO_BREAKS);
+    expect(nextBreakEnd(NO_BREAKS)).toBeNull();
+  });
+});
+
+describe("castOf", () => {
+  it("lines people up at a place in desk order", () => {
+    const sessions = [session("a"), session("b"), session("c", { status: "rest" }), session("d")];
+    const steps = new Map([
+      ["a", step("read")],
+      ["b", step("edit")],
+      ["d", step("search")],
+    ]);
+    const cast = castOf({ sessions, overflow: 0, steps }, NO_BREAKS);
+    expect(cast.map((member) => [member.id, member.standing.place, member.spot])).toEqual([
+      ["a", "library", 0],
+      ["b", null, 0],
+      ["c", null, 0],
+      ["d", "library", 1],
+    ]);
+  });
+});

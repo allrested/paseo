@@ -132,7 +132,6 @@ function setup(read: () => Promise<SettingsState>) {
     store: memoryStore(),
     clock,
     log: (message) => logs.push(message),
-    sheet: null,
     world: null,
     machine: {
       procRoot: "/nonexistent-proc",
@@ -300,7 +299,7 @@ test("a cleanup answers for each agent once, and leaves one that could not resum
   await stop();
 });
 
-test("the entry serves the office state, the 3D page script, the machine, the sheet and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the entry serves the office state, the 3D page script, the machine and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
@@ -308,9 +307,6 @@ test("the entry serves the office state, the 3D page script, the machine, the sh
     "office.world.request",
     "office.machine",
     "office.machine.cleanup.request",
-    "office.sheet",
-    "office.sheet.input.request",
-    "office.sheet.sprite.request",
     "office.post.request",
     "office.update.request",
     "office.delete.request",
@@ -328,20 +324,4 @@ test("the entry serves the office state, the 3D page script, the machine, the sh
   await stop();
   expect(recorded.hooks.size).toBe(0);
   expect(clock.pending()).toBe(0);
-});
-
-test("a host with no browser refuses the sheet with a problem, and knows no sheet", async () => {
-  const { recorded, context, stop } = setup(async () => ON);
-  const events: unknown[] = [];
-  const sheet = recorded.handlers.get("office.sheet");
-  const input = recorded.handlers.get("office.sheet.input.request");
-
-  await sheet?.({ width: 390, height: 700, pixelRatio: 3, colors: {} }, {
-    ...context,
-    push: async (event: unknown) => void events.push(event),
-  } as never);
-
-  expect(events).toEqual([{ type: "problem", message: "The host has no browser to draw 3D" }]);
-  expect(await input?.({ sheetId: "s1" }, context)).toEqual({ ok: false });
-  await stop();
 });
