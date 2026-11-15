@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { MAX_ENTRIES, type FeedEntry, type FeedState } from "./contracts.js";
-import { EMPTY_FEED, applyFeedEvent, isNew, newCount } from "./feed.js";
+import { MAX_ENTRIES, type FeedEntry, type FeedState, type RunningAgent } from "./contracts.js";
+import { EMPTY_FEED, applyFeedEvent, isMarked, isNew, newCount } from "./feed.js";
 
 const entry = (id: string, at: string, extra: Partial<FeedEntry> = {}): FeedEntry => ({
   id,
@@ -61,4 +61,95 @@ test("an entry is new when it came after the feed was last opened, or when it ne
   expect(newCount(TWO)).toBe(1);
   expect(newCount({ ...TWO, seenAt: null })).toBe(2);
   expect(newCount(EMPTY_FEED)).toBe(0);
+});
+
+test("an entry is marked unread and read again; a mark that changes nothing keeps the feed", () => {
+  const marked = applyFeedEvent(TWO, { type: "marked", id: "a", unread: true });
+  expect(marked.unread).toEqual(["a"]);
+  expect(isMarked(marked, "a")).toBe(true);
+  expect(isMarked(marked, "b")).toBe(false);
+  expect(applyFeedEvent(marked, { type: "marked", id: "a", unread: true })).toBe(marked);
+  // Read again: the feed holds no list of marks when none is left.
+  const read = applyFeedEvent(marked, { type: "marked", id: "a", unread: false });
+  expect(read).toEqual(TWO);
+  expect("unread" in read).toBe(false);
+  expect(applyFeedEvent(TWO, { type: "marked", id: "a", unread: false })).toBe(TWO);
+  // An entry the feed does not hold cannot be marked.
+  expect(applyFeedEvent(TWO, { type: "marked", id: "zz", unread: true })).toBe(TWO);
+});
+
+test("a marked entry counts as unread whenever the feed was opened", () => {
+  const marked = applyFeedEvent(TWO, { type: "marked", id: "a", unread: true });
+  // "b" came after the feed was opened, "a" is marked.
+  expect(newCount(marked)).toBe(2);
+  const opened = applyFeedEvent(marked, { type: "seen", seenAt: "2026-11-15T12:00:00.000Z" });
+  expect(newCount(opened)).toBe(1);
+  // One entry that is both new and marked counts once.
+  expect(newCount(applyFeedEvent(TWO, { type: "marked", id: "b", unread: true }))).toBe(1);
+});
+
+test("a mark goes with its entry, when it is removed or pushed out of a full feed", () => {
+  const marked = applyFeedEvent(TWO, { type: "marked", id: "a", unread: true });
+  const removed = applyFeedEvent(marked, { type: "removed", ids: ["a"] });
+  expect("unread" in removed).toBe(false);
+  const full: FeedState = {
+    entries: Array.from({ length: MAX_ENTRIES }, (_, index) =>
+      entry(`e${index}`, "2026-11-15T07:00:00.000Z"),
+    ),
+    seenAt: null,
+    unread: ["e0", `e${MAX_ENTRIES - 1}`],
+  };
+  const next = applyFeedEvent(full, {
+    type: "added",
+    entry: entry("c", "2026-11-15T10:00:00.000Z"),
+  });
+  expect(next.unread).toEqual(["e0"]);
+});
+
+const turn = (
+  agentId: string,
+  since: string | null = "2026-11-15T09:10:00.000Z",
+): RunningAgent => ({
+  agentId,
+  title: `Agent ${agentId}`,
+  folder: "/work/shop",
+  since,
+});
+const runningIds = (state: FeedState) => state.running?.map((agent) => agent.agentId);
+
+test("an agent whose turn starts goes first, and a new turn of the same agent replaces the old", () => {
+  const one = applyFeedEvent(TWO, { type: "started", agent: turn("x") });
+  const two = applyFeedEvent(one, { type: "started", agent: turn("y") });
+  expect(runningIds(two)).toEqual(["y", "x"]);
+  expect(two.entries).toBe(TWO.entries);
+
+  const again = turn("x", "2026-11-15T09:20:00.000Z");
+  const three = applyFeedEvent(two, { type: "started", agent: again });
+  expect(three.running).toEqual([again, turn("y")]);
+});
+
+test("a turn found running, without a start, goes after the turns that were seen to begin", () => {
+  const seen = applyFeedEvent(TWO, { type: "started", agent: turn("x") });
+  const found = applyFeedEvent(seen, { type: "started", agent: turn("old", null) });
+  expect(runningIds(found)).toEqual(["x", "old"]);
+});
+
+test("an agent whose turn ends leaves; the last one takes the list with it", () => {
+  const both = applyFeedEvent(applyFeedEvent(TWO, { type: "started", agent: turn("x") }), {
+    type: "started",
+    agent: turn("y"),
+  });
+  const one = applyFeedEvent(both, { type: "stopped", agentId: "x" });
+  expect(runningIds(one)).toEqual(["y"]);
+  // An agent that was not listed changes nothing.
+  expect(applyFeedEvent(one, { type: "stopped", agentId: "zz" })).toBe(one);
+
+  const none = applyFeedEvent(one, { type: "stopped", agentId: "y" });
+  expect("running" in none).toBe(false);
+  expect(none).toEqual(TWO);
+});
+
+test("what runs is no news: it does not count as unread", () => {
+  const state = applyFeedEvent(TWO, { type: "started", agent: turn("x") });
+  expect(newCount(state)).toBe(newCount(TWO));
 });
