@@ -23,6 +23,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     <CdpBrowserPane
       key={props.browserId}
       browserId={props.browserId}
+      cwd={props.cwd}
       onFocusPane={props.onFocusPane}
       serverId={props.serverId}
       workspaceId={props.workspaceId}

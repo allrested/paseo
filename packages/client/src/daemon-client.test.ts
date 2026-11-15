@@ -10412,6 +10412,81 @@ test("sendCdpBrowserViewInput sends one message and waits for nothing", async ()
   });
 });
 
+const CDP_PICK_FEATURES = { ownedSubscriptions: true, cdpBrowser: true, cdpBrowserPick: true };
+const CDP_SELECTION = {
+  url: "https://example.com/",
+  selector: "#buy",
+  tag: "button",
+  text: "Buy",
+  outerHTML: '<button id="buy">Buy</button>',
+  computedStyles: { display: "block" },
+  boundingRect: { x: 10, y: 20, width: 80, height: 32 },
+  reactSource: null,
+  parentChain: ["main"],
+  children: [],
+};
+
+test("pickCdpBrowserElement resolves with the picked element", async () => {
+  const { client, mock } = await connectCdpClient(CDP_PICK_FEATURES);
+  const promise = client.pickCdpBrowserElement(CDP_TAB.browserId);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "browser.cdp.view.pick_element.request",
+    browserId: CDP_TAB.browserId,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.view.pick_element.response",
+      payload: { requestId: request.requestId, selection: CDP_SELECTION, error: null },
+    }),
+  );
+  await expect(promise).resolves.toEqual(CDP_SELECTION);
+});
+
+test("pickCdpBrowserElement resolves with null for a pick that ended without an element", async () => {
+  const { client, mock } = await connectCdpClient(CDP_PICK_FEATURES);
+  const promise = client.pickCdpBrowserElement(CDP_TAB.browserId);
+  client.cancelCdpBrowserElementPick(CDP_TAB.browserId);
+  expect(parseSentFrame(mock.sent[1])).toEqual({
+    type: "browser.cdp.view.cancel_pick.request",
+    browserId: CDP_TAB.browserId,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.view.pick_element.response",
+      payload: { requestId: parseSentFrame(mock.sent[0]).requestId, selection: null, error: null },
+    }),
+  );
+  await expect(promise).resolves.toBeNull();
+});
+
+test("pickCdpBrowserElement rejects with the daemon's error code", async () => {
+  const { client, mock } = await connectCdpClient(CDP_PICK_FEATURES);
+  const promise = client.pickCdpBrowserElement(CDP_TAB.browserId);
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "browser.cdp.view.pick_element.response",
+      payload: {
+        requestId: parseSentFrame(mock.sent[0]).requestId,
+        selection: null,
+        error: "browser_page_loading",
+      },
+    }),
+  );
+  await expect(promise).rejects.toThrow("browser_page_loading");
+});
+
+test("the pick methods refuse a host whose browser cannot pick", async () => {
+  const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
+  await expect(client.pickCdpBrowserElement(CDP_TAB.browserId)).rejects.toThrow(
+    "This host cannot pick elements in its browser.",
+  );
+  expect(() => client.cancelCdpBrowserElementPick(CDP_TAB.browserId)).toThrow(
+    "This host cannot pick elements in its browser.",
+  );
+  expect(mock.sent).toHaveLength(0);
+});
+
 test("observeCdpBrowserView routes binary frames to its observer", async () => {
   const { client, mock } = await connectCdpClient({ ownedSubscriptions: true, cdpBrowser: true });
   const view = client.observeCdpBrowserView({

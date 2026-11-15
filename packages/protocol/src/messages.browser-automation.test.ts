@@ -216,6 +216,12 @@ describe("browser.cdp messages", () => {
         action: { kind: "back" },
       },
       {
+        type: "browser.cdp.view.pick_element.request",
+        requestId: "r6",
+        browserId: CDP_TAB.browserId,
+      },
+      { type: "browser.cdp.view.cancel_pick.request", browserId: CDP_TAB.browserId },
+      {
         type: "browser.cdp.view.input.request",
         subscriptionId: "s1",
         input: {
@@ -314,6 +320,39 @@ describe("browser.cdp messages", () => {
         payload: { subscriptionId: "s1", error: "browser_timeout" },
       },
       { type: "browser.cdp.view.navigate.response", payload: { requestId: "r5", error: null } },
+      {
+        type: "browser.cdp.view.pick_element.response",
+        payload: {
+          requestId: "r6",
+          selection: {
+            url: "https://example.com/",
+            selector: "#buy",
+            tag: "button",
+            text: "Buy",
+            outerHTML: '<button id="buy">Buy</button>',
+            computedStyles: { display: "inline-block" },
+            boundingRect: { x: 10, y: 20, width: 80, height: 32 },
+            reactSource: {
+              fileName: "/src/buy.tsx",
+              lineNumber: 12,
+              columnNumber: null,
+              componentName: "BuyButton",
+            },
+            parentChain: ["form#order", "main"],
+            children: [],
+          },
+          error: null,
+        },
+      },
+      // A pick that ended without an element, and one that failed.
+      {
+        type: "browser.cdp.view.pick_element.response",
+        payload: { requestId: "r6", selection: null, error: null },
+      },
+      {
+        type: "browser.cdp.view.pick_element.response",
+        payload: { requestId: "r6", selection: null, error: "browser_page_loading" },
+      },
     ];
     for (const message of messages) {
       expect(SessionOutboundMessageSchema.parse(message)).toEqual(message);
