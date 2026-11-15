@@ -1,8 +1,9 @@
 // Who is where in the 2D office, from what the office knows of each agent. Nothing here is
-// remembered but a coffee break: the rest follows the agent's state, so an office opened in the
-// middle of a turn shows everyone where they are.
+// remembered but a coffee break and the janitor's round: the rest follows the agent's state, so
+// an office opened in the middle of a turn shows everyone where they are.
 import type { ActivityKind, ActivityStep } from "../../shared/contracts.js";
-import type { WorldPeople } from "../world/adapter.js";
+import { NEARLY_FULL } from "../context-text.js";
+import type { WorldMemory, WorldPeople } from "../world/adapter.js";
 import type { WorldEvent, WorldSession } from "../world/world-api.js";
 import type { IconKind } from "./art.js";
 import type { PlaceKind } from "./floor-plan.js";
@@ -121,4 +122,58 @@ export function castOf(people: WorldPeople, breaks: Breaks): CastMember[] {
     }
     return { id: session.id, name: session.name, standing, spot };
   });
+}
+
+/** The paper in a desk's tray: more of it with a fuller context, and a flag when nearly full. */
+export interface Tray {
+  sheets: 0 | 1 | 2 | 3;
+  flag: boolean;
+}
+
+export function trayOf(full: number | null): Tray {
+  if (full === null || full < 0.02) return { sheets: 0, flag: false };
+  if (full < 1 / 3) return { sheets: 1, flag: false };
+  if (full < 2 / 3) return { sheets: 2, flag: false };
+  return { sheets: 3, flag: full >= NEARLY_FULL / 100 };
+}
+
+/** A desk the janitor is due at, and how full its context was before it emptied. */
+export interface Visit {
+  agentId: string;
+  from: number;
+}
+
+/** The desks the janitor is due at, in the order they were called. */
+export type Visits = readonly Visit[];
+
+export const NO_VISITS: Visits = [];
+
+/**
+ * The janitor's round after these events: a context that emptied calls the janitor to that desk,
+ * once, and a desk whose person left is dropped. `before` is what was known of each person
+ * before the events: the tray stays as full as it was until the janitor has swept. The same list
+ * comes back when nothing changed.
+ */
+export function visitsAfter(
+  visits: Visits,
+  events: readonly WorldEvent[],
+  before: WorldMemory | null,
+  seated: ReadonlySet<string>,
+): Visits {
+  const next = visits.filter((visit) => seated.has(visit.agentId));
+  for (const event of events) {
+    if (event.type !== "compact" || !seated.has(event.sess)) continue;
+    if (next.some((visit) => visit.agentId === event.sess)) continue;
+    next.push({ agentId: event.sess, from: before?.get(event.sess)?.full ?? 0 });
+  }
+  const same =
+    next.length === visits.length && next.every((visit, index) => visit === visits[index]);
+  return same ? visits : next;
+}
+
+/** The round once the janitor has swept at a desk. */
+export function visitsSwept(visits: Visits, agentId: string): Visits {
+  return visits.some((visit) => visit.agentId === agentId)
+    ? visits.filter((visit) => visit.agentId !== agentId)
+    : visits;
 }

@@ -46,7 +46,10 @@ export function roomRects(plan: FloorPlan, tones: Tones): SpriteRect[] {
   ];
 }
 
-/** The furniture that never changes. The racks blink and the rocket flies, so they are not here. */
+/**
+ * The furniture that never changes. The racks blink, the rocket flies and the janitor leaves the
+ * cart, so they are not here.
+ */
 export function roomFurniture(plan: FloorPlan, art: Art): Placed[] {
   return [
     ...plan.shelves.map((at, index) => ({ key: `shelves-${index}`, sprite: art.shelves, ...at })),
@@ -54,5 +57,6 @@ export function roomFurniture(plan: FloorPlan, art: Art): Placed[] {
     ...(plan.sofa === null ? [] : [{ key: "sofa", sprite: art.sofa, ...plan.sofa }]),
     { key: "plant", sprite: art.plant, ...plan.plant },
     { key: "coffee", sprite: art.coffee, ...plan.coffee },
+    { key: "cart", sprite: art.cart, ...plan.cart },
   ];
 }

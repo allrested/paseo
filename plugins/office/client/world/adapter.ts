@@ -62,6 +62,9 @@ function toSession(row: OfficeRow, team: string): WorldSession {
     lastPrompt: "",
     stuck: attentionReason(agent) === "error",
     subs: [],
+    ...(agent.context === undefined
+      ? {}
+      : { usage: { ctx: agent.context.usedTokens, ctxMax: agent.context.maxTokens } }),
   };
 }
 
@@ -149,6 +152,8 @@ interface Told {
   step: string | null;
   /** That step is a test run, and the scene has not been told how it ended. */
   testing: boolean;
+  /** How full the context was, 0 to 1; null when unknown. */
+  full: number | null;
 }
 export type WorldMemory = ReadonlyMap<string, Told>;
 
@@ -164,6 +169,17 @@ function turnEvent(session: WorldSession, was: Told | undefined): WorldEventType
   if (session.stuck && !was.stuck) return "fail";
   if (was.status === "rest" && session.status === "work") return "prompt";
   return was.status !== "rest" && session.status === "rest" && !session.stuck ? "stop" : null;
+}
+
+/** How full a person's context is, 0 to 1; null when its provider has not said. */
+export function fullness(session: Pick<WorldSession, "usage">): number | null {
+  const { usage } = session;
+  return usage === undefined || usage.ctxMax <= 0 ? null : Math.min(1, usage.ctx / usage.ctxMax);
+}
+
+/** Less than half of what it was, and at least a tenth of the window gone: no turn does that. */
+export function tidied(before: number | null, now: number | null): boolean {
+  return before !== null && now !== null && now < before / 2 && before - now >= 0.1;
 }
 
 function stepEvents(
@@ -199,7 +215,8 @@ function stepEvents(
  * failure. A new tool call of an agent at work sends the person to that work's place, and that
  * is said at once, so an office just opened shows what everyone is at. A call seen while its
  * agent waits for the user is told once the agent works again: the approval is often for it.
- * A test run is told twice, when it starts and when it ends.
+ * A test run is told twice, when it starts and when it ends. A context that empties, by a
+ * compaction or by a new conversation, is paper carried to the shredder.
  */
 export function worldChanges(before: WorldMemory | null, people: WorldPeople): WorldChanges {
   const events: WorldEvent[] = [];
@@ -208,6 +225,8 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
     const was = before?.get(session.id);
     const turn = turnEvent(session, was);
     if (turn !== null) events.push({ sess: session.id, type: turn });
+    const full = fullness(session);
+    if (tidied(was?.full ?? null, full)) events.push({ sess: session.id, type: "compact" });
     const steps = stepEvents(session, people.steps.get(session.id), was);
     for (const type of steps.events) events.push({ sess: session.id, type });
     memory.set(session.id, {
@@ -215,6 +234,7 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
       stuck: session.stuck,
       step: steps.step,
       testing: steps.testing,
+      full,
     });
   }
   return { events, memory };

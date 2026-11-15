@@ -72,6 +72,15 @@ function fakeContext(statuses: Map<string, string>, sent: Sent[]): PluginHandler
           send: async (text: string, options?: unknown) => {
             sent.push({ agentId, text, options });
           },
+          commands: async () => ({
+            agentId,
+            commands: [
+              { name: "compact", description: "", argumentHint: "" },
+              { name: "clear", description: "", argumentHint: "" },
+            ],
+            error: null,
+            requestId: "r",
+          }),
         }),
       },
     },
@@ -299,7 +308,31 @@ test("a cleanup answers for each agent once, and leaves one that could not resum
   await stop();
 });
 
-test("the entry serves the office state, the 3D page script, the machine and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the janitor sends the provider's command to an idle agent and refuses one at work", async () => {
+  const { recorded, sent, statuses, context, stop } = setup(async () => ON);
+  statuses.set("busy", "running");
+  const janitor = recorded.handlers.get("office.janitor.request");
+
+  expect(await janitor?.({ agentId: "idle", action: "clean" }, context)).toEqual({
+    ok: true,
+    error: null,
+  });
+  expect(await janitor?.({ agentId: "idle", action: "reset" }, context)).toEqual({
+    ok: true,
+    error: null,
+  });
+  expect(await janitor?.({ agentId: "busy", action: "reset" }, context)).toEqual({
+    ok: false,
+    error: "The agent is at work; reset it once its turn has ended",
+  });
+  expect(sent).toEqual([
+    { agentId: "idle", text: "/compact", options: undefined },
+    { agentId: "idle", text: "/clear", options: undefined },
+  ]);
+  await stop();
+});
+
+test("the entry serves the office state, the 3D page script, the machine, the janitor and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
@@ -307,6 +340,7 @@ test("the entry serves the office state, the 3D page script, the machine and the
     "office.world.request",
     "office.machine",
     "office.machine.cleanup.request",
+    "office.janitor.request",
     "office.post.request",
     "office.update.request",
     "office.delete.request",

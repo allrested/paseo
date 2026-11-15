@@ -26,6 +26,13 @@ export const OfficePermissionSchema = z.object({
 });
 export type OfficePermission = z.output<typeof OfficePermissionSchema>;
 
+/** How full an agent's context window is, as its provider last said. */
+export const AgentContextSchema = z.object({
+  usedTokens: z.number().nonnegative(),
+  maxTokens: z.number().positive(),
+});
+export type AgentContext = z.output<typeof AgentContextSchema>;
+
 export const OfficeAgentSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
@@ -37,6 +44,8 @@ export const OfficeAgentSchema = z.object({
   parentAgentId: z.string().nullable(),
   permissions: z.array(OfficePermissionSchema),
   createdAt: z.string(),
+  /** Absent for a provider that reports no context window, and before an agent's first turn. */
+  context: AgentContextSchema.optional(),
 });
 export type OfficeAgent = z.output<typeof OfficeAgentSchema>;
 
@@ -189,6 +198,22 @@ export const cleanupRpc = defineRpc({
   name: "office.machine.cleanup.request",
   input: z.object({ agentIds: z.array(z.string().min(1)).min(1).max(50) }),
   output: z.object({ results: z.array(CleanupResultSchema) }),
+});
+
+export const JANITOR_ACTIONS = ["clean", "reset"] as const;
+export type JanitorAction = (typeof JANITOR_ACTIONS)[number];
+
+export const JanitorResultSchema = z.object({ ok: z.boolean(), error: z.string().nullable() });
+export type JanitorResult = z.output<typeof JanitorResultSchema>;
+
+/**
+ * Tidies an idle agent's conversation with its provider's own command: "clean" compacts it, so
+ * the agent keeps a summary, and "reset" starts a new one, so the agent keeps nothing.
+ */
+export const janitorRpc = defineRpc({
+  name: "office.janitor.request",
+  input: z.object({ agentId: z.string().min(1), action: z.enum(JANITOR_ACTIONS) }),
+  output: JanitorResultSchema,
 });
 
 /** A snapshot, then changes. */

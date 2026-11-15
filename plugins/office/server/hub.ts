@@ -7,6 +7,7 @@ import type {
   WakeState,
 } from "../shared/contracts.js";
 import type { ActivityLines, ActivitySteps } from "./activity.js";
+import { settleResets } from "./directory.js";
 import { errorMessage } from "./errors.js";
 import type { Timers } from "./timers.js";
 
@@ -49,6 +50,11 @@ export interface Hub {
   setBoard(board: string, posts: readonly Post[]): void;
   removeBoard(board: string): void;
   setWake(wake: WakeState): void;
+  /**
+   * The office reset this agent's conversation: its context reads empty from now until its
+   * provider says another number than the one it says now.
+   */
+  contextReset(agentId: string): void;
   stop(): Promise<void>;
 }
 
@@ -66,6 +72,9 @@ export function createHub(ports: HubPorts): Hub {
   // Subscribers whose snapshot went out; changes reach only them, so a snapshot comes first.
   const ready = new WeakSet<HubSubscriber>();
   let view = EMPTY_VIEW;
+  // The directory's own view, and the context each reset agent had; see settleResets.
+  let reported = EMPTY_VIEW;
+  let resets: ReadonlyMap<string, number> = new Map();
   let sentAgents = "";
   let sentWorkspaces = "";
   let activity: ActivityLines = {};
@@ -118,7 +127,10 @@ export function createHub(ports: HubPorts): Hub {
   }
 
   function onDirectory(next: DirectoryView): void {
-    view = next;
+    reported = next;
+    const settled = settleResets(next.agents, resets);
+    resets = settled.resets;
+    view = resets.size === 0 ? next : { agents: settled.agents, workspaces: next.workspaces };
     // Until the start finished, the first snapshot carries the view.
     if (stopDirectory === null || cancelFlush !== null) return;
     cancelFlush = ports.timers.setTimeout(() => {
@@ -229,6 +241,7 @@ export function createHub(ports: HubPorts): Hub {
     const stop = stopDirectory;
     stopDirectory = null;
     view = EMPTY_VIEW;
+    reported = EMPTY_VIEW;
     if (stop === null) return;
     try {
       await stop();
@@ -283,7 +296,14 @@ export function createHub(ports: HubPorts): Hub {
       wake = { paused: next.paused, queued: { ...next.queued } };
       broadcast({ type: "wake", wake: { paused: wake.paused, queued: { ...wake.queued } } });
     },
+    contextReset(agentId) {
+      const before = reported.agents.find((agent) => agent.id === agentId)?.context?.usedTokens;
+      if (before === undefined || before === 0) return;
+      resets = new Map(resets).set(agentId, before);
+      onDirectory(reported);
+    },
     async stop() {
+      resets = new Map();
       subscribers.clear();
       cancelCooldown?.();
       cancelCooldown = null;
