@@ -6,7 +6,12 @@ import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
 import { createHub } from "./server/hub.js";
 import { tidyAgent } from "./server/janitor.js";
-import { liveAgentPorts, liveHubPorts, liveJanitorPorts } from "./server/live-ports.js";
+import {
+  liveAgentPorts,
+  liveHubPorts,
+  liveJanitorPorts,
+  liveScriptLogPorts,
+} from "./server/live-ports.js";
 import { cleanUpAgent } from "./server/machine/cleanup.js";
 import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.js";
 import { createMachineReader } from "./server/machine/machine.js";
@@ -14,6 +19,7 @@ import { createMachineWatch } from "./server/machine/watch.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import { boardsFile } from "./server/paths.js";
+import { readScriptLog } from "./server/script-log.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
   cleanupRpc,
@@ -22,6 +28,7 @@ import {
   machineSubscription,
   officeStateSubscription,
   postRpc,
+  scriptLogRpc,
   setWakesPausedRpc,
   updateRpc,
   worldRpc,
@@ -93,6 +100,7 @@ export function createOfficePlugin(
   };
 
   const janitorPorts = liveJanitorPorts(holder);
+  const logPorts = liveScriptLogPorts(holder, hub, () => deps.clock.now());
 
   const settings = server.registerSettings(officeHostSettings);
 
@@ -141,6 +149,10 @@ export function createOfficePlugin(
       if (result.ok && input.action === "reset") hub.contextReset(input.agentId);
       return result;
     });
+  });
+  server.handle(scriptLogRpc, (input, context) => {
+    holder.remember(context.paseo);
+    return guarded("script log", () => readScriptLog(logPorts, input.workspaceId, input.script));
   });
   server.handle(postRpc, (input, context) => {
     holder.remember(context.paseo);

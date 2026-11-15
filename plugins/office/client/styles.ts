@@ -1,8 +1,11 @@
 import { useMemo } from "react";
-import type { TextStyle, ViewStyle } from "react-native";
+import { Platform, type TextStyle, type ViewStyle } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { HostTone } from "./machine-text.js";
 import type { AttentionReason, DotTone } from "./model.js";
+
+/** A log is read in a fixed-width face, as in the terminal it comes from. */
+const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });
 
 export interface OfficeStyles {
   screen: ViewStyle;
@@ -74,6 +77,13 @@ export interface OfficeStyles {
   standupBlocker: TextStyle;
   standupPeople: ViewStyle;
   reviewRow: ViewStyle;
+  qaTeam: ViewStyle;
+  qaGroup: ViewStyle;
+  qaRow: ViewStyle;
+  qaTrouble: TextStyle;
+  qaLog: ViewStyle;
+  qaLogBlock: ViewStyle;
+  qaLogText: TextStyle;
   reviewAnswer: ViewStyle;
   card: ViewStyle;
   cardHeader: ViewStyle;
@@ -408,6 +418,19 @@ export function useOfficeStyles(
       standupBlocker: { ...base, color: colors.statusWarning },
       standupPeople: { gap: 6 },
       reviewRow: { gap: 8 },
+      qaTeam: { gap: 12 },
+      qaGroup: { gap: 10 },
+      qaRow: { gap: 4 },
+      qaTrouble: { ...small, color: colors.statusWarning },
+      qaLog: { gap: 4 },
+      qaLogBlock: {
+        padding: 8,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+      },
+      qaLogText: { fontFamily: MONOSPACE, fontSize: 12, lineHeight: 18, color: colors.foreground },
       reviewAnswer: { gap: 4 },
       card: {
         backgroundColor: colors.surface1,

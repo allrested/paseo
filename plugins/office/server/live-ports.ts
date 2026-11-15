@@ -1,10 +1,11 @@
 import { ACTIVITY_TAIL_LIMIT, startActivityPoller } from "./activity.js";
-import type { HubPorts } from "./hub.js";
+import type { Hub, HubPorts } from "./hub.js";
 import type { JanitorPorts } from "./janitor.js";
 import { wakeTargetOf } from "./mention-queue.js";
 import type { OfficeAgentPorts } from "./office.js";
 import { openPaseoDirectory } from "./paseo-directory.js";
 import type { PaseoHolder } from "./paseo-holder.js";
+import type { ScriptLogPorts } from "./script-log.js";
 import type { Timers } from "./timers.js";
 
 /** Hub ports on the daemon's own API. The holder is set before the first attach. */
@@ -80,5 +81,25 @@ export function liveJanitorPorts(holder: PaseoHolder): JanitorPorts {
       return commands.map((command) => command.name);
     },
     send: (agentId, text) => ref(agentId).send(text),
+  };
+}
+
+/** Log ports on the daemon's own API; the holder is set by the handler that uses them. */
+export function liveScriptLogPorts(
+  holder: PaseoHolder,
+  hub: Pick<Hub, "script">,
+  now: () => number,
+): ScriptLogPorts {
+  return {
+    script: (workspaceId, name) => hub.script(workspaceId, name),
+    async tail(terminalId, rows) {
+      // A negative start counts from the end (packages/server/src/terminal/terminal-capture.ts).
+      const captured = await holder
+        .require()
+        .terminals.ref(terminalId)
+        .capture({ start: -rows, stripAnsi: true });
+      return { lines: captured.lines, total: captured.totalLines };
+    },
+    now,
   };
 }

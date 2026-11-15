@@ -332,7 +332,17 @@ test("the janitor sends the provider's command to an idle agent and refuses one 
   await stop();
 });
 
-test("the entry serves the office state, the 3D page script, the machine, the janitor and the four board calls, and stopping removes its hooks and timers", async () => {
+test("a script's log is refused while no office is open, when the host has no directory", async () => {
+  const { recorded, context, stop } = setup(async () => ON);
+  const log = recorded.handlers.get("office.script.log.request");
+  expect(await log?.({ workspaceId: "w1", script: "dev" }, context)).toEqual({
+    ok: false,
+    error: "This host does not know the script",
+  });
+  await stop();
+});
+
+test("the entry serves the office state, the 3D page script, the machine, the janitor, a script's log and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
@@ -341,6 +351,7 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "office.machine",
     "office.machine.cleanup.request",
     "office.janitor.request",
+    "office.script.log.request",
     "office.post.request",
     "office.update.request",
     "office.delete.request",

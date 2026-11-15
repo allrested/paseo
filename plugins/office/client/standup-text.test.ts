@@ -45,6 +45,7 @@ function request(patch: Partial<WorkspacePullRequest> = {}): WorkspacePullReques
     base: "main",
     state: "open",
     checks: "none",
+    runs: [],
     review: null,
     conflicts: false,
     ...patch,

@@ -6,6 +6,8 @@ import { ACTIVITY_KINDS, TEST_RESULTS } from "./names.js";
 export { ACTIVITY_KINDS, LOBBY, USER_AUTHOR } from "./names.js";
 export type { ActivityKind, ActivityStep, TestResult } from "./names.js";
 export const POST_TEXT_MAX = 2000;
+/** The checks of one pull request the office carries. */
+export const CHECK_RUNS_MAX = 40;
 export const BOARD_POST_MAX = 200;
 export const DONE_TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const READ_POST_MAX = 30;
@@ -53,6 +55,32 @@ export type OfficeAgent = z.output<typeof OfficeAgentSchema>;
 export const WorkspaceTicketSchema = z.object({ key: z.string(), url: z.string().nullable() });
 export type WorkspaceTicket = z.output<typeof WorkspaceTicketSchema>;
 
+/** One check of a pull request: a job of its pipeline. */
+export const WorkspaceCheckSchema = z.object({
+  name: z.string(),
+  status: z.enum(["success", "failure", "pending", "skipped", "cancelled"]),
+  /** The run's page on the forge, where its log is. */
+  url: z.string().nullable(),
+  workflow: z.string().optional(),
+  duration: z.string().optional(),
+});
+export type WorkspaceCheck = z.output<typeof WorkspaceCheckSchema>;
+
+/** A script or a service of a workspace, from the project's own configuration. */
+export const WorkspaceScriptSchema = z.object({
+  name: z.string(),
+  kind: z.enum(["script", "service"]),
+  running: z.boolean(),
+  /** A service's health check; null for a script and for a service without one. */
+  health: z.enum(["healthy", "unhealthy"]).nullable(),
+  /** How its last run ended; null while it runs and before its first run. */
+  exitCode: z.number().nullable(),
+  port: z.number().nullable(),
+  /** The terminal it runs in, or ran in; null before its first run. */
+  terminalId: z.string().nullable(),
+});
+export type WorkspaceScript = z.output<typeof WorkspaceScriptSchema>;
+
 /** The pull or merge request of a workspace's branch, as the host's forge reports it. */
 export const WorkspacePullRequestSchema = z.object({
   number: z.number().nullable(),
@@ -63,6 +91,8 @@ export const WorkspacePullRequestSchema = z.object({
   state: z.enum(["open", "draft", "merged", "closed"]),
   /** Its checks taken together. */
   checks: z.enum(["none", "pending", "success", "failure"]),
+  /** Its checks one by one, the failing and the running first; at most CHECK_RUNS_MAX of them. */
+  runs: z.array(WorkspaceCheckSchema),
   review: z.enum(["approved", "changes_requested", "pending"]).nullable(),
   /** It cannot be merged as it is. */
   conflicts: z.boolean(),
@@ -77,6 +107,8 @@ export const OfficeWorkspaceSchema = z.object({
   ticket: WorkspaceTicketSchema.optional(),
   /** The lines its checkout adds and removes, as the sidebar counts them; absent when none. */
   changes: z.object({ additions: z.number(), deletions: z.number() }).optional(),
+  /** Its scripts and services; absent when the project has none. */
+  scripts: z.array(WorkspaceScriptSchema).optional(),
   pullRequest: WorkspacePullRequestSchema.optional(),
 });
 export type OfficeWorkspace = z.output<typeof OfficeWorkspaceSchema>;
@@ -239,6 +271,26 @@ export const janitorRpc = defineRpc({
   name: "office.janitor.request",
   input: z.object({ agentId: z.string().min(1), action: z.enum(JANITOR_ACTIONS) }),
   output: JanitorResultSchema,
+});
+
+export const ScriptLogResultSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    /** The newest lines of the script's output, colour codes removed. */
+    lines: z.array(z.string()),
+    /** Rows of output above these that the terminal still holds. */
+    earlier: z.number().int().nonnegative(),
+    readAt: z.string(),
+  }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+export type ScriptLogResult = z.output<typeof ScriptLogResultSchema>;
+
+/** The end of a workspace script's output, read from the terminal the script runs in. */
+export const scriptLogRpc = defineRpc({
+  name: "office.script.log.request",
+  input: z.object({ workspaceId: z.string().min(1), script: z.string().min(1) }),
+  output: ScriptLogResultSchema,
 });
 
 /** A snapshot, then changes. */

@@ -730,6 +730,19 @@ it is shown as the review (`plugins/office/client/review-text.ts`). While a requ
 answer and its agent is still in the room, nobody else is asked. Design:
 [reviews](superpowers/specs/2026-11-16-office-reviews-design.md).
 
+The QA entry is in the strip while a workspace has a pull request with checks, an agent at a test
+run, or a script. Its card lists, team by team, the checks of the pipeline that fail or run, each
+with a link to its run on the forge, the agents' test runs from the step the office already
+reads, and the workspace's scripts and services. The office carries at most 40 checks of a pull
+request, the failing and the running first. "Show log" reads the end of a script's output through
+`office.script.log.request`. A caller names a workspace and a script, never a terminal: the
+server finds the script's terminal in its own directory. It captures the terminal's last 400
+rows, because the last rows of a terminal are the empty end of its screen, and answers with the
+newest 40 lines that have something on them, each cut at 400 characters
+(`plugins/office/server/script-log.ts`). Nothing of a log is kept, and no agent tool reads one. A
+check's own log stays on the forge: no SDK call fetches it. Design:
+[QA](superpowers/specs/2026-11-16-office-qa-design.md).
+
 The `design` built-in keeps a workspace's design files on the host's own FigCraft server (deploy
 it with [docker.md](docker.md#figcraft-design-mode)). It is off until `FIGCRAFT_URL` names that
 server; `FIGCRAFT_WEB_URL` names its browser editor, and the server key is read from the file

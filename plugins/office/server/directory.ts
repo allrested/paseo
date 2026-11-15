@@ -5,7 +5,10 @@ import {
   type OfficeAgent,
   type OfficeWorkspace,
   type PermissionKind,
+  CHECK_RUNS_MAX,
+  type WorkspaceCheck,
   type WorkspacePullRequest,
+  type WorkspaceScript,
   type WorkspaceTicket,
 } from "../shared/contracts.js";
 
@@ -61,6 +64,26 @@ export type AgentUpdateInput =
   | { kind: "upsert"; agent: DirectoryAgentInput }
   | { kind: "remove"; agentId: string };
 
+/** The fields the office reads from one check of a pull request. */
+export interface DirectoryCheckInput {
+  name: string;
+  status: WorkspaceCheck["status"];
+  url: string | null;
+  workflow?: string;
+  duration?: string;
+}
+
+/** The fields the office reads from a workspace's script or service. */
+export interface DirectoryScriptInput {
+  scriptName: string;
+  type?: "script" | "service";
+  lifecycle: "running" | "stopped";
+  health: "healthy" | "unhealthy" | null;
+  exitCode?: number | null;
+  port: number | null;
+  terminalId?: string | null;
+}
+
 /** The fields the office reads from a workspace's pull request (the descriptor's satisfies it). */
 export interface DirectoryPullRequestInput {
   number?: number;
@@ -71,6 +94,7 @@ export interface DirectoryPullRequestInput {
   isMerged: boolean;
   isDraft?: boolean;
   mergeable?: string;
+  checks?: readonly DirectoryCheckInput[];
   checksStatus?: "none" | "pending" | "success" | "failure";
   reviewDecision?: "approved" | "changes_requested" | "pending" | null;
 }
@@ -85,6 +109,7 @@ export interface DirectoryWorkspaceInput {
   metadata?: Readonly<Record<string, unknown>>;
   gitRuntime?: { currentBranch?: string | null } | null;
   diffStat?: { additions: number; deletions: number } | null;
+  scripts?: readonly DirectoryScriptInput[];
   /** The forge's facts, GitHub's or another's: the field has its first forge's name. */
   githubRuntime?: { pullRequest?: DirectoryPullRequestInput | null } | null;
 }
@@ -108,6 +133,43 @@ function pullRequestState(request: DirectoryPullRequestInput): WorkspacePullRequ
   return request.isDraft === true ? "draft" : "open";
 }
 
+const RUN_ORDER: readonly WorkspaceCheck["status"][] = [
+  "failure",
+  "pending",
+  "success",
+  "skipped",
+  "cancelled",
+];
+
+/** A pull request's checks, what fails and what runs first, so a cut list keeps those. */
+function runsOf(checks: readonly DirectoryCheckInput[]): WorkspaceCheck[] {
+  return checks
+    .map((check, index) => ({ check, index }))
+    .sort(
+      (a, b) =>
+        RUN_ORDER.indexOf(a.check.status) - RUN_ORDER.indexOf(b.check.status) || a.index - b.index,
+    )
+    .slice(0, CHECK_RUNS_MAX)
+    .map(({ check }) => {
+      const run: WorkspaceCheck = { name: check.name, status: check.status, url: check.url };
+      if (check.workflow) run.workflow = check.workflow;
+      if (check.duration) run.duration = check.duration;
+      return run;
+    });
+}
+
+function scriptOf(script: DirectoryScriptInput): WorkspaceScript {
+  return {
+    name: script.scriptName,
+    kind: script.type ?? "service",
+    running: script.lifecycle === "running",
+    health: script.health,
+    exitCode: script.exitCode ?? null,
+    port: script.port,
+    terminalId: script.terminalId ?? null,
+  };
+}
+
 function pullRequestOf(workspace: DirectoryWorkspaceInput): WorkspacePullRequest | undefined {
   const request = workspace.githubRuntime?.pullRequest;
   if (!request) return undefined;
@@ -118,6 +180,7 @@ function pullRequestOf(workspace: DirectoryWorkspaceInput): WorkspacePullRequest
     base: request.baseRefName || null,
     state: pullRequestState(request),
     checks: request.checksStatus ?? "none",
+    runs: runsOf(request.checks ?? []),
     review: request.reviewDecision ?? null,
     conflicts: request.mergeable === "CONFLICTING",
   };
@@ -221,6 +284,7 @@ export function projectWorkspace(workspace: DirectoryWorkspaceInput): OfficeWork
   const ticket = ticketOf(workspace);
   const pullRequest = pullRequestOf(workspace);
   const { additions = 0, deletions = 0 } = workspace.diffStat ?? {};
+  const scripts = (workspace.scripts ?? []).map(scriptOf);
   return {
     id: workspace.id,
     name: workspace.name,
@@ -228,6 +292,7 @@ export function projectWorkspace(workspace: DirectoryWorkspaceInput): OfficeWork
     ...(branch ? { branch } : {}),
     ...(ticket ? { ticket } : {}),
     ...(additions + deletions > 0 ? { changes: { additions, deletions } } : {}),
+    ...(scripts.length > 0 ? { scripts } : {}),
     ...(pullRequest ? { pullRequest } : {}),
   };
 }
