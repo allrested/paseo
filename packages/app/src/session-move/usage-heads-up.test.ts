@@ -3,10 +3,8 @@ import type { AgentMoveTarget } from "@getpaseo/protocol/messages";
 import { i18n } from "@/i18n/i18next";
 import type { AgentMoveTargetsView } from "./move-targets";
 import {
-  describeUsageHeadsUp,
   isUsageHeadsUpDismissed,
   resolveUsageHeadsUp,
-  type FormatClock,
   type UsageHeadsUp,
   type UsageHeadsUpDismissal,
 } from "./usage-heads-up";
@@ -18,13 +16,6 @@ const RESETS = "2026-11-06T09:00:00.000Z";
 const IN_TWO_HOURS = "2026-11-05T10:00:00.000Z";
 const IN_TWENTY_MINUTES = "2026-11-05T08:20:00.000Z";
 const PASSED = "2026-11-05T07:00:00.000Z";
-
-const CLOCK = new Map<string, string>([
-  [RUNS_OUT, "Thu 14:00"],
-  [RESETS, "Fri 09:00"],
-]);
-
-const formatClock: FormatClock = (iso) => (iso === null ? null : (CLOCK.get(iso) ?? null));
 
 function target(overrides: Partial<AgentMoveTarget> & { provider: string }): AgentMoveTarget {
   return {
@@ -174,35 +165,5 @@ describe("isUsageHeadsUpDismissed", () => {
         now: NOW,
       }),
     ).toBe(true);
-  });
-});
-
-describe("describeUsageHeadsUp", () => {
-  it("names the account window, its run-out and reset, and the best target's usage", () => {
-    expect(describeUsageHeadsUp(headsUp(), { t: i18n.t, formatClock, locale: "en" })).toEqual({
-      message: "Claude (work) 84% of Weekly · on pace to run out Thu 14:00, resets Fri 09:00",
-      moveLabel: "Move to Kiro CLI · 12%",
-    });
-  });
-
-  it("leaves out what it does not know", () => {
-    expect(
-      describeUsageHeadsUp(
-        headsUp({
-          windowLabel: null,
-          runsOutAt: null,
-          resetsAt: null,
-          best: { ...KIRO, usedPct: null },
-        }),
-        { t: i18n.t, formatClock, locale: "en" },
-      ),
-    ).toEqual({ message: "Claude (work) 84%", moveLabel: "Move to Kiro CLI" });
-    expect(
-      describeUsageHeadsUp(headsUp({ runsOutAt: PASSED, best: null }), {
-        t: i18n.t,
-        formatClock,
-        locale: "en",
-      }),
-    ).toEqual({ message: "Claude (work) 84% of Weekly · resets Fri 09:00", moveLabel: null });
   });
 });
