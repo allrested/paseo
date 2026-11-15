@@ -5,6 +5,7 @@ import type {
   OfficeWorkspace,
   Post,
   WakeState,
+  WorkspaceScript,
 } from "../shared/contracts.js";
 import type { ActivityLines, ActivitySteps } from "./activity.js";
 import { settleResets } from "./directory.js";
@@ -55,6 +56,11 @@ export interface Hub {
    * provider says another number than the one it says now.
    */
   contextReset(agentId: string): void;
+  /**
+   * A workspace's script as the directory last reported it; null when it has none by that name,
+   * and while no office is open, when there is no directory.
+   */
+  script(workspaceId: string, name: string): WorkspaceScript | null;
   stop(): Promise<void>;
 }
 
@@ -295,6 +301,10 @@ export function createHub(ports: HubPorts): Hub {
     setWake(next) {
       wake = { paused: next.paused, queued: { ...next.queued } };
       broadcast({ type: "wake", wake: { paused: wake.paused, queued: { ...wake.queued } } });
+    },
+    script(workspaceId, name) {
+      const workspace = reported.workspaces.find((candidate) => candidate.id === workspaceId);
+      return workspace?.scripts?.find((candidate) => candidate.name === name) ?? null;
     },
     contextReset(agentId) {
       const before = reported.agents.find((agent) => agent.id === agentId)?.context?.usedTokens;

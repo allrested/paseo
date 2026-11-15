@@ -38,10 +38,13 @@ import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
+import { QaCard } from "./qa-card.js";
 import { ReviewCard } from "./review-card.js";
 import { StandupCard } from "./standup-card.js";
 import { useJanitor } from "./use-janitor.js";
+import { useQa } from "./use-qa.js";
 import { useReviews } from "./use-reviews.js";
+import { useScriptLog } from "./use-script-log.js";
 import { useStandup } from "./use-standup.js";
 import { useMachine } from "./use-machine.js";
 import { useOffice, type OfficeState } from "./use-office.js";
@@ -580,6 +583,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     if (navigation === undefined) return undefined;
     return (workspaceId: string) => navigation.openWorkspace({ workspaceId });
   }, [navigation]);
+  const qa = useQa(model, live);
+  const readLog = useScriptLog();
   const reviews = useReviews({
     model,
     post: boardActions.post,
@@ -628,8 +633,11 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   }, [contexts, openJanitor]);
   // The strip's cards, each only while it has something to say.
   const cards = useMemo(
-    () => [hostEntry, janitorEntry, standup.entry, reviews.entry].filter((card) => card !== null),
-    [hostEntry, janitorEntry, standup.entry, reviews.entry],
+    () =>
+      [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry].filter(
+        (card) => card !== null,
+      ),
+    [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry],
   );
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
@@ -722,6 +730,13 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onOpenBoard={reviews.openBoard}
         styles={styles}
         onClose={reviews.close}
+      />
+      <QaCard
+        teams={qa.teams}
+        open={qa.open}
+        readLog={readLog}
+        styles={styles}
+        onClose={qa.close}
       />
       <BoardSheet
         room={board.room}

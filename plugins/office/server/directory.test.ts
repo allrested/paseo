@@ -249,10 +249,32 @@ test("a workspace carries its branch, the ticket it was started on and its pull 
           isMerged: false,
           isDraft: true,
           mergeable: "CONFLICTING",
+          checks: [
+            { name: "lint", status: "success", url: "https://ci.example/1", duration: "41s" },
+            { name: "unit", status: "failure", url: "https://ci.example/2", workflow: "CI" },
+            { name: "e2e", status: "pending", url: null },
+          ],
           checksStatus: "failure",
           reviewDecision: "changes_requested",
         },
       },
+      scripts: [
+        {
+          scriptName: "dev",
+          lifecycle: "running",
+          health: "healthy",
+          port: 5173,
+          terminalId: "t1",
+        },
+        {
+          scriptName: "test",
+          type: "script",
+          lifecycle: "stopped",
+          health: null,
+          exitCode: 1,
+          port: null,
+        },
+      ],
     }),
   );
   expect(projected).toEqual({
@@ -269,9 +291,34 @@ test("a workspace carries its branch, the ticket it was started on and its pull 
       base: "main",
       state: "draft",
       checks: "failure",
+      runs: [
+        { name: "unit", status: "failure", url: "https://ci.example/2", workflow: "CI" },
+        { name: "e2e", status: "pending", url: null },
+        { name: "lint", status: "success", url: "https://ci.example/1", duration: "41s" },
+      ],
       review: "changes_requested",
       conflicts: true,
     },
+    scripts: [
+      {
+        name: "dev",
+        kind: "service",
+        running: true,
+        health: "healthy",
+        exitCode: null,
+        port: 5173,
+        terminalId: "t1",
+      },
+      {
+        name: "test",
+        kind: "script",
+        running: false,
+        health: null,
+        exitCode: 1,
+        port: null,
+        terminalId: null,
+      },
+    ],
   });
 });
 
@@ -291,6 +338,7 @@ test("a pull request is merged, closed, a draft or open, whatever its forge call
     base: null,
     state: "open",
     checks: "none",
+    runs: [],
     review: null,
     conflicts: false,
   });
@@ -308,6 +356,7 @@ test("a workspace without a branch, a ticket or a pull request carries none", ()
         metadata: { "tasks.key": "", "other.key": "x" },
         gitRuntime: { currentBranch: null },
         diffStat: null,
+        scripts: [],
         githubRuntime: { pullRequest: null },
       }),
     ),
@@ -324,4 +373,31 @@ test("a workspace without a branch, a ticket or a pull request carries none", ()
     key: "#9",
     url: null,
   });
+});
+
+test("a long list of checks keeps what fails and what runs", () => {
+  const passing = Array.from({ length: 60 }, (_, index) => ({
+    name: `pass ${index}`,
+    status: "success" as const,
+    url: null,
+  }));
+  const runs = projectWorkspace(
+    workspaceInput({
+      githubRuntime: {
+        pullRequest: {
+          url: "u",
+          title: "t",
+          state: "OPEN",
+          isMerged: false,
+          checks: [
+            ...passing,
+            { name: "slow", status: "pending", url: null },
+            { name: "broken", status: "failure", url: null },
+          ],
+        },
+      },
+    }),
+  )?.pullRequest?.runs;
+  expect(runs).toHaveLength(40);
+  expect(runs?.slice(0, 3).map((run) => run.name)).toEqual(["broken", "slow", "pass 0"]);
 });

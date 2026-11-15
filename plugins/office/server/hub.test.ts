@@ -596,3 +596,38 @@ test("a subscriber that joins after a reset gets the emptied context in its snap
   second.controller.abort();
   await Promise.all([first.done, second.done]);
 });
+
+test("the hub knows a workspace's script while a directory is open", async () => {
+  const dev = {
+    name: "dev",
+    kind: "service" as const,
+    running: true,
+    health: null,
+    exitCode: null,
+    port: 5173,
+    terminalId: "t1",
+  };
+  const harness = startHarness({
+    agents: [],
+    workspaces: [{ id: "w1", name: "main", projectName: "shop", scripts: [dev] }],
+  });
+  expect(harness.hub.script("w1", "dev")).toBeNull();
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(harness.hub.script("w1", "dev")).toEqual(dev);
+  expect(harness.hub.script("w1", "test")).toBeNull();
+  expect(harness.hub.script("w2", "dev")).toBeNull();
+
+  // A script that restarted in another terminal is known at once, before the flush.
+  harness.directory.emit({
+    agents: [],
+    workspaces: [
+      { id: "w1", name: "main", projectName: "shop", scripts: [{ ...dev, terminalId: "t2" }] },
+    ],
+  });
+  expect(harness.hub.script("w1", "dev")?.terminalId).toBe("t2");
+
+  subscriber.controller.abort();
+  await subscriber.done;
+  expect(harness.hub.script("w1", "dev")).toBeNull();
+});
