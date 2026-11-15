@@ -1,5 +1,8 @@
+import type { ActivityKind, ActivityStep, TestResult } from "../shared/names.js";
 import { errorMessage } from "./errors.js";
 import type { Timers } from "./timers.js";
+
+export type { ActivityStep };
 
 /** At most one read per agent per interval (spec: once per 5 s per agent). */
 export const ACTIVITY_INTERVAL_MS = 5000;
@@ -13,6 +16,9 @@ export interface ActivityItem {
   type: string;
   name?: unknown;
   status?: unknown;
+  callId?: unknown;
+  /** A tool call's detail as the host normalises it: `{ type: "shell", command }` and the like. */
+  detail?: unknown;
 }
 
 /** One line for the newest item it recognises. Never quotes prompt or tool text. */
@@ -31,54 +37,188 @@ export function describeActivity(items: readonly ActivityItem[]): string | null 
   return null;
 }
 
+/** The host's kinds of tool call that are one kind of work each. */
+const DETAIL_KINDS: Readonly<Record<string, ActivityKind>> = {
+  read: "read",
+  edit: "edit",
+  write: "write",
+  fetch: "web",
+  sub_agent: "subagent",
+  plan: "plan",
+};
+
+// A push of a version tag, or a command whose job is to put something live.
+const DEPLOY = [
+  /\bgit\s+push\b[^\n;|&]*(?:--tags\b|\bv\d+\.\d+\.\d+)/,
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:deploy|publish)\b/,
+  /\b(?:vercel|netlify|fly|flyctl|firebase|wrangler|serverless|sls|cdk)\s+(?:--prod\b|deploy\b|publish\b)/,
+  /\bkubectl\s+apply\b/,
+  /\bhelm\s+(?:upgrade|install)\b/,
+  /\b(?:terraform|tofu)\s+apply\b/,
+  /\bterraspace\s+up\b/,
+  /\bdocker\s+push\b/,
+  /\bgh\s+release\s+create\b/,
+];
+const TEST =
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\b(?:vitest|jest|pytest)\b|\bplaywright\s+test\b|\b(?:go|cargo)\s+test\b|\bgradlew?\s+\S*test\b/;
+
+/** What a shell command is for. The command is read here and goes no further. */
+function commandKind(command: string): ActivityKind {
+  if (DEPLOY.some((pattern) => pattern.test(command))) return "deploy";
+  if (/\bgit\s+push\b/.test(command)) return "push";
+  if (/\bgit\s+commit\b/.test(command)) return "commit";
+  return TEST.test(command) ? "test" : "command";
+}
+
+/** A tool the host has no kind for, placed by its name. */
+function namedKind(name: unknown): ActivityKind {
+  if (typeof name !== "string") return "tool";
+  if (/^(?:TodoWrite|todo_write|update_plan)$/.test(name)) return "plan";
+  if (/^(?:Task|Agent)$/.test(name)) return "subagent";
+  if (/^(?:WebSearch|WebFetch|web_search|web_fetch)$/.test(name)) return "web";
+  return "tool";
+}
+
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
+}
+
+function toolKind(item: ActivityItem): ActivityKind {
+  const type = field(item.detail, "type");
+  if (type === "shell") {
+    const command = field(item.detail, "command");
+    return typeof command === "string" ? commandKind(command) : "command";
+  }
+  if (type === "search") {
+    return field(item.detail, "toolName") === "web_search" ? "web" : "search";
+  }
+  return (typeof type === "string" ? DETAIL_KINDS[type] : undefined) ?? namedKind(item.name);
+}
+
+/** How a command ended: by its exit code when the host has one, else by the call's status. */
+function resultOf(item: ActivityItem): TestResult | null {
+  const exitCode = field(item.detail, "exitCode");
+  if (item.status === "failed" || (typeof exitCode === "number" && exitCode !== 0)) return "failed";
+  return item.status === "completed" ? "passed" : null;
+}
+
+function stepOf(item: ActivityItem): ActivityStep {
+  const kind = toolKind(item);
+  const key = typeof item.callId === "string" && item.callId !== "" ? item.callId : kind;
+  const result = kind === "test" ? resultOf(item) : null;
+  return result === null ? { kind, key } : { kind, key, result };
+}
+
+/**
+ * The newest item as a step, when it is a tool call. An agent that writes, thinks or reads its
+ * prompt is at no step. The key is the call's id, so two calls of one tool are two steps; a
+ * provider that numbers no calls gives the kind, and then only a change of kind is a new step.
+ * A test run that has ended says how.
+ */
+export function describeStep(items: readonly ActivityItem[]): ActivityStep | null {
+  for (const item of items.toReversed()) {
+    if (item.type === "tool_call") return stepOf(item);
+    if (
+      item.type === "assistant_message" ||
+      item.type === "reasoning" ||
+      item.type === "user_message"
+    ) {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * The step to report after `before`. An agent has often moved on by the read after its tests
+ * ended, so a test run last seen running is looked up again, and its end is reported for one read
+ * before whatever came after it. A cancelled run, and one that left the tail, end without a word.
+ */
+export function nextStep(
+  before: ActivityStep | undefined,
+  items: readonly ActivityItem[],
+): ActivityStep | null {
+  const step = describeStep(items);
+  if (before?.kind !== "test" || before.result !== undefined || step?.key === before.key) {
+    return step;
+  }
+  const run = items.find((item) => item.type === "tool_call" && item.callId === before.key);
+  const result = run === undefined ? null : resultOf(run);
+  return result === null ? step : { ...before, result };
+}
+
+/** What the poller knows of each running agent: its line, and its step when it is at one. */
+export type ActivityLines = Readonly<Record<string, string>>;
+export type ActivitySteps = Readonly<Record<string, ActivityStep>>;
+
 export interface ActivityPorts {
   /** Ids of the agents running now. */
   running(): readonly string[];
   tail(agentId: string): Promise<readonly ActivityItem[]>;
   timers: Timers;
   log(message: string): void;
-  onChange(activity: Readonly<Record<string, string>>): void;
+  onChange(activity: ActivityLines, doing: ActivitySteps): void;
 }
 
 export interface ActivityPoller {
   stop(): void;
 }
 
-function sameLines(
-  left: Readonly<Record<string, string>>,
-  right: Readonly<Record<string, string>>,
-) {
+function sameLines(left: ActivityLines, right: ActivityLines) {
   const leftKeys = Object.keys(left);
   if (leftKeys.length !== Object.keys(right).length) return false;
   return leftKeys.every((key) => left[key] === right[key]);
+}
+
+function sameSteps(left: ActivitySteps, right: ActivitySteps) {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every(
+    (key) =>
+      left[key]?.kind === right[key]?.kind &&
+      left[key]?.key === right[key]?.key &&
+      left[key]?.result === right[key]?.result,
+  );
 }
 
 /** Reads now, then every interval after the previous read finished, until stopped. */
 export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
   let stopped = false;
   let cancel: (() => void) | null = null;
-  let previous: Readonly<Record<string, string>> = {};
+  let previous: ActivityLines = {};
+  let previousSteps: ActivitySteps = {};
 
-  async function readOne(agentId: string, next: Record<string, string>): Promise<void> {
+  async function readOne(
+    agentId: string,
+    next: Record<string, string>,
+    steps: Record<string, ActivityStep>,
+  ): Promise<void> {
     try {
-      const line = describeActivity(await ports.tail(agentId));
+      const items = await ports.tail(agentId);
+      const line = describeActivity(items);
       if (line !== null) next[agentId] = line;
+      const step = nextStep(previousSteps[agentId], items);
+      if (step !== null) steps[agentId] = step;
     } catch (error) {
       if (!stopped) ports.log(`[office] activity of ${agentId}: ${errorMessage(error)}`);
       const kept = previous[agentId];
       if (kept !== undefined) next[agentId] = kept;
+      const keptStep = previousSteps[agentId];
+      if (keptStep !== undefined) steps[agentId] = keptStep;
     }
   }
 
   async function tick(): Promise<void> {
     const next: Record<string, string> = {};
+    const steps: Record<string, ActivityStep> = {};
     for (const agentId of ports.running()) {
       if (stopped) return;
-      await readOne(agentId, next);
+      await readOne(agentId, next, steps);
     }
-    if (stopped || sameLines(previous, next)) return;
+    if (stopped || (sameLines(previous, next) && sameSteps(previousSteps, steps))) return;
     previous = next;
-    ports.onChange(next);
+    previousSteps = steps;
+    ports.onChange(next, steps);
   }
 
   function runLogged(): void {

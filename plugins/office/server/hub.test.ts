@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import type { OfficeAgent, OfficeEvent, Post } from "../shared/contracts.js";
+import type { ActivityLines, ActivitySteps } from "./activity.js";
 import { createFakeClock, settle, type FakeClock } from "./fake-clock.js";
 import { newestAgents } from "./paseo-directory.js";
 import {
@@ -70,7 +71,7 @@ interface FakeActivity {
   starts: number;
   stops: number;
   running(): readonly string[];
-  emit(activity: Readonly<Record<string, string>>): void;
+  emit(activity: ActivityLines, doing?: ActivitySteps): void;
 }
 
 interface Harness {
@@ -84,7 +85,7 @@ function startHarness(initial: DirectoryView, extra: Partial<HubPorts> = {}): Ha
   const clock = createFakeClock();
   let directoryListener: ((view: DirectoryView) => void) | null = null;
   let endListener: (() => void) | null = null;
-  let activityListener: ((activity: Readonly<Record<string, string>>) => void) | null = null;
+  let activityListener: ((activity: ActivityLines, doing: ActivitySteps) => void) | null = null;
   let runningList: () => readonly string[] = () => [];
   const directory: FakeDirectory = {
     opens: 0,
@@ -100,7 +101,7 @@ function startHarness(initial: DirectoryView, extra: Partial<HubPorts> = {}): Ha
     starts: 0,
     stops: 0,
     running: () => runningList(),
-    emit: (next) => activityListener?.(next),
+    emit: (next, doing = {}) => activityListener?.(next, doing),
   };
   const ports: HubPorts = {
     async openDirectory(listener, onEnd) {
@@ -164,6 +165,7 @@ test("the first subscriber opens the directory and gets a snapshot; a second sha
       agents: [agent("a", "idle")],
       workspaces: [],
       activity: {},
+      doing: {},
       boards: {},
       wake: EMPTY_WAKE,
     },
@@ -228,7 +230,26 @@ test("activity covers the running agents and is pushed as it changes", async () 
   await settle();
   expect(harness.activity.running()).toEqual(["a"]);
   harness.activity.emit({ a: "Thinking" });
-  expect(subscriber.events.at(-1)).toEqual({ type: "activity", activity: { a: "Thinking" } });
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "activity",
+    activity: { a: "Thinking" },
+    doing: {},
+  });
+  // A step travels with the lines, and the next snapshot has both.
+  harness.activity.emit({ a: "Running Bash" }, { a: { kind: "deploy", key: "c7" } });
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "activity",
+    activity: { a: "Running Bash" },
+    doing: { a: { kind: "deploy", key: "c7" } },
+  });
+  const late = subscribe(harness.hub);
+  await settle();
+  expect(late.events[0]).toMatchObject({
+    type: "snapshot",
+    state: { activity: { a: "Running Bash" }, doing: { a: { kind: "deploy", key: "c7" } } },
+  });
+  late.controller.abort();
+  await late.done;
   subscriber.controller.abort();
   await subscriber.done;
 });
@@ -257,6 +278,7 @@ test("boards and wake state reach subscribers and the next snapshot", async () =
         agents: [],
         workspaces: [],
         activity: {},
+        doing: {},
         boards: { lobby: [note("p1")] },
         wake: { paused: true, queued: { a: 2 } },
       },
@@ -286,7 +308,7 @@ test("a directory that cannot open refuses the subscriber, and the next one trie
 function officeOf(agents: OfficeAgent[]): OfficeEvent {
   return {
     type: "snapshot",
-    state: { agents, workspaces: [], activity: {}, boards: {}, wake: EMPTY_WAKE },
+    state: { agents, workspaces: [], activity: {}, doing: {}, boards: {}, wake: EMPTY_WAKE },
   };
 }
 
@@ -374,6 +396,7 @@ test("a subscriber gets its snapshot before any change made while the directory 
         agents: [],
         workspaces: [],
         activity: {},
+        doing: {},
         boards: { lobby: [note("p1")] },
         wake: EMPTY_WAKE,
       },
