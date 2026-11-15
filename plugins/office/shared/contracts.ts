@@ -141,6 +141,68 @@ export const DeleteResultSchema = z.union([
 ]);
 export type DeleteResult = z.output<typeof DeleteResultSchema>;
 
+/** An idle agent that has had a port open this long has forgotten its server. */
+export const FORGOTTEN_AFTER_MS = 30 * 60 * 1000;
+
+/** What one agent's processes hold on the host. */
+export const MachineAgentSchema = z.object({
+  agentId: z.string(),
+  title: z.string().nullable(),
+  /** "closed" for an agent whose runtime ended and left processes behind. */
+  status: AgentStatusSchema,
+  rssBytes: z.number(),
+  processCount: z.number().int(),
+  /** The TCP ports its processes listen on, lowest first. */
+  ports: z.array(z.number().int()),
+  /** Since when an idle agent has been idle; null in any other state. */
+  idleSince: z.string().nullable(),
+  /** Idle for FORGOTTEN_AFTER_MS with a port open, or closed with processes left. */
+  forgotten: z.boolean(),
+});
+export type MachineAgent = z.output<typeof MachineAgentSchema>;
+
+export const MachineSchema = z.object({
+  readAt: z.string(),
+  /** The daemon's cgroup when it has a cap, else the host; null when neither can be read. */
+  memory: z.object({ usedBytes: z.number(), totalBytes: z.number() }).nullable(),
+  /** 0 to 100 over every core since the reading before; null on the first. */
+  cpuPercent: z.number().nullable(),
+  /** The agents with a process on the host: the forgotten first, then by memory. */
+  agents: z.array(MachineAgentSchema),
+});
+export type Machine = z.output<typeof MachineSchema>;
+
+export const MachineEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("reading"), machine: MachineSchema }),
+  /** The host has no /proc to read (macOS, Windows). */
+  z.object({ type: z.literal("unavailable") }),
+]);
+export type MachineEvent = z.output<typeof MachineEventSchema>;
+
+/** A reading now, then one every MACHINE_INTERVAL_MS while someone listens. */
+export const machineSubscription = defineSubscription({
+  name: "office.machine",
+  input: z.object({}),
+  event: MachineEventSchema,
+});
+
+export const CleanupResultSchema = z.object({
+  agentId: z.string(),
+  ok: z.boolean(),
+  error: z.string().nullable(),
+});
+export type CleanupResult = z.output<typeof CleanupResultSchema>;
+
+/**
+ * Frees what the named agents hold: closes an idle agent's runtime, which its next prompt
+ * resumes, and stops the processes a closed agent left behind.
+ */
+export const cleanupRpc = defineRpc({
+  name: "office.machine.cleanup.request",
+  input: z.object({ agentIds: z.array(z.string().min(1)).min(1).max(50) }),
+  output: z.object({ results: z.array(CleanupResultSchema) }),
+});
+
 /** A snapshot, then changes. */
 export const officeStateSubscription = defineSubscription({
   name: "office.state",

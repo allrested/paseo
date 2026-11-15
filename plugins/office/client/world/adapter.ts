@@ -2,15 +2,18 @@ import { agentTitle, attentionReason, type OfficeModel, type OfficeRow } from ".
 import type {
   ActivityKind,
   ActivityStep,
+  Machine,
   OfficeAgent,
   TestResult,
 } from "../../shared/contracts.js";
+import { machineTitle, memoryPercent, memoryTone } from "../machine-text.js";
 import { relativeLuminance } from "../scene/palette.js";
 import type {
   WorldBoardRow,
   WorldColors,
   WorldEvent,
   WorldEventType,
+  WorldMachine,
   WorldSession,
 } from "./world-api.js";
 
@@ -212,6 +215,34 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
     });
   }
   return { events, memory };
+}
+
+/**
+ * The host's readings for the scene. An agent with a port open has a server box on its desk; one
+ * that left something running has its box in the server room, port or not.
+ */
+export function worldMachine(machine: Machine | null): WorldMachine | null {
+  if (machine === null) return null;
+  const { memory } = machine;
+  return {
+    mem:
+      memory === null
+        ? null
+        : {
+            used: memory.usedBytes,
+            total: memory.totalBytes,
+            pressure: memoryTone(memoryPercent(machine)) === "danger" ? "critical" : "normal",
+          },
+    cpu: { percent: machine.cpuPercent ?? 0 },
+    devServers: machine.agents
+      .filter((agent) => agent.forgotten || agent.ports.length > 0)
+      .map((agent) => ({
+        owner: { alive: !agent.forgotten, sid: agent.agentId },
+        label: machineTitle(agent),
+        ports: [...agent.ports],
+        cpu: 0,
+      })),
+  };
 }
 
 /** The team name of a room, as the scene knows it; null for a room that is not there. */

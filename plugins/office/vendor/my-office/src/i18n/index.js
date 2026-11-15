@@ -24,6 +24,7 @@ const OURS = {
   'events.verb.push': 'push the code',
   'events.verb.agent': 'start a subagent',
   'events.bubble.agent': 'Handing off to a subagent',
+  'world.dev.lost': { one: '{n} agent left something running', other: '{n} agents left something running' },
   'places.library.today': { one: '{n} read since the office opened', other: '{n} reads since the office opened' },
   'places.window.empty': 'Nobody has searched the web since the office opened.',
   'places.window.today': { one: '{n} web search since the office opened', other: '{n} web searches since the office opened' },

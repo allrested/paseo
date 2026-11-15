@@ -10,6 +10,7 @@ import {
   teamOfRoom,
   worldBoardRows,
   worldChanges,
+  worldMachine,
   worldPeople,
 } from "./adapter.js";
 
@@ -285,6 +286,61 @@ describe("what changed, as things the people do", () => {
       "1": step("test", "t1"),
     });
     expect(worldEvents(told, waiting)).toEqual([]);
+  });
+});
+
+describe("the host's readings, as the scene draws them", () => {
+  const GB = 1024 ** 3;
+  const held = (agentId: string, patch: object = {}) => ({
+    agentId,
+    title: `Agent ${agentId}`,
+    status: "running" as const,
+    rssBytes: 1,
+    processCount: 1,
+    ports: [] as number[],
+    idleSince: null,
+    forgotten: false,
+    ...patch,
+  });
+  const reading = (usedGb: number, agents: ReturnType<typeof held>[] = []) => ({
+    readAt: "2026-11-16T12:00:00.000Z",
+    memory: { usedBytes: usedGb * GB, totalBytes: 16 * GB },
+    cpuPercent: 12,
+    agents,
+  });
+
+  it("has no machine without a reading", () => {
+    expect(worldMachine(null)).toBeNull();
+  });
+
+  it("gives the wall screen memory and CPU, critical from 90 percent", () => {
+    expect(worldMachine(reading(8))).toEqual({
+      mem: { used: 8 * GB, total: 16 * GB, pressure: "normal" },
+      cpu: { percent: 12 },
+      devServers: [],
+    });
+    expect(worldMachine(reading(15))?.mem?.pressure).toBe("critical");
+    expect(worldMachine({ ...reading(8), memory: null, cpuPercent: null })).toEqual({
+      mem: null,
+      cpu: { percent: 0 },
+      devServers: [],
+    });
+  });
+
+  it("draws a box for each agent with a port open, and for whatever was left running", () => {
+    const machine = worldMachine(
+      reading(8, [
+        held("a", { ports: [5173, 3000] }),
+        held("b"),
+        held("c", { status: "closed", forgotten: true }),
+        held("d", { status: "idle", forgotten: true, ports: [8000], title: null }),
+      ]),
+    );
+    expect(machine?.devServers).toEqual([
+      { owner: { alive: true, sid: "a" }, label: "Agent a", ports: [5173, 3000], cpu: 0 },
+      { owner: { alive: false, sid: "c" }, label: "Agent c", ports: [], cpu: 0 },
+      { owner: { alive: false, sid: "d" }, label: "Agent d", ports: [8000], cpu: 0 },
+    ]);
   });
 });
 

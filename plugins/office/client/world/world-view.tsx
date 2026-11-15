@@ -10,7 +10,7 @@ import {
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
-import { worldRpc } from "../../shared/contracts.js";
+import { worldRpc, type Machine } from "../../shared/contracts.js";
 import type { FocusRequest } from "../focus-request.js";
 import type { OfficeModel } from "../model.js";
 import type { OfficeStyles } from "../styles.js";
@@ -20,6 +20,7 @@ import {
   teamOfRoom,
   worldBoardRows,
   worldChanges,
+  worldMachine,
   worldPeople,
   type WorldMemory,
   type WorldPlan,
@@ -41,6 +42,10 @@ export interface WorldViewProps {
   onSelectAgent(agentId: string | null): void;
   /** A tap on a team's chip or on the whiteboard: opens that room's board. */
   onSelectBoard(roomId: string): void;
+  /** The host's readings; null when the host has none, and then the server room is furniture. */
+  machine: Machine | null;
+  /** A tap on the server room: its chip, the racks, the wall screen or a server box. */
+  onOpenMachine(): void;
   /** The script could not load, the office could not start, or the WebGL context was lost. */
   onProblem(message: string): void;
 }
@@ -76,6 +81,8 @@ export function WorldView({
   selectedAgentId,
   onSelectAgent,
   onSelectBoard,
+  machine,
+  onOpenMachine,
   onProblem,
 }: WorldViewProps) {
   const containerId = useId();
@@ -93,6 +100,7 @@ export function WorldView({
     selectedAgentId,
     onSelectAgent,
     onSelectBoard,
+    onOpenMachine,
     onProblem,
   });
   useEffect(() => {
@@ -103,9 +111,19 @@ export function WorldView({
       selectedAgentId,
       onSelectAgent,
       onSelectBoard,
+      onOpenMachine,
       onProblem,
     };
-  }, [model, theme, focusRoomId, selectedAgentId, onSelectAgent, onSelectBoard, onProblem]);
+  }, [
+    model,
+    theme,
+    focusRoomId,
+    selectedAgentId,
+    onSelectAgent,
+    onSelectBoard,
+    onOpenMachine,
+    onProblem,
+  ]);
 
   // A tab that was never shown has no size: it loads nothing and starts nothing.
   useEffect(() => {
@@ -167,6 +185,10 @@ export function WorldView({
             });
             if (roomId !== null) now.onSelectBoard(roomId);
           },
+          onMachine: () => {
+            focusApp();
+            latest.current.onOpenMachine();
+          },
           onProblem: (message) => latest.current.onProblem(message),
         });
       } catch (error) {
@@ -205,6 +227,11 @@ export function WorldView({
     for (const event of changes.events) api.event(event);
     memory.current = changes.memory;
   }, [people, model, started]);
+
+  const worldReadings = useMemo(() => worldMachine(machine), [machine]);
+  useEffect(() => {
+    world.current?.setMachine(worldReadings);
+  }, [worldReadings, started]);
 
   const focusTeam = useMemo(() => teamOfRoom(model, focusRoomId), [model, focusRoomId]);
   useEffect(() => {
