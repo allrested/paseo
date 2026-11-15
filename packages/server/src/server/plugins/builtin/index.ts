@@ -6,6 +6,7 @@ export const builtinPlugins = [
   "agent-stats",
   "android",
   "antigravity-provider",
+  "attribution",
   "bddevlab-usage-source",
   "chat-search",
   "claude-accounts",
