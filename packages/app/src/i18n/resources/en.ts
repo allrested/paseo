@@ -2052,6 +2052,8 @@ export const en = {
     connecting: "Connecting to the browser…",
     unresponsive: "Page not responding",
     keyboard: "Show keyboard",
+    pickHint: "Click or tap an element to pick it",
+    pickAttached: "Element attached to this workspace's next message",
     closed: {
       title: "Tab closed",
       reopen: "Reopen",

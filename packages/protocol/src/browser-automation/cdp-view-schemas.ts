@@ -14,6 +14,8 @@ export const CDP_BROWSER_ERROR_CODES = [
   "browser_unknown_error",
   /** A navigate to a URL that is not http, https or about:blank. An older daemon sends browser_unknown_error. */
   "browser_url_refused",
+  /** A pick_element on a page that is still loading: the page cannot be marked up yet. */
+  "browser_page_loading",
 ] as const;
 export type CdpBrowserErrorCode = (typeof CDP_BROWSER_ERROR_CODES)[number];
 
@@ -193,7 +195,68 @@ export const BrowserCdpViewNavigateResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
 });
 
+/**
+ * An element a person picked in a tab, as the page describes it. The daemon cuts every string and
+ * list to a bound before it sends one: the values come from the page, which is not trusted. The
+ * app builds the composer's browser element attachment from it.
+ */
+export const CdpBrowserElementSelectionSchema = z.object({
+  url: z.string(),
+  selector: z.string(),
+  tag: z.string(),
+  text: z.string(),
+  outerHTML: z.string(),
+  computedStyles: z.record(z.string(), z.string()),
+  /** Page CSS pixels, relative to the viewport at the moment of the pick. */
+  boundingRect: z.object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+  }),
+  /** Set when the page is a React development build that names the element's source. */
+  reactSource: z
+    .object({
+      fileName: z.string().nullable(),
+      lineNumber: z.number().nullable(),
+      columnNumber: z.number().nullable(),
+      componentName: z.string().nullable(),
+    })
+    .nullable(),
+  parentChain: z.array(z.string()),
+  children: z.array(z.string()),
+});
+
+/**
+ * Gate: server_info.features.cdpBrowserPick. Turns the tab into a picker: the page outlines the
+ * element under the pointer and takes the next click as the pick, so the click reaches nothing on
+ * the page. The response comes when an element is picked, when the pick ends without one
+ * (`selection` and `error` both null: Escape in the page, cancel_pick, a navigation, or another
+ * pick on the tab), or with an error: browser_page_loading, or browser_timeout after 30 s.
+ */
+export const BrowserCdpViewPickElementRequestSchema = z.object({
+  type: z.literal("browser.cdp.view.pick_element.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+});
+export const BrowserCdpViewPickElementResponseSchema = z.object({
+  type: z.literal("browser.cdp.view.pick_element.response"),
+  payload: z.object({
+    requestId: z.string(),
+    selection: CdpBrowserElementSelectionSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+// Ends the sender's pick on the tab. It has no response of its own: the pick_element it ends
+// answers, with no selection and no error.
+export const BrowserCdpViewCancelPickRequestSchema = z.object({
+  type: z.literal("browser.cdp.view.cancel_pick.request"),
+  browserId: z.string(),
+});
+
 export type CdpBrowserTabState = z.infer<typeof CdpBrowserTabStateSchema>;
+export type CdpBrowserElementSelection = z.infer<typeof CdpBrowserElementSelectionSchema>;
 export type CdpBrowserTabsEvent = z.infer<typeof CdpBrowserTabsEventSchema>;
 export type CdpBrowserViewport = z.infer<typeof CdpBrowserViewportSchema>;
 export type CdpBrowserViewInput = z.infer<typeof CdpBrowserViewInputSchema>;

@@ -118,9 +118,12 @@ import {
   BrowserCdpTabsSubscribeRequestSchema,
   BrowserCdpTabsSubscribeResponseSchema,
   BrowserCdpTabsUpdateSchema,
+  BrowserCdpViewCancelPickRequestSchema,
   BrowserCdpViewInputRequestSchema,
   BrowserCdpViewNavigateRequestSchema,
   BrowserCdpViewNavigateResponseSchema,
+  BrowserCdpViewPickElementRequestSchema,
+  BrowserCdpViewPickElementResponseSchema,
   BrowserCdpViewSubscribeRequestSchema,
   BrowserCdpViewSubscribeResponseSchema,
   BrowserCdpViewUpdateSchema,
@@ -3628,6 +3631,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   BrowserCdpViewSubscribeRequestSchema,
   BrowserCdpViewInputRequestSchema,
   BrowserCdpViewNavigateRequestSchema,
+  BrowserCdpViewPickElementRequestSchema,
+  BrowserCdpViewCancelPickRequestSchema,
   VoiceAudioChunkMessageSchema,
   AbortRequestMessageSchema,
   AudioPlayedMessageSchema,
@@ -4050,6 +4055,9 @@ export const ServerInfoStatusPayloadSchema = z
         // Fork delta (web browser pane): the daemon hosts a Docker Chromium; browser.cdp.* RPCs.
         // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
         cdpBrowser: z.boolean().optional(),
+        // Fork delta (web browser pane): browser.cdp.view.pick_element and cancel_pick.
+        // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
+        cdpBrowserPick: z.boolean().optional(),
         // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
         usageSetting: z.boolean().optional(),
         usageSources: z.boolean().optional(),
@@ -7571,6 +7579,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   BrowserCdpViewSubscribeResponseSchema,
   BrowserCdpViewUpdateSchema,
   BrowserCdpViewNavigateResponseSchema,
+  BrowserCdpViewPickElementResponseSchema,
   PluginCatalogGetResponseSchema,
   PluginListResponseSchema,
   PluginLogsGetResponseSchema,

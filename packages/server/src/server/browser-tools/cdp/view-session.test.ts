@@ -115,7 +115,8 @@ describe("CdpViewSession", () => {
       (_source, frame) => void binary.push(frame),
     );
     delivery.attach(socket, true);
-    session = new CdpViewSession(() => service, logger);
+    // A pick asks the page every 5 ms here, so a pick test does not wait out the real 200 ms.
+    session = new CdpViewSession(() => service, logger, { pick: { pollMs: 5 } });
   });
   afterEach(async () => {
     await delivery.detach(socket);
@@ -636,6 +637,131 @@ describe("CdpViewSession", () => {
     expect(last("browser.cdp.view.navigate.response")?.payload.error).toBe("browser_unknown_error");
     await navigate("n3", { kind: "reload" });
     await until(() => sentTo(targetId, "Page.reload").length === 1, "the reload");
+  });
+
+  const PICKED = {
+    url: "https://example.com/",
+    selector: "#buy",
+    tag: "button",
+    text: "Buy",
+    outerHTML: '<button id="buy">Buy</button>',
+    computedStyles: { display: "block" },
+    boundingRect: { x: 10, y: 20, width: 80, height: 32 },
+    reactSource: null,
+    parentChain: ["main"],
+    children: [],
+  };
+  /**
+   * A page that becomes a picker and reports `answer()` to every poll. Returns what was evaluated
+   * on it, as "install", "poll" and "clear".
+   */
+  const pickerPage = (answer: () => unknown) => {
+    const evaluated: string[] = [];
+    chromium.handle("Runtime.evaluate", (params) => {
+      const expression = String(params.expression);
+      if (expression.includes("__paseo-select-mode")) {
+        evaluated.push("install");
+        const sessionToken = /sessionToken = "([^"]+)"/.exec(expression)?.[1];
+        return { result: { value: { installed: true, sessionToken } } };
+      }
+      if (expression.includes("__cancelled")) {
+        evaluated.push("poll");
+        return { result: { value: answer() } };
+      }
+      if (expression.includes("__paseoSelector")) evaluated.push("clear");
+      return { result: { type: "undefined" } };
+    });
+    return evaluated;
+  };
+  const pickElement = (requestId: string, browserId: string, target = session) =>
+    request({ type: "browser.cdp.view.pick_element.request", requestId, browserId }, (message) =>
+      target.pickElement(message, emit),
+    );
+  const picks = () =>
+    all("browser.cdp.view.pick_element.response").map((message) => message.payload);
+  const waiting = () => null;
+
+  test("pick_element answers with the element the page reports", async () => {
+    const tab = await openTab();
+    let polls = 0;
+    const evaluated = pickerPage(() => {
+      polls += 1;
+      return polls < 3 ? null : JSON.stringify({ ...PICKED, attributes: { id: "buy" } });
+    });
+
+    await pickElement("p1", tab.browserId);
+
+    expect(picks()).toEqual([{ requestId: "p1", selection: PICKED, error: null }]);
+    expect(evaluated).toEqual(["install", "poll", "poll", "poll"]);
+  });
+
+  test("cancel_pick ends the pick with no element and takes the picker off the page", async () => {
+    const tab = await openTab();
+    const evaluated = pickerPage(waiting);
+
+    const picking = pickElement("p1", tab.browserId);
+    await until(() => evaluated.includes("poll"), "the first poll");
+    await request(
+      { type: "browser.cdp.view.cancel_pick.request", browserId: tab.browserId },
+      (message) => session.cancelPick(message),
+    );
+    await picking;
+
+    expect(picks()).toEqual([{ requestId: "p1", selection: null, error: null }]);
+    await until(() => evaluated.includes("clear"), "the picker's removal");
+  });
+
+  test("a second pick_element on the tab takes it over and the first answers empty", async () => {
+    const tab = await openTab();
+    let picked = false;
+    const evaluated = pickerPage(() => (picked ? JSON.stringify(PICKED) : null));
+
+    const first = pickElement("p1", tab.browserId);
+    await until(() => evaluated.includes("poll"), "the first poll");
+    const second = pickElement("p2", tab.browserId);
+    await first;
+    expect(picks()).toEqual([{ requestId: "p1", selection: null, error: null }]);
+
+    picked = true;
+    await second;
+    expect(picks().at(-1)).toEqual({ requestId: "p2", selection: PICKED, error: null });
+  });
+
+  test("a pick_element left open ends when its session does", async () => {
+    const tab = await openTab();
+    const evaluated = pickerPage(waiting);
+
+    const picking = pickElement("p1", tab.browserId);
+    await until(() => evaluated.includes("poll"), "the first poll");
+    session.endPicks();
+    await picking;
+
+    expect(picks()).toEqual([{ requestId: "p1", selection: null, error: null }]);
+  });
+
+  test("a pick_element nobody finishes times out", async () => {
+    const tab = await openTab();
+    pickerPage(waiting);
+    const hasty = new CdpViewSession(() => service, logger, {
+      pick: { pollMs: 5, timeoutMs: 30 },
+    });
+
+    await pickElement("p1", tab.browserId, hasty);
+
+    expect(picks()).toEqual([{ requestId: "p1", selection: null, error: "browser_timeout" }]);
+  });
+
+  test("pick_element refuses a tab that is not open, and a host without the browser", async () => {
+    const unknown = "00000000-0000-4000-8000-000000000000";
+    await pickElement("p1", unknown);
+    expect(picks()).toEqual([{ requestId: "p1", selection: null, error: "browser_tab_not_found" }]);
+
+    await pickElement("p2", unknown, new CdpViewSession(() => null, logger));
+    expect(picks().at(-1)).toEqual({
+      requestId: "p2",
+      selection: null,
+      error: "browser_unsupported",
+    });
   });
 
   test("releasing the view stops the screencast", async () => {

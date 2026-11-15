@@ -1,19 +1,27 @@
 import { useCallback, useEffect, memo, useMemo, useRef, useState, type RefObject } from "react";
 import { PixelRatio, Text, View, type LayoutChangeEvent } from "react-native";
-import { ArrowLeft, ArrowRight, Keyboard, RotateCw } from "lucide-react-native";
+import { ArrowLeft, ArrowRight, Keyboard, MousePointer2, RotateCw } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import type { CdpBrowserNavigateAction } from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import {
+  appendWorkspaceAttachment,
+  buildWorkspaceAttachmentScopeKey,
+  useWorkspaceAttachmentsStore,
+} from "@/attachments/workspace-attachments-store";
 import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useToast } from "@/contexts/toast-context";
 import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { usePointerCapabilities } from "@/hooks/pointer-capabilities";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
+import { CdpAnnotationCard } from "./annotation-card";
+import { buildElementAttachment } from "./element-attachment";
 import { CdpFrameImage } from "./frame-image";
 import { CdpInputLayer } from "./input-layer";
 import type { CdpKeyboardHandle } from "./input-layer-types";
@@ -21,6 +29,7 @@ import { useCdpTabsStore } from "./tabs-store";
 import { reopenCdpTab } from "./tabs-sync";
 import { withHttpForHostPort } from "./workspace-browser";
 import { useCdpView } from "./use-cdp-view";
+import { useElementPick } from "./use-element-pick";
 import {
   fitFrame,
   viewStatusForError,
@@ -33,9 +42,13 @@ const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedKeyboard = withUnistyles(Keyboard);
+const ThemedMousePointer = withUnistyles(MousePointer2);
 const ThemedUrlInput = withUnistyles(EditingTextInput);
 const iconMapping = (theme: { colors: { foregroundMuted: string } }) => ({
   color: theme.colors.foregroundMuted,
+});
+const activeIconMapping = (theme: { colors: { accent: string } }) => ({
+  color: theme.colors.accent,
 });
 const urlInputMapping = (theme: { colors: { foregroundMuted: string } }) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
@@ -46,6 +59,8 @@ export interface CdpBrowserPaneProps {
   browserId: string;
   serverId: string;
   workspaceId: string;
+  /** The workspace's folder; without one a picked element has no composer to go to. */
+  cwd: string | null;
   onFocusPane?: () => void;
 }
 
@@ -57,6 +72,11 @@ interface ToolbarProps {
   keyboardOn: boolean;
   onKeyboardPressIn(): void;
   onToggleKeyboard(): void;
+  /** Absent when the host cannot pick, or the pane has no composer for the element. */
+  onTogglePick?: () => void;
+  picking: boolean;
+  /** No page to pick on, or an agent is using the tab. */
+  pickBlocked: boolean;
 }
 
 const CdpToolbar = memo(function CdpToolbar({
@@ -67,6 +87,9 @@ const CdpToolbar = memo(function CdpToolbar({
   keyboardOn,
   onKeyboardPressIn,
   onToggleKeyboard,
+  onTogglePick,
+  picking,
+  pickBlocked,
 }: ToolbarProps) {
   const { t } = useTranslation();
   // Native always reports a touch screen; on web a mouse-only desktop gets no keyboard button.
@@ -138,6 +161,24 @@ const CdpToolbar = memo(function CdpToolbar({
         style={styles.urlInput}
         uniProps={urlInputMapping}
       />
+      {onTogglePick ? (
+        <ToolbarButton
+          compact={compact}
+          disabled={pickBlocked}
+          label={t(
+            picking
+              ? "workspace.browser.controls.cancelSelector"
+              : "workspace.browser.controls.annotateElement",
+          )}
+          onPress={onTogglePick}
+          selected={picking}
+        >
+          <ThemedMousePointer
+            size={ICON_SIZE}
+            uniProps={picking ? activeIconMapping : iconMapping}
+          />
+        </ToolbarButton>
+      ) : null}
       {touchScreen ? (
         <ToolbarButton
           compact={compact}
@@ -160,6 +201,8 @@ interface OverlayProps {
   agentActive: boolean;
   reopening: boolean;
   reopenFailed: boolean;
+  /** The page is a picker: the next press on it picks an element. */
+  picking: boolean;
   onReopen(): void;
   onRetry(): void;
 }
@@ -170,6 +213,7 @@ function CdpPaneOverlay({
   agentActive,
   reopening,
   reopenFailed,
+  picking,
   onReopen,
   onRetry,
 }: OverlayProps) {
@@ -206,6 +250,11 @@ function CdpPaneOverlay({
           </Button>
         </View>
       ) : null}
+      {picking && status === "live" ? (
+        <View pointerEvents="none" style={styles.banner}>
+          <Text style={styles.bannerText}>{t("cdpBrowser.pickHint")}</Text>
+        </View>
+      ) : null}
       {agentActive && status !== "closed" && status !== "unreachable" ? (
         <View pointerEvents="none" style={styles.badge}>
           <Text style={styles.bannerText}>{t("cdpBrowser.agentActive")}</Text>
@@ -219,6 +268,7 @@ export function CdpBrowserPane({
   browserId,
   serverId,
   workspaceId,
+  cwd,
   onFocusPane,
 }: CdpBrowserPaneProps) {
   const rawClient = useHostRuntimeClient(serverId);
@@ -300,6 +350,50 @@ export function CdpBrowserPane({
 
   const blocked = status === "closed" || status === "unreachable";
 
+  // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
+  const canPick = useHostFeature(serverId, "cdpBrowserPick");
+  const attachmentScope = useMemo(
+    () => (cwd ? buildWorkspaceAttachmentScopeKey({ serverId, workspaceId, cwd }) : null),
+    [cwd, serverId, workspaceId],
+  );
+  const { state: pickState, pick } = useElementPick({
+    client: canPick && attachmentScope ? client : null,
+    browserId,
+  });
+  const picking = pickState.status === "picking";
+  // A picker swallows every press on the page, an agent's too, and a page nobody watches must
+  // not stay one.
+  const pickBlocked = blocked || frame === null || agentActive;
+  const watched = panelActive && appVisible;
+  useEffect(() => {
+    if (picking && (pickBlocked || !watched)) pick?.stop();
+  }, [pick, pickBlocked, picking, watched]);
+  // Pressed while a picked element waits for its note, it picks another in its place.
+  const togglePick = useCallback(() => {
+    if (picking) pick?.stop();
+    else pick?.start();
+  }, [pick, picking]);
+  const stopPick = useCallback(() => pick?.stop(), [pick]);
+  const { t } = useTranslation();
+  const toast = useToast();
+  const attachElement = useCallback(
+    (comment: string) => {
+      if (pickState.status !== "annotating" || !attachmentScope) return;
+      const store = useWorkspaceAttachmentsStore.getState();
+      store.setWorkspaceAttachments({
+        scopeKey: attachmentScope,
+        attachments: appendWorkspaceAttachment(store.attachmentsByScope[attachmentScope] ?? [], {
+          kind: "browser_element",
+          attachment: buildElementAttachment(pickState.selection, comment),
+        }),
+      });
+      pick?.stop();
+      // The composer is often on another tab, so nothing on this one shows the element landed.
+      toast.show(t("cdpBrowser.pickAttached"), { variant: "success" });
+    },
+    [attachmentScope, pick, pickState, t, toast],
+  );
+
   return (
     <View style={styles.container}>
       <CdpToolbar
@@ -309,6 +403,9 @@ export function CdpBrowserPane({
         keyboardOn={keyboardOn}
         onKeyboardPressIn={noteKeyboardAtPress}
         onToggleKeyboard={toggleKeyboard}
+        onTogglePick={pick ? togglePick : undefined}
+        pickBlocked={pickBlocked}
+        picking={picking}
         urlInputRef={urlInput}
       />
       <View onLayout={handleLayout} style={styles.viewport}>
@@ -332,10 +429,18 @@ export function CdpBrowserPane({
           hasFrame={frame !== null}
           onReopen={reopen}
           onRetry={retry}
+          picking={picking}
           reopenFailed={reopenError === "failed"}
           reopening={reopening}
           status={status}
         />
+        {pickState.status === "annotating" ? (
+          <CdpAnnotationCard
+            onCancel={stopPick}
+            onSubmit={attachElement}
+            selection={pickState.selection}
+          />
+        ) : null}
       </View>
     </View>
   );
