@@ -60,7 +60,15 @@ function agent(overrides: Partial<PluginHookAgent> = {}): PluginHookAgent {
 
 const settle = () => new Promise((done) => setTimeout(done, 0));
 
-function setup(tail: () => Promise<TimelineEntry[]> = async () => []) {
+/** An agent as the daemon lists it. */
+const listed = (id: string) => ({ agent: { id, title: `Agent ${id}`, cwd: "/work/api" } });
+const NO_AGENTS = async () => ({ entries: [], pageInfo: { hasMore: false, nextCursor: null } });
+
+function setup(
+  tail: () => Promise<TimelineEntry[]> = async () => [],
+  /** The daemon's answer when the feed asks which agents run. */
+  list: (request: object) => Promise<object> = NO_AGENTS,
+) {
   const recorded: Recorded = { hooks: new Map(), handlers: new Map() };
   const logs: string[] = [];
   const store: FeedStore = { load: async () => EMPTY_FEED, save: async () => {} };
@@ -74,14 +82,18 @@ function setup(tail: () => Promise<TimelineEntry[]> = async () => []) {
   const context = hookContext(tail);
   const hook = (name: string, payload: object) => recorded.hooks.get(name)?.(payload, context);
   const events: FeedEvent[] = [];
-  void recorded.handlers.get("feed.state")?.(
-    {},
-    {
-      push: async (event: FeedEvent) => void events.push(event),
-      signal: new AbortController().signal,
-    },
-  );
-  return { recorded, logs, hook, events, dispose };
+  /** A device opens the feed. */
+  const open = (into: FeedEvent[]) =>
+    void recorded.handlers.get("feed.state")?.(
+      {},
+      {
+        push: async (event: FeedEvent) => void into.push(event),
+        signal: new AbortController().signal,
+        paseo: { agents: { list } },
+      },
+    );
+  open(events);
+  return { recorded, logs, hook, events, open, dispose };
 }
 
 const said = (text: string): TimelineEntry => ({
@@ -175,6 +187,7 @@ test("a helper's turns and permissions stay out", async () => {
   await settle();
   const helper = agent({ id: "h1", background: true });
 
+  await hook("agent.turn.before", { agent: helper, turnId: "t1" });
   await hook("agent.turn.after", { agent: helper, turnId: "t1", outcome: { kind: "completed" } });
   await hook("agent.permission.before", {
     agent: helper,
@@ -215,4 +228,90 @@ test("disposing takes the hooks away", () => {
   dispose();
 
   expect(recorded.hooks.size).toBe(0);
+});
+
+test("marking an entry unread reaches the feed, and marking it read takes the mark back", async () => {
+  const { recorded, hook, events } = setup();
+  await settle();
+  await hook("agent.turn.after", { agent: agent(), turnId: "t1", outcome: { kind: "completed" } });
+  const mark = recorded.handlers.get("feed.unread.request");
+
+  expect(await mark?.({ id: "id-1", unread: true }, {})).toEqual({});
+  expect(await mark?.({ id: "id-1", unread: false }, {})).toEqual({});
+
+  expect(events.slice(-2)).toEqual([
+    { type: "marked", id: "id-1", unread: true },
+    { type: "marked", id: "id-1", unread: false },
+  ]);
+});
+
+test("an agent is listed as running from the start of its turn to its end", async () => {
+  const { hook, events } = setup();
+  await settle();
+
+  await hook("agent.turn.before", { agent: agent(), turnId: "t1" });
+  await hook("agent.turn.after", {
+    agent: agent(),
+    turnId: "t1",
+    outcome: { kind: "canceled", reason: "interrupted" },
+  });
+
+  expect(events.slice(1)).toEqual([
+    {
+      type: "started",
+      agent: {
+        agentId: "a1",
+        title: "Checkout total",
+        folder: "/work/shop",
+        since: "2026-11-15T09:00:00.000Z",
+      },
+    },
+    { type: "stopped", agentId: "a1" },
+  ]);
+});
+
+test.each(["agent.close.after", "agent.archive.after"])(
+  "an agent that goes in a turn (%s) runs no more",
+  async (name) => {
+    const { hook, events } = setup();
+    await settle();
+    await hook("agent.turn.before", { agent: agent(), turnId: "t1" });
+
+    await hook(name, { agent: agent() });
+
+    expect(events.at(-1)).toEqual({ type: "stopped", agentId: "a1" });
+  },
+);
+
+test("the turns that began before the plugin are found when the feed is first opened, once", async () => {
+  const requests: object[] = [];
+  const { events, open } = setup(undefined, async (request) => {
+    requests.push(request);
+    return { entries: [listed("early")], pageInfo: { hasMore: false, nextCursor: null } };
+  });
+  await settle();
+
+  expect(events.slice(1)).toEqual([
+    {
+      type: "started",
+      agent: { agentId: "early", title: "Agent early", folder: "/work/api", since: null },
+    },
+  ]);
+  // A second device gets it in the feed, and the daemon is not asked again.
+  const second: FeedEvent[] = [];
+  open(second);
+  await settle();
+  expect(second).toHaveLength(1);
+  expect(second[0]).toMatchObject({ state: { running: [{ agentId: "early" }] } });
+  expect(requests).toHaveLength(1);
+});
+
+test("a daemon that cannot list its agents is logged, and the feed still opens", async () => {
+  const { hook, events, logs } = setup(undefined, () => Promise.reject(new Error("no list")));
+  await settle();
+
+  expect(logs).toEqual(["[feed] the running agents could not be listed: no list"]);
+  expect(events).toEqual([{ type: "state", state: EMPTY_FEED }]);
+  await hook("agent.turn.before", { agent: agent(), turnId: "t1" });
+  expect(events.at(-1)).toMatchObject({ type: "started" });
 });

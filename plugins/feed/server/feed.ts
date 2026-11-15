@@ -1,6 +1,6 @@
 // The feed the daemon keeps: loaded once, changed by the hooks, saved after each change, and
 // sent to every device that has it open or shows its count.
-import type { FeedEntry, FeedEvent, FeedState } from "../shared/contracts.js";
+import type { FeedEntry, FeedEvent, FeedState, RunningAgent } from "../shared/contracts.js";
 import { EMPTY_FEED, applyFeedEvent } from "../shared/feed.js";
 import { errorMessage } from "./errors.js";
 import type { FeedStore } from "./feed-store.js";
@@ -16,10 +16,22 @@ export interface Feed {
   add(entry: FeedEntry): Promise<void>;
   /** A permission was answered: its entry goes. */
   answered(requestId: string): Promise<void>;
-  /** An agent's turn ended, or the agent went: it waits for no answer, so its permissions go. */
+  /** An agent's turn began: it is listed as running until it is released. */
+  started(agent: RunningAgent): Promise<void>;
+  /**
+   * An agent's turn ended, or the agent went: it runs no more and waits for no answer, so its
+   * permissions go.
+   */
   released(agentId: string): Promise<void>;
+  /**
+   * Lists the agents whose turn began before the feed listened, once `list` has found them. One
+   * that is released meanwhile is not listed. Rejects when `list` does.
+   */
+  catchUp(list: () => Promise<RunningAgent[]>): Promise<void>;
   /** The feed is open on a device at `at`. */
   seen(at: string): Promise<{ seenAt: string }>;
+  /** Marks an entry unread, or read again. */
+  mark(id: string, unread: boolean): Promise<void>;
 }
 
 function waitForAbort(signal: AbortSignal): Promise<void> {
@@ -37,9 +49,12 @@ export function createFeed(ports: { store: FeedStore; log(message: string): void
     const stored = await ports.store.load();
     // A permission still in the file was asked of a process that is gone, or was answered while
     // nothing listened. Nothing tells which, and a row that says "waiting" must be true.
-    state = { ...stored, entries: stored.entries.filter((entry) => entry.kind !== "permission") };
+    const asked = stored.entries.filter((entry) => entry.kind === "permission");
+    state = applyFeedEvent(stored, { type: "removed", ids: asked.map((entry) => entry.id) });
   }
   const loaded = load();
+  /** The agents released while a catch-up reads the host's list; null when none reads. */
+  let releasedMeanwhile: Set<string> | null = null;
 
   // A subscriber that left between the check and the push rejects it; nothing is owed to it.
   function send(subscriber: FeedSubscriber, event: FeedEvent): void {
@@ -52,6 +67,8 @@ export function createFeed(ports: { store: FeedStore; log(message: string): void
     if (next === state) return;
     state = next;
     for (const subscriber of subscribers) send(subscriber, event);
+    // What runs is not in the file, so a turn that starts or ends leaves it as it is.
+    if (event.type === "started" || event.type === "stopped") return;
     try {
       await ports.store.save(next);
     } catch (error) {
@@ -80,10 +97,30 @@ export function createFeed(ports: { store: FeedStore; log(message: string): void
     },
     add: (entry) => change({ type: "added", entry }),
     answered: (requestId) => drop((entry) => entry.requestId === requestId),
-    released: (agentId) => drop((entry) => entry.agentId === agentId),
+    started: (agent) => change({ type: "started", agent }),
+    async released(agentId) {
+      releasedMeanwhile?.add(agentId);
+      await change({ type: "stopped", agentId });
+      await drop((entry) => entry.agentId === agentId);
+    },
+    async catchUp(list) {
+      const released = new Set<string>();
+      releasedMeanwhile = released;
+      try {
+        const found = await list();
+        await loaded;
+        for (const agent of found) {
+          const known = state.running?.some((each) => each.agentId === agent.agentId);
+          if (!known && !released.has(agent.agentId)) await change({ type: "started", agent });
+        }
+      } finally {
+        releasedMeanwhile = null;
+      }
+    },
     async seen(at) {
       await change({ type: "seen", seenAt: at });
       return { seenAt: at };
     },
+    mark: (id, unread) => change({ type: "marked", id, unread }),
   };
 }

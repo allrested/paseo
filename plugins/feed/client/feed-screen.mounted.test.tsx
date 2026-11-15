@@ -1,8 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-// The Feed screen, mounted. The scroll view is the host's, so react-native's own stands in; the
-// subscription and the seen call are the test's.
+// The Feed screen, mounted as the app mounts a screen: with the plugin's calls and nothing else.
+// The app gives a screen no view of its agents, so a hook that reads them throws here as it does
+// there. The scroll view and the field are the host's, so react-native's own stand in.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -12,14 +13,14 @@ import {
   type PluginSubscriptionObserver,
 } from "@getpaseo/plugin/client/host";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import type { FeedEntry, FeedEvent } from "../shared/contracts.js";
+import type { FeedEntry, FeedEvent, RunningAgent } from "../shared/contracts.js";
 import { FeedScreen } from "./feed-screen.js";
 
 vi.mock("@getpaseo/plugin/client/ui", async () => {
-  const { ScrollView, View } = await import("react-native");
+  const { ScrollView, TextInput, View } = await import("react-native");
   const { createElement } = await import("react");
   const Icon = ({ name }: { name: string }) => createElement(View, { testID: `icon-${name}` });
-  return { Icon, ScrollView };
+  return { Icon, ScrollView, TextInput };
 });
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -44,8 +45,19 @@ const FRESH = entry("fresh", "2026-11-15T11:18:00.000Z", {
 });
 const OLD = entry("old", "2026-11-15T07:00:00.000Z");
 
+const running = (id: string, extra: Partial<RunningAgent> = {}): RunningAgent => ({
+  agentId: id,
+  title: `Agent ${id}`,
+  folder: "/work/shop",
+  since: "2026-11-15T11:57:00.000Z",
+  ...extra,
+});
+
 let observers: PluginSubscriptionObserver[];
 let seenCalls: Array<{ resolve(): void; reject(error: Error): void }>;
+/** The marks asked of the host, and whether the host takes them. */
+let marks: unknown[];
+let marking: boolean;
 let opened: unknown[];
 let container: HTMLElement;
 let root: Root;
@@ -56,7 +68,11 @@ const subscribe: PluginSubscribe = (_method, _input, observer) => {
   return Object.assign(close, { ready: Promise.resolve(), release: async () => close() });
 };
 
-function invoke(method: string): Promise<unknown> {
+function invoke(method: string, input: unknown): Promise<unknown> {
+  if (method === "feed.unread.request") {
+    marks.push(input);
+    return marking ? Promise.resolve({}) : Promise.reject(new Error("offline"));
+  }
   if (method !== "feed.seen.request") throw new Error(`Unexpected call ${method}`);
   return new Promise((resolve, reject) => {
     seenCalls.push({ resolve: () => resolve({ seenAt: NOW }), reject });
@@ -90,13 +106,35 @@ async function send(event: FeedEvent): Promise<void> {
 
 const sectionNames = () =>
   [...container.querySelectorAll('[role="heading"]')].map((heading) => heading.textContent);
-const rows = () => [...container.querySelectorAll('[role="button"]')];
+const buttons = () => [...container.querySelectorAll<HTMLElement>('[role="button"]')];
+const named = (end: string) =>
+  buttons().filter((each) => each.getAttribute("aria-label")?.endsWith(end));
+/** The rows that open an agent; a row's mark button is a button too. */
+const rows = () => named("Open the agent");
+const button = (label: string) => {
+  const found = buttons().find((each) => each.getAttribute("aria-label") === label);
+  if (!found) throw new Error(`No button "${label}"`);
+  return found;
+};
+const press = (label: string) => act(async () => button(label).click());
+const filter = () => container.querySelector<HTMLInputElement>('[aria-label="Filter the feed"]');
+
+async function type(value: string): Promise<void> {
+  const element = filter();
+  if (!element) throw new Error("No filter field");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(NOW));
   observers = [];
   seenCalls = [];
+  marks = [];
+  marking = true;
   opened = [];
   container = document.createElement("div");
   document.body.append(container);
@@ -124,11 +162,11 @@ test("a feed with nothing in it says what will show up, and asks the host nothin
   expect(seenCalls).toHaveLength(0);
 });
 
-test("entries since the feed was last opened are under New, the rest under Earlier", async () => {
+test("entries since the feed was last opened are under Unread, the rest under Earlier", async () => {
   await mount();
   await send({ type: "state", state: { entries: [FRESH, OLD], seenAt: SEEN } });
 
-  expect(sectionNames()).toEqual(["New", "Earlier"]);
+  expect(sectionNames()).toEqual(["Unread", "Earlier"]);
   const [fresh, old] = rows();
   expect(fresh.textContent).toBe("Agent freshFailed · shop · 42 min agoRate limit reached");
   expect(fresh.getAttribute("aria-label")).toBe("Failed: Agent fresh. Open the agent");
@@ -144,7 +182,7 @@ test("a feed with nothing new is one list without a name", async () => {
   expect(seenCalls).toHaveLength(0);
 });
 
-test("opening the feed tells the host once, and what was new stays under New", async () => {
+test("opening the feed tells the host once, and what was new stays under Unread", async () => {
   await mount();
   await send({ type: "state", state: { entries: [FRESH, OLD], seenAt: SEEN } });
   expect(seenCalls).toHaveLength(1);
@@ -152,7 +190,7 @@ test("opening the feed tells the host once, and what was new stays under New", a
   await act(async () => seenCalls[0].resolve());
   await send({ type: "seen", seenAt: NOW });
 
-  expect(sectionNames()).toEqual(["New", "Earlier"]);
+  expect(sectionNames()).toEqual(["Unread", "Earlier"]);
   expect(seenCalls).toHaveLength(1);
 });
 
@@ -160,7 +198,7 @@ test("an entry that comes while the feed is up is new until the feed is pressed"
   await mount();
   await send({ type: "state", state: { entries: [OLD], seenAt: SEEN } });
   await send({ type: "added", entry: entry("late", "2026-11-15T11:59:00.000Z") });
-  expect(sectionNames()).toEqual(["New", "Earlier"]);
+  expect(sectionNames()).toEqual(["Unread", "Earlier"]);
   expect(seenCalls).toHaveLength(0);
 
   await act(async () => {
@@ -197,6 +235,8 @@ test("a host without navigation lists the entries and opens nothing", async () =
 
   expect(rows()).toHaveLength(0);
   expect(container.textContent).toContain("Agent old");
+  // It can still be marked.
+  expect(named(": Agent old")).toHaveLength(1);
   expect(container.querySelector('[data-testid="icon-ChevronRight"]')).toBeNull();
 });
 
@@ -228,5 +268,167 @@ test("a feed the host closed says to reopen it", async () => {
   await act(async () => observers[0].closed());
 
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Reopen the feed");
+  expect(buttons()).toHaveLength(0);
+});
+
+test("an entry is marked unread from its row, and the host is told which", async () => {
+  await mount();
+  await send({ type: "state", state: { entries: [OLD], seenAt: SEEN } });
+  expect(button("Mark unread: Agent old").getAttribute("aria-pressed")).toBe("false");
+
+  await press("Mark unread: Agent old");
+
+  expect(marks).toEqual([{ id: "old", unread: true }]);
+  // The row moves when the host says so, not before.
+  expect(sectionNames()).toEqual([]);
+  await send({ type: "marked", id: "old", unread: true });
+  expect(sectionNames()).toEqual(["Unread"]);
+  expect(button("Mark read: Agent old").getAttribute("aria-pressed")).toBe("true");
+});
+
+test("a marked entry stays unread when the feed is opened again, until it is marked read", async () => {
+  await mount();
+  await send({ type: "state", state: { entries: [OLD], seenAt: NOW, unread: ["old"] } });
+  expect(sectionNames()).toEqual(["Unread"]);
+
+  await press("Mark read: Agent old");
+  expect(marks).toEqual([{ id: "old", unread: false }]);
+  await send({ type: "marked", id: "old", unread: false });
+
+  expect(sectionNames()).toEqual([]);
+  expect(rows()).toHaveLength(1);
+});
+
+test("opening a marked entry's agent reads the entry; opening another marks nothing", async () => {
+  await mount();
+  await send({ type: "state", state: { entries: [FRESH, OLD], seenAt: NOW, unread: ["old"] } });
+
+  await act(async () => rows()[0].click());
+  await act(async () => rows()[1].click());
+
+  expect(opened).toEqual([{ agentId: "agent-old" }, { agentId: "agent-fresh" }]);
+  expect(marks).toEqual([{ id: "old", unread: false }]);
+});
+
+test("a mark the host does not take leaves the row as it was", async () => {
+  marking = false;
+  await mount();
+  await send({ type: "state", state: { entries: [OLD], seenAt: SEEN } });
+
+  await press("Mark unread: Agent old");
+  await settle();
+
+  expect(marks).toHaveLength(1);
+  expect(button("Mark unread: Agent old")).toBeDefined();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("the agents in a turn are listed first, in the host's order", async () => {
+  await mount();
+  await send({
+    type: "state",
+    state: {
+      entries: [OLD],
+      seenAt: SEEN,
+      running: [
+        running("busy", { title: null }),
+        running("slow", { folder: "/work/api", since: "2026-11-15T11:00:00.000Z" }),
+        // Its turn began before the feed listened.
+        running("found", { since: null }),
+      ],
+    },
+  });
+
+  expect(sectionNames()).toEqual(["Running", "Earlier"]);
+  const listed = rows().slice(0, 3);
+  expect(listed.map((row) => row.textContent)).toEqual([
+    "Untitled agentRunning · shop · started 3 min ago",
+    "Agent slowRunning · api · started 1 h ago",
+    "Agent foundRunning · shop",
+  ]);
+  expect(listed[0].getAttribute("aria-label")).toBe("Running: Untitled agent. Open the agent");
+
+  await act(async () => listed[1].click());
+  expect(opened).toEqual([{ agentId: "slow" }]);
+});
+
+test("an agent joins the list when its turn starts and leaves it when the turn ends", async () => {
+  await mount();
+  await send({ type: "state", state: { entries: [OLD], seenAt: SEEN } });
+  expect(sectionNames()).toEqual([]);
+
+  await send({ type: "started", agent: running("busy") });
+  expect(sectionNames()).toEqual(["Running", "Earlier"]);
+
+  await send({ type: "stopped", agentId: "busy" });
+  expect(sectionNames()).toEqual([]);
+});
+
+test("a running agent on a host without navigation is listed and opens nothing", async () => {
+  await mount({ ...PROPS, navigation: undefined });
+  await send({ type: "state", state: { entries: [], seenAt: null, running: [running("busy")] } });
+
+  expect(sectionNames()).toEqual(["Running"]);
+  expect(buttons()).toHaveLength(0);
+  expect(container.textContent).toContain("Agent busyRunning · shop · started 3 min ago");
+});
+
+test("a feed with no entries still lists what runs, and says nothing is yet in it only when nothing does", async () => {
+  await mount();
+  await send({ type: "state", state: { entries: [], seenAt: null, running: [running("busy")] } });
+
+  expect(sectionNames()).toEqual(["Running"]);
+  expect(container.textContent).not.toContain("Nothing yet.");
+  expect(filter()).not.toBeNull();
+
+  await send({ type: "stopped", agentId: "busy" });
+  expect(container.textContent).toContain("Nothing yet.");
+  expect(filter()).toBeNull();
+});
+
+test("the filter narrows the entries and the running agents by any of their words", async () => {
+  await mount();
+  await send({
+    type: "state",
+    state: {
+      entries: [FRESH, OLD],
+      seenAt: SEEN,
+      running: [running("busy", { title: "Checkout total", folder: "/work/api" })],
+    },
+  });
+  expect(rows()).toHaveLength(3);
+
+  // What happened is a word too.
+  await type("failed");
+  expect(rows().map((row) => row.getAttribute("aria-label"))).toEqual([
+    "Failed: Agent fresh. Open the agent",
+  ]);
+  expect(sectionNames()).toEqual(["Unread"]);
+
+  // Every word has to be found; the folder and the entry's line count.
+  await type("  SHOP said ");
+  expect(rows().map((row) => row.getAttribute("aria-label"))).toEqual([
+    "Finished: Agent old. Open the agent",
+  ]);
+
+  await type("checkout api");
+  expect(sectionNames()).toEqual(["Running"]);
+  expect(rows()).toHaveLength(1);
+
+  await type("running");
+  expect(rows()).toHaveLength(1);
+});
+
+test("a filter that finds nothing says so, and clearing it brings everything back", async () => {
+  await mount();
+  await send({ type: "state", state: { entries: [FRESH, OLD], seenAt: SEEN } });
+
+  await type("zzz");
   expect(rows()).toHaveLength(0);
+  expect(container.textContent).toContain('Nothing matches "zzz"');
+  expect(sectionNames()).toEqual([]);
+
+  await type("");
+  expect(rows()).toHaveLength(2);
+  expect(container.textContent).not.toContain("Nothing matches");
 });
