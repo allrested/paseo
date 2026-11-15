@@ -506,3 +506,214 @@ test("a picture is read through the project's uploads, which the API serves from
     "GitLab has no such upload here, or is older than 17.4 and cannot hand it out.",
   );
 });
+
+const THREAD = "87805b7c09016a7058e91bdbe7b29d1f284a39e6";
+const DISCUSSIONS = [
+  // A plain comment, a system note and two threads: oldest first, as GitLab lists them.
+  {
+    id: "1111111111111111111111111111111111111111",
+    individual_note: true,
+    notes: [{ id: 40, body: "Looks close.", author: { username: "rina" }, system: false }],
+  },
+  {
+    id: "2222222222222222222222222222222222222222",
+    individual_note: true,
+    notes: [{ id: 41, body: "added 1 commit", author: { username: "dimas" }, system: true }],
+  },
+  {
+    id: THREAD,
+    individual_note: false,
+    notes: [
+      {
+        id: 42,
+        type: "DiffNote",
+        body: "Why 5?\n",
+        author: { username: "rina", name: "Rina Putri" },
+        created_at: "2026-11-14T04:00:00.000Z",
+        system: false,
+        resolvable: true,
+        resolved: false,
+        position: {
+          old_path: "src/limit.ts",
+          new_path: "src/limiter.ts",
+          old_line: null,
+          new_line: 27,
+        },
+      },
+      {
+        id: 43,
+        type: "DiffNote",
+        body: "It is the login default.",
+        author: { username: "dimas", name: "Dimas" },
+        created_at: "2026-11-14T05:00:00.000Z",
+        system: false,
+        resolvable: true,
+        resolved: false,
+      },
+    ],
+  },
+  {
+    id: "3333333333333333333333333333333333333333",
+    individual_note: false,
+    notes: [
+      {
+        id: 44,
+        type: "DiscussionNote",
+        body: "Add a test for the cooldown.",
+        author: { username: "rina", name: "Rina Putri" },
+        created_at: "2026-11-14T06:00:00.000Z",
+        resolvable: true,
+        resolved: true,
+        resolved_by: { username: "dimas", name: "Dimas" },
+      },
+      {
+        id: 45,
+        body: "resolved all threads",
+        author: { username: "dimas" },
+        system: true,
+        resolvable: false,
+      },
+    ],
+  },
+];
+
+test("a merge request's review threads are its discussions that can be resolved", async () => {
+  const { calls, tracker } = gitlab(() => json(DISCUSSIONS));
+  const review = await tracker.review!.list("mr:42:12");
+  expect(review).toEqual({
+    more: false,
+    threads: [
+      {
+        id: THREAD,
+        resolved: false,
+        where: "src/limiter.ts:27",
+        notes: [
+          { id: "42", author: "Rina Putri", at: "2026-11-14T04:00:00.000Z", text: "Why 5?" },
+          {
+            id: "43",
+            author: "Dimas",
+            at: "2026-11-14T05:00:00.000Z",
+            text: "It is the login default.",
+          },
+        ],
+      },
+      {
+        id: "3333333333333333333333333333333333333333",
+        resolved: true,
+        resolvedBy: "Dimas",
+        notes: [
+          {
+            id: "44",
+            author: "Rina Putri",
+            at: "2026-11-14T06:00:00.000Z",
+            text: "Add a test for the cooldown.",
+          },
+        ],
+      },
+    ],
+  });
+  expect(calls.map((call) => call.url.pathname + call.url.search)).toEqual([
+    "/api/v4/projects/42/merge_requests/12/discussions?per_page=100&page=1",
+  ]);
+});
+
+test("a thread on a removed line names the old file, and one on a file alone names the file", async () => {
+  const at = (position: object) => [
+    { id: THREAD, notes: [{ id: 1, body: "x", resolvable: true, resolved: false, position }] },
+  ];
+  const removed = gitlab(() =>
+    json(at({ old_path: "src/old.ts", new_path: null, old_line: 9, new_line: null })),
+  );
+  expect((await removed.tracker.review!.list("mr:42:12")).threads[0].where).toBe("src/old.ts:9");
+  const whole = gitlab(() => json(at({ new_path: "logo.png" })));
+  expect((await whole.tracker.review!.list("mr:42:12")).threads[0].where).toBe("logo.png");
+});
+
+test("a long review is read a page at a time, and says so when it holds more than five", async () => {
+  const page = Array.from({ length: 100 }, (_unused, at) => ({
+    id: `${at}`.padStart(40, "a"),
+    notes: [{ id: at, body: "x", resolvable: true, resolved: false }],
+  }));
+  const short = gitlab((url) => json(url.searchParams.get("page") === "1" ? page : [page[0]]));
+  const two = await short.tracker.review!.list("mr:42:12");
+  expect(two.threads).toHaveLength(101);
+  expect(two.more).toBe(false);
+  expect(short.calls).toHaveLength(2);
+  const endless = gitlab(() => json(page));
+  const five = await endless.tracker.review!.list("mr:42:12");
+  expect(five.threads).toHaveLength(500);
+  expect(five.more).toBe(true);
+  expect(endless.calls.map((call) => call.url.searchParams.get("page"))).toEqual([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+  ]);
+});
+
+test("a reply goes to its thread, and a thread is resolved or opened again", async () => {
+  const { calls, tracker } = gitlab(() => json({}, 201));
+  await tracker.review!.reply("mr:42:12", THREAD, "Raised to 10.");
+  await tracker.review!.resolve("mr:42:12", THREAD, true);
+  await tracker.review!.resolve("mr:42:12", THREAD, false);
+  expect(
+    calls.map((call) => [call.method, call.url.pathname + call.url.search, call.body]),
+  ).toEqual([
+    [
+      "POST",
+      `/api/v4/projects/42/merge_requests/12/discussions/${THREAD}/notes`,
+      { body: "Raised to 10." },
+    ],
+    ["PUT", `/api/v4/projects/42/merge_requests/12/discussions/${THREAD}?resolved=true`, {}],
+    ["PUT", `/api/v4/projects/42/merge_requests/12/discussions/${THREAD}?resolved=false`, {}],
+  ]);
+});
+
+test("an issue has no review, and a thread id that is no id is refused before anything is sent", async () => {
+  const { calls, tracker } = gitlab(() => json([]));
+  await expect(tracker.review!.list("issue:42:7")).rejects.toThrow(
+    "Only a merge request has review threads.",
+  );
+  await expect(tracker.review!.reply("mr:42:12", "../../notes", "x")).rejects.toThrow(
+    "That is no GitLab thread.",
+  );
+  await expect(tracker.review!.resolve("mr:42:12", "", true)).rejects.toThrow(
+    "That is no GitLab thread.",
+  );
+  expect(calls).toEqual([]);
+});
+
+test("a thread that cannot be resolved by this account says GitLab did not allow it", async () => {
+  const { tracker } = gitlab(() => json({ message: "403 Forbidden" }, 403));
+  await expect(tracker.review!.resolve("mr:42:12", THREAD, true)).rejects.toThrow(
+    "GitLab did not allow the change. Check what the saved token may do.",
+  );
+});
+
+test("a merge request's comments leave its review notes to the threads, and still count them", async () => {
+  const notes = [
+    { id: 50, body: "Merging tomorrow.", author: { username: "dimas" }, system: false },
+    { id: 43, body: "It is the login default.", author: { username: "dimas" }, resolvable: true },
+    { id: 42, body: "Why 5?", author: { username: "rina" }, resolvable: true },
+    { id: 41, body: "added 1 commit", author: { username: "dimas" }, system: true },
+    { id: 40, body: "Looks close.", author: { username: "rina" }, resolvable: false },
+  ];
+  const answers = (item: object) =>
+    signedIn((url) => (url.pathname.endsWith("/notes") ? json(notes) : json(item)));
+  const request = await gitlab(answers({ ...MERGE_REQUEST, user_notes_count: 9 })).tracker.detail(
+    "mr:42:12",
+  );
+  expect(request.comments.map((comment) => comment.text)).toEqual([
+    "Looks close.",
+    "Merging tomorrow.",
+  ]);
+  // Nine notes: two shown, two in threads, five older ones not read.
+  expect(request.earlierComments).toBe(5);
+  // An issue's threads cannot be resolved apart, so its notes all stay comments.
+  const issue = await gitlab(answers({ ...ISSUE, user_notes_count: 4 })).tracker.detail(
+    "issue:42:7",
+  );
+  expect(issue.comments).toHaveLength(4);
+  expect(issue.earlierComments).toBe(0);
+});

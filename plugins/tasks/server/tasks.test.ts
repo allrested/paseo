@@ -382,6 +382,7 @@ test("a task's page is the task, its comments, its moves and, for an issue, its 
     branch: "BWLT-12-add-the-webhook",
     assignedToMe: false,
     images: [],
+    reviewThreads: false,
   });
   const request = await tasks.detail("gitlab:mr:42:12");
   expect(request).toMatchObject({
@@ -776,4 +777,94 @@ test("a task's page lists the pictures its description held", async () => {
     images: [{ id: "0123456789abcdef0123456789abcdef/a.png", name: "shot" }],
     assignedToMe: true,
   });
+});
+
+const OPEN_THREAD = "87805b7c09016a7058e91bdbe7b29d1f284a39e6";
+const DONE_THREAD = "3333333333333333333333333333333333333333";
+const threadNote = (id: number, body: string, resolved: boolean) => ({
+  id,
+  body,
+  author: { username: "rina", name: "Rina Putri" },
+  created_at: "2026-11-14T04:00:00.000Z",
+  resolvable: true,
+  resolved,
+});
+const DISCUSSIONS = [
+  { id: DONE_THREAD, notes: [threadNote(44, "Add a test.", true)] },
+  { id: OPEN_THREAD, notes: [threadNote(42, "Why 5?", false)] },
+];
+
+function reviewAnswer(url: URL): Response {
+  return url.pathname.includes("/discussions") ? json(DISCUSSIONS) : gitlabAnswer(url);
+}
+
+test("only a GitLab merge request's page says it has review threads to read", async () => {
+  const { tasks } = setup({ tokens: ALL_TOKENS });
+  expect((await tasks.detail("gitlab:mr:42:12")).reviewThreads).toBe(true);
+  expect((await tasks.detail("gitlab:issue:42:7")).reviewThreads).toBe(false);
+  expect((await tasks.detail("github:mr:shop/api:10")).reviewThreads).toBe(false);
+});
+
+test("a merge request's threads come with the open ones first", async () => {
+  const { tasks, asked } = setup({ gitlab: reviewAnswer });
+  const review = await tasks.threads("gitlab:mr:42:12");
+  expect(review.threads.map((thread) => [thread.id, thread.resolved])).toEqual([
+    [OPEN_THREAD, false],
+    [DONE_THREAD, true],
+  ]);
+  expect(review.more).toBe(false);
+  expect(asked).toEqual(["git.team.test/api/v4/projects/42/merge_requests/12/discussions"]);
+});
+
+test("a reply is trimmed and sent to its thread, and the threads are read again", async () => {
+  const { tasks, sent, asked } = setup({ gitlab: reviewAnswer });
+  const review = await tasks.replyThread({
+    id: "gitlab:mr:42:12",
+    thread: OPEN_THREAD,
+    text: "  Raised to 10.\n",
+  });
+  expect(sent).toEqual([
+    [
+      "POST",
+      `/api/v4/projects/42/merge_requests/12/discussions/${OPEN_THREAD}/notes`,
+      { body: "Raised to 10." },
+    ],
+  ]);
+  expect(asked).toHaveLength(2);
+  expect(review.threads).toHaveLength(2);
+  await expect(
+    tasks.replyThread({ id: "gitlab:mr:42:12", thread: OPEN_THREAD, text: " \n" }),
+  ).rejects.toThrow("Write the reply first.");
+  expect(sent).toHaveLength(1);
+});
+
+test("a thread is resolved and opened again, and the threads are read again", async () => {
+  const { tasks, sent } = setup({ gitlab: reviewAnswer });
+  await tasks.resolveThread({ id: "gitlab:mr:42:12", thread: OPEN_THREAD, resolved: true });
+  await tasks.resolveThread({ id: "gitlab:mr:42:12", thread: DONE_THREAD, resolved: false });
+  expect(sent.map(([method, path]) => [method, path])).toEqual([
+    ["PUT", `/api/v4/projects/42/merge_requests/12/discussions/${OPEN_THREAD}`],
+    ["PUT", `/api/v4/projects/42/merge_requests/12/discussions/${DONE_THREAD}`],
+  ]);
+});
+
+test("a tracker whose review Paseo does not read says so, and nothing is asked of it", async () => {
+  const { tasks, asked } = setup({ tokens: ALL_TOKENS });
+  await expect(tasks.threads("github:mr:shop/api:10")).rejects.toThrow(
+    "Paseo does not read GitHub's review threads here.",
+  );
+  await expect(tasks.threads("jira:BWLT-12")).rejects.toThrow(
+    "Paseo does not read Jira's review threads here.",
+  );
+  expect(asked).toEqual([]);
+});
+
+test("a long thread note is cut like a comment", async () => {
+  const { tasks } = setup({
+    gitlab: () => json([{ id: OPEN_THREAD, notes: [threadNote(1, "x".repeat(30_000), false)] }]),
+  });
+  const review = await tasks.threads("gitlab:mr:42:12");
+  expect(review.threads[0].notes[0].text).toMatch(
+    /\[Cut here\. The rest is on the task's page\.\]$/,
+  );
 });

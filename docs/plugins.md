@@ -408,11 +408,19 @@ the statuses it can move to. For a Jira issue those are the transitions its work
 where it stands, named by the status they lead to. A transition that needs a field (a resolution,
 say) is refused, and the page shows Jira's reason under the button. A GitLab or GitHub issue
 closes and reopens. A merge request or pull request is read and commented on; it is merged or
-closed on its tracker, and a pull request's review threads stay in the workspace's pull request
-pane. A task the saved account is not assigned to has "Assign to me", which adds the account and
+closed on its tracker. A task the saved account is not assigned to has "Assign to me", which adds the account and
 keeps who already has it. GitLab and GitHub write Markdown and the page renders it. Jira's rich
 text is flattened to plain text (`plugins/tasks/server/adf.ts`), a comment goes to Jira as plain
 paragraphs, and a description over 20,000 characters is cut.
+
+A GitLab merge request's page lists its review threads between the description and the
+comments. An open thread shows in full, with the file and line it is about, a reply box and
+"Resolve thread"; the resolved ones wait behind a button and have "Reopen thread". The comments
+below leave the thread notes out. The threads are GitLab's discussions that can be resolved,
+read 100 at a time for up to five pages; system notes fill those pages too, and a review longer
+than that says GitLab holds more. Resolving takes the Developer role or the request's
+authorship, and without it the button shows that GitLab did not allow the change. A GitHub pull
+request's threads stay in the workspace's pull request pane.
 
 The pictures of a description show under its text: a Jira issue's image attachments, a GitLab
 description's uploads, a GitHub description's attached images. Where one stood, the text says
@@ -462,8 +470,8 @@ The addresses are the plugin's host settings. The tokens are not, because every 
 settings: they are in `$PASEO_HOME/tasks/tokens.json`, mode 600, and the RPCs about them say
 whether one is saved and replace or remove it. No RPC returns a token. Every comment and move is
 made as the token's user, for whoever uses the host. A GitLab token with `read_api` reads; a
-comment, a close, a new issue or an assignment needs `api`, and without it the page says the
-tracker did not allow the change. GitHub needs no address: a token alone connects github.com, and the address field is for
+comment, a reply, a close, a new issue or an assignment needs `api`, and without it the page
+says the tracker did not allow the change. GitHub needs no address: a token alone connects github.com, and the address field is for
 a GitHub Enterprise server, whose API is read under `/api/v3`. A classic GitHub token needs
 `repo`; a fine-grained one needs Issues and Pull requests, with write access to comment, make
 an issue or assign one, and lists only the repositories it was given. GitHub's lists come from its issue search, which allows 30 requests a minute. A

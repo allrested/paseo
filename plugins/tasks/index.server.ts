@@ -15,6 +15,9 @@ import {
   linkedWorkspacesRpc,
   listTasksRpc,
   placesRpc,
+  replyThreadRpc,
+  resolveThreadRpc,
+  reviewThreadsRpc,
   searchAttachmentsRpc,
   searchTasksRpc,
   setTokenRpc,
@@ -62,6 +65,9 @@ export function createTasksPlugin(server: PluginServerContext, deps: TasksPlugin
   server.handle(createTaskRpc, (input) => tasks.create(input));
   server.handle(assignTaskRpc, ({ id }) => tasks.assign(id));
   server.handle(taskImageRpc, (input) => tasks.image(input));
+  server.handle(reviewThreadsRpc, ({ id }) => tasks.threads(id));
+  server.handle(replyThreadRpc, (input) => tasks.replyThread(input));
+  server.handle(resolveThreadRpc, (input) => tasks.resolveThread(input));
   server.handle(tokensRpc, () => tasks.tokens());
   server.handle(setTokenRpc, (input) => tasks.setToken(input));
   server.handle(testConnectionRpc, ({ source }) => tasks.test(source));

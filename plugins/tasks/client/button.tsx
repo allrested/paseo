@@ -10,6 +10,8 @@ import type { TasksStyles } from "./tasks-styles.js";
 
 export interface ButtonProps {
   label: string;
+  /** What a screen reader says, where several buttons on a page share a label. */
+  spoken?: string;
   /** Shown while the action runs, such as "Posting...". Absent for an action that ends at once. */
   pendingLabel?: string;
   onPress(): void | Promise<void>;
@@ -38,6 +40,7 @@ function boxStyle(
  */
 export function Button({
   label,
+  spoken,
   pendingLabel,
   onPress,
   styles,
@@ -81,12 +84,13 @@ export function Button({
     ({ pressed }: PressableStateCallbackType) => boxStyle(styles, primary, dim, pressed),
     [styles, primary, dim],
   );
-  const shown = pending && pendingLabel !== undefined ? pendingLabel : label;
+  const running = pending && pendingLabel !== undefined;
+  const shown = running ? pendingLabel : label;
   return (
     <View style={styles.buttonBox}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={shown}
+        accessibilityLabel={running ? shown : (spoken ?? shown)}
         disabled={dim}
         onPress={press}
         style={style}
