@@ -28,8 +28,7 @@ import {
   type OfficeModel,
   type OfficeRoom,
 } from "./model.js";
-import { NO_LAYOUT, type SceneLayout, type SceneLayoutKeeper } from "./scene/scene-layout.js";
-import { SceneView, type FocusRequest, type SceneCameraKeeper } from "./scene/scene-view.js";
+import type { FocusRequest } from "./focus-request.js";
 import { hasWebGL2 } from "./scene/web-env.web.js";
 import { SheetView } from "./sheet/sheet-view.js";
 import { StructureView } from "./structure-view.js";
@@ -37,6 +36,7 @@ import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
 import { useOffice, type OfficeState } from "./use-office.js";
+import { WorldView } from "./world/world-view.js";
 
 export type OfficeSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
 
@@ -228,7 +228,7 @@ export function switchUnsaved(sync: SwitchSync): boolean {
 const UNSAVED_3D =
   "Unable to save the 3D view setting on this device. It holds until the office is closed.";
 
-/** The camera's next request for a robot. Nonces start at 1: the scene counts 0 as handled. */
+/** The view's next request for an agent. Nonces start at 1: the scene counts 0 as handled. */
 export function nextFocusRequest(previous: FocusRequest | null, agentId: string): FocusRequest {
   return { agentId, nonce: (previous?.nonce ?? 0) + 1 };
 }
@@ -285,7 +285,7 @@ interface ThreeDState {
   toggle(next: boolean): void;
 }
 
-/** The per-device 3D switch. Off, and everywhere 3D is unavailable, three.js is never loaded. */
+/** The per-device 3D switch. Off, and everywhere 3D is unavailable, the scene is never loaded. */
 function useThreeD(platform: Platform, hostRender: boolean): ThreeDState {
   const settings = useSettings(officeDeviceSettings);
   const webgl2 = useMemo(() => platform === "web" && hasWebGL2(), [platform]);
@@ -389,12 +389,13 @@ interface SurfaceBodyProps {
   theme: PluginTheme;
   focusRoomId: string | null;
   focusRequest: FocusRequest | null;
-  layoutKeeper: SceneLayoutKeeper;
-  cameraKeeper: SceneCameraKeeper;
+  /** Whose card is open. */
+  selectedAgentId: string | null;
   styles: OfficeStyles;
   actions: AgentActions;
   name(author: string): string;
-  onSelectAgent(agentId: string): void;
+  /** Null from the 3D office, when the chosen person is tapped again. */
+  onSelectAgent(agentId: string | null): void;
   onOpenSession: ((agentId: string) => void) | undefined;
   onOpenBoard(roomId: string): void;
   onSceneProblem(message: string): void;
@@ -409,8 +410,7 @@ function SurfaceBody({
   theme,
   focusRoomId,
   focusRequest,
-  layoutKeeper,
-  cameraKeeper,
+  selectedAgentId,
   styles,
   actions,
   name,
@@ -452,14 +452,13 @@ function SurfaceBody({
   }
   if (sceneModel !== null) {
     return (
-      <SceneView
+      <WorldView
         model={sceneModel}
         theme={theme}
         styles={styles}
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}
-        layoutKeeper={layoutKeeper}
-        cameraKeeper={cameraKeeper}
+        selectedAgentId={selectedAgentId}
         onSelectAgent={onSelectAgent}
         onSelectBoard={onOpenBoard}
         onProblem={onSceneProblem}
@@ -531,10 +530,6 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     setSelectedId(agentId);
     setFocusRequest((previous) => nextFocusRequest(previous, agentId));
   }, []);
-  // The rooms' places and the user's camera outlive the scene: 3D off and on, "Try 3D again"
-  // and an error keep them.
-  const sceneLayout = useRef<SceneLayout>(NO_LAYOUT);
-  const sceneCamera = useRef<SceneCameraKeeper["current"]>(null);
   const openSession = useCallback(
     (agentId: string) => navigation?.openAgent({ agentId }),
     [navigation],
@@ -595,8 +590,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         theme={theme}
         focusRoomId={focusRoomId}
         focusRequest={focusRequest}
-        layoutKeeper={sceneLayout}
-        cameraKeeper={sceneCamera}
+        selectedAgentId={kept}
         styles={styles}
         actions={actions}
         name={name}

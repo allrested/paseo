@@ -1,0 +1,77 @@
+export default {
+  language: 'Language',
+  switchingLang: 'Switching language…',
+  toPro: 'Building the company office…',
+  toHq: 'Building headquarters…',
+  toCozy: 'Heading back to the cozy office…',
+  seasonOn: 'Turning on seasonal decorations…',
+  seasonOff: 'Turning off seasonal decorations…',
+  graphics: 'Graphics',
+  q: { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' },
+  qNow: 'In use: {level}. Lower it if the office feels slow or the fans spin up.',
+  qDropped: 'The office was slow, so graphics went down to {level}. Change it in Settings → Graphics.',
+  tabs: { office: 'Office', people: 'Characters', display: 'Display', more: 'More' },
+  layouts: {
+    cozy: { name: 'Cozy', sub: 'One open room · 9 desks' },
+    pro: { name: 'Company', sub: 'A whole floor · 12 desks' },
+    hq: { name: 'Headquarters', sub: 'Four departments · 44 desks' },
+  },
+  layoutNote: 'Changing the floor plan rebuilds the office: the page reloads and your sessions come straight back.',
+  times: {
+    auto: { name: 'Auto', sub: 'Follows the clock' },
+    day: { name: 'Day', sub: 'Always daylight' },
+    night: { name: 'Night', sub: 'Lamps and city lights' },
+  },
+  looks: {
+    toy: { sub: 'Round and glossy, like a vinyl figure' },
+    pixar: { sub: 'Big eyes and layered hair, like an animated film' },
+  },
+  lookNote: 'Every person in the office changes at once, including you in Walk in mode.',
+  qSub: { auto: 'Steps down if slow', low: 'Light, saves battery', medium: 'Balanced', high: 'Sharpest, soft shadows' },
+  weatherOff: 'Off',
+  notify: 'Phone and alerts',
+  behaviour: 'Behaviour',
+  // Settings → More: the models of a session and its subagents (ui/models.js, server/models.mjs)
+  models: {
+    title: 'Models: coordinator and subagents',
+    note: 'A big task can be split among subagents: the session coordinates on one model, its subagents work on another (Sonnet costs less than Opus). For Claude sessions started from now on, on every account.',
+    main: 'The session (coordinator)', sub: 'Subagents',
+    opt: { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', default: 'Default', same: 'Same' },
+    force: 'Always this model for subagents (even when Claude picks another)',
+    split: 'Ask Claude to split big tasks among subagents',
+    splitNote: 'A short note in ~/.claude/CLAUDE.md, taken out again when this is off.',
+    other: 'Now: {model} (set by hand)',
+    saved: 'Saved. Claude sessions started from now on use it; the ones open now keep their model.',
+    readOnly: "~/.claude/settings.json can't be read here (it may have comments): set the model there by hand.",
+  },
+  // Settings → More: the stuck-loop breaker (server/loops.mjs)
+  // Settings → More: approve right from the Mac's notifications (ui/mac-approve.js, server/mac-hold.mjs)
+  macApprove: {
+    title: "Approve from the Mac's notifications",
+    on: "Approve from the Mac's notifications",
+    note: "While you are at the Mac (a key or the mouse touched lately) and the menu bar icon is running, a request from Claude is held for up to 20 seconds so you can press Allow / Deny on its notification. A risky command only gets Deny. Turn it off and Claude asks in the IDE straight away, as before; so it does when you are away.",
+  },
+  loop: {
+    title: 'Stuck loops',
+    on: 'Break stuck loops',
+    note: 'When a session runs the same thing and gets the same error again and again, its next try is blocked and Claude is told to change course; a card in the chat lets you stop it or send a hint. It also points out compaction after compaction, and spending with no file edited.',
+    after: 'Block after', tries: { one: '{n} failure', other: '{n} failures' },
+    costAfter: 'Spending with no file edited for', mins: '{n} min',
+    install: 'Run `node bin/cli.mjs install` once more so Claude Code checks with the office before each step.',
+  },
+  // Settings → More: the farewell for a project quiet for a long while (people/farewell.js, server/tenure.mjs)
+  farewell: {
+    title: 'Farewells',
+    on: 'Say goodbye to projects gone quiet',
+    note: 'A project that really was at work (two days or more) and has had no session for a long while gets a last afternoon: its person packs the desk into a box, everyone signs a card, a small cake, a group photo, the badge handed back to HR. It is only a scene in the office: nothing about the project is touched. Open the project again and its person comes back to the old company.',
+    after: 'After no work for', days: { one: '{n} day', other: '{n} days' },
+  },
+  // Settings → More: the prompt cache's clock (the cups on the desks)
+  cache: {
+    title: 'Prompt cache',
+    note: 'A cup of coffee on each resting desk: its steam fades as the session\'s prompt cache cools, gone once it is cold. Writing to the session while it is warm is cheap; once cold, the next message reads the whole conversation again.',
+    nudge: 'Tell my phone when a session waiting for my answer is 5 minutes from going cold',
+  },
+  chat: 'Group chat',
+  coachNote: 'When you write to a conversation (“To”), the helper points out over the input what Claude could misread. It works on this device and sends nothing; only “✨ Rewrite it clearly” asks Claude.',
+};
