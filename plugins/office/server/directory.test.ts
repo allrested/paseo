@@ -232,3 +232,86 @@ test("a reset is forgotten with its agent, and with a context nobody reports any
   expect(settled.agents).toEqual([officeAgent({ id: "silent" })]);
   expect(settled.resets.size).toBe(0);
 });
+
+test("a workspace carries its branch, the ticket it was started on and its pull request", () => {
+  const projected = projectWorkspace(
+    workspaceInput({
+      metadata: { "tasks.key": "SHOP-41", "tasks.url": "https://jira.example/browse/SHOP-41" },
+      gitRuntime: { currentBranch: "feat/checkout" },
+      githubRuntime: {
+        pullRequest: {
+          number: 12,
+          url: "https://github.example/shop/pull/12",
+          title: "Fix checkout",
+          state: "OPEN",
+          isMerged: false,
+          isDraft: true,
+          mergeable: "CONFLICTING",
+          checksStatus: "failure",
+          reviewDecision: "changes_requested",
+        },
+      },
+    }),
+  );
+  expect(projected).toEqual({
+    id: "w1",
+    name: "main",
+    projectName: "paseo",
+    branch: "feat/checkout",
+    ticket: { key: "SHOP-41", url: "https://jira.example/browse/SHOP-41" },
+    pullRequest: {
+      number: 12,
+      url: "https://github.example/shop/pull/12",
+      title: "Fix checkout",
+      state: "draft",
+      checks: "failure",
+      review: "changes_requested",
+      conflicts: true,
+    },
+  });
+});
+
+test("a pull request is merged, closed, a draft or open, whatever its forge calls the state", () => {
+  const state = (pullRequest: object) =>
+    projectWorkspace(
+      workspaceInput({
+        githubRuntime: {
+          pullRequest: { url: "u", title: "t", state: "OPEN", isMerged: false, ...pullRequest },
+        },
+      }),
+    )?.pullRequest;
+  expect(state({})).toEqual({
+    number: null,
+    url: "u",
+    title: "t",
+    state: "open",
+    checks: "none",
+    review: null,
+    conflicts: false,
+  });
+  expect(state({ isMerged: true })?.state).toBe("merged");
+  expect(state({ state: "merged" })?.state).toBe("merged");
+  expect(state({ state: "CLOSED", isDraft: true })?.state).toBe("closed");
+  expect(state({ state: "opened", isDraft: true })?.state).toBe("draft");
+});
+
+test("a workspace without a branch, a ticket or a pull request carries none", () => {
+  const plain = { id: "w1", name: "main", projectName: "paseo" };
+  expect(
+    projectWorkspace(
+      workspaceInput({
+        metadata: { "tasks.key": "", "other.key": "x" },
+        gitRuntime: { currentBranch: null },
+        githubRuntime: { pullRequest: null },
+      }),
+    ),
+  ).toEqual(plain);
+  expect(projectWorkspace(workspaceInput({ gitRuntime: null, githubRuntime: null }))).toEqual(
+    plain,
+  );
+  // A ticket whose address was not kept still has its key.
+  expect(projectWorkspace(workspaceInput({ metadata: { "tasks.key": "#9" } }))?.ticket).toEqual({
+    key: "#9",
+    url: null,
+  });
+});

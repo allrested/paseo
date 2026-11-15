@@ -28,6 +28,8 @@ const OURS = {
   'events.verb.compact': 'tidy the conversation',
   'events.bubble.compact': 'Tidying the conversation',
   'people.shred.go': 'Off to shred the paper',
+  // (the bell is rung by Paseo's stand-up card)
+  'people.meet.standup': 'Stand-up, everyone: what are you on?',
   'world.dev.lost': { one: '{n} agent left something running', other: '{n} agents left something running' },
   'places.library.today': { one: '{n} read since the office opened', other: '{n} reads since the office opened' },
   'places.window.empty': 'Nobody has searched the web since the office opened.',

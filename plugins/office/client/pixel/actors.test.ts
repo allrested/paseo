@@ -39,7 +39,7 @@ const step = (kind: ActivityStep["kind"], patch: Partial<ActivityStep> = {}): Ac
 
 describe("standingOf", () => {
   it("sends each kind of work to its place", () => {
-    const at = (kind: ActivityStep["kind"]) => standingOf(session("a"), step(kind), false);
+    const at = (kind: ActivityStep["kind"]) => standingOf(session("a"), step(kind), false, false);
     expect(at("read")).toEqual({ place: "library", icon: "read", screen: "code" });
     expect(at("search")).toEqual({ place: "library", icon: "search", screen: "code" });
     expect(at("command")).toEqual({ place: "racks", icon: "command", screen: "code" });
@@ -55,16 +55,18 @@ describe("standingOf", () => {
   });
 
   it("shows how a test run ended, at the racks", () => {
-    expect(standingOf(session("a"), step("test", { result: "passed" }), false)).toEqual({
+    expect(standingOf(session("a"), step("test", { result: "passed" }), false, false)).toEqual({
       place: "racks",
       icon: "passed",
       screen: "code",
     });
-    expect(standingOf(session("a"), step("test", { result: "failed" }), false).icon).toBe("failed");
+    expect(standingOf(session("a"), step("test", { result: "failed" }), false, false).icon).toBe(
+      "failed",
+    );
   });
 
   it("types at the desk when the agent works at no tool call", () => {
-    expect(standingOf(session("a"), undefined, false)).toEqual({
+    expect(standingOf(session("a"), undefined, false, false)).toEqual({
       place: null,
       icon: null,
       screen: "code",
@@ -73,30 +75,45 @@ describe("standingOf", () => {
 
   it("keeps whoever needs the user at the desk, an error before a question", () => {
     const reading = step("read");
-    expect(standingOf(session("a", { status: "wait" }), reading, false)).toEqual({
+    expect(standingOf(session("a", { status: "wait" }), reading, false, false)).toEqual({
       place: null,
       icon: "wait",
       screen: "wait",
     });
-    expect(standingOf(session("a", { status: "wait", stuck: true }), reading, true)).toEqual({
-      place: null,
-      icon: "fail",
-      screen: "fail",
-    });
+    expect(standingOf(session("a", { status: "wait", stuck: true }), reading, true, false)).toEqual(
+      {
+        place: null,
+        icon: "fail",
+        screen: "fail",
+      },
+    );
   });
 
   it("rests at the desk with the screen off, but for a break", () => {
     const resting = session("a", { status: "rest" });
-    expect(standingOf(resting, undefined, false)).toEqual({
+    expect(standingOf(resting, undefined, false, false)).toEqual({
       place: null,
       icon: null,
       screen: "off",
     });
-    expect(standingOf(resting, undefined, true)).toEqual({
+    expect(standingOf(resting, undefined, true, false)).toEqual({
       place: "coffee",
       icon: "coffee",
       screen: "off",
     });
+  });
+
+  it("calls whoever rests to the whiteboard for a stand-up, and nobody else", () => {
+    const resting = session("a", { status: "rest" });
+    const atBoard = { place: "board", icon: null, screen: "off" };
+    expect(standingOf(resting, undefined, false, true)).toEqual(atBoard);
+    expect(standingOf(resting, undefined, true, true)).toEqual(atBoard);
+    expect(standingOf(session("a"), step("read"), false, true).place).toBe("library");
+    expect(standingOf(session("a"), undefined, false, true).place).toBeNull();
+    expect(standingOf(session("a", { status: "wait" }), undefined, false, true).place).toBeNull();
+    expect(
+      standingOf(session("a", { status: "rest", stuck: true }), undefined, false, true).place,
+    ).toBeNull();
   });
 });
 
@@ -148,12 +165,27 @@ describe("castOf", () => {
       ["b", step("edit")],
       ["d", step("search")],
     ]);
-    const cast = castOf({ sessions, overflow: 0, steps }, NO_BREAKS);
+    const cast = castOf({ sessions, overflow: 0, steps }, NO_BREAKS, false);
     expect(cast.map((member) => [member.id, member.standing.place, member.spot])).toEqual([
       ["a", "library", 0],
       ["b", null, 0],
       ["c", null, 0],
       ["d", "library", 1],
+    ]);
+  });
+
+  it("lines a stand-up up at the whiteboard beside whoever plans there", () => {
+    const sessions = [
+      session("a", { status: "rest" }),
+      session("b"),
+      session("c", { status: "rest" }),
+    ];
+    const steps = new Map([["b", step("plan")]]);
+    const cast = castOf({ sessions, overflow: 0, steps }, NO_BREAKS, true);
+    expect(cast.map((member) => [member.id, member.standing.place, member.spot])).toEqual([
+      ["a", "board", 0],
+      ["b", "board", 1],
+      ["c", "board", 2],
     ]);
   });
 });

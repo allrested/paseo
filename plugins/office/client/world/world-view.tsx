@@ -48,6 +48,8 @@ export interface WorldViewProps {
   machine: Machine | null;
   /** A tap on the server room: its chip, the racks, the wall screen or a server box. */
   onOpenMachine(): void;
+  /** The stand-up is open: the bell on the meeting table rings once. */
+  meeting: boolean;
   /** The script could not load, the office could not start, or the WebGL context was lost. */
   onProblem(message: string): void;
 }
@@ -77,6 +79,7 @@ export function WorldView({
   onSelectBoard,
   machine,
   onOpenMachine,
+  meeting,
   onProblem,
 }: WorldViewProps) {
   const containerId = useId();
@@ -235,6 +238,10 @@ export function WorldView({
   useEffect(() => {
     world.current?.select(selectedAgentId);
   }, [selectedAgentId, started]);
+
+  useEffect(() => {
+    if (meeting) world.current?.meet?.();
+  }, [meeting, started]);
 
   // A request that was already there when this view appeared was made for the list view.
   const handledNonce = useRef(focusRequest?.nonce ?? 0);

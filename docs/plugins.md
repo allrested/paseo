@@ -646,11 +646,14 @@ its racks and the wall screen open the Host card, the wall screen shows memory a
 with a port open has a small server on its desk, and what was left running stands in the server
 room under a red light. The paper on a desk and in its bin is the agent's context, with a flag in
 it from 85%. When a context falls to less than half of what it was, by a compaction or a new
-conversation, the person carries the paper to the shredder. Designs:
+conversation, the person carries the paper to the shredder. Opening the stand-up rings the bell
+on the meeting table: everyone the scene counts as free walks there and says what they are on.
+Designs:
 [the floor](superpowers/specs/2026-11-16-office-my-office-port-design.md),
 [the places](superpowers/specs/2026-11-16-office-activity-places-design.md),
 [the host](superpowers/specs/2026-11-16-office-server-care-design.md),
-[the janitor](superpowers/specs/2026-11-16-office-janitor-design.md).
+[the janitor](superpowers/specs/2026-11-16-office-janitor-design.md),
+[the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
 
 The 2D floor (`plugins/office/client/pixel`) is pixel art drawn with plain views, one per
 rectangle of colour. Plugin code in the installed app has React Native views only, with no canvas
@@ -668,7 +671,8 @@ the rocket, and the desk for everything else. Whoever needs you stays at the des
 opens the card. Where a person stands follows from the agent's state alone
 (`client/pixel/actors.ts`), so an office opened in the middle of a turn shows everyone in place.
 Two things are remembered: the coffee break, 30 seconds away from the desk after a turn ends,
-and the desks the janitor is due at. A
+and the desks the janitor is due at. While the stand-up is open, whoever rests stands at the
+whiteboard. A
 desk opens its agent's card, a team's plate and the whiteboard open a board, and the racks open
 the Host card. With a host reading, a bubble beside the racks says that something was left
 running or that memory is high, and an agent with a port open has a small server on its desk. A
@@ -676,10 +680,11 @@ person away from the desk can be tapped too, but only the desk is a stop for the
 screen reader, and it says what its agent is at. The tray on a desk holds the agent's context as
 paper, with a flag in it from 85%. A janitor stands by a cart in the lounge, and the two open the
 Janitor card. When a context empties, the janitor walks to that desk and sweeps, and the tray is
-empty once that is done. With reduced motion nobody walks, nobody takes a break and the janitor
-stays at the cart. Designs:
+empty once that is done. With reduced motion nobody walks, nobody takes a break or goes to the
+stand-up, and the janitor stays at the cart. Designs:
 [the 2D floor](superpowers/specs/2026-11-16-office-pixel-office-design.md),
-[the janitor](superpowers/specs/2026-11-16-office-janitor-design.md).
+[the janitor](superpowers/specs/2026-11-16-office-janitor-design.md),
+[the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
 
 Server code of a plugin cannot import from its `client/` folder (the compiler refuses it).
 
@@ -697,6 +702,21 @@ agent as the source, the user's posts arrive as a user prompt. A post naming an 
 run a turn yet is delivered after that agent's first turn or the next post that names it. The "Wake
 agents" switch holds every wake until it is turned back on; wakes that wait are not kept across a
 daemon restart. Design: [the spec](superpowers/specs/2026-11-11-agent-office-design.md).
+
+The Stand-up entry at the end of the attention strip reports every room with an agent in it: its
+branch, its ticket, its pull request, what blocks it, and what each agent is at, with the agent's
+newest note on the room's board from the last 24 hours. The office calls no tracker and no forge
+for it and holds no token. The ticket is the one the `tasks` built-in keeps on the workspace
+(`tasks.key` and `tasks.url` in its metadata), whichever tracker it came from. The branch and the
+pull request, with its checks, its review decision and whether it conflicts, are on the workspace
+descriptor the daemon keeps current for the sidebar (`projectWorkspace` in
+`plugins/office/server/directory.ts`). A blocker is an agent that waits for your answer or
+stopped on an error, or a pull request with failing checks, requested changes or conflicts. "Ask
+for an update" posts one note per idle agent on its room's board, each naming its agent, because
+a wake needs a name; the agent answers with `office_post`, and its note shows in the report. An
+agent is asked once per opening of the card, and the button is off while "Wake agents" is off.
+"Copy as text" copies the report. Design:
+[the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
 
 The `design` built-in keeps a workspace's design files on the host's own FigCraft server (deploy
 it with [docker.md](docker.md#figcraft-design-mode)). It is off until `FIGCRAFT_URL` names that

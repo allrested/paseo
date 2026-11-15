@@ -106,15 +106,27 @@ export interface AttentionStripProps {
   entries: readonly AttentionEntry[];
   /** The host's note; null on a host that cannot be read. It comes after the agents. */
   host: StripNote | null;
-  /** How full the contexts are; null in an office without agents. It comes last. */
+  /** How full the contexts are; null in an office without agents. */
   janitor: StripNote | null;
+  /** What blocks the teams; null in an office without agents. It comes last. */
+  standup: StripNote | null;
   styles: OfficeStyles;
   onSelect(agentId: string): void;
 }
 
-/** The agents that need the user, then the host and the janitor. On a phone this is the fast path. */
-export function AttentionStrip({ entries, host, janitor, styles, onSelect }: AttentionStripProps) {
-  if (entries.length === 0 && host === null && janitor === null) return null;
+/**
+ * The agents that need the user, then the office's cards: the host, the janitor and the
+ * stand-up. On a phone this is the fast path.
+ */
+export function AttentionStrip({
+  entries,
+  host,
+  janitor,
+  standup,
+  styles,
+  onSelect,
+}: AttentionStripProps) {
+  if (entries.length === 0 && host === null && janitor === null && standup === null) return null;
   return (
     <View style={styles.stripRail}>
       <ScrollView
@@ -131,6 +143,9 @@ export function AttentionStrip({ entries, host, janitor, styles, onSelect }: Att
         ) : null}
         {janitor ? (
           <NoteItem title="Janitor" note={janitor.note} styles={styles} onOpen={janitor.onOpen} />
+        ) : null}
+        {standup ? (
+          <NoteItem title="Stand-up" note={standup.note} styles={styles} onOpen={standup.onOpen} />
         ) : null}
       </ScrollView>
     </View>

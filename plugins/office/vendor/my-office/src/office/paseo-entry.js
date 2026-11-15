@@ -22,7 +22,7 @@ import { closePlace } from './interact/place-cards.js';
 import { dropSub, sessions, spawnSub, subAct, subs, workers } from './people/workers.js';
 import { director } from './people/director.js';
 import { STATIONS } from './people/navigation.js';
-import { applaud } from './people/gatherings.js';
+import { applaud, ringBell } from './people/gatherings.js';
 import { launchRocket } from './world/room-update.js';
 import { printPage } from './world/props/printer.js';
 import { lostObj, syncDevBoxes } from './world/props/dev-servers.js';
@@ -262,6 +262,17 @@ const api = {
     setMacSnap(snapshot || null);
     showMachine(!!snapshot);
     syncDevBoxes(snapshot || null);
+  },
+  /**
+   * A stand-up: upstream's meeting bell, with a stand-up's opening line. Everyone free walks to the meeting table and
+   * says what they are on. Upstream says in a toast when nobody is free; Paseo's stand-up card is open then and says
+   * who is at work, so that toast is not passed on.
+   */
+  meet() {
+    if (!started || stopped) return;
+    const toast = host.toast;
+    host.toast = () => {};
+    try { ringBell(tr('people.meet.standup')); } finally { host.toast = toast; }
   },
   /** Usage windows of the accounts in use: [{ key, pct, resetsAt }]. */
   setLimits(list) { limits = Array.isArray(list) ? list : []; },
