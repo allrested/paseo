@@ -382,6 +382,22 @@ cannot hand over a row.
 
 Kiro's other layout, `~/.kiro/sessions/<hash>/sess_<id>/messages.jsonl`, is not read.
 
+The `feed` built-in lists what the agents on a host did while you looked elsewhere: a turn that
+finished, a turn that failed, and a permission an agent waits on. A Feed item in the sidebar opens
+it and shows how many entries came since the feed was last opened, on any device; "Open feed" is in
+the Command Center. A row has the agent's title, its folder, how long ago, and one line: the first
+line of the agent's last message for a finished turn, the error for a failed one, what is asked for
+a permission. Tapping a row opens the agent. A stopped turn makes no entry, and helper agents
+(`background`) are left out. The daemon writes the entries from the `agent.turn.after` and
+`agent.permission.before` hooks and keeps the newest 200 in `$PASEO_HOME/feed/feed.json`. A
+finished turn's line is read from the newest 30 entries of the agent's timeline, so a turn with
+more than that after its last message has a row without a line. A permission's entry goes when the
+permission is answered, when the agent's turn ends, and when the agent closes or is archived. Those
+still in the file when the daemon starts are dropped: the process that asked is gone. A screen is
+not told whether it is in front, and the Feed screen stays mounted under the agent it opened, so
+the feed counts as seen when it opens and when it is pressed. An entry that comes while the screen
+is up stays in the count until then.
+
 The `office` built-in shows every agent on the host in one place: an Office item in the sidebar
 opens it as a screen, and "Open office" in the Command Center opens it as a workspace tab, which
 lists that workspace's room first. Each workspace is a room, and the lobby holds agents without a
