@@ -1,4 +1,5 @@
 import type { Phase, Source, TaskKind } from "../shared/contracts.js";
+import type { FileBytes } from "./http.js";
 
 export type { TaskKind };
 
@@ -43,6 +44,39 @@ export interface StatusChange {
   label: string;
 }
 
+/** Where a new issue can go: a Jira or GitLab project, a GitHub repository. */
+export interface Place {
+  /** Names the place to its tracker. */
+  id: string;
+  label: string;
+}
+
+/** A kind of issue a place takes: Jira's issue types. */
+export interface IssueKind {
+  id: string;
+  label: string;
+}
+
+export interface NewIssue {
+  /** A `Place.id`. */
+  place: string;
+  /** An `IssueKind.id`, for a tracker that has kinds. */
+  kind?: string;
+  title: string;
+  /** Plain text or Markdown, as the tracker writes; empty for none. */
+  description: string;
+}
+
+/** An image of a task's description. */
+export interface TaskImage {
+  /** Names the image to its tracker. */
+  id: string;
+  name: string;
+}
+
+/** A task's page shows no image over this. */
+export const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+
 export interface IssueDetail extends Issue {
   /** The newest comments, oldest first. */
   comments: Comment[];
@@ -51,6 +85,10 @@ export interface IssueDetail extends Issue {
   changes: StatusChange[];
   /** The description and the comments are Markdown; plain text otherwise. */
   markdown: boolean;
+  /** The signed-in user is among the task's assignees. */
+  assignedToMe: boolean;
+  /** The images of the description, which `Tracker.image` reads. */
+  images: TaskImage[];
 }
 
 export interface Tracker {
@@ -71,6 +109,16 @@ export interface Tracker {
   change(id: string, change: string): Promise<void>;
   /** The name of the signed-in user. */
   account(): Promise<string>;
+  /** The projects or repositories a new issue can go to, that match `query`. */
+  places(query: string): Promise<Place[]>;
+  /** The kinds of issue a place takes. Absent on a tracker whose issues have no kinds. */
+  kinds?(place: string): Promise<IssueKind[]>;
+  /** Makes an issue and answers with its `Issue.id`. */
+  create(issue: NewIssue): Promise<string>;
+  /** Puts the signed-in user among the task's assignees. */
+  assign(id: string): Promise<void>;
+  /** One image a task's detail listed, by its `TaskImage.id`. */
+  image(id: string, image: string): Promise<FileBytes>;
 }
 
 /** A failure whose message is written for the user and holds no secret. */

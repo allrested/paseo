@@ -33,6 +33,11 @@ export const TASK_ID = "tasks.id";
 export const TASK_KEY = "tasks.key";
 export const TASK_URL = "tasks.url";
 export const PROMPT_MAX = 4000;
+/** The tasks screen's param that asks for the new issue form; its value is `NEW_ISSUE`. */
+export const NEW_PARAM = "new";
+export const NEW_ISSUE = "issue";
+export const TITLE_MAX = 250;
+export const DESCRIPTION_MAX = 20_000;
 
 /**
  * Where the trackers are, and the prompt a task starts a workspace with. The tokens are not here: every client of the host reads its settings,
@@ -105,6 +110,10 @@ export type TaskComment = z.infer<typeof TaskCommentSchema>;
 export const StatusChangeSchema = z.object({ id: z.string(), label: z.string() });
 export type StatusChange = z.infer<typeof StatusChangeSchema>;
 
+/** A picture of a task's description, read through `taskImageRpc`. */
+export const TaskImageSchema = z.object({ id: z.string(), name: z.string() });
+export type TaskImage = z.infer<typeof TaskImageSchema>;
+
 /** One task as its page shows it. */
 export const TaskDetailSchema = TaskRowSchema.extend({
   description: z.string(),
@@ -118,6 +127,10 @@ export const TaskDetailSchema = TaskRowSchema.extend({
   changes: z.array(StatusChangeSchema),
   /** For an issue: the branch a workspace for it starts on. */
   branch: z.string().optional(),
+  /** The saved account is among the task's assignees. */
+  assignedToMe: z.boolean(),
+  /** The pictures the description held; the text names each where it stood. */
+  images: z.array(TaskImageSchema),
 });
 export type TaskDetail = z.infer<typeof TaskDetailSchema>;
 
@@ -196,6 +209,76 @@ export const changeStatusRpc = defineRpc({
   input: z.object({ id: TaskId, change: z.string().min(1).max(40) }),
   output: TaskDetailSchema,
 });
+
+/** A connected tracker a new issue can go to. `kinds` says its issues have a kind to pick. */
+export const TrackerChoiceSchema = z.object({ source: SourceSchema, kinds: z.boolean() });
+export type TrackerChoice = z.infer<typeof TrackerChoiceSchema>;
+
+export const sourcesRpc = defineRpc({
+  name: "tasks.sources.list",
+  input: z.object({}),
+  output: z.object({ sources: z.array(TrackerChoiceSchema) }),
+});
+
+/** A project, a repository or a kind of issue, as a list offers it. */
+export const ChoiceSchema = z.object({ id: z.string(), label: z.string() });
+export type Choice = z.infer<typeof ChoiceSchema>;
+
+const PlaceId = z.string().min(1).max(200);
+
+/** The projects or repositories of one tracker that a new issue can go to. */
+export const placesRpc = defineRpc({
+  name: "tasks.places.list",
+  input: z.object({ source: SourceSchema, query: z.string().max(200) }),
+  output: z.object({ places: z.array(ChoiceSchema) }),
+});
+
+/** The kinds of issue a place takes; none on a tracker whose issues have no kinds. */
+export const kindsRpc = defineRpc({
+  name: "tasks.kinds.list",
+  input: z.object({ source: SourceSchema, place: PlaceId }),
+  output: z.object({ kinds: z.array(ChoiceSchema) }),
+});
+
+export const NewTaskSchema = z.object({
+  source: SourceSchema,
+  place: PlaceId,
+  kind: z.string().min(1).max(40).optional(),
+  title: z.string().max(TITLE_MAX),
+  description: z.string().max(DESCRIPTION_MAX),
+  /** Assign it to the saved account once it is made. */
+  assign: z.boolean(),
+});
+export type NewTask = z.infer<typeof NewTaskSchema>;
+
+/**
+ * Makes an issue as the saved account. `warning` is what went wrong after it was made: an issue
+ * that could not be assigned is still made.
+ */
+export const createTaskRpc = defineRpc({
+  name: "tasks.create",
+  input: NewTaskSchema,
+  output: z.object({ id: TaskId, warning: z.string().optional() }),
+});
+
+/** Puts the saved account among a task's assignees and answers with the task as it then is. */
+export const assignTaskRpc = defineRpc({
+  name: "tasks.assign",
+  input: z.object({ id: TaskId }),
+  output: TaskDetailSchema,
+});
+
+/** One picture of a task's description. The daemon reads it: the client has no sign-in. */
+export const taskImageRpc = defineRpc({
+  name: "tasks.images.read",
+  input: z.object({ id: TaskId, image: z.string().min(1).max(300) }),
+  output: z.object({
+    mime: z.string(),
+    /** The file in base64. */
+    data: z.string(),
+  }),
+});
+export type TaskImageFile = z.infer<typeof taskImageRpc.output>;
 
 /** `configured` is false while no tracker has both an address and a token. */
 export const searchTasksRpc = defineRpc({

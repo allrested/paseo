@@ -20,6 +20,7 @@ import { useNow } from "./device.js";
 import { ago, commentMeta, earlierComments, kindName } from "./format.js";
 import { useLinkedWorkspaces, useRefreshLinked, workspacesOf } from "./linked.js";
 import { nextTask, useNextTask } from "./next-task.js";
+import { TaskImages } from "./task-images.js";
 import type { TasksStyles } from "./tasks-styles.js";
 import { useTaskDetail } from "./use-tasks.js";
 
@@ -180,11 +181,12 @@ interface PageProps extends Styled {
   now: number;
   onMove(change: string): Promise<void>;
   onPost(text: string): Promise<void>;
+  onAssign(): Promise<void>;
   /** Absent on a host whose screens cannot open a workspace. */
   onOpenWorkspace?: (workspaceId: string) => void;
 }
 
-function Page({ task, stale, now, onMove, onPost, onOpenWorkspace, styles }: PageProps) {
+function Page({ task, stale, now, onMove, onPost, onAssign, onOpenWorkspace, styles }: PageProps) {
   const tracker = SOURCE_NAME[task.source];
   return (
     <>
@@ -219,6 +221,14 @@ function Page({ task, stale, now, onMove, onPost, onOpenWorkspace, styles }: Pag
         </View>
       )}
       <View style={styles.actions}>
+        {task.assignedToMe ? null : (
+          <Button
+            label="Assign to me"
+            pendingLabel="Assigning..."
+            onPress={onAssign}
+            styles={styles}
+          />
+        )}
         {onOpenWorkspace === undefined ? null : (
           <Workspaces task={task} onOpen={onOpenWorkspace} styles={styles} />
         )}
@@ -242,6 +252,7 @@ function Page({ task, stale, now, onMove, onPost, onOpenWorkspace, styles }: Pag
         ) : (
           <Prose text={task.description} markdown={task.markdown} styles={styles} />
         )}
+        <TaskImages taskId={task.id} images={task.images} styles={styles} />
       </View>
       <View style={styles.block}>
         <Text accessibilityRole="header" style={styles.sectionTitle}>
@@ -292,6 +303,7 @@ export function TaskDetailPane({ id, styles, onBack, onOpenWorkspace }: TaskDeta
           now={now}
           onMove={move}
           onPost={task.comment}
+          onAssign={task.assign}
           onOpenWorkspace={onOpenWorkspace}
           styles={styles}
         />

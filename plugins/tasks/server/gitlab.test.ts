@@ -25,6 +25,11 @@ function gitlab(respond: (url: URL) => Response, url = "https://git.team.test/")
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
+const USER = { id: 7, username: "rina", name: "Rina Putri" };
+/** Answers who is signed in, which a task's page asks, and leaves the rest to `respond`. */
+const signedIn = (respond: (url: URL) => Response) => (url: URL) =>
+  url.pathname.endsWith("/user") ? json(USER) : respond(url);
+
 const ISSUE = {
   iid: 7,
   project_id: 42,
@@ -229,10 +234,12 @@ test("a merge request's state is in words", async () => {
     [{ state: "opened" }, "Open"],
   ] as const;
   for (const [change, status] of states) {
-    const { tracker } = gitlab((url) =>
-      url.pathname.endsWith("/notes")
-        ? json([])
-        : json({ ...MERGE_REQUEST, draft: false, ...change }),
+    const { tracker } = gitlab(
+      signedIn((url) =>
+        url.pathname.endsWith("/notes")
+          ? json([])
+          : json({ ...MERGE_REQUEST, draft: false, ...change }),
+      ),
     );
     expect((await tracker.detail("mr:42:12")).status).toBe(status);
   }
@@ -258,13 +265,14 @@ const NOTES = [
 ];
 
 test("a merge request's page reads it and its comments, without the system notes", async () => {
-  const { calls, tracker } = gitlab((url) =>
-    url.pathname.endsWith("/notes") ? json(NOTES) : json(MERGE_REQUEST),
+  const { calls, tracker } = gitlab(
+    signedIn((url) => (url.pathname.endsWith("/notes") ? json(NOTES) : json(MERGE_REQUEST))),
   );
   const detail = await tracker.detail("mr:42:12");
   expect(calls.map((call) => call.url.pathname + call.url.search)).toEqual([
     "/api/v4/projects/42/merge_requests/12",
     "/api/v4/projects/42/merge_requests/12/notes?sort=desc&order_by=created_at&per_page=40",
+    "/api/v4/user",
   ]);
   expect(detail).toEqual({
     ...SHAPED,
@@ -275,18 +283,24 @@ test("a merge request's page reads it and its comments, without the system notes
     earlierComments: 3,
     changes: [],
     markdown: true,
+    assignedToMe: false,
+    images: [],
   });
 });
 
 test("an issue's page offers the one move its state allows", async () => {
-  const open = gitlab((url) => (url.pathname.endsWith("/notes") ? json([]) : json(ISSUE)));
+  const open = gitlab(
+    signedIn((url) => (url.pathname.endsWith("/notes") ? json([]) : json(ISSUE))),
+  );
   const detail = await open.tracker.detail("issue:42:7");
   expect(open.calls[0].url.pathname).toBe("/api/v4/projects/42/issues/7");
   expect(detail).toMatchObject({ id: "issue:42:7", status: "Open", earlierComments: 3 });
   expect(detail.changes).toEqual([{ id: "close", label: "Closed" }]);
 
-  const closed = gitlab((url) =>
-    url.pathname.endsWith("/notes") ? json([]) : json({ ...ISSUE, state: "closed" }),
+  const closed = gitlab(
+    signedIn((url) =>
+      url.pathname.endsWith("/notes") ? json([]) : json({ ...ISSUE, state: "closed" }),
+    ),
   );
   expect(await closed.tracker.detail("issue:42:7")).toMatchObject({
     status: "Closed",
@@ -379,4 +393,116 @@ test("a task that is gone is found as nothing; a refusal is an error; a bad id i
   const { calls, tracker } = gitlab(() => json(ISSUE));
   await expect(tracker.find("issue:shop/web:7")).rejects.toThrow("That is no GitLab task.");
   expect(calls).toEqual([]);
+});
+
+test("a task's page says whose the task is, and takes the uploads out of its description", async () => {
+  const issue = {
+    ...ISSUE,
+    description:
+      "Before:\n\n![screen shot](/uploads/0123456789abcdef0123456789abcdef/before.png){width=300}\n\n" +
+      "After: ![image](/uploads/fedcba9876543210fedcba9876543210/after%20fix.png) and " +
+      "![logo](https://cdn.team.test/logo.png)",
+    assignees: [
+      { id: 7, username: "rina", name: "Rina Putri" },
+      { id: 9, username: "dimas" },
+    ],
+  };
+  const { tracker } = gitlab(
+    signedIn((url) => (url.pathname.endsWith("/notes") ? json([]) : json(issue))),
+  );
+  const detail = await tracker.detail("issue:42:7");
+  expect(detail.assignedToMe).toBe(true);
+  expect(detail.details).toContainEqual(["Assignee", "Rina Putri, @dimas"]);
+  expect(detail.images).toEqual([
+    { id: "0123456789abcdef0123456789abcdef/before.png", name: "screen shot" },
+    { id: "fedcba9876543210fedcba9876543210/after%20fix.png", name: "after%20fix.png" },
+  ]);
+  // A picture from elsewhere is the Markdown's own to show.
+  expect(detail.description).toBe(
+    "Before:\n\n(image: screen shot)\n\nAfter: (image: after%20fix.png) and ![logo](https://cdn.team.test/logo.png)",
+  );
+  const theirs = gitlab(
+    signedIn((url) =>
+      url.pathname.endsWith("/notes")
+        ? json([])
+        : json({ ...ISSUE, assignees: [{ id: 9, username: "dimas" }] }),
+    ),
+  );
+  expect(await theirs.tracker.detail("issue:42:7")).toMatchObject({
+    assignedToMe: false,
+    images: [],
+  });
+});
+
+test("the projects an issue can go to are the ones I am a member of, newest activity first", async () => {
+  const { calls, tracker } = gitlab(() =>
+    json([
+      { id: 42, path_with_namespace: "shop/web" },
+      { id: 43, path_with_namespace: "shop/api" },
+    ]),
+  );
+  expect(await tracker.places(" shop ")).toEqual([
+    { id: "42", label: "shop/web" },
+    { id: "43", label: "shop/api" },
+  ]);
+  expect(calls[0].url.pathname).toBe("/api/v4/projects");
+  expect(Object.fromEntries(calls[0].url.searchParams)).toEqual({
+    membership: "true",
+    simple: "true",
+    order_by: "last_activity_at",
+    per_page: "20",
+    search: "shop",
+  });
+  expect(tracker.kinds).toBeUndefined();
+});
+
+test("an issue is made in a project, and its id is the one its page is asked by", async () => {
+  const { calls, tracker } = gitlab(() => json({ iid: 9, project_id: 42 }, 201));
+  const id = await tracker.create({ place: "42", title: "Cache it", description: "Soon." });
+  expect(id).toBe("issue:42:9");
+  expect(calls.map((call) => [call.method, call.url.pathname, call.body])).toEqual([
+    ["POST", "/api/v4/projects/42/issues", { title: "Cache it", description: "Soon." }],
+  ]);
+  await expect(tracker.create({ place: "shop/web", title: "t", description: "" })).rejects.toThrow(
+    "That is no GitLab project.",
+  );
+  expect(calls).toHaveLength(1);
+});
+
+test("assigning a task to me keeps who has it, with me first", async () => {
+  const { calls, tracker } = gitlab(
+    signedIn(() => json({ ...ISSUE, assignees: [{ id: 9, username: "dimas" }, USER] })),
+  );
+  await tracker.assign("issue:42:7");
+  const sent = calls.filter((call) => call.method === "PUT");
+  expect(sent.map((call) => [call.url.pathname, call.body])).toEqual([
+    ["/api/v4/projects/42/issues/7", { assignee_ids: [7, 9] }],
+  ]);
+  const request = gitlab(signedIn(() => json(MERGE_REQUEST)));
+  await request.tracker.assign("mr:42:12");
+  expect(request.calls.at(-1)?.body).toEqual({ assignee_ids: [7] });
+  expect(request.calls.at(-1)?.url.pathname).toBe("/api/v4/projects/42/merge_requests/12");
+});
+
+test("a picture is read through the project's uploads, which the API serves from 17.4", async () => {
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const { calls, tracker } = gitlab(
+    () => new Response(png, { headers: { "Content-Type": "image/png" } }),
+  );
+  const image = await tracker.image("issue:42:7", "0123456789abcdef0123456789abcdef/before.png");
+  expect(image.mime).toBe("image/png");
+  expect(calls[0].url.pathname).toBe(
+    "/api/v4/projects/42/uploads/0123456789abcdef0123456789abcdef/before.png",
+  );
+  expect(calls[0].headers["PRIVATE-TOKEN"]).toBe("glpat-s3cret");
+  for (const bad of ["../../user", "0123456789abcdef0123456789abcdef/a/b.png", "short/a.png"]) {
+    await expect(tracker.image("issue:42:7", bad)).rejects.toThrow("That is no GitLab upload.");
+  }
+  expect(calls).toHaveLength(1);
+  const old = gitlab(() => json({ message: "404 Not Found" }, 404));
+  await expect(
+    old.tracker.image("issue:42:7", "0123456789abcdef0123456789abcdef/before.png"),
+  ).rejects.toThrow(
+    "GitLab has no such upload here, or is older than 17.4 and cannot hand it out.",
+  );
 });

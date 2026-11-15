@@ -41,13 +41,19 @@ test("registers the connection settings and one handler per RPC", () => {
   const { handlers, settingsIds, dispose } = setup(async () => READY);
   expect(settingsIds).toEqual(["connections"]);
   expect([...handlers.keys()].sort()).toEqual([
+    "tasks.assign",
     "tasks.attachments.search",
     "tasks.comments.add",
     "tasks.connections.test",
+    "tasks.create",
     "tasks.detail",
+    "tasks.images.read",
+    "tasks.kinds.list",
     "tasks.list",
+    "tasks.places.list",
     "tasks.prompt.fill",
     "tasks.search",
+    "tasks.sources.list",
     "tasks.status.change",
     "tasks.tokens.read",
     "tasks.tokens.write",

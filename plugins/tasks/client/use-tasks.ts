@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { useRpc } from "@getpaseo/plugin/client";
 import {
   addCommentRpc,
+  assignTaskRpc,
   changeStatusRpc,
   listTasksRpc,
   taskDetailRpc,
@@ -69,6 +70,16 @@ function rowChanged(id: string, task: TaskDetail): void {
   for (const listener of rowListeners) listener();
 }
 
+// A new issue, or a task taken, changes what the lists hold: the kept ones are dropped and a
+// list on screen reads again.
+let listReads = 0;
+
+export function refreshLists(): void {
+  lists.clear();
+  listReads += 1;
+  for (const listener of rowListeners) listener();
+}
+
 /** For tests: what one test read must not show in the next. */
 export function forgetTasks(): void {
   lists.clear();
@@ -88,6 +99,11 @@ export function useTaskList(query: string): TaskListState {
     error: null,
   }));
   const [turn, setTurn] = useState(0);
+  const reads = useSyncExternalStore(
+    subscribeRows,
+    () => listReads,
+    () => listReads,
+  );
   useEffect(() => {
     let current = true;
     // The rows of the query before stay up while this one loads, so the list does not blink.
@@ -109,7 +125,7 @@ export function useTaskList(query: string): TaskListState {
     return () => {
       current = false;
     };
-  }, [list, query, turn]);
+  }, [list, query, turn, reads]);
   const reload = useCallback(() => setTurn((count) => count + 1), []);
   const changes = useSyncExternalStore(
     subscribeRows,
@@ -129,13 +145,16 @@ export interface TaskDetailState extends Loaded<TaskDetail> {
   comment(text: string): Promise<void>;
   /** Moves the task by one of its `changes`; rejects with the reason in words. */
   change(change: string): Promise<void>;
+  /** Assigns the task to the saved account; rejects with the reason in words. */
+  assign(): Promise<void>;
 }
 
-/** One task's page, and the two things that change the task. */
+/** One task's page, and the things that change the task. */
 export function useTaskDetail(id: string): TaskDetailState {
   const read = useRpc(taskDetailRpc);
   const addComment = useRpc(addCommentRpc);
   const changeStatus = useRpc(changeStatusRpc);
+  const assignTask = useRpc(assignTaskRpc);
   const [state, setState] = useState<Loaded<TaskDetail>>(() => ({
     value: details.get(id) ?? null,
     loading: true,
@@ -189,5 +208,13 @@ export function useTaskDetail(id: string): TaskDetailState {
     },
     [changeStatus, id, show],
   );
-  return { ...state, reload, comment, change };
+  const assign = useCallback(async () => {
+    const value = await assignTask({ id }).catch((error: unknown) => {
+      throw new Error(reason(error));
+    });
+    show(id, value);
+    // A task that was another's is now among mine.
+    refreshLists();
+  }, [assignTask, id, show]);
+  return { ...state, reload, comment, change, assign };
 }

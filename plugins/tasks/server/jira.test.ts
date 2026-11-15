@@ -161,7 +161,10 @@ const TRANSITIONS = {
   ],
 };
 
+const ME = { accountId: "acc-me", displayName: "Rina Putri" };
+
 function detailAnswers(url: URL): Response {
+  if (url.pathname.endsWith("/myself")) return json(ME);
   if (url.pathname.endsWith("/comment")) return json(COMMENTS);
   if (url.pathname.endsWith("/transitions")) return json(TRANSITIONS);
   return json(ISSUE);
@@ -171,9 +174,10 @@ test("a task's page reads the issue, its newest comments and where it can move",
   const { calls, tracker } = jira(detailAnswers);
   const detail = await tracker.detail("bwlt-12");
   expect(calls.map((call) => call.url.pathname + call.url.search)).toEqual([
-    "/rest/api/3/issue/BWLT-12?fields=summary,status,description,issuetype,priority,updated",
+    "/rest/api/3/issue/BWLT-12?fields=summary,status,description,issuetype,priority,updated,assignee,attachment",
     "/rest/api/3/issue/BWLT-12/comment?orderBy=-created&maxResults=20",
     "/rest/api/3/issue/BWLT-12/transitions",
+    "/rest/api/3/myself",
   ]);
   expect(detail).toMatchObject({ id: "BWLT-12", status: "In Progress", markdown: false });
   // Oldest first, as a thread reads.
@@ -297,4 +301,166 @@ test("an issue that is gone is found as nothing; a refusal is an error; a bad id
   const { calls, tracker } = jira(() => json(ISSUE));
   await expect(tracker.find("../myself")).rejects.toThrow("That is no Jira issue key.");
   expect(calls).toEqual([]);
+});
+
+test("a task's page says whose the issue is, and lists the pictures attached to it", async () => {
+  const mine = {
+    ...ISSUE,
+    fields: {
+      ...ISSUE.fields,
+      assignee: { accountId: "acc-me", displayName: "Rina Putri" },
+      attachment: [
+        { id: "10001", filename: "error.png", mimeType: "image/png" },
+        { id: 10002, filename: "trace.log", mimeType: "text/plain" },
+        { id: "10003", mimeType: "image/jpeg" },
+      ],
+    },
+  };
+  const answers = (issue: object) => (url: URL) =>
+    url.pathname.endsWith("/issue/BWLT-12") ? json(issue) : detailAnswers(url);
+  const detail = await jira(answers(mine)).tracker.detail("BWLT-12");
+  expect(detail.assignedToMe).toBe(true);
+  expect(detail.details).toContainEqual(["Assignee", "Rina Putri"]);
+  expect(detail.images).toEqual([
+    { id: "10001", name: "error.png" },
+    { id: "10003", name: "image" },
+  ]);
+  const theirs = { ...mine, fields: { ...mine.fields, assignee: { accountId: "acc-x" } } };
+  const other = await jira(answers(theirs)).tracker.detail("BWLT-12");
+  expect(other.assignedToMe).toBe(false);
+  expect(other.details).toContainEqual(["Assignee", "Someone"]);
+  const none = await jira(detailAnswers).tracker.detail("BWLT-12");
+  expect(none).toMatchObject({ assignedToMe: false, images: [] });
+});
+
+test("the signed-in account is asked once for every page, and again after a failure", async () => {
+  let fail = true;
+  const { calls, tracker } = jira((url) => {
+    if (!url.pathname.endsWith("/myself")) return detailAnswers(url);
+    if (!fail) return json(ME);
+    fail = false;
+    return json({}, 500);
+  });
+  await expect(tracker.detail("BWLT-12")).rejects.toThrow("Jira answered HTTP 500.");
+  await tracker.detail("BWLT-12");
+  await tracker.detail("BWLT-12");
+  expect(calls.filter((call) => call.url.pathname.endsWith("/myself"))).toHaveLength(2);
+});
+
+test("the projects an issue can go to are listed by key and name, and a query narrows them", async () => {
+  const { calls, tracker } = jira(() =>
+    json({ values: [{ key: "BWLT", name: "Wallet" }, { key: "OPS" }] }),
+  );
+  expect(await tracker.places(" wal ")).toEqual([
+    { id: "BWLT", label: "BWLT · Wallet" },
+    { id: "OPS", label: "OPS" },
+  ]);
+  await tracker.places("");
+  expect(calls.map((call) => call.url.pathname + call.url.search)).toEqual([
+    "/rest/api/3/project/search?maxResults=20&query=wal",
+    "/rest/api/3/project/search?maxResults=20",
+  ]);
+});
+
+test("a project's kinds of issue leave out the subtasks, which need a parent", async () => {
+  const { calls, tracker } = jira(() =>
+    json({
+      issueTypes: [
+        { id: "10001", name: "Story", subtask: false },
+        { id: "10003", name: "Sub-task", subtask: true },
+        { id: "10004", name: "Bug" },
+      ],
+    }),
+  );
+  expect(await tracker.kinds!("bwlt")).toEqual([
+    { id: "10001", label: "Story" },
+    { id: "10004", label: "Bug" },
+  ]);
+  expect(calls[0].url.pathname + calls[0].url.search).toBe(
+    "/rest/api/3/issue/createmeta/BWLT/issuetypes?maxResults=50",
+  );
+  await expect(tracker.kinds!("../x")).rejects.toThrow("That is no Jira project key.");
+  expect(calls).toHaveLength(1);
+});
+
+test("an issue is made in a project as a kind, with its description as a document", async () => {
+  const { calls, tracker } = jira(() => json({ id: "1", key: "BWLT-99" }, 201));
+  const id = await tracker.create({
+    place: "bwlt",
+    kind: "10001",
+    title: "Add the webhook",
+    description: "Send it on payment.",
+  });
+  expect(id).toBe("BWLT-99");
+  expect(calls.map((call) => [call.method, call.url.pathname])).toEqual([
+    ["POST", "/rest/api/3/issue"],
+  ]);
+  expect(calls[0].body).toEqual({
+    fields: {
+      project: { key: "BWLT" },
+      issuetype: { id: "10001" },
+      summary: "Add the webhook",
+      description: {
+        type: "doc",
+        version: 1,
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Send it on payment." }] }],
+      },
+    },
+  });
+  await tracker.create({ place: "BWLT", kind: "10001", title: "No text", description: "" });
+  expect(calls[1].body).toEqual({
+    fields: { project: { key: "BWLT" }, issuetype: { id: "10001" }, summary: "No text" },
+  });
+});
+
+test("an issue with no kind, or a project that is no key, is refused before anything is sent", async () => {
+  const { calls, tracker } = jira(() => json({ key: "X-1" }));
+  const issue = { title: "t", description: "" };
+  await expect(tracker.create({ ...issue, place: "BWLT" })).rejects.toThrow(
+    "Pick the kind of issue first.",
+  );
+  await expect(tracker.create({ ...issue, place: "BWLT", kind: "Story" })).rejects.toThrow(
+    "Pick the kind of issue first.",
+  );
+  await expect(tracker.create({ ...issue, place: "a/b", kind: "1" })).rejects.toThrow(
+    "That is no Jira project key.",
+  );
+  expect(calls).toEqual([]);
+});
+
+test("a refused issue carries Jira's reason for each field", async () => {
+  const { tracker } = jira(() =>
+    json({ errorMessages: [], errors: { customfield_10027: "Tester is required." } }, 400),
+  );
+  await expect(
+    tracker.create({ place: "BWLT", kind: "1", title: "t", description: "" }),
+  ).rejects.toThrow("Jira refused the change: Tester is required.");
+});
+
+test("assigning an issue to me sends my account, which is asked for first", async () => {
+  const { calls, tracker } = jira((url) =>
+    url.pathname.endsWith("/myself") ? json(ME) : new Response(null, { status: 204 }),
+  );
+  await tracker.assign("bwlt-12");
+  expect(calls.map((call) => [call.method, call.url.pathname, call.body])).toEqual([
+    ["GET", "/rest/api/3/myself", undefined],
+    ["PUT", "/rest/api/3/issue/BWLT-12/assignee", { accountId: "acc-me" }],
+  ]);
+});
+
+test("a picture is read as an attachment's content, without Jira's redirect", async () => {
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const { calls, tracker } = jira(
+    () => new Response(png, { headers: { "Content-Type": "image/png" } }),
+  );
+  const image = await tracker.image("BWLT-12", "10001");
+  expect(image.mime).toBe("image/png");
+  expect([...image.data]).toEqual([...png]);
+  expect(calls[0].url.pathname + calls[0].url.search).toBe(
+    "/rest/api/3/attachment/content/10001?redirect=false",
+  );
+  expect(calls[0].headers.Authorization).toMatch(/^Basic /);
+  await expect(tracker.image("BWLT-12", "../1")).rejects.toThrow("That is no Jira attachment.");
+  await expect(tracker.image("../x", "10001")).rejects.toThrow("That is no Jira issue key.");
+  expect(calls).toHaveLength(1);
 });

@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { Phase } from "../shared/contracts.js";
 import { adfToText, textToAdf } from "./adf.js";
-import { baseUrl, getJson, sendJson } from "./http.js";
+import { baseUrl, getBytes, getJson, sendForJson, sendJson } from "./http.js";
 import {
+  IMAGE_MAX_BYTES,
   TrackerError,
   isoTime,
   type Comment,
@@ -15,6 +16,8 @@ import { searchWords } from "./text.js";
 
 const NAME = "Jira";
 const FIELDS = "summary,status,description,issuetype,priority,updated";
+// A task's page also says whose the issue is and shows its pictures.
+const DETAIL_FIELDS = `${FIELDS},assignee,attachment`;
 const LIMIT = "20";
 /** The newest comments a task's page shows. */
 const COMMENTS = 20;
@@ -22,6 +25,8 @@ const COMMENTS = 20;
 const MINE = "assignee = currentUser() AND statusCategory != Done";
 const KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 const TRANSITION = /^\d{1,12}$/;
+const PROJECT = /^[A-Za-z][A-Za-z0-9_]*$/;
+const NUMBER = /^\d{1,15}$/;
 const MISSING = "Jira has no such issue, or the saved account cannot see it.";
 
 const Named = z.object({ name: z.string() }).nullish();
@@ -39,10 +44,23 @@ const IssueSchema = z.object({
     priority: Named,
     description: z.unknown().optional(),
     updated: z.string().nullish(),
+    assignee: z
+      .object({ accountId: z.string().nullish(), displayName: z.string().nullish() })
+      .nullish(),
+    attachment: z
+      .array(
+        z.object({
+          id: z.union([z.string(), z.number()]),
+          filename: z.string().nullish(),
+          mimeType: z.string().nullish(),
+        }),
+      )
+      .nullish(),
   }),
 });
 const SearchSchema = z.object({ issues: z.array(IssueSchema) });
 const MyselfSchema = z.object({
+  accountId: z.string().nullish(),
   displayName: z.string().nullish(),
   emailAddress: z.string().nullish(),
 });
@@ -60,6 +78,15 @@ const CommentsSchema = z.object({
 const TransitionsSchema = z.object({
   transitions: z.array(z.object({ id: z.string(), name: z.string().nullish(), to: Named })),
 });
+const ProjectsSchema = z.object({
+  values: z.array(z.object({ key: z.string(), name: z.string().nullish() })),
+});
+const IssueTypesSchema = z.object({
+  issueTypes: z.array(
+    z.object({ id: z.string(), name: z.string().nullish(), subtask: z.boolean().nullish() }),
+  ),
+});
+const CreatedSchema = z.object({ key: z.string() });
 const RefusalSchema = z.object({
   errorMessages: z.array(z.string()).nullish(),
   errors: z.record(z.string(), z.string()).nullish(),
@@ -112,6 +139,7 @@ export function createJira(options: JiraOptions): Tracker {
     const details: Issue["details"] = [];
     if (fields.issuetype) details.push(["Type", fields.issuetype.name]);
     if (fields.priority) details.push(["Priority", fields.priority.name]);
+    if (fields.assignee) details.push(["Assignee", fields.assignee.displayName || "Someone"]);
     const updatedAt = isoTime(fields.updated);
     const phase = PHASES[fields.status?.statusCategory?.key ?? ""];
     return {
@@ -145,6 +173,26 @@ export function createJira(options: JiraOptions): Tracker {
       if (error instanceof TrackerError && error.status === 404) return [];
       throw error;
     }
+  }
+
+  // Asked once per tracker: a task's page says whether the issue is the signed-in user's.
+  let account: Promise<string> | null = null;
+
+  function myAccount(base: string): Promise<string> {
+    account ??= getJson({
+      request,
+      name: NAME,
+      url: `${base}/rest/api/3/myself`,
+      headers,
+      schema: MyselfSchema,
+    }).then(
+      (me) => me.accountId ?? "",
+      (error: unknown) => {
+        account = null;
+        throw error;
+      },
+    );
+    return account;
   }
 
   /** The API address of one issue. The id comes from a client, so it must be a key and no path. */
@@ -184,14 +232,15 @@ export function createJira(options: JiraOptions): Tracker {
     async detail(id): Promise<IssueDetail> {
       const { base, at } = issueUrl(id);
       const read = { request, name: NAME, headers, missing: MISSING };
-      const [issue, page, moves] = await Promise.all([
-        getJson({ ...read, url: `${at}?fields=${FIELDS}`, schema: IssueSchema }),
+      const [issue, page, moves, mine] = await Promise.all([
+        getJson({ ...read, url: `${at}?fields=${DETAIL_FIELDS}`, schema: IssueSchema }),
         getJson({
           ...read,
           url: `${at}/comment?orderBy=-created&maxResults=${COMMENTS}`,
           schema: CommentsSchema,
         }),
         getJson({ ...read, url: `${at}/transitions`, schema: TransitionsSchema }),
+        myAccount(base),
       ]);
       const shaped = toIssue(base, issue);
       const comments: Comment[] = page.comments.toReversed().map((comment) => ({
@@ -206,6 +255,11 @@ export function createJira(options: JiraOptions): Tracker {
         earlierComments: Math.max(0, (page.total ?? comments.length) - comments.length),
         changes: statusChanges(moves.transitions, shaped.status),
         markdown: false,
+        assignedToMe: mine !== "" && issue.fields.assignee?.accountId === mine,
+        // Jira's pictures are attachments; the description names them by an id the API cannot follow.
+        images: (issue.fields.attachment ?? [])
+          .filter((file) => file.mimeType?.startsWith("image/"))
+          .map((file) => ({ id: String(file.id), name: file.filename || "image" })),
       };
     },
     async comment(id, text) {
@@ -233,6 +287,91 @@ export function createJira(options: JiraOptions): Tracker {
         body: { transition: { id: change } },
         reason: refusalReason,
         missing: MISSING,
+      });
+    },
+    async places(query) {
+      const base = baseUrl(options.site, NAME);
+      const params = new URLSearchParams({ maxResults: LIMIT });
+      const text = query.trim();
+      if (text) params.set("query", text);
+      const found = await getJson({
+        request,
+        name: NAME,
+        url: `${base}/rest/api/3/project/search?${params}`,
+        headers,
+        schema: ProjectsSchema,
+      });
+      return found.values.map((project) => ({
+        id: project.key,
+        label: project.name ? `${project.key} · ${project.name}` : project.key,
+      }));
+    },
+    async kinds(place) {
+      if (!PROJECT.test(place)) throw new TrackerError("That is no Jira project key.");
+      const base = baseUrl(options.site, NAME);
+      const found = await getJson({
+        request,
+        name: NAME,
+        url: `${base}/rest/api/3/issue/createmeta/${place.toUpperCase()}/issuetypes?maxResults=50`,
+        headers,
+        schema: IssueTypesSchema,
+        missing: "Jira has no such project, or the saved account cannot make issues in it.",
+      });
+      // A subtask needs a parent, which this form does not ask for.
+      return found.issueTypes
+        .filter((type) => !type.subtask)
+        .map((type) => ({ id: type.id, label: type.name || type.id }));
+    },
+    async create({ place, kind, title, description }) {
+      if (!PROJECT.test(place)) throw new TrackerError("That is no Jira project key.");
+      if (kind === undefined || !NUMBER.test(kind)) {
+        throw new TrackerError("Pick the kind of issue first.");
+      }
+      const base = baseUrl(options.site, NAME);
+      const made = await sendForJson({
+        request,
+        name: NAME,
+        method: "POST",
+        url: `${base}/rest/api/3/issue`,
+        headers,
+        body: {
+          fields: {
+            project: { key: place.toUpperCase() },
+            issuetype: { id: kind },
+            summary: title,
+            ...(description === "" ? {} : { description: textToAdf(description) }),
+          },
+        },
+        reason: refusalReason,
+        schema: CreatedSchema,
+      });
+      return made.key;
+    },
+    async assign(id) {
+      const { base, at } = issueUrl(id);
+      const accountId = await myAccount(base);
+      await sendJson({
+        request,
+        name: NAME,
+        method: "PUT",
+        url: `${at}/assignee`,
+        headers,
+        body: { accountId },
+        reason: refusalReason,
+        missing: MISSING,
+      });
+    },
+    async image(id, image) {
+      const { base } = issueUrl(id);
+      if (!NUMBER.test(image)) throw new TrackerError("That is no Jira attachment.");
+      return getBytes({
+        request,
+        name: NAME,
+        // Without a redirect: Jira would send the file's link to a host of its own.
+        url: `${base}/rest/api/3/attachment/content/${image}?redirect=false`,
+        headers,
+        missing: "Jira has no such attachment, or the saved account cannot see it.",
+        maxBytes: IMAGE_MAX_BYTES,
       });
     },
     async account() {
