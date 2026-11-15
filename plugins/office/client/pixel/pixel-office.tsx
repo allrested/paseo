@@ -96,6 +96,8 @@ export interface PixelOfficeProps {
   /** How full the contexts are, in a few words; null in an office without agents. */
   janitor: HostNote | null;
   onOpenJanitor(): void;
+  /** The stand-up is open: whoever rests gathers at the whiteboard. */
+  meeting: boolean;
 }
 
 const NATIVE = Platform.OS !== "web";
@@ -1078,6 +1080,7 @@ export function PixelOffice({
   onOpenMachine,
   janitor,
   onOpenJanitor,
+  meeting,
 }: PixelOfficeProps) {
   const [widthPx, setWidthPx] = useState(0);
   const measure = useCallback(
@@ -1090,7 +1093,9 @@ export function PixelOffice({
   const ordered = useMemo((): OfficeModel => ({ ...model, rooms: [...rooms] }), [model, rooms]);
   const people = useMemo(() => worldPeople(ordered, FLOOR_DESKS), [ordered]);
   const { breaks, visits, swept } = useFloorLife(people, still);
-  const cast = useMemo(() => castOf(people, breaks), [people, breaks]);
+  // With motion reduced nobody walks to a stand-up either.
+  const gathered = meeting && !still;
+  const cast = useMemo(() => castOf(people, breaks, gathered), [people, breaks, gathered]);
   // A desk the janitor is due at keeps its paper until the janitor has swept.
   const trays = useMemo(() => {
     const due = new Map(visits.map((visit) => [visit.agentId, visit.from]));

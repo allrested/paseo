@@ -1,6 +1,7 @@
 // Who is where in the 2D office, from what the office knows of each agent. Nothing here is
-// remembered but a coffee break and the janitor's round: the rest follows the agent's state, so
-// an office opened in the middle of a turn shows everyone where they are.
+// remembered but a coffee break and the janitor's round: the rest follows the agent's state and
+// whether a stand-up is on, so an office opened in the middle of a turn shows everyone where
+// they are.
 import type { ActivityKind, ActivityStep } from "../../shared/contracts.js";
 import { NEARLY_FULL } from "../context-text.js";
 import type { WorldMemory, WorldPeople } from "../world/adapter.js";
@@ -38,16 +39,19 @@ const WORK: Readonly<Record<ActivityKind, { place: PlaceKind | null; icon: IconK
 /**
  * Where a person is and what shows over the head. Whoever needs the user is at the desk, where
  * the card opens: an error first, then a question. Work goes where its tool call belongs, and a
- * rest is at the desk with the screen off, but for the break after a turn.
+ * rest is at the desk with the screen off, but for the break after a turn. A stand-up calls
+ * whoever rests to the whiteboard, from a break too; nobody leaves work for it.
  */
 export function standingOf(
   session: Pick<WorldSession, "status" | "stuck">,
   step: ActivityStep | undefined,
   onBreak: boolean,
+  meeting: boolean,
 ): Standing {
   if (session.stuck) return { place: null, icon: "fail", screen: "fail" };
   if (session.status === "wait") return { place: null, icon: "wait", screen: "wait" };
   if (session.status === "rest") {
+    if (meeting) return { place: "board", icon: null, screen: "off" };
     return onBreak
       ? { place: "coffee", icon: "coffee", screen: "off" }
       : { place: null, icon: null, screen: "off" };
@@ -110,11 +114,19 @@ export interface CastMember {
   spot: number;
 }
 
-/** Everyone with a desk, in desk order, each with a place in line where they stand. */
-export function castOf(people: WorldPeople, breaks: Breaks): CastMember[] {
+/**
+ * Everyone with a desk, in desk order, each with a place in line where they stand. `meeting`:
+ * a stand-up is on.
+ */
+export function castOf(people: WorldPeople, breaks: Breaks, meeting: boolean): CastMember[] {
   const lines = new Map<PlaceKind, number>();
   return people.sessions.map((session) => {
-    const standing = standingOf(session, people.steps.get(session.id), breaks.has(session.id));
+    const standing = standingOf(
+      session,
+      people.steps.get(session.id),
+      breaks.has(session.id),
+      meeting,
+    );
     let spot = 0;
     if (standing.place !== null) {
       spot = lines.get(standing.place) ?? 0;

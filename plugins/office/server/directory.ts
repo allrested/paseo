@@ -5,6 +5,8 @@ import {
   type OfficeAgent,
   type OfficeWorkspace,
   type PermissionKind,
+  type WorkspacePullRequest,
+  type WorkspaceTicket,
 } from "../shared/contracts.js";
 
 // PARENT_AGENT_ID_LABEL in packages/protocol/src/agent-labels.ts. Server code may import the
@@ -59,12 +61,63 @@ export type AgentUpdateInput =
   | { kind: "upsert"; agent: DirectoryAgentInput }
   | { kind: "remove"; agentId: string };
 
+/** The fields the office reads from a workspace's pull request (the descriptor's satisfies it). */
+export interface DirectoryPullRequestInput {
+  number?: number;
+  url: string;
+  title: string;
+  state: string;
+  isMerged: boolean;
+  isDraft?: boolean;
+  mergeable?: string;
+  checksStatus?: "none" | "pending" | "success" | "failure";
+  reviewDecision?: "approved" | "changes_requested" | "pending" | null;
+}
+
 /** The fields the office reads from a workspace descriptor. */
 export interface DirectoryWorkspaceInput {
   id: string;
   name: string;
   projectDisplayName: string;
   archivingAt?: string | null;
+  /** Data plugins keep on the workspace; the Tasks plugin keeps the ticket there. */
+  metadata?: Readonly<Record<string, unknown>>;
+  gitRuntime?: { currentBranch?: string | null } | null;
+  /** The forge's facts, GitHub's or another's: the field has its first forge's name. */
+  githubRuntime?: { pullRequest?: DirectoryPullRequestInput | null } | null;
+}
+
+// TASK_KEY and TASK_URL in plugins/tasks/shared/contracts.ts. A built-in cannot import another
+// built-in's files.
+const TICKET_KEY = "tasks.key";
+const TICKET_URL = "tasks.url";
+
+function ticketOf(workspace: DirectoryWorkspaceInput): WorkspaceTicket | undefined {
+  const key = workspace.metadata?.[TICKET_KEY];
+  if (typeof key !== "string" || key === "") return undefined;
+  const url = workspace.metadata?.[TICKET_URL];
+  return { key, url: typeof url === "string" && url !== "" ? url : null };
+}
+
+function pullRequestState(request: DirectoryPullRequestInput): WorkspacePullRequest["state"] {
+  const state = request.state.toLowerCase();
+  if (request.isMerged || state === "merged") return "merged";
+  if (state === "closed") return "closed";
+  return request.isDraft === true ? "draft" : "open";
+}
+
+function pullRequestOf(workspace: DirectoryWorkspaceInput): WorkspacePullRequest | undefined {
+  const request = workspace.githubRuntime?.pullRequest;
+  if (!request) return undefined;
+  return {
+    number: request.number ?? null,
+    url: request.url,
+    title: request.title,
+    state: pullRequestState(request),
+    checks: request.checksStatus ?? "none",
+    review: request.reviewDecision ?? null,
+    conflicts: request.mergeable === "CONFLICTING",
+  };
 }
 
 export type WorkspaceUpdateInput =
@@ -161,7 +214,17 @@ export function applyAgentUpdate(
 
 export function projectWorkspace(workspace: DirectoryWorkspaceInput): OfficeWorkspace | null {
   if (workspace.archivingAt) return null;
-  return { id: workspace.id, name: workspace.name, projectName: workspace.projectDisplayName };
+  const branch = workspace.gitRuntime?.currentBranch;
+  const ticket = ticketOf(workspace);
+  const pullRequest = pullRequestOf(workspace);
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    projectName: workspace.projectDisplayName,
+    ...(branch ? { branch } : {}),
+    ...(ticket ? { ticket } : {}),
+    ...(pullRequest ? { pullRequest } : {}),
+  };
 }
 
 export function workspacesFromSnapshot(

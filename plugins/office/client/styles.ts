@@ -67,6 +67,12 @@ export interface OfficeStyles {
   machineRowTitle: TextStyle;
   janitorBody: ViewStyle;
   janitorRows: ViewStyle;
+  standupTeams: ViewStyle;
+  standupTeam: ViewStyle;
+  standupMeta: ViewStyle;
+  standupHeading: TextStyle;
+  standupBlocker: TextStyle;
+  standupPeople: ViewStyle;
   card: ViewStyle;
   cardHeader: ViewStyle;
   cardTitle: TextStyle;
@@ -387,6 +393,18 @@ export function useOfficeStyles(
       janitorBody: { gap: 4 },
       // Wider than a row's own gap, so its buttons stay with it.
       janitorRows: { gap: 20 },
+      standupTeams: { gap: 16 },
+      standupTeam: { gap: 6 },
+      standupMeta: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        columnGap: 16,
+        rowGap: 6,
+      },
+      standupHeading: { ...base, color: colors.foreground, fontWeight: "500" },
+      standupBlocker: { ...base, color: colors.statusWarning },
+      standupPeople: { gap: 6 },
       card: {
         backgroundColor: colors.surface1,
         borderRadius: 8,

@@ -38,6 +38,8 @@ import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
+import { StandupCard } from "./standup-card.js";
+import { STANDUP_ASK, standupNote, standupTeams } from "./standup-text.js";
 import { useJanitor } from "./use-janitor.js";
 import { useMachine } from "./use-machine.js";
 import { useOffice, type OfficeState } from "./use-office.js";
@@ -425,6 +427,8 @@ interface SurfaceBodyProps {
   onOpenMachine(): void;
   janitor: HostNote | null;
   onOpenJanitor(): void;
+  /** The stand-up is open. */
+  meeting: boolean;
   onSceneProblem(message: string): void;
 }
 
@@ -447,6 +451,7 @@ function SurfaceBody({
   onOpenMachine,
   janitor,
   onOpenJanitor,
+  meeting,
   onSceneProblem,
 }: SurfaceBodyProps) {
   if (office.subscription.status === "error") {
@@ -481,6 +486,7 @@ function SurfaceBody({
         onSelectBoard={onOpenBoard}
         machine={machine}
         onOpenMachine={onOpenMachine}
+        meeting={meeting}
         onProblem={onSceneProblem}
       />
     );
@@ -499,6 +505,7 @@ function SurfaceBody({
         onOpenMachine={onOpenMachine}
         janitor={janitor}
         onOpenJanitor={onOpenJanitor}
+        meeting={meeting}
       />
     );
   }
@@ -555,6 +562,16 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [janitorOpen, setJanitorOpen] = useState(false);
   const openJanitor = useCallback(() => setJanitorOpen(true), []);
   const closeJanitor = useCallback(() => setJanitorOpen(false), []);
+  // The stand-up reads the clock when it opens: a note counts for a day.
+  const [standupAt, setStandupAt] = useState<number | null>(null);
+  const openStandup = useCallback(() => setStandupAt(Date.now()), []);
+  const closeStandup = useCallback(() => setStandupAt(null), []);
+  const { post } = boardActions;
+  const askForUpdate = useCallback(
+    (roomId: string, agentId: string) =>
+      post({ board: roomId, kind: "note", text: STANDUP_ASK, to: agentId }),
+    [post],
+  );
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
@@ -566,6 +583,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   // In error or closed the data is frozen: no strip, no card and no board sheet to act on it.
   const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
   const board = useBoardSheet(model, live);
+  const standupOpen = standupAt !== null && live;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
@@ -604,6 +622,15 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     const note = janitorNote(contexts);
     return note === null ? null : { note, onOpen: openJanitor };
   }, [contexts, openJanitor]);
+  const [mountedAt] = useState(() => Date.now());
+  const teams = useMemo(
+    () => standupTeams(model, standupAt ?? mountedAt),
+    [model, standupAt, mountedAt],
+  );
+  const standupEntry = useMemo(() => {
+    const note = standupNote(teams);
+    return note === null ? null : { note, onOpen: openStandup };
+  }, [teams, openStandup]);
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
@@ -627,6 +654,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
             entries={model.attention}
             host={hostEntry}
             janitor={janitorEntry}
+            standup={standupEntry}
             styles={styles}
             onSelect={selectFromStrip}
           />
@@ -654,6 +682,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onOpenMachine={openMachine}
         janitor={janitorEntry?.note ?? null}
         onOpenJanitor={openJanitor}
+        meeting={standupOpen}
         onSceneProblem={setSceneProblem}
       />
       <AgentCard
@@ -677,6 +706,14 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         tidy={tidy}
         styles={styles}
         onClose={closeJanitor}
+      />
+      <StandupCard
+        teams={teams}
+        open={standupOpen}
+        ask={askForUpdate}
+        wakesPaused={office.state.wake.paused}
+        styles={styles}
+        onClose={closeStandup}
       />
       <BoardSheet
         room={board.room}
