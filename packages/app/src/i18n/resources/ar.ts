@@ -1992,6 +1992,7 @@ export const ar: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "الترجيع إلى هذه الرسالة",

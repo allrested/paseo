@@ -2026,6 +2026,7 @@ export const ru: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Вернуться к этому сообщению",

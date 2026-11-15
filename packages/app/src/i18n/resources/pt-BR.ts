@@ -2026,6 +2026,7 @@ export const ptBR: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "Voltar para esta mensagem",

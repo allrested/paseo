@@ -1969,6 +1969,7 @@ export const zhCN: TranslationResources = {
     },
   },
   sessionMove: en.sessionMove,
+  brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {
     tooltip: "回退到此消息",

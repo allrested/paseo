@@ -256,6 +256,7 @@ import {
 } from "./auth.js";
 import { deleteLocalCredential, writeLocalCredential } from "./local-credential.js";
 import { createWebUiMiddleware } from "./web-ui.js";
+import { loadBrand, type BrandInput } from "./brand.js";
 import { WorkspaceAutoName } from "./workspace-auto-name.js";
 import { createGitMutationService } from "./session/git-mutation/git-mutation-service.js";
 import { workspaceIdsOnCheckout } from "./workspace-directory.js";
@@ -489,6 +490,7 @@ export interface PaseoDaemonConfig {
   webUi?: {
     enabled: boolean;
     distDir: string | null;
+    brand?: BrandInput;
   };
   appBaseUrl?: string;
   auth?: DaemonAuthConfig;
@@ -634,12 +636,19 @@ async function reconcileManagedProcessLedger(
   }
 }
 
-function mountWebUi(app: express.Application, config: PaseoDaemonConfig, logger: Logger): void {
+async function mountWebUi(
+  app: express.Application,
+  config: PaseoDaemonConfig,
+  logger: Logger,
+): Promise<void> {
+  // Read before the middleware is made, so requests stay in their order behind it.
+  const brand = config.webUi?.enabled ? await loadBrand(config.webUi.brand, logger) : null;
   app.use(
     createWebUiMiddleware({
       enabled: config.webUi?.enabled ?? false,
       distDir: config.webUi?.distDir ?? null,
       label: getHostName(),
+      brand,
       logger,
     }),
   );
@@ -930,7 +939,7 @@ export async function createPaseoDaemon(
   // classification and host/CORS handling, but before daemon bearer auth, so
   // static app files load without the daemon password while API/WebSocket calls
   // remain protected.
-  mountWebUi(app, config, logger);
+  await mountWebUi(app, config, logger);
 
   let localCredential: string | null = null;
   const daemonAuth = { ...config.auth, localCredential: () => localCredential };

@@ -2058,6 +2058,11 @@ export const en = {
       dismiss: "Dismiss",
     },
   },
+  brand: {
+    // Shown under a host's own name. The product's name is a value, so the brand does not
+    // replace it.
+    basedOn: "Based on {{product}}",
+  },
   cdpBrowser: {
     agentActive: "Agent is using this tab",
     connecting: "Connecting to the browser…",

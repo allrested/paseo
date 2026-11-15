@@ -1,12 +1,31 @@
+import { useMemo } from "react";
+import { Image } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useUnistyles } from "react-native-unistyles";
+import { getBrand } from "@/brand/brand";
 
 interface PaseoLogoProps {
   size?: number;
   color?: string;
 }
 
+/** The app's logo: the host's own image on a branded web UI, else Paseo's mark. */
 export function PaseoLogo({ size = 64, color }: PaseoLogoProps) {
+  // The page's brand cannot change while the page lives, so the branch never flips.
+  const logoUrl = getBrand()?.logoUrl;
+  if (logoUrl) return <BrandLogo url={logoUrl} size={size} />;
+  return <PaseoMark size={size} color={color} />;
+}
+
+/** The host's image, in its own colours: a theme does not tint it. */
+function BrandLogo({ url, size }: { url: string; size: number }) {
+  const source = useMemo(() => ({ uri: url }), [url]);
+  const box = useMemo(() => ({ width: size, height: size }), [size]);
+  // Beside the name it stands for: a screen reader has nothing more to hear from it.
+  return <Image source={source} style={box} resizeMode="contain" alt="" testID="brand-logo" />;
+}
+
+function PaseoMark({ size, color }: Required<Pick<PaseoLogoProps, "size">> & PaseoLogoProps) {
   const { theme } = useUnistyles();
   const fill = color ?? theme.colors.foreground;
 
