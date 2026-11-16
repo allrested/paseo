@@ -54,7 +54,7 @@ export interface OfficePluginDeps {
   world: WorldScript | null;
   /** Where the host's processes are read, and how one is asked to end. */
   machine: MachineHost;
-  /** The host's skills folders the gym lists. */
+  /** The host's skills folders the library lists. */
   skillFolders: readonly SkillFolder[];
 }
 

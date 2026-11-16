@@ -8,15 +8,15 @@ import type {
   SkillsResult,
 } from "../shared/contracts.js";
 import {
-  gymNote,
-  gymSummary,
-  gymTeams,
+  libraryNote,
+  librarySummary,
+  libraryTeams,
   skillAsk,
   skillWhere,
   topicOf,
   TOPIC_MAX,
-  trainHint,
-} from "./gym-text.js";
+  askHint,
+} from "./library-text.js";
 import { buildOfficeModel } from "./model.js";
 
 function agent(id: string, patch: Partial<OfficeAgent> = {}): OfficeAgent {
@@ -70,7 +70,7 @@ const SKILLS: SkillsResult = {
   readAt: "2026-11-16T10:00:00.000Z",
 };
 
-test("every workspace is a team with its skills, who trains now and who can be asked", () => {
+test("every workspace is a team with its skills, who is at a skill now and who can be asked", () => {
   const model = buildOfficeModel(
     office(
       [
@@ -87,12 +87,12 @@ test("every workspace is a team with its skills, who trains now and who can be a
     ),
   );
 
-  expect(gymTeams(model, SKILLS)).toEqual([
+  expect(libraryTeams(model, SKILLS)).toEqual([
     {
       roomId: "w1",
       name: "shop-api (shop)",
-      training: ["busy"],
-      trainers: [
+      atSkill: ["busy"],
+      writers: [
         { agentId: "new", title: "new" },
         { agentId: "old", title: "old" },
       ],
@@ -100,9 +100,9 @@ test("every workspace is a team with its skills, who trains now and who can be a
       skills: [{ name: "release", description: "Cuts a beta.", folders: [".claude"] }],
     },
     // (a workspace the reading has no folder for, and any before the first reading, says null)
-    { roomId: "w2", name: "landing (shop)", training: [], trainers: [], asked: null, skills: null },
+    { roomId: "w2", name: "landing (shop)", atSkill: [], writers: [], asked: null, skills: null },
   ]);
-  expect(gymTeams(model, null)[0]?.skills).toBeNull();
+  expect(libraryTeams(model, null)[0]?.skills).toBeNull();
 });
 
 test("a skill request names the topic on its first line and the folder by the agent's tool", () => {
@@ -122,7 +122,7 @@ test("a skill request names the topic on its first line and the folder by the ag
 test("the newest skill request and the asked agent's first note after it are the answer", () => {
   const ask = skillAsk("Releases", "claude");
   const teamsWith = (posts: Post[]) =>
-    gymTeams(
+    libraryTeams(
       buildOfficeModel(office([agent("a"), agent("b")], [workspace("w1")], { w1: posts })),
       null,
     )[0]?.asked;
@@ -161,16 +161,21 @@ test("the newest skill request and the asked agent's first note after it are the
   expect(long?.text).toHaveLength(600);
 });
 
-test("the strip says who trains now, else invites a skill; an office without a team has none", () => {
+test("the strip says who is at a skill now, else invites a skill; an office without a team has none", () => {
   const model = (doing: Record<string, ActivityStep>) =>
     buildOfficeModel(office([agent("a", { status: "running" })], [workspace("w1")], {}, doing));
-  expect(gymNote(gymTeams(model({ a: { kind: "skill", key: "c" } }), null))).toEqual({
-    text: "1 training",
+  expect(libraryNote(libraryTeams(model({ a: { kind: "skill", key: "c" } }), null))).toEqual({
+    text: "1 at a skill",
     tone: "muted",
   });
-  expect(gymNote(gymTeams(model({}), null))).toEqual({ text: "Teach a skill", tone: "muted" });
+  expect(libraryNote(libraryTeams(model({}), null))).toEqual({
+    text: "Teach a skill",
+    tone: "muted",
+  });
   expect(
-    gymNote(gymTeams(buildOfficeModel(office([agent("a", { workspaceId: null })], [])), null)),
+    libraryNote(
+      libraryTeams(buildOfficeModel(office([agent("a", { workspaceId: null })], [])), null),
+    ),
   ).toBeNull();
 });
 
@@ -183,16 +188,16 @@ test("the card's first line counts the skills and who is at one", () => {
       { a: { kind: "skill", key: "c" } },
     ),
   );
-  const teams = gymTeams(model, SKILLS);
-  expect(gymSummary(teams, SKILLS)).toBe(
+  const teams = libraryTeams(model, SKILLS);
+  expect(librarySummary(teams, SKILLS)).toBe(
     "2 skills on this host, 1 in the teams' workspaces. a is at a skill now.",
   );
-  expect(gymSummary(teams, null)).toBe("Reading the skills on this host.");
+  expect(librarySummary(teams, null)).toBe("Reading the skills on this host.");
   // (a first reading that failed is not still reading: the failure shows under the button)
-  expect(gymSummary(teams, null, true)).toBe("The skills could not be read.");
+  expect(librarySummary(teams, null, true)).toBe("The skills could not be read.");
   const none: SkillsResult = { host: [], workspaces: {}, readAt: SKILLS.readAt };
-  const resting = gymTeams(buildOfficeModel(office([agent("a")], [workspace("w1")])), none);
-  expect(gymSummary(resting, none)).toBe("No skills on this host or in the teams' workspaces.");
+  const resting = libraryTeams(buildOfficeModel(office([agent("a")], [workspace("w1")])), none);
+  expect(librarySummary(resting, none)).toBe("No skills on this host or in the teams' workspaces.");
 });
 
 test("a skill says which folders it is in", () => {
@@ -204,14 +209,14 @@ test("a skill says which folders it is in", () => {
 });
 
 test("the line under the button names who is asked, or why nobody can be", () => {
-  expect(trainHint({ trainers: [] }, null, false)).toBe(
+  expect(askHint({ writers: [] }, null, false)).toBe(
     "No agent of this team is idle, so nobody can be asked.",
   );
-  const trainers = [{ agentId: "a", title: "Builder" }];
-  expect(trainHint({ trainers }, "Builder", true)).toBe(
+  const writers = [{ agentId: "a", title: "Builder" }];
+  expect(askHint({ writers }, "Builder", true)).toBe(
     "Wake agents is off, so a request would wait. Turn it on to ask.",
   );
-  expect(trainHint({ trainers }, "Builder", false)).toBe(
+  expect(askHint({ writers }, "Builder", false)).toBe(
     "Builder writes it and answers on the team's board.",
   );
 });

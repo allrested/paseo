@@ -293,7 +293,7 @@ export const scriptLogRpc = defineRpc({
   output: ScriptLogResultSchema,
 });
 
-/** A skill as the gym lists it: one per name, with the folders it is in. */
+/** A skill as the library lists it: one per name, with the folders it is in. */
 export const SkillInfoSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),

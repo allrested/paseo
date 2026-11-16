@@ -23,7 +23,7 @@ export interface Standing {
 const WORK: Readonly<Record<ActivityKind, { place: PlaceKind | null; icon: IconKind }>> = {
   read: { place: "library", icon: "read" },
   search: { place: "library", icon: "search" },
-  // The library is the gym: my-office's own library is where a skill is opened.
+  // A skill is opened at the library, as in my-office.
   skill: { place: "library", icon: "read" },
   edit: { place: null, icon: "edit" },
   write: { place: null, icon: "edit" },
