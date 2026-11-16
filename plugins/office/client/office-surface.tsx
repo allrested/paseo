@@ -434,6 +434,8 @@ interface SurfaceBodyProps {
   machine: Machine | null;
   onOpenMachine(): void;
   onOpenLibrary(): void;
+  /** The 3D office's label over the meeting room's screen. */
+  onOpenNotes(): void;
   janitor: HostNote | null;
   onOpenJanitor(): void;
   /** The stand-up is open. */
@@ -459,6 +461,7 @@ function SurfaceBody({
   machine,
   onOpenMachine,
   onOpenLibrary,
+  onOpenNotes,
   janitor,
   onOpenJanitor,
   meeting,
@@ -497,6 +500,7 @@ function SurfaceBody({
         machine={machine}
         onOpenMachine={onOpenMachine}
         onOpenLibrary={onOpenLibrary}
+        onOpenNotes={onOpenNotes}
         meeting={meeting}
         onProblem={onSceneProblem}
       />
@@ -573,6 +577,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [janitorOpen, setJanitorOpen] = useState(false);
   const openJanitor = useCallback(() => setJanitorOpen(true), []);
   const closeJanitor = useCallback(() => setJanitorOpen(false), []);
+  // Whether the stand-up notes card is open. Nothing reads it until the card, with its close, is
+  // drawn.
+  const [, setNotesOpen] = useState(false);
+  const openNotes = useCallback(() => setNotesOpen(true), []);
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const rooms = useMemo(
@@ -697,6 +705,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         machine={machine}
         onOpenMachine={openMachine}
         onOpenLibrary={library.show}
+        onOpenNotes={openNotes}
         janitor={janitorEntry?.note ?? null}
         onOpenJanitor={openJanitor}
         meeting={standup.open}

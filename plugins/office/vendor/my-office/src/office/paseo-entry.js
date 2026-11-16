@@ -6,8 +6,9 @@ import { state } from './core/state.js';
 import { MODULES } from './paseo-modules.js';
 import { host } from './paseo-host.js';
 import { STYLE } from './paseo-style.js';
-import { reduceMotion, short } from './core/env.js';
-import { renderer } from './scene/renderer.js';
+import { CSS2DObject } from '../../three/addons/renderers/CSS2DRenderer.js';
+import { el, reduceMotion, short } from './core/env.js';
+import { renderer, scene } from './scene/renderer.js';
 import { canvasTex } from './scene/blocks.js';
 import { focusTarget } from './core/loop.js';
 import * as live from './net/live.js';
@@ -100,6 +101,20 @@ function makeTeamChipsButtons() {
     tag.o.element.addEventListener('click', open);
     asButton(tag.o.element, open);
   }
+}
+/**
+ * Paseo's own: a label over the meeting room's screen opens Paseo's stand-up notes, as a team's chip opens its board.
+ * Upstream's slide on the screen stays as it is drawn. Only the company floor has the screen.
+ */
+function makeNotesLabel() {
+  const label = el('div', 'team-tag');
+  label.append(el('span', null, tr('paseo.notes')));
+  const open = () => host.notes?.();
+  label.addEventListener('click', open);
+  asButton(label, open);
+  const o = new CSS2DObject(label);
+  o.position.set(0.2, 1.75, -7.95);
+  scene.add(o);
 }
 /** The server room's chip, the racks, the wall screen and the dev boxes open Paseo's panel: no reading, no panel. */
 function showMachine(on) {
@@ -208,7 +223,9 @@ const api = {
    * ({ name, logoUrl }, for the lobby's sign), and what
    * the scene tells Paseo: onSelect(id | null), onBoard(project | null) (a team's chip, or the
    * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
-   * (the server racks), onLibrary() (the library's chip and the bookshelf) and onToast(text).
+   * (the server racks), onLibrary() (the library's chip and the bookshelf), onBell() (a click on the
+   * meeting table's bell), onNotes() (the label over the meeting room's screen, on the company floor)
+   * and onToast(text).
    * Throws when the world cannot be built (no WebGL, a module failed).
    */
   start(options = {}) {
@@ -222,6 +239,8 @@ const api = {
     host.machine = null;
     host.toast = (text) => options.onToast?.(text);
     host.library = typeof options.onLibrary === 'function' ? () => options.onLibrary() : null;
+    host.bell = typeof options.onBell === 'function' ? () => options.onBell() : null;
+    host.notes = typeof options.onNotes === 'function' ? () => options.onNotes() : null;
     host.limits = () => limits;
     host.boardRows = () => boardRows;
     problem = (message) => options.onProblem?.(message);
@@ -255,9 +274,11 @@ const api = {
     if (PLACES?.library && host.library) PLACES.library.open = () => host.library();
     // (upstream marks the lounge with its sparkle; the cup that marks who rests there says what the place is for)
     for (const place of Object.values(PLACES || {})) if (place.icon === 'sparkle') place.el?.querySelector('.z-ico')?.replaceChildren(icon('coffee'));
-    // (the bell on the meeting table: whoever is at a solo activity stops for it, as for the stand-up card's bell)
+    // (the bell on the meeting table: whoever is at a solo activity stops for it, as for the stand-up card's bell; a click
+    // on it also tells Paseo, which has the day's stand-up notes written. meet() rings without it.)
     const bell = PROPS.get('bell');
-    if (bell) { const ring = bell.act; bell.act = () => ringWithEveryone(ring); }
+    if (bell) { const ring = bell.act; bell.act = () => { ringWithEveryone(ring); host.bell?.(); }; }
+    if (host.plan === 'pro' && host.notes) makeNotesLabel();
     everyFrame(updateLeisure);
     showMachine(false);
     showBrand(options.brand);

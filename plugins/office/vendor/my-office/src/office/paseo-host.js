@@ -15,6 +15,10 @@ export const host = {
   machine: null,
   /** The library's chip or the bookshelf was chosen; null while Paseo has nothing to open for them. */
   library: null,
+  /** The bell on the meeting table was clicked; null while Paseo does nothing for it. */
+  bell: null,
+  /** The label over the meeting room's screen was chosen; null while Paseo has nothing to open for it. */
+  notes: null,
   /** A short line the office says once. */
   toast() {},
   /** Usage windows, as upstream's plan card has them: [{ key, pct, resetsAt }]. */
