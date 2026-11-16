@@ -174,6 +174,37 @@ describe("the office's agents as the scene's people", () => {
     ]);
   });
 
+  it("takes the host's time of a resting agent, or the view's when that is earlier", () => {
+    const host = Date.parse("2026-11-17T18:00:00.000Z");
+    const idleSince = "2026-11-17T18:00:00.000Z";
+    const { sessions } = worldPeople(
+      buildOfficeModel(
+        office([
+          agent("1", { idleSince }),
+          agent("2", { idleSince }),
+          // Idle itself, and at work for the scene while its sub-agent runs.
+          agent("3", { idleSince }),
+          agent("4", { parentAgentId: "3", status: "running" }),
+        ]),
+      ),
+      PLAN_DESKS.pro,
+    );
+    expect(sessions[0]?.doneAt).toBe(host);
+    expect(sessions[2]).not.toHaveProperty("doneAt");
+
+    // Agent 1 was first seen resting at 22:00; agent 2 was renamed after it came to rest.
+    const seen = new Map([
+      ["1", host + 4 * 3_600_000],
+      ["2", host - 60_000],
+    ]);
+    expect(withRestTimes(sessions, seen).map((session) => session.doneAt)).toEqual([
+      host,
+      host - 60_000,
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("names a room's team, and nothing for a room that is gone", () => {
     const model = buildOfficeModel(office([agent("1")]));
 

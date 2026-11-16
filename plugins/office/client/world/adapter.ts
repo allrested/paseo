@@ -60,16 +60,20 @@ function rank(session: WorldSession): number {
 function toSession(row: OfficeRow, team: string): WorldSession {
   const { agent } = row;
   const title = agentTitle(agent);
+  const status = statusOf(agent, row.waitingOn);
+  const stuck = attentionReason(agent) === "error";
+  const idle = agent.idleSince === undefined ? Number.NaN : Date.parse(agent.idleSince);
   return {
     id: agent.id,
     name: title,
     title,
     dir: team,
     git: { repo: team },
-    status: statusOf(agent, row.waitingOn),
+    status,
     agent: markOf(agent.provider),
     lastPrompt: "",
-    stuck: attentionReason(agent) === "error",
+    ...(status === "rest" && !stuck && Number.isFinite(idle) ? { doneAt: idle } : {}),
+    stuck,
     ...(row.waitingOn > 0 ? { waitingOn: row.waitingOn } : {}),
     subs: [],
     ...(agent.context === undefined
@@ -102,17 +106,18 @@ export function worldPeople(model: OfficeModel, desks: number): WorldPeople {
 }
 
 /**
- * The people with the time each resting one came to rest (`rests`, by agent id, as the 2D
- * office's `restsAfter` keeps it). The scene knows only the events it was sent: someone already
- * resting when the office opened has none.
+ * The people with when this view saw each resting one come to rest (`rests`, by agent id, as the
+ * 2D office's `restsAfter` keeps it), where that is earlier than the host's time: a change on the
+ * host after the turn ended, a new title say, moves the host's.
  */
 export function withRestTimes(
   sessions: readonly WorldSession[],
   rests: ReadonlyMap<string, number>,
 ): WorldSession[] {
   return sessions.map((session) => {
-    const doneAt = rests.get(session.id);
-    return doneAt === undefined ? session : { ...session, doneAt };
+    const seen = rests.get(session.id);
+    if (seen === undefined || (session.doneAt ?? Infinity) <= seen) return session;
+    return { ...session, doneAt: seen };
   });
 }
 

@@ -670,7 +670,7 @@ the restroom, never the same thing twice running, and work calls it back at once
 of rest the gaps are 10 to 20 minutes. The games are upstream's, and Paseo's schedule
 (`vendor/my-office/src/office/paseo-leisure.js`) only starts them; it starts nothing at night,
 during a gathering or with reduced motion. After 21:00 an agent that has rested 30 minutes walks
-home, its rest counted from when the office saw it begin. Designs:
+home, its rest counted from the host's last change of the agent. Designs:
 [the lively floor](superpowers/specs/2026-11-16-office-lively-floor-design.md),
 [the floor](superpowers/specs/2026-11-16-office-my-office-port-design.md),
 [the places](superpowers/specs/2026-11-16-office-activity-places-design.md),
