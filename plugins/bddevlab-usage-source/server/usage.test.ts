@@ -166,13 +166,20 @@ describe("a provider entry that points Claude Code at the gateway", () => {
 
   const env = () => ({ PASEO_HOME: home });
   const profile = {
-    key: "provider:claude-api",
+    key: "provider.claude-api",
     label: "claude-api",
     input: { store: "provider" as const, locator: "claude-api" },
   };
 
   it("is an account of the host", async () => {
     expect(await discover({ kind: "global" }, env())).toEqual([profile]);
+  });
+
+  it("has a key the daemon accepts", async () => {
+    // packages/plugin/src/server/usage.ts: [A-Za-z0-9._-]{1,128}
+    for (const account of await discover({ kind: "global" }, env())) {
+      expect(account.key).toMatch(/^[A-Za-z0-9._-]{1,128}$/);
+    }
   });
 
   it("is the account of a session launched with its endpoint and token", async () => {
