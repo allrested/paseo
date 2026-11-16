@@ -107,13 +107,19 @@ function drop(id) {
   solo.delete(id);
 }
 
+/** Called out of the restroom: on to the work, as upstream's wcTick goes on after the sink; to the desk when there is none. */
+const toWork = (w) => { if (!w.want) w.goHomeAndRest(); };
+
 export function updateLeisure() {
   if (replay.on) return;
+  // work: out of the stall or off the sink at once (upstream's wcTick would finish both first), from upstream's own
+  // visit too (goHomeAndRest's roll)
+  for (const [id, w] of workers) if (!solo.has(id) && (w.inStall || w.wcBusy) && called(sessions.get(id), w)) toWork(halt(w));
   for (const [id, x] of solo) {
     const w = x.w;
     if (workers.get(id) !== w || w.leaving || (x.e ? w.chore !== x.e : !w.wcBusy && !w.inStall)) { drop(id); continue; }   // done, taken into a game or a gathering, or gone
-    if (x.kind === 'wc') {   // work: out of the stall or off the sink and to the desk at once (upstream's wcTick would finish first)
-      if (called(sessions.get(id), w)) stop(id).goHomeAndRest();
+    if (x.kind === 'wc') {
+      if (called(sessions.get(id), w)) toWork(stop(id));
       continue;
     }
     if (!x.e || x.e.stage === 'back') continue;
@@ -133,13 +139,18 @@ export function updateLeisure() {
   if (!leisureNow(next.id, next.kind)) plan.declined(next.id, state.sim, nowMs());
 }
 
-/** Someone at a solo activity stops where they stand: free for a gathering. */
-function stop(id) {
-  const w = solo.get(id).w, there = w.phase !== 'walk' && w.spot && Math.hypot(w.pos.x - w.spot.x, w.pos.y - w.spot.z) < 0.1;
+/** Someone stops where they stand, out of a shut stall too: free for a gathering or for work. */
+function halt(w) {
+  const there = w.phase !== 'walk' && w.spot && Math.hypot(w.pos.x - w.spot.x, w.pos.y - w.spot.z) < 0.1;
   if (!there) { if (w.spot?.by === w) w.spot.by = null; w.spot = null; }
   w.after = null; w.chore = null; w.onArrive = null; w.path = []; w.phase = 'idle';
   w.inStall = null; w.wcBusy = false; w.pose = 'stand'; w.anim = 'idle'; w.station = 'leisure'; w.hush();
   w.root.visible = true; w.root.matrixWorldAutoUpdate = true;   // (out of a shut stall)
+  return w;
+}
+/** Someone at a solo activity stops where they stand: free for a gathering. */
+function stop(id) {
+  const w = halt(solo.get(id).w);
   drop(id);
   return w;
 }
