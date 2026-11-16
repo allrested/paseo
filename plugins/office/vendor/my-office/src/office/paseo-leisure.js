@@ -75,7 +75,7 @@ const SOLO = {
   // brewed at the machine, then drunk at a dining chair (the second leg starts in updateLeisure)
   cup(w) {
     const head = COFFEE_Q?.[0], seat = STATIONS.dining?.find((s) => !s.by); if (!head || head.by || !seat) return false;
-    const x = away(w, 'cup', { spot: { x: head.x, z: head.z, face: head.face, node: head.node }, look: [STEAM_AT.x, STEAM_AT.z], anim: 'tidy', hold: 2.6, linger: 0.9,
+    const x = away(w, 'cup', { spot: { x: head.x, z: head.z, face: head.face, node: head.node }, look: [STEAM_AT.x, STEAM_AT.z], anim: 'coffee', hold: 2.6, linger: 0.9,
       line: tr('paseo.leisure.cup'), arrived: () => brewCoffee() });
     x.seat = seat; seat.by = w;   // (kept while the cup brews)
     return true;
@@ -111,6 +111,10 @@ export function updateLeisure() {
   for (const [id, x] of solo) {
     const w = x.w;
     if (workers.get(id) !== w || w.leaving || (x.e ? w.chore !== x.e : !w.wcBusy && !w.inStall)) { drop(id); continue; }   // done, taken into a game or a gathering, or gone
+    if (x.kind === 'wc') {   // work: out of the stall or off the sink and to the desk at once (upstream's wcTick would finish first)
+      if (called(sessions.get(id), w)) stop(id).goHomeAndRest();
+      continue;
+    }
     if (!x.e || x.e.stage === 'back') continue;
     if (called(sessions.get(id), w)) { w.after = null; w.anim = 'idle'; w.errandBack(); continue; }   // work: to the desk at once
     if (x.kind === 'cup' && !x.sat && x.e.stage === 'done') {   // the cup is ready: to the chair with it
