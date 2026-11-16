@@ -1,6 +1,6 @@
 # The office's small fixes, again: design
 
-Date: 2026-11-16. Status: designed, not built. Sub-project 6 of
+Date: 2026-11-16. Status: built. Sub-project 6 of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects.
 
@@ -60,3 +60,20 @@ Points 11, 12 and 14 of the owner's review:
 
 - The sub-agent name outside the office.
 - A way to rename or renumber an agent in the office.
+
+## Verified
+
+- Unit: numbering in creation order, ties by id, no reuse after an archived sibling, a parent's
+  counter brought up to date, hidden parents, bad stored values; nested names (Mjd-2-1); the hub
+  writes each number once and again after a failed write; `agentTitle` and the task line.
+- Mounted: the strip wraps with no sideways scroll on a wide screen and scrolls on a phone; the
+  fade's rule at the start, the middle and the end.
+- Browser: the built scene in a frame inside a page in headless Chromium. With the outer page
+  focused, the frame's own `hasFocus()` is false and the scene's is true. Sub-agents of "Mjd" carry
+  the tags "Mjd-1" and "Mjd-2". The scene bundles at 1.07 MB, under its 1.2 MB bound.
+
+## Not verified
+
+- The glide's frame rate itself: the test browser draws with software at a few frames a second.
+- The office inside the app with real agents: the numbers written through `setMetadata` and
+  read back, and the strip and its fade on a real phone.
