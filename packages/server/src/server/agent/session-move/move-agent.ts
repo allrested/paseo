@@ -516,7 +516,12 @@ async function resumeNatively(
     { ...source.persistence, provider: target.providerId },
     { cwd: source.cwd, ...(model ? { model } : {}) },
     undefined,
-    { labels, workspaceId: source.workspaceId, background: source.background },
+    {
+      labels,
+      metadata: source.metadata,
+      workspaceId: source.workspaceId,
+      background: source.background,
+    },
   );
 }
 
@@ -559,7 +564,8 @@ async function moveForward(
   // its own parent link (paseo.parent-agent-id / paseo.parent-server-id, so it stays a sub-agent
   // of the same parent), its open tabs (paseo.open-agent-tab.*, so archive keeps it listed), an
   // earlier paseo.moved-from-agent-id (overwritten below to point at the source), and any user
-  // labels. The source's own moved-to link is the one label that does not carry over.
+  // labels. The source's own moved-to link is the one label that does not carry over. The
+  // source's plugin metadata carries over whole, as labels do.
   const labels: Record<string, string> = {
     ...source.labels,
     [MOVED_FROM_AGENT_ID_LABEL]: source.id,
@@ -611,6 +617,7 @@ async function moveForward(
         },
         workspaceId,
         labels,
+        metadata: source.metadata,
         background: source.background ?? false,
         provisionalTitle: title,
         firstAgentContext: { attachments: [] },

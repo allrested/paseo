@@ -207,6 +207,27 @@ describe("moveAgent", () => {
       expect(original?.archivedAt).toBeTruthy();
     });
 
+    it("carries the agent's plugin metadata to the moved agent", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const daemon = requireCtx().daemon.daemon;
+      await daemon.agentManager.setMetadata(sourceId, {
+        "office.subagent.number": 2,
+        "office.subagent.next": 4,
+      });
+
+      const result = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+
+      expect(result).toMatchObject({ strategy: "handoff" });
+      expect((await daemon.agentStorage.get(result.agentId))?.metadata).toEqual({
+        "office.subagent.number": 2,
+        "office.subagent.next": 4,
+      });
+    });
+
     it("starts the moved agent immediately when continueWork is on", async () => {
       const sourceId = await createRanClaudeAgent();
 
@@ -1323,6 +1344,31 @@ describe("moveAgent", () => {
       expect(original?.archivedAt).toBeTruthy();
       expect(original?.labels[MOVED_TO_AGENT_ID_LABEL]).toBe(result.agentId);
       expect(moved?.labels[MOVED_FROM_AGENT_ID_LABEL]).toBe(sourceId);
+    });
+
+    it("carries the agent's plugin metadata through a native move", async () => {
+      const sourceId = await createRanClaudeAgent({ CLAUDE_CONFIG_DIR: join(cwd, ".claude") });
+      const daemon = requireCtx().daemon.daemon;
+      const sessionId = daemon.agentManager.getAgent(sourceId)?.persistence?.sessionId;
+      const sourceDir = await claudeProjectDir(cwd, { configDir: join(cwd, ".claude") });
+      await mkdir(sourceDir, { recursive: true });
+      await writeFile(join(sourceDir, `${sessionId}.jsonl`), '{"type":"user"}\n');
+      await daemon.agentManager.setMetadata(sourceId, { "office.subagent.next": 3 });
+
+      const result = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "claude-work" },
+        continueWork: false,
+      });
+
+      expect(result).toMatchObject({ strategy: "native" });
+      expect(daemon.agentManager.getAgent(result.agentId)?.metadata).toEqual({
+        "office.subagent.next": 3,
+      });
+      await daemon.agentManager.flush();
+      expect((await daemon.agentStorage.get(result.agentId))?.metadata).toEqual({
+        "office.subagent.next": 3,
+      });
     });
 
     it("moves a natively moved agent back by copying the newer transcript home", async () => {
