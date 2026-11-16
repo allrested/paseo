@@ -26,7 +26,7 @@ import { HostSwitches } from "./host-switches.js";
 import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
-import { hostNote, type HostNote } from "./machine-text.js";
+import { hostNote, namedMachine, type HostNote } from "./machine-text.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
@@ -565,7 +565,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const office = useOffice();
   const actions = useAgentActions();
   const boardActions = useBoardActions();
-  const { machine, cleanUp } = useMachine();
+  const { machine: reading, cleanUp } = useMachine();
   const [machineOpen, setMachineOpen] = useState(false);
   const openMachine = useCallback(() => setMachineOpen(true), []);
   const closeMachine = useCallback(() => setMachineOpen(false), []);
@@ -575,6 +575,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const closeJanitor = useCallback(() => setJanitorOpen(false), []);
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
+  const machine = useMemo(() => namedMachine(reading, model.agents), [reading, model.agents]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
     [model.rooms, focusRoomId],

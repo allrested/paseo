@@ -11,6 +11,7 @@ import {
   memoryPercent,
   memoryText,
   memoryTone,
+  namedMachine,
 } from "./machine-text.js";
 
 const NOW = Date.parse("2026-11-16T12:00:00.000Z");
@@ -116,4 +117,22 @@ test("a cleanup that left something says how much and why", () => {
     "Unable to clean up 2 of 3. The first reason: The agent is not idle",
   );
   expect(cleanupFailure([{ agentId: "c", ok: false, error: null }])).toBe("no reason given");
+});
+
+test("an agent the office numbered goes by its office name on the host", () => {
+  const reading = machine(4, [
+    agent({ agentId: "a1", title: "Explore the cart API" }),
+    agent({ agentId: "a2", title: "Rate limiter" }),
+  ]);
+  const named = namedMachine(
+    reading,
+    new Map([
+      ["a1", { name: "Mjd-1" }],
+      ["a2", {}],
+    ]),
+  );
+  expect(named?.agents.map((row) => machineTitle(row))).toEqual(["Mjd-1", "Rate limiter"]);
+  // Nothing to rename: the same reading, so nothing downstream redraws.
+  expect(namedMachine(reading, new Map([["a2", {}]]))).toBe(reading);
+  expect(namedMachine(null, new Map())).toBeNull();
 });
