@@ -148,3 +148,20 @@ test("a push is applauded once in ten minutes, as upstream has it", () => {
 
   expect(h.applauded).toEqual(["a"]);
 });
+
+test("a new list of sessions keeps the last event the scene saw of each person, and its time", () => {
+  vi.useFakeTimers({ now: 1_700_000_000_000 });
+  try {
+    seat("a");
+    world.event({ sess: "a", type: "stop" });
+    world.setSessions([{ ...session("a"), doneAt: 1_699_999_000_000 }]);
+
+    expect(h.sessions.get("a")).toMatchObject({
+      lastAt: 1_700_000_000_000,
+      last: { type: "stop" },
+      doneAt: 1_699_999_000_000,
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});

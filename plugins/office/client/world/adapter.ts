@@ -101,6 +101,21 @@ export function worldPeople(model: OfficeModel, desks: number): WorldPeople {
   return { sessions: seated, overflow: all.length - seated.length, steps };
 }
 
+/**
+ * The people with the time each resting one came to rest (`rests`, by agent id, as the 2D
+ * office's `restsAfter` keeps it). The scene knows only the events it was sent: someone already
+ * resting when the office opened has none.
+ */
+export function withRestTimes(
+  sessions: readonly WorldSession[],
+  rests: ReadonlyMap<string, number>,
+): WorldSession[] {
+  return sessions.map((session) => {
+    const doneAt = rests.get(session.id);
+    return doneAt === undefined ? session : { ...session, doneAt };
+  });
+}
+
 function boardState(session: WorldSession): WorldBoardRow["state"] {
   if (session.status === "wait") return "wait";
   return session.status === "work" ? "doing" : "done";

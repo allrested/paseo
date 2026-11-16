@@ -18,6 +18,13 @@ export interface WorldSession {
   /** Which mark the scene puts on the person's screen. */
   agent: "claude" | "codex" | "gemini";
   lastPrompt: string;
+  /**
+   * When a resting agent came to rest, in milliseconds since the epoch, as far as the office has
+   * seen: the end of its last turn, or when the office opened on it resting. The scene sends home
+   * whoever has rested 30 minutes after 21:00, and says how long someone has rested. Absent while
+   * it works, waits or is stopped on an error.
+   */
+  doneAt?: number;
   /** A red name tag: the agent ended in an error. */
   stuck: boolean;
   /**
