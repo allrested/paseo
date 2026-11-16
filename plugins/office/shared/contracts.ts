@@ -293,6 +293,31 @@ export const scriptLogRpc = defineRpc({
   output: ScriptLogResultSchema,
 });
 
+/** A skill as the gym lists it: one per name, with the folders it is in. */
+export const SkillInfoSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable(),
+  /** ".claude", ".agents", ".codex": where it was found. */
+  folders: z.array(z.string()),
+});
+export type SkillInfo = z.output<typeof SkillInfoSchema>;
+
+export const SkillsResultSchema = z.object({
+  /** The host's own skills: every agent of the tool that reads the folder has them. */
+  host: z.array(SkillInfoSchema),
+  /** Each workspace's skills, by workspace id; a workspace without a folder is absent. */
+  workspaces: z.record(z.string(), z.array(SkillInfoSchema)),
+  readAt: z.string(),
+});
+export type SkillsResult = z.output<typeof SkillsResultSchema>;
+
+/** The skills in the host's skills folders and in every workspace's. */
+export const skillsRpc = defineRpc({
+  name: "office.skills.request",
+  input: z.object({}),
+  output: SkillsResultSchema,
+});
+
 /** A snapshot, then changes. */
 export const officeStateSubscription = defineSubscription({
   name: "office.state",

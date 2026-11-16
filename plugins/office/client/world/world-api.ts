@@ -43,6 +43,8 @@ export type WorldEventType =
   | "fail"
   | "read"
   | "grep"
+  /** A skill was opened, read or written: upstream's action for it is at the library. */
+  | "skill"
   | "edit"
   | "write"
   | "bash"

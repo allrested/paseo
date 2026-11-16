@@ -59,6 +59,9 @@ const DEPLOY = [
   /\bdocker\s+push\b/,
   /\bgh\s+release\s+create\b/,
 ];
+// A skill is a folder with this file in it; the file is the skill.
+const SKILL_FILE = /(?:^|[\\/])SKILL\.md$/;
+const SKILL_IN_COMMAND = /(?:^|[\s/'"])SKILL\.md\b/;
 const TEST =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\b(?:vitest|jest|pytest)\b|\bplaywright\s+test\b|\b(?:go|cargo)\s+test\b|\bgradlew?\s+\S*test\b/;
 
@@ -67,12 +70,14 @@ function commandKind(command: string): ActivityKind {
   if (DEPLOY.some((pattern) => pattern.test(command))) return "deploy";
   if (/\bgit\s+push\b/.test(command)) return "push";
   if (/\bgit\s+commit\b/.test(command)) return "commit";
-  return TEST.test(command) ? "test" : "command";
+  if (TEST.test(command)) return "test";
+  return SKILL_IN_COMMAND.test(command) ? "skill" : "command";
 }
 
 /** A tool the host has no kind for, placed by its name. */
 function namedKind(name: unknown): ActivityKind {
   if (typeof name !== "string") return "tool";
+  if (name === "Skill") return "skill";
   if (/^(?:TodoWrite|todo_write|update_plan)$/.test(name)) return "plan";
   if (/^(?:Task|Agent)$/.test(name)) return "subagent";
   if (/^(?:WebSearch|WebFetch|web_search|web_fetch)$/.test(name)) return "web";
@@ -92,6 +97,8 @@ function toolKind(item: ActivityItem): ActivityKind {
   if (type === "search") {
     return field(item.detail, "toolName") === "web_search" ? "web" : "search";
   }
+  const filePath = field(item.detail, "filePath");
+  if (typeof filePath === "string" && SKILL_FILE.test(filePath)) return "skill";
   return (typeof type === "string" ? DETAIL_KINDS[type] : undefined) ?? namedKind(item.name);
 }
 

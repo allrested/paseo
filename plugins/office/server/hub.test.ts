@@ -612,9 +612,11 @@ test("the hub knows a workspace's script while a directory is open", async () =>
     workspaces: [{ id: "w1", name: "main", projectName: "shop", scripts: [dev] }],
   });
   expect(harness.hub.script("w1", "dev")).toBeNull();
+  expect(harness.hub.workspaceIds()).toEqual([]);
   const subscriber = subscribe(harness.hub);
   await settle();
   expect(harness.hub.script("w1", "dev")).toEqual(dev);
+  expect(harness.hub.workspaceIds()).toEqual(["w1"]);
   expect(harness.hub.script("w1", "test")).toBeNull();
   expect(harness.hub.script("w2", "dev")).toBeNull();
 
@@ -630,4 +632,5 @@ test("the hub knows a workspace's script while a directory is open", async () =>
   subscriber.controller.abort();
   await subscriber.done;
   expect(harness.hub.script("w1", "dev")).toBeNull();
+  expect(harness.hub.workspaceIds()).toEqual([]);
 });

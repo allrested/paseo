@@ -102,7 +102,7 @@ function showMachine(on) {
 }
 
 /** What the place cards and the wall screen count an event as. */
-const COUNTED = { prompt: 'prompts', read: 'read', grep: 'read', web: 'web', mcp: 'web', edit: 'edit', write: 'edit', bash: 'cmd', test: 'cmd', commit: 'cmd', push: 'cmd', deploy: 'deploy' };
+const COUNTED = { prompt: 'prompts', read: 'read', grep: 'read', skill: 'read', web: 'web', mcp: 'web', edit: 'edit', write: 'edit', bash: 'cmd', test: 'cmd', commit: 'cmd', push: 'cmd', deploy: 'deploy' };
 const FEED_MAX = 300;
 
 /** Upstream's server keeps the feed and the counts; here they start when the office is opened. */
