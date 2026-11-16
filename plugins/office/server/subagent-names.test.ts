@@ -48,18 +48,18 @@ test("two new sub-agents of one parent get 1 and 2 in creation order", () => {
       child("a", "p", "2026-11-16T10:00:01.000Z"),
     ]),
   ).toEqual([
+    { agentId: "p", patch: { [NEXT_KEY]: 3 } },
     { agentId: "a", patch: { [NUMBER_KEY]: 1 } },
     { agentId: "b", patch: { [NUMBER_KEY]: 2 } },
-    { agentId: "p", patch: { [NEXT_KEY]: 3 } },
   ]);
 });
 
 test("two created at the same moment are ordered by id", () => {
   const same = "2026-11-16T10:00:01.000Z";
   expect(planNumbers([parent("p"), child("y", "p", same), child("x", "p", same)])).toEqual([
+    { agentId: "p", patch: { [NEXT_KEY]: 3 } },
     { agentId: "x", patch: { [NUMBER_KEY]: 1 } },
     { agentId: "y", patch: { [NUMBER_KEY]: 2 } },
-    { agentId: "p", patch: { [NEXT_KEY]: 3 } },
   ]);
 });
 
