@@ -1246,6 +1246,38 @@ The same holds for a hook that runs inside an agent's lifecycle lane: an `agent.
 an option, model, thinking or mode change) waits on the open, which waits on the hook. The hooks
 reference tells plugin authors to start such a write without awaiting it.
 
+## Schedules
+
+`server.schedules` keeps a plugin's own schedules, and `server.handleSchedule(handler, run)` answers
+them. `upsert` creates or updates the schedule of that `name` and replaces its whole cadence;
+`remove` and `list` see only this plugin's schedules. A `name` is unique per plugin. `prompt` is a
+label. When a schedule is due, the daemon calls the `run` registered for its `handler`, and the
+promise `run` returns ends the run. A rejection, an unregistered handler, or 10 minutes without an
+answer fails that run.
+
+The daemon stores the schedule, so it runs after a restart without another `upsert`. A schedule
+whose plugin is not loaded fails that run and stays active, so a later run reaches the plugin once
+it is back. The daemon takes the plugin id from the process that calls, never from the call, so a
+plugin cannot reach another plugin's schedules. The app's schedule screens and the `list_schedules`
+tool do not list plugin schedules.
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { writeSummary } from "./server/summary";
+
+export default function contribute(server: PluginServerContext) {
+  server.schedules
+    .upsert({
+      name: "daily-summary",
+      handler: "summary",
+      prompt: "Daily summary",
+      cadence: { type: "cron", expression: "0 8 * * 1-5", timezone: "Europe/Berlin" },
+    })
+    .catch((error) => console.error("Daily summary schedule failed", error));
+  return server.handleSchedule("summary", ({ paseo, runId }) => writeSummary(paseo, runId));
+}
+```
+
 ## Contribute a provider
 
 Register a provider from `index.server.ts`. The provider connection is callback-based and owns all
