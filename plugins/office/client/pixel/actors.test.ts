@@ -209,7 +209,7 @@ describe("the janitor's round", () => {
     status: "rest" as const,
     stuck: false,
     step: null,
-    testing: false,
+    running: null,
     full,
   });
   const before: WorldMemory = new Map([

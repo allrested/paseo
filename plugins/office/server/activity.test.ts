@@ -222,7 +222,7 @@ test("a test run says how it ended, by its exit code when the host has one", () 
   expect(describeStep([tests({ status: "completed" }, 1)])?.result).toBe("failed");
   expect(describeStep([tests({ status: "failed" })])?.result).toBe("failed");
   expect(describeStep([tests({ status: "canceled" })])).toEqual({ kind: "test", key: "t1" });
-  // Only a test run has a result.
+  // A plain command has no result.
   expect(describeStep([call({ type: "shell", command: "ls" }, { status: "failed" })])).toEqual({
     kind: "command",
     key: "c1",
@@ -245,6 +245,49 @@ test("a test run that ended while nobody read is reported before what came after
   // A provider that numbers no calls cannot be looked up.
   expect(nextStep({ kind: "test", key: "test" }, after)).toBe(null);
   expect(nextStep(undefined, [tests()])).toEqual(running);
+});
+
+const deploy = (patch: Partial<ActivityItem> = {}, exitCode?: number) =>
+  call({ type: "shell", command: "scripts/deploy.sh pos", exitCode }, { callId: "d1", ...patch });
+
+test("a deploy says how it ended, as a test run does", () => {
+  expect(describeStep([deploy()])).toEqual({ kind: "deploy", key: "d1" });
+  expect(describeStep([deploy({ status: "completed" }, 0)])).toEqual({
+    kind: "deploy",
+    key: "d1",
+    result: "passed",
+  });
+  expect(describeStep([deploy({ status: "completed" }, 1)])?.result).toBe("failed");
+  expect(describeStep([deploy({ status: "failed" })])?.result).toBe("failed");
+  expect(describeStep([deploy({ status: "canceled" })])).toEqual({ kind: "deploy", key: "d1" });
+  // A deploy tool has no exit code: the call's status says.
+  const tool = (status: string) =>
+    describeStep([
+      call({ type: "unknown" }, { name: "mcp__ops__deploy_service", callId: "d2", status }),
+    ]);
+  expect(tool("running")).toEqual({ kind: "deploy", key: "d2" });
+  expect(tool("completed")).toEqual({ kind: "deploy", key: "d2", result: "passed" });
+  expect(tool("failed")).toEqual({ kind: "deploy", key: "d2", result: "failed" });
+});
+
+test("a deploy that ended while nobody read is reported before what came after it", () => {
+  const running: ActivityStep = { kind: "deploy", key: "d1" };
+  const after = [deploy({ status: "completed" }, 0), { type: "assistant_message" }];
+  expect(nextStep(running, after)).toEqual({ kind: "deploy", key: "d1", result: "passed" });
+  expect(nextStep(running, [deploy({ status: "failed" }), { type: "reasoning" }])).toEqual({
+    kind: "deploy",
+    key: "d1",
+    result: "failed",
+  });
+  // Once told, the newest item counts again.
+  expect(nextStep({ ...running, result: "passed" }, after)).toBe(null);
+  // Still running, cancelled, or out of the tail: nothing is made up.
+  expect(nextStep(running, [deploy()])).toEqual(running);
+  expect(nextStep(running, [deploy({ status: "canceled" }), { type: "reasoning" }])).toBe(null);
+  expect(nextStep(running, [call({ type: "read", filePath: "a" })])).toEqual({
+    kind: "read",
+    key: "c1",
+  });
 });
 
 interface PollerHarness {

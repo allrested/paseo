@@ -278,7 +278,8 @@ describe("what changed, as things the people do", () => {
       "test",
       "commit",
       "push",
-      "deploy",
+      // (a deploy that starts is a command; its end is the rocket's)
+      "bash",
     ]);
   });
 
@@ -315,6 +316,48 @@ describe("what changed, as things the people do", () => {
     expect(worldEvents(rememberPeople(ended("passed"), told), ended("passed"))).toEqual([]);
     // A run first seen after it ended is only its result.
     expect(worldEvents(null, ended("failed"))).toEqual([{ sess: "1", type: "testfail" }]);
+  });
+
+  it("tells a deploy as a command when it starts, and launches the rocket when it succeeds", () => {
+    const running = [agent("1", { status: "running" })];
+    const deploying = people(running, { "1": step("deploy", "d1") });
+    const ended = (result: "passed" | "failed") =>
+      people(running, { "1": { kind: "deploy", key: "d1", result } });
+
+    expect(worldEvents(null, deploying)).toEqual([{ sess: "1", type: "bash" }]);
+    const told = rememberPeople(deploying);
+    // Still running: no news.
+    expect(worldEvents(told, deploying)).toEqual([]);
+    expect(worldEvents(told, ended("passed"))).toEqual([{ sess: "1", type: "deploy" }]);
+    expect(worldEvents(told, ended("failed"))).toEqual([{ sess: "1", type: "fail", of: "deploy" }]);
+    // Told once.
+    expect(worldEvents(rememberPeople(ended("passed"), told), ended("passed"))).toEqual([]);
+    // A deploy first seen after it ended is only its end.
+    expect(worldEvents(null, ended("passed"))).toEqual([{ sess: "1", type: "deploy" }]);
+    expect(worldEvents(null, ended("failed"))).toEqual([{ sess: "1", type: "fail", of: "deploy" }]);
+  });
+
+  it("says nothing of a deploy that was cancelled or never seen to end", () => {
+    const running = [agent("1", { status: "running" })];
+    const told = rememberPeople(people(running, { "1": step("deploy", "d1") }));
+
+    expect(worldEvents(told, people(running, { "1": step("edit", "c2") }))).toEqual([
+      { sess: "1", type: "edit" },
+    ]);
+    expect(worldEvents(told, people(running))).toEqual([]);
+    expect(worldEvents(told, people([agent("1")]))).toEqual([{ sess: "1", type: "stop" }]);
+    // The next deploy is told again.
+    const moved = rememberPeople(people(running, { "1": step("edit", "c2") }), told);
+    expect(worldEvents(moved, people(running, { "1": step("deploy", "d2") }))).toEqual([
+      { sess: "1", type: "bash" },
+    ]);
+  });
+
+  it("sends a plain push as a push: the applause, and no rocket", () => {
+    const running = [agent("1", { status: "running" })];
+    expect(worldEvents(null, people(running, { "1": step("push") }))).toEqual([
+      { sess: "1", type: "push" },
+    ]);
   });
 
   it("puts out the lamp of a test run whose end was never seen", () => {

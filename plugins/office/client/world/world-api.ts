@@ -35,6 +35,8 @@ export interface WorldSession {
 export interface WorldEvent {
   sess: string;
   type: WorldEventType;
+  /** On a `fail` that is not the agent's own: what failed. The scene words the bubble by it. */
+  of?: "deploy";
 }
 
 export type WorldEventType =
