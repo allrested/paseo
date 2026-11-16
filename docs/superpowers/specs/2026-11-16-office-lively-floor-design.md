@@ -1,6 +1,6 @@
 # The office's lively floor: design
 
-Date: 2026-11-16. Status: design approved by the owner; not built. Sub-project 2 of
+Date: 2026-11-16. Status: built. Sub-project 2 of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects.
 
@@ -163,6 +163,29 @@ push` of a branch, `make build`, a tool named `get_deploy_status`); a deploy's s
   the clock at 10:00 (agents leaving their desks, each game and each solo activity, a prompt calling
   one back, the rocket after a successful deploy and none after a push, nobody playing at 22:00);
   the 2D office's real component with the same agents.
+
+## Not verified
+
+- A real graphics card: the test browser draws with software at about two frames a second, and the
+  scene's clock was run faster to see an activity through.
+- The office inside the app, with real agents: the scene and the 2D office were looked at in static
+  pages with made-up agents. A real deploy's end, read by the host 5 s apart, is covered by the
+  unit tests only.
+- The walk home at night: the pages' agents carry no time of their last activity, so nobody had
+  rested 30 minutes.
+- An agent that waits on real sub-agents: the pages set the wait by hand. The rule, read from the
+  agents' parents, is covered by the unit tests; that the directory leaves background agents out
+  before the client was not looked at.
+- A real web search between two reads: the page sent the step's event by hand, and the host's
+  side is covered by the unit tests only.
+- The installed app on a phone.
+- The rocket in the air and the foosball table in a still: the launch was seen as the flag, the
+  "Deploying a new version" line and the celebration at the console, and foosball as its players'
+  lines, but no screenshot caught the rocket or the players at the table.
+- The agents' return to their desks after the bell: two agents stopped at a coffee and a sofa
+  stood still when the bell rang, and the gathering ended, but they were next seen in the
+  restroom, not at their desks. They had walked there by their own schedule or had been left to
+  it; the page did not tell which.
 
 ## Not built
 
