@@ -161,6 +161,13 @@ test("a writer that ends while the card is open reloads the month shown", async 
   expect(asked).toEqual([undefined, undefined, "202610", "202610"]);
 });
 
+test("a writer that stops while the card is open reloads the month shown", async () => {
+  await mount({ ...NOTES, writing: true });
+  // No new writtenAt: it stopped, and may have written part of the entry.
+  await mount({ ...NOTES, failedAgentId: "w1", problem: "Rate limited" });
+  expect(asked).toEqual([undefined, undefined]);
+});
+
 test("a writer that stopped is named, with a way to it", async () => {
   await mount({ ...NOTES, failedAgentId: "w1", problem: "Rate limited" });
   expect(card()?.textContent).toContain("The writer stopped: Rate limited");
