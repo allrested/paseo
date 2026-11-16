@@ -18,6 +18,7 @@ import type { Machine } from "../shared/contracts.js";
 import { OFFICE_VIEWS, officeDeviceSettings, type OfficeViewChoice } from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
 import { AgentCard } from "./agent-card.js";
+import { sheetLeavesFirstOn } from "./agent-picker-text.js";
 import { AttentionStrip, type StripCard } from "./attention-strip.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
@@ -762,7 +763,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         name={name}
         actions={boardActions}
         wakesPaused={office.state.wake.paused}
-        compact={layout.compact}
+        sheetLeavesFirst={sheetLeavesFirstOn(layout.compact, layout.platform)}
         styles={styles}
         onClose={board.close}
       />

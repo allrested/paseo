@@ -24,6 +24,16 @@ test("a name too long for the smallest type ends in an ellipsis", () => {
   expect(measure(fitted.text, fitted.size)).toBeLessThanOrEqual(ROOM);
 });
 
+test("a name is cut by whole characters, never inside one", () => {
+  const fitted = fitName(measure, "Acme Robotics and Automation🚀🚀", ROOM);
+  // A lone half of a surrogate pair draws as a broken glyph.
+  expect(fitted.text).not.toMatch(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
+  );
+  expect(fitted.text.endsWith("…")).toBe(true);
+  expect(measure(fitted.text, fitted.size)).toBeLessThanOrEqual(ROOM);
+});
+
 /** A 2D context that keeps what was drawn on it and measures as `measure` does. */
 function fakeContext() {
   const calls: unknown[][] = [];

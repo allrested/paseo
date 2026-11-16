@@ -203,12 +203,14 @@ function Team({ team, read, wakesPaused, teach, onOpenBoard, styles }: TeamProps
 
 interface HostSkillsProps {
   skills: readonly SkillInfo[];
+  /** The office has teams, which come first. */
+  afterTeams: boolean;
   styles: OfficeStyles;
 }
 
-/** The host's own skills, folded when there are many: the teams come first. */
-function HostSkills({ skills, styles }: HostSkillsProps) {
-  const folds = skills.length > HOST_SKILLS_SHOWN;
+/** The host's own skills, folded when there are many and teams come before them. */
+function HostSkills({ skills, afterTeams, styles }: HostSkillsProps) {
+  const folds = afterTeams && skills.length > HOST_SKILLS_SHOWN;
   const [shown, setShown] = useState(false);
   const toggle = useCallback(() => setShown((current) => !current), []);
   const label = shown ? "Hide the host's skills" : `Show ${skills.length} skills`;
@@ -274,7 +276,8 @@ export function LibraryCard({
         <View style={styles.sheet}>
           <View style={styles.sheetActions}>
             <Text style={styles.muted}>{librarySummary(teams, skills, readFailure !== null)}</Text>
-            <Text style={styles.rowMeta}>{LIBRARY_HELP}</Text>
+            {/* It tells how to ask a team's agent, which an office without a team cannot. */}
+            {teams.length === 0 ? null : <Text style={styles.rowMeta}>{LIBRARY_HELP}</Text>}
             <View style={styles.actions}>
               <ActionButton
                 label="Read again"
@@ -312,7 +315,7 @@ export function LibraryCard({
               {skills === null ? null : (
                 <>
                   {teams.length === 0 ? null : <View style={styles.rowDivider} />}
-                  <HostSkills skills={skills.host} styles={styles} />
+                  <HostSkills skills={skills.host} afterTeams={teams.length > 0} styles={styles} />
                 </>
               )}
             </View>
