@@ -165,3 +165,13 @@ test("a new list of sessions keeps the last event the scene saw of each person, 
     vi.useRealTimers();
   }
 });
+
+test("an agent stopped on an error keeps no time of its last event, so it stays in sight at night", () => {
+  world.setSessions([{ ...session("a"), stuck: true }]);
+  h.workers.set("a", { id: "a", push() {} });
+  world.event({ sess: "a", type: "fail" });
+  world.setSessions([{ ...session("a"), stuck: true }]);
+
+  expect(h.sessions.get("a")).toMatchObject({ last: { type: "fail" } });
+  expect(h.sessions.get("a")).not.toHaveProperty("lastAt");
+});
