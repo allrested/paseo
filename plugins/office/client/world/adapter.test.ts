@@ -292,6 +292,20 @@ describe("what changed, as things the people do", () => {
     expect(worldEvents(thinking, reading)).toEqual([{ sess: "1", type: "read" }]);
   });
 
+  it("walks once for a step that is reported for one read, and again for the next", () => {
+    const running = [agent("1", { status: "running" })];
+    const searched = people(running, { "1": step("web", "w1") });
+
+    expect(worldEvents(null, searched)).toEqual([{ sess: "1", type: "web" }]);
+    // The read after it has no step: no news, and nothing held against the next call.
+    const told = rememberPeople(searched);
+    expect(worldEvents(told, people(running))).toEqual([]);
+    const moved = rememberPeople(people(running), told);
+    expect(worldEvents(moved, people(running, { "1": step("web", "w2") }))).toEqual([
+      { sess: "1", type: "web" },
+    ]);
+  });
+
   it("names each kind of work as the scene knows it", () => {
     const running = [agent("1", { status: "running" })];
     const typeOf = (kind: ActivityStep["kind"]) =>
