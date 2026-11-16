@@ -116,6 +116,32 @@ describe("the office's agents as the scene's people", () => {
     ]);
   });
 
+  it("seats an agent that waits on sub-agents as at work, and the board says on how many", () => {
+    const model = buildOfficeModel(
+      office([
+        agent("1"),
+        agent("2", { parentAgentId: "1", status: "running" }),
+        agent("3", { parentAgentId: "1", status: "initializing" }),
+        agent("4"),
+      ]),
+    );
+
+    const { sessions } = worldPeople(model, PLAN_DESKS.pro);
+
+    expect(sessions.map((session) => [session.id, session.status, session.waitingOn])).toEqual([
+      ["1", "work", 2],
+      ["2", "work", undefined],
+      ["3", "work", undefined],
+      ["4", "rest", undefined],
+    ]);
+    expect(worldBoardRows(model, sessions).find((row) => row.id === "1")).toEqual({
+      id: "1",
+      name: "Agent 1",
+      text: "Waiting on 2 sub-agents",
+      state: "doing",
+    });
+  });
+
   it("gives a person the context of their agent, when its provider says it", () => {
     const model = buildOfficeModel(
       office([agent("1", { context: { usedTokens: 164_000, maxTokens: 200_000 } }), agent("2")]),
@@ -162,6 +188,30 @@ describe("what changed, as things the people do", () => {
     expect(worldEvents(rememberPeople(working), people([agent("1")]))).toEqual([
       { sess: "1", type: "stop" },
     ]);
+  });
+
+  it("sends an agent that turns busy with a sub-agent to wait at its desk, with no prompt", () => {
+    const sub = (status: OfficeAgent["status"]) => agent("2", { parentAgentId: "1", status });
+    const resting = people([agent("1"), sub("idle")]);
+    const waiting = people([agent("1"), sub("running")]);
+    const running = people([agent("1", { status: "running" }), sub("running")]);
+    const eventsOf = (before: WorldPeople | null, now: WorldPeople) =>
+      worldEvents(before === null ? null : rememberPeople(before), now).filter(
+        (event) => event.sess === "1",
+      );
+
+    // A sub-agent starts while its parent rests: the parent waits at its desk. Nobody sent it a
+    // prompt, so none is carried to it.
+    expect(eventsOf(resting, waiting)).toEqual([{ sess: "1", type: "subwait" }]);
+    // The parent's own turn ends while its sub-agent runs: it waits, and reports nothing yet.
+    expect(eventsOf(running, waiting)).toEqual([{ sess: "1", type: "subwait" }]);
+    // Said at once to whoever opens the office, and once.
+    expect(eventsOf(null, waiting)).toEqual([{ sess: "1", type: "subwait" }]);
+    expect(eventsOf(waiting, waiting)).toEqual([]);
+    // The last sub-agent ends: the turn is reported, as at any turn's end.
+    expect(eventsOf(waiting, resting)).toEqual([{ sess: "1", type: "stop" }]);
+    // The parent runs again while it waited: that is a turn, and its prompt is carried.
+    expect(eventsOf(waiting, running)).toEqual([{ sess: "1", type: "prompt" }]);
   });
 
   it("is a failure when an agent ends in an error, once", () => {

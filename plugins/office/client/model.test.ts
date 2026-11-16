@@ -7,6 +7,8 @@ import {
   buildOfficeModel,
   dotTone,
   orderRoomsForFocus,
+  waitingOnOf,
+  waitingOnText,
 } from "./model.js";
 
 function agent(id: string, overrides: Partial<OfficeAgent> = {}): OfficeAgent {
@@ -93,6 +95,86 @@ test("children follow their parent, one level in; a parent elsewhere or a loop s
     }),
   );
   expect(rowIds(model, "w1")).toEqual(["p:0", "c1:1", "g1:1", "q:0", "x:0", "l1:0", "l2:1"]);
+});
+
+test("an agent whose turn has ended waits on the agents it started that are still at work", () => {
+  const asks = [{ id: "q", kind: "tool" as const, title: "Run?" }];
+  const waiting = (agents: OfficeAgent[]) => [...waitingOnOf(agents)];
+  const child = (id: string, overrides: Partial<OfficeAgent> = {}) =>
+    agent(id, { parentAgentId: "p", ...overrides });
+
+  // Running, starting, or waiting for the user: each counts. Idle, stopped or closed does not.
+  expect(
+    waiting([
+      agent("p"),
+      child("c1", { status: "running" }),
+      child("c2", { status: "initializing" }),
+      child("c3", { permissions: asks }),
+      child("c4"),
+      child("c5", { status: "error" }),
+    ]),
+  ).toEqual([["p", 3]]);
+  expect(waiting([agent("p"), child("c1"), child("c2", { status: "error" })])).toEqual([]);
+  // Down the chain: a grandchild at work keeps both its idle parent and its idle grandparent.
+  expect(
+    waiting([
+      agent("p"),
+      child("c1"),
+      agent("g1", { parentAgentId: "c1", status: "running" }),
+      agent("other", { status: "running" }),
+    ]),
+  ).toEqual([
+    ["p", 1],
+    ["c1", 1],
+  ]);
+  // A parent in its own turn, with a question open or stopped on an error is not waiting.
+  for (const own of [
+    { status: "running" as const },
+    { permissions: asks },
+    { status: "error" as const },
+  ]) {
+    expect(waiting([agent("p", own), child("c1", { status: "running" })])).toEqual([]);
+  }
+  // A child in another room counts; a parent chain that loops ends.
+  expect(waiting([agent("p"), child("c1", { status: "running", workspaceId: "w2" })])).toEqual([
+    ["p", 1],
+  ]);
+  expect(
+    waiting([
+      agent("l1", { parentAgentId: "l2" }),
+      agent("l2", { parentAgentId: "l1", status: "running" }),
+    ]),
+  ).toEqual([["l1", 1]]);
+  expect(waitingOnText(1)).toBe("Waiting on 1 sub-agent");
+  expect(waitingOnText(3)).toBe("Waiting on 3 sub-agents");
+});
+
+test("the model says who waits on sub-agents, on the row and by id; closed agents do not count", () => {
+  const model = buildOfficeModel(
+    snapshot({
+      agents: [
+        agent("p", { createdAt: "2026-11-11T08:00:00.000Z" }),
+        agent("c1", {
+          parentAgentId: "p",
+          status: "running",
+          createdAt: "2026-11-11T08:01:00.000Z",
+        }),
+        agent("q", { createdAt: "2026-11-11T08:02:00.000Z" }),
+        agent("c2", {
+          parentAgentId: "q",
+          status: "closed",
+          createdAt: "2026-11-11T08:03:00.000Z",
+        }),
+      ],
+    }),
+  );
+  expect([...model.waitingOn]).toEqual([["p", 1]]);
+  const room = model.rooms.find((candidate) => candidate.id === "w1");
+  expect(room?.rows.map((row) => [row.agent.id, row.waitingOn])).toEqual([
+    ["p", 1],
+    ["c1", 0],
+    ["q", 0],
+  ]);
 });
 
 test("doing now shows for running agents only; closed agents are left out", () => {

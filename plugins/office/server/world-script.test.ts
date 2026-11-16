@@ -47,6 +47,8 @@ describe("the vendored entry", () => {
     expect(script).toContain("onLibrary");
     // A deploy that failed has its own line in the bubble.
     expect(script).toContain("paseo.deploy.failed");
+    // So has an agent that waits on its sub-agents.
+    expect(script).toContain("paseo.subwait");
     // The lively floor: what someone says on the way to the fish, and Paseo's schedule itself
     // (the station of someone it stopped for the bell).
     expect(script).toContain("Feeding the fish");

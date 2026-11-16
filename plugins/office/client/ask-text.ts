@@ -62,9 +62,13 @@ function newestFirst(a: OfficeAgent, b: OfficeAgent): number {
   return a.createdAt < b.createdAt ? 1 : -1;
 }
 
-/** The room's agents that can be asked now: idle, with no question open. The newest first. */
+/**
+ * The room's agents that can be asked now: idle, with no question open, and waiting on no
+ * sub-agent. The newest first.
+ */
 export function idleAgents(room: OfficeRoom): OfficeAgent[] {
   return room.rows
+    .filter((row) => row.waitingOn === 0)
     .map((row) => row.agent)
     .filter((agent) => agent.status === "idle" && agent.permissions.length === 0)
     .sort(newestFirst);

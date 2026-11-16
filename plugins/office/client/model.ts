@@ -17,6 +17,11 @@ export interface OfficeRow {
   activity: string | null;
   /** The tool call a running agent is at, when its newest timeline item is one. */
   step: ActivityStep | null;
+  /**
+   * How many agents this one started are still at work, when its own turn has ended: it waits on
+   * them, so it is not idle. 0 for everyone else.
+   */
+  waitingOn: number;
 }
 
 export interface OfficeRoom {
@@ -47,6 +52,8 @@ export interface OfficeModel {
   attention: AttentionEntry[];
   agents: ReadonlyMap<string, OfficeAgent>;
   roomOfAgent: ReadonlyMap<string, string>;
+  /** The agents that wait on sub-agents, each with how many (`waitingOnOf`). */
+  waitingOn: ReadonlyMap<string, number>;
 }
 
 export type DotTone = "running" | "idle" | "starting" | "warning" | "danger";
@@ -82,6 +89,51 @@ export function answerableInOffice(kind: string): boolean {
   return ANSWERABLE_KINDS.has(kind);
 }
 
+/** At work, as far as a parent that waits is concerned: running, starting, or asking the user. */
+function atWork(agent: OfficeAgent): boolean {
+  return (
+    agent.status === "running" || agent.status === "initializing" || agent.permissions.length > 0
+  );
+}
+
+/**
+ * Who waits on sub-agents, and on how many. An agent whose own turn has ended (idle, with no
+ * question open) is busy while an agent it started, or one those started, runs, starts or waits
+ * for the user. Only the agents given count: the directory drops the ones the office does not
+ * show before they get here. This is the one place the rule is worked out; the floors, the
+ * stand-up, the cards that ask an agent and the janitor read its answer.
+ */
+export function waitingOnOf(agents: Iterable<OfficeAgent>): Map<string, number> {
+  const all = [...agents];
+  const started = new Map<string, OfficeAgent[]>();
+  for (const agent of all) {
+    const parent = agent.parentAgentId;
+    if (parent === null || parent === agent.id) continue;
+    started.set(parent, [...(started.get(parent) ?? []), agent]);
+  }
+  const waiting = new Map<string, number>();
+  for (const agent of all) {
+    if (agent.status !== "idle" || agent.permissions.length > 0) continue;
+    const seen = new Set([agent.id]);
+    const below = [...(started.get(agent.id) ?? [])];
+    let count = 0;
+    // (the list grows as it is walked: each one's own sub-agents are added behind it)
+    for (const one of below) {
+      if (seen.has(one.id)) continue;
+      seen.add(one.id);
+      if (atWork(one)) count += 1;
+      below.push(...(started.get(one.id) ?? []));
+    }
+    if (count > 0) waiting.set(agent.id, count);
+  }
+  return waiting;
+}
+
+/** What a waiting agent is at, in words: "Waiting on 2 sub-agents". */
+export function waitingOnText(count: number): string {
+  return count === 1 ? "Waiting on 1 sub-agent" : `Waiting on ${count} sub-agents`;
+}
+
 // Same order as server/directory.ts sortAgents; the fake office (Task 16) is not pre-sorted.
 function byCreation(left: OfficeAgent, right: OfficeAgent): number {
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
@@ -91,6 +143,7 @@ function orderRows(
   agents: readonly OfficeAgent[],
   activity: Readonly<Record<string, string>>,
   doing: Readonly<Record<string, ActivityStep>>,
+  waitingOn: ReadonlyMap<string, number>,
 ): OfficeRow[] {
   const sorted = [...agents].sort(byCreation);
   const ids = new Set(sorted.map((agent) => agent.id));
@@ -115,6 +168,7 @@ function orderRows(
       depth,
       activity: running ? (activity[agent.id] ?? null) : null,
       step: running ? (doing[agent.id] ?? null) : null,
+      waitingOn: waitingOn.get(agent.id) ?? 0,
     });
     for (const child of children.get(agent.id) ?? []) visit(child, 1);
   }
@@ -156,6 +210,7 @@ export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
   const workspaceIds = new Set(state.workspaces.map((workspace) => workspace.id));
   const agents = new Map<string, OfficeAgent>();
   for (const agent of state.agents) if (agent.status !== "closed") agents.set(agent.id, agent);
+  const waitingOn = waitingOnOf(agents.values());
   const byRoom = new Map<string, OfficeAgent[]>();
   const roomOfAgent = new Map<string, string>();
   for (const agent of agents.values()) {
@@ -176,7 +231,7 @@ export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
       subtitle,
       lobby: workspace === null,
       workspace,
-      rows: orderRows(byRoom.get(id) ?? [], state.activity, state.doing ?? {}),
+      rows: orderRows(byRoom.get(id) ?? [], state.activity, state.doing ?? {}, waitingOn),
       posts: visiblePosts(state.boards[id] ?? []),
     };
   }
@@ -186,7 +241,13 @@ export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
       room(workspace.id, workspace.name, workspace.projectName, workspace),
     ),
   ];
-  return { rooms, attention: attentionList(agents.values(), roomOfAgent), agents, roomOfAgent };
+  return {
+    rooms,
+    attention: attentionList(agents.values(), roomOfAgent),
+    agents,
+    roomOfAgent,
+    waitingOn,
+  };
 }
 
 /** A workspace tab shows its own room first, then the lobby, then the rest in order. */
