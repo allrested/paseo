@@ -87,7 +87,7 @@ Points 3 and 4 of the owner's review:
 | Its prompt    | Write today's stand-up note under the stand-up rules of this folder's `CLAUDE.md`, for the date in the owner's time zone. If today's entry exists, bring it up to date in place, keep what is still true, and keep the Contents list right. Edit only this month's file, commit nothing. Then the stand-up report text. |
 | The report    | `standupText` of the office's state at that moment. The report code moves from `client/` to `shared/` so the server builds it from the hub's snapshot (`server/hub.ts`).                                                                                                                                                |
 | One at a time | While a writer runs, a bell click or the 8:00 run starts nothing. The office remembers the running writer's id in its host storage, so a restart does not start a second.                                                                                                                                               |
-| When it ends  | The office records the time the entry was last written and archives the writer. My call, so writers do not fill the office.                                                                                                                                                                                             |
+| When it ends  | The office records the time and archives the writer, once the day's `## DD Month YYYY` header is in the month's file after its turn. My call, so writers do not fill the office. A writer that ends without the header is left as on an error, with the reason "it ended without writing today's entry".                |
 | An error      | A writer that stops on an error is left as it is, not archived, and the card says it stopped with a link to it.                                                                                                                                                                                                         |
 
 ### The bell and the Stand-up card
@@ -100,15 +100,15 @@ Points 3 and 4 of the owner's review:
 
 ### The Stand-up notes card
 
-| Question      | Decision                                                                                                                                                                                                                                                       |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What opens it | A click on the meeting room's screen in 3D. The screen is a plain mesh today; it becomes a click target and a keyboard button, as the team chips are, without changing upstream's drawing of it. The whiteboard keeps opening a room's board, in 3D and in 2D. |
-| Other views   | The Stand-up card gets a "Stand-up notes" link under its line, so the 2D office and the list reach the notes too. My call: the 2D whiteboard already opens a room's board.                                                                                     |
-| What it shows | This month's file as Markdown with the kit's component, scrolled to the newest entry's header.                                                                                                                                                                 |
-| Months        | "Previous month" and "Next month" buttons, each off where no file exists. A month with no file says so.                                                                                                                                                        |
-| Read only     | The card never edits. The server reads only files named `daily-standup-YYYYMM.md` directly in the notes folder; any other name is refused.                                                                                                                     |
-| After a write | An open card reloads the month when the writer ends.                                                                                                                                                                                                           |
-| The 3D screen | Keeps its "Sprint review" picture.                                                                                                                                                                                                                             |
+| Question      | Decision                                                                                                                                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What opens it | A "Stand-up notes" label on the meeting room's screen in 3D: a DOM button on the screen's top edge, as the team chips are, so a click and the keyboard reach it and upstream's drawing of the screen stays. The whiteboard keeps opening a room's board, in 3D and in 2D. |
+| Other views   | The Stand-up card gets a "Stand-up notes" link under its line, so the 2D office and the list reach the notes too. My call: the 2D whiteboard already opens a room's board.                                                                                                |
+| What it shows | This month's file as Markdown with the kit's component, scrolled to the newest entry's header.                                                                                                                                                                            |
+| Months        | "Previous month" and "Next month" buttons, each off where no file exists. A month with no file says so.                                                                                                                                                                   |
+| Read only     | The card never edits. The server reads only files named `daily-standup-YYYYMM.md` directly in the notes folder; any other name is refused.                                                                                                                                |
+| After a write | An open card reloads the month when the writer ends.                                                                                                                                                                                                                      |
+| The 3D screen | Keeps its "Sprint review" picture.                                                                                                                                                                                                                                        |
 
 ## Errors
 
@@ -128,13 +128,15 @@ Points 3 and 4 of the owner's review:
 - The names of the plugin kit's schedule calls and the handler a schedule names.
 - How the workspace of the notes folder is found or opened through `paseo.workspaces`.
 - How the bell's click reaches the server (an office request, as the board's posts do).
-- How the entry finds the screen's mesh and makes it a click target.
+- How the entry makes the screen open the notes: a DOM label anchored on the top edge of the
+  screen's mesh (`src/office/paseo-entry.js`), not the mesh as a click target.
 
 ## Verified
 
-No daemon was started for this check: starting one, or registering this checkout's workspace on
-the daemon at port 6767, changes the user's Paseo. The office was looked at on static pages
-instead, in Paseo's browser, the way sub-project 1 was:
+No daemon was started for this check. Registering this checkout's workspace on the daemon at port
+6767 would change the user's Paseo, and the owner's rule is to ask first and never start a daemon
+by hand. The office was looked at on static pages instead, in Paseo's browser, the way sub-project
+1 was:
 
 - The page mounted the plugin's real `OfficeSurface` (the header, the strip, the cards, the list
   and the 3D view), bundled with the repo's esbuild, `react-native` aliased to
@@ -143,7 +145,8 @@ instead, in Paseo's browser, the way sub-project 1 was:
   `notes` state chosen per page) and the RPCs.
 - The host's sheet was a plain card with the sizes of `AdaptiveModalSheet`: 520 px wide at most,
   85% high for a body that scrolls itself. In the compact layout it was a bottom sheet 92% high, a
-  size of the stand-in's own. The host's Markdown was `marked`.
+  size of the stand-in's own. The host's Markdown was `marked`. With one line of text the notes
+  card stayed at the stand-in's 85% height, a size the stand-in copied from the host's code.
 - The notes reads were answered with what the real `readMonthNotes` returned for a copy of the
   three notes files under `/tmp`, recorded beforehand: this month in Asia/Riyadh, each month from
   August to December 2026, this month at 08:00 on 1 December, no folder, and a folder that does
@@ -151,8 +154,8 @@ instead, in Paseo's browser, the way sub-project 1 was:
 - The 3D view ran the scene's entry, bundled with the server's options, in the surface's own
   frame. A probe module beside it put the camera and the props on the frame's window, to find
   where the bell is drawn.
-- 1280 x 800 in light and dark, and 390 x 844 in dark (compact and touch), with the app's plugin
-  themes. The console had only React's DevTools notice and the stand-in's log.
+- 1280 x 800 in light and dark, and 390 x 844 in dark (compact), with the app's plugin themes.
+  The console had only React's DevTools notice and the stand-in's log.
 
 The settings:
 
@@ -164,12 +167,13 @@ The settings:
 
 The Stand-up card, opened from the strip in the list and in 3D:
 
-- The line under the totals read, by state: "Writing today's entry…", "Today's entry written at
-  08:03" ("00:05" for a write five minutes after midnight), "No entry today yet" (none, or the
-  last one yesterday), "The writer stopped: Rate limited", "The writer stopped on an error" (not
-  doubled), "The writer stopped: it was closed before it finished", "The writer could not start:
-  The notes folder /tmp/t10/gone is not a folder" and "The writer could not start: The notes
-  folder must be an absolute path: docs". A write today and a stop after it shows the stop.
+- The line under the totals read, by the `notes` state the stand-in gave: "Writing today's
+  entry…", "Today's entry written at 08:03" ("00:05" for a write five minutes after midnight), "No
+  entry today yet" (none, or the last one yesterday), "The writer stopped: Rate limited", "The
+  writer stopped on an error" (not doubled), "The writer stopped: it was closed before it
+  finished", "The writer could not start: The notes folder /tmp/t10/gone is not a folder" and "The
+  writer could not start: The notes folder must be an absolute path: docs". A write today and a
+  stop after it shows the stop.
 - A stopped writer has "Open the writer" under the line. It closed the card and asked the app to
   open that agent. The notes card's "Open the writer" does the same.
 - With no folder, and with no `notes` in the snapshot, the line is left out and "Stand-up notes"
@@ -196,8 +200,6 @@ The notes card:
 - A folder that does not exist: "Unable to read the stand-up notes: ENOENT: no such file or
   directory, scandir '/tmp/t10/no-such-folder'" in place of the notes, as an alert, with no month
   buttons.
-- With one line of text the card stays at the 85% height the host gives a body that scrolls
-  itself (the stand-in copied that size from the host's code).
 
 3D, the company floor:
 
@@ -230,6 +232,8 @@ What did not come out as the check was written:
 - While the meeting room's place card is open, the card covers the label's right part. People's
   name tags and speech bubbles can sit over the label: their declutter is upstream's, in
   `place-chips.js`.
+- The label's clearance from the "Meeting room" chip was measured only at the default view, 1280
+  and 390 px wide. Zoomed out or turned, the chip can cover it again.
 
 ## Not verified
 
@@ -242,9 +246,11 @@ Nothing the daemon does was seen, since no daemon ran. Tests cover each:
   `packages/server/src/server/schedule/service.test.ts` ("plugin schedules") and
   `packages/server/src/server/plugins/plugin-schedules.e2e.test.ts`.
 - The bell starting one `Stand-up notes` agent in the notes folder's workspace, a second click
-  starting none, the writer archived at its end and the line's time:
+  starting none, the writer recorded and archived at its end only when the day's header is in the
+  month's file (else left with "it ended without writing today's entry"), and the line's time:
   `plugins/office/server/notes-writer.test.ts`, `plugins/office/server/live-ports.test.ts`,
   `plugins/office/index.server.test.ts`.
+- The daemon serving the scene's script: `plugins/office/server/world-script.test.ts`.
 - `schedule ls` and the app's schedule screens leaving the office's schedule out:
   `packages/server/src/server/session/schedule/schedule-session.test.ts`.
 - A restart while a writer runs, and a schedule due while the daemon starts: the restart cases of
@@ -258,3 +264,5 @@ Not seen for other reasons:
 - The 2D office, the app around the office, and the Android app.
 - A real model writing an entry, and an open card reloading when a real writer ends: the reload
   was seen only from a pushed `writtenAt`.
+- The daemon's answer to a notes read that fails: the card's raw error text ("ENOENT: no such
+  file or directory, scandir ...") came from the stand-in, which passed the reader's error on.
