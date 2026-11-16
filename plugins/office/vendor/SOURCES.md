@@ -18,8 +18,14 @@ office (`client/pixel`) is the plugin's own and takes nothing from here.
 ### What is taken
 
 The scene: the floor plans, the furniture, the people and how they move, the labels over them,
-the place cards. Upstream's files are copied unchanged, except that `'three'` and
-`'three/addons/...'` imports are rewritten to relative paths, so the bundle needs no resolver.
+the place cards, and the lounge's four games (pool, the TV matches, foosball, karaoke: `people/
+billiards.js`, `gaming.js`, `foosball.js`, `karaoke.js`). Upstream's files are copied unchanged,
+except that `'three'` and `'three/addons/...'` imports are rewritten to relative paths, so the
+bundle needs no resolver.
+
+The games call the group chat, the sounds and the first-person walk, which are not taken: their
+stand-ins export what the games import and do nothing, so a game is seen and not heard, nobody
+plays it in first person, and a karaoke song has no sound.
 
 Three copied files are changed by hand, and each change starts with `// PASEO:`:
 
@@ -35,8 +41,8 @@ Three copied files are changed by hand, and each change starts with `// PASEO:`:
 
 Upstream's own interface (panels, the session drawer, the chat, settings, the top bar), its server
 connection, the replay, the demo, sounds, other languages, the street outside with its shops, the
-first-person walk, and the daily-life scenes (lunch runs, karaoke, the seasons, the weather and
-the like). The owner asked for the office floor only.
+first-person walk, and the daily-life scenes (lunch runs, the midday nap, the seasons, the
+weather and the like). The owner asked for the office floor only.
 
 The kept modules still import those files, so each has a stand-in at the same path that starts
 with `// PASEO: stand-in`. Most export what is asked of them and do nothing. These do work:

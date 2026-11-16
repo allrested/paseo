@@ -38,6 +38,11 @@ const OURS = {
   'paseo.deploy.failed': 'The deploy failed',
   'places.deploy.today': { one: '{n} deploy since the office opened', other: '{n} deploys since the office opened' },
   'places.live.deployToday': '{n} so far',
+  // (first-person play is not taken: nobody walks in to pick up a cue; and the box asks no price)
+  'props.billiards.hint': 'Call two free people over for a frame',
+  'props.gametv.hint': 'Call two free people over for a match',
+  'props.karaoke.hint': 'Send someone free in to sing a song',
+  'props.karaoke.idle': 'The box is free',
 };
 const get = (key) => { if (key in OURS) return OURS[key]; let o = en; for (const k of key.split('.')) { if (o == null || typeof o !== 'object') return undefined; o = o[k]; } return o; };
 const EMOJI = /\s*(?![©®™])\p{Extended_Pictographic}[\uFE0F\u200D\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}]*/gu;

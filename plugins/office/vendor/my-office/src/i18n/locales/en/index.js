@@ -2,6 +2,7 @@
 import common from './common.js';
 import time from './time.js';
 import settings from './settings.js';
+import fp from './fp.js';
 import activity from './activity.js';
 import incident from './incident.js';
 import events from './events.js';
@@ -11,4 +12,4 @@ import props from './props.js';
 import world from './world.js';
 import life from './life.js';
 
-export default { common, time, settings, activity, incident, events, people, places, props, world, life };
+export default { common, time, settings, fp, activity, incident, events, people, places, props, world, life };

@@ -47,8 +47,12 @@ describe("the vendored entry", () => {
     expect(script).toContain("onLibrary");
     // A deploy that failed has its own line in the bubble.
     expect(script).toContain("paseo.deploy.failed");
+    // Upstream's four games are in: pool, the TV matches, foosball and karaoke.
+    for (const line of ["billiards", "tv", "foos", "karaoke"]) {
+      expect(script).toContain(`people.${line}.invite`);
+    }
     // The scene with three.js r160; a jump means a module the port leaves out came back in.
-    expect(script.length).toBeGreaterThan(600_000);
+    expect(script.length).toBeGreaterThan(1_000_000);
     expect(script.length).toBeLessThan(1_200_000);
     // Node's globals would throw in the page: upstream's build flag was the one use.
     expect(script).not.toContain("process.env");
