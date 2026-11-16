@@ -655,21 +655,19 @@ test("sub-agents are named after their parent, and a new number is written once"
   const subscriber = subscribe(harness.hub);
   await settle();
   const first = subscriber.events[0];
-  expect(first?.type).toBe("snapshot");
   const agents = first?.type === "snapshot" ? first.state.agents : [];
   expect(agents.find((one) => one.id === "c1")?.name).toBe("Mjd-1");
   expect(agents.find((one) => one.id === "c2")?.name).toBeUndefined();
+  // The parent's next is stored first, so a failure leaves a gap, never a reused number.
   expect(writes).toEqual([
-    { agentId: "c2", patch: { "office.subagent.number": 2 } },
     { agentId: "p", patch: { "office.subagent.next": 3 } },
+    { agentId: "c2", patch: { "office.subagent.number": 2 } },
   ]);
 
-  // The directory reports the same view again before the write comes back: nothing is sent twice.
   harness.directory.emit({ agents: [parent, numbered, fresh], workspaces: [] });
   await settle();
   expect(writes).toHaveLength(2);
 
-  // The write came back: c2 has its name.
   harness.directory.emit({
     agents: [{ ...parent, next: 3 }, numbered, { ...fresh, number: 2 }],
     workspaces: [],
@@ -685,7 +683,52 @@ test("sub-agents are named after their parent, and a new number is written once"
   await subscriber.done;
 });
 
-test("a number write that fails is tried again on the next change", async () => {
+test("numbers that come back out of order are not handed out again", async () => {
+  const writes: { agentId: string; patch: Record<string, number> }[] = [];
+  const parent = { ...agent("p", "idle"), title: "Mjd" };
+  const c1 = { ...agent("c1", "running"), parentAgentId: "p" };
+  const c2 = {
+    ...agent("c2", "running"),
+    parentAgentId: "p",
+    createdAt: "2026-11-11T08:01:00.000Z",
+  };
+  const harness = startHarness(
+    { agents: [parent, c1, c2], workspaces: [] },
+    {
+      setAgentMetadata: async (agentId, patch) => {
+        writes.push({ agentId, patch });
+      },
+    },
+  );
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(writes).toHaveLength(3);
+  // c2's number and the parent's next come back; c1's has not yet.
+  harness.directory.emit({
+    agents: [{ ...parent, next: 3 }, c1, { ...c2, number: 2 }],
+    workspaces: [],
+  });
+  await settle();
+  expect(writes).toHaveLength(3);
+  harness.directory.emit({
+    agents: [
+      { ...parent, next: 3 },
+      { ...c1, number: 1 },
+      { ...c2, number: 2 },
+    ],
+    workspaces: [],
+  });
+  await settle();
+  expect(writes).toEqual([
+    { agentId: "p", patch: { "office.subagent.next": 3 } },
+    { agentId: "c1", patch: { "office.subagent.number": 1 } },
+    { agentId: "c2", patch: { "office.subagent.number": 2 } },
+  ]);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("a parent whose next cannot be stored gets no new sub-agent number, and both are tried again", async () => {
   let fail = true;
   const writes: string[] = [];
   const parent = { ...agent("p", "idle"), title: "Mjd" };
@@ -701,11 +744,11 @@ test("a number write that fails is tried again on the next change", async () => 
   );
   const subscriber = subscribe(harness.hub);
   await settle();
-  expect(writes).toEqual(["c", "p"]);
+  expect(writes).toEqual(["p"]);
   fail = false;
   harness.directory.emit({ agents: [parent, fresh], workspaces: [] });
   await settle();
-  expect(writes).toEqual(["c", "p", "c", "p"]);
+  expect(writes).toEqual(["p", "p", "c"]);
   subscriber.controller.abort();
   await subscriber.done;
 });
