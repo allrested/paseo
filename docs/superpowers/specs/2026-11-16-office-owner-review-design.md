@@ -23,6 +23,10 @@ The owner used the 3D office and asked for nine changes:
    work stays on the office's page.
 9. There is no gym room, and there is a library: the Gym button is named Library.
 
+While the spec was written the owner added a tenth:
+
+10. The 3D office works on Android too.
+
 ## What the code does today
 
 | Point | Today                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -36,17 +40,20 @@ The owner used the 3D office and asked for nine changes:
 | 7     | One row of chips that scrolls sideways with no scrollbar: "Nobody", the room's agents, then every other agent.                                                                                                                                                                                                                                                                                                                 |
 | 8     | `navigation.openAgent` leaves the office for the agent's workspace. The kit has no component for an agent's conversation, and the app's needs the workspace pane's context.                                                                                                                                                                                                                                                    |
 | 9     | The gym was put in the library by design: the scene has no gym, and a skill is opened at the library.                                                                                                                                                                                                                                                                                                                          |
+| 10    | Only a browser with WebGL2 is offered the 3D floor. Chrome on Android is one, not tried on a phone; the installed app shows the 2D office. The installed app is upstream's store build. Its one frame for plugins (`DocumentFrame`) loads local files with scripts off. The pictures the host drew for phones were of the first robot scene and are gone; the host's Chromium draws the floor at about 1.5 frames a second.    |
 
 ## Sub-projects
 
-The owner chose this order. Each later one gets its own spec.
+The owner chose the order of the first four. The fifth came later and is last until the owner
+places it. Each later one gets its own spec.
 
-| #   | Sub-project            | Points  | What it needs                                                             |
-| --- | ---------------------- | ------- | ------------------------------------------------------------------------- |
-| 1   | Small fixes            | 9, 7, 6 | The plugin's client and the scene's entry. This document.                 |
-| 2   | A lively floor         | 1, 2    | Upstream's leisure modules, a routine for the rest, and what a deploy is. |
-| 3   | Stand-up notes         | 3, 4    | A daily run on the host, an agent that writes, a reader for the notes.    |
-| 4   | The office as one page | 8, 5    | A change to the app: a plugin cannot show a session or another plugin.    |
+| #   | Sub-project            | Points  | What it needs                                                                |
+| --- | ---------------------- | ------- | ---------------------------------------------------------------------------- |
+| 1   | Small fixes            | 9, 7, 6 | The plugin's client and the scene's entry. This document.                    |
+| 2   | A lively floor         | 1, 2    | Upstream's leisure modules, a routine for the rest, and what a deploy is.    |
+| 3   | Stand-up notes         | 3, 4    | A daily run on the host, an agent that writes, a reader for the notes.       |
+| 4   | The office as one page | 8, 5    | A change to the app: a plugin cannot show a session or another plugin.       |
+| 5   | 3D in the Android app  | 10      | A way for the installed app to run the scene, or an app build of the fork's. |
 
 ## Sub-project 1
 
