@@ -1,5 +1,5 @@
 import { stateLabel } from "./agent-card.js";
-import { agentTitle, dotTone, type DotTone, type OfficeRoom } from "./model.js";
+import { agentTask, agentTitle, dotTone, type DotTone, type OfficeRoom } from "./model.js";
 
 /** The choice that wakes no agent. */
 export const NOBODY = "";
@@ -9,7 +9,10 @@ export const SEARCH_FROM = 9;
 export interface PickerRow {
   agentId: string;
   title: string;
-  /** The agent's room and its state, in the agent card's words: "shop-api · Idle". */
+  /**
+   * The agent's room and its state, in the agent card's words: "shop-api · Idle". A numbered
+   * sub-agent's task comes first, so Mjd-1 and Mjd-2 can be told apart.
+   */
   detail: string;
   tone: DotTone;
 }
@@ -21,19 +24,24 @@ export interface PickerGroup {
 
 function rowsOf(room: OfficeRoom, wanted: string): PickerRow[] {
   const inRoom = room.name.toLowerCase().includes(wanted);
+  const has = (text: string | null) => text !== null && text.toLowerCase().includes(wanted);
   return room.rows
-    .filter(({ agent }) => inRoom || agentTitle(agent).toLowerCase().includes(wanted))
-    .map(({ agent }) => ({
-      agentId: agent.id,
-      title: agentTitle(agent),
-      detail: `${room.name} · ${stateLabel(agent)}`,
-      tone: dotTone(agent),
-    }));
+    .filter(({ agent }) => inRoom || has(agentTitle(agent)) || has(agentTask(agent)))
+    .map(({ agent }) => {
+      const task = agentTask(agent);
+      const where = `${room.name} · ${stateLabel(agent)}`;
+      return {
+        agentId: agent.id,
+        title: agentTitle(agent),
+        detail: task === null ? where : `${task} · ${where}`,
+        tone: dotTone(agent),
+      };
+    });
 }
 
 /**
  * The agents a post on this room's board can wake: the room's own first, then every other
- * room's in the office's order. A query keeps the agents whose title or room has it.
+ * room's in the office's order. A query keeps the agents whose title, task or room has it.
  */
 export function pickerGroups(
   rooms: readonly OfficeRoom[],
