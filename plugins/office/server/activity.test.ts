@@ -148,6 +148,27 @@ test("a command that only names a deploy is not one", () => {
   expect(shell('git commit -m "gh workflow run deploy.yml"')).toBe("commit");
 });
 
+test("a deploy run as a check or a dry run is a command", () => {
+  const shell = (command: string) => kindOf({ type: "shell", command });
+  expect(shell("scripts/deploy.sh --check")).toBe("command");
+  expect(shell("scripts/deploy.sh pos --dry-run")).toBe("command");
+  expect(shell("./deploy-prod.mjs -n")).toBe("command");
+  expect(shell("make -n deploy")).toBe("command");
+  expect(shell("make -C infra deploy-prod --dry-run")).toBe("command");
+  expect(shell("just --list deploy")).toBe("command");
+  expect(shell("just -n deploy staging")).toBe("command");
+  expect(shell("kubectl apply --dry-run=client -f k8s/")).toBe("command");
+  expect(shell("npm publish --dry-run")).toBe("command");
+  // To kubectl and helm `-n` names a namespace.
+  expect(shell("kubectl apply -n prod -f k8s/")).toBe("deploy");
+  expect(shell("helm upgrade -n prod api ./chart")).toBe("deploy");
+  // A flag that only starts like one.
+  expect(shell("scripts/deploy.sh --check-health")).toBe("deploy");
+  // The real deploy after its dry run.
+  expect(shell("make -n deploy && make deploy")).toBe("deploy");
+  expect(shell("scripts/deploy.sh --check; scripts/deploy.sh pos")).toBe("deploy");
+});
+
 test("a tool whose own name starts with deploy, release, publish or rollout is a deploy", () => {
   const named = (name: string) => kindOf({ type: "unknown" }, { name });
   expect(named("mcp__flavours-observability__deploy_service")).toBe("deploy");
