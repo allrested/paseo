@@ -45,6 +45,11 @@ describe("the vendored entry", () => {
     expect(script).toContain("PaseoOfficeWorld");
     // The library's chip and the bookshelf tell Paseo, which opens its Library card.
     expect(script).toContain("onLibrary");
+    // The bell tells Paseo, which has the stand-up notes written, and the label over the meeting
+    // room's screen opens them.
+    expect(script).toContain("onBell");
+    expect(script).toContain("onNotes");
+    expect(script).toContain("Stand-up notes");
     // A deploy that failed has its own line in the bubble.
     expect(script).toContain("paseo.deploy.failed");
     // A deploy that succeeded says so.
