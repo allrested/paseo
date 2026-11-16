@@ -32,16 +32,17 @@ Points 11, 12 and 14 of the owner's review:
 
 ### Sub-agent names
 
-| Question               | Decision                                                                                                                                                                                                                                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The name               | `<parent's office name>-<number>`. An agent without a parent, or whose parent the office does not show, keeps its own title.                                                                                                                                                                       |
-| The number             | Kept in the sub-agent's metadata under `office.subagent.number`. The parent keeps the next number under `office.subagent.next`. Both are written by the office's server through the agent's `setMetadata`.                                                                                         |
-| Handing one out        | When the office's directory sees a shown sub-agent with no number and a shown parent: the larger of the parent's `next` (1 when unset) and one more than its highest numbered child. Several at once go in creation order, one at a time.                                                          |
-| Existing sub-agents    | Numbered the same way the first time the office sees them. My call.                                                                                                                                                                                                                                |
-| A write's side effect  | Each write moves the agent's last activity, as every daemon write does. The first time the office opens, the sub-agents it numbers and their parents move to the top of Paseo's lists and count as active for two days. Leaving last activity alone needs a daemon change. Open: the owner's call. |
-| Before it is stored    | The sub-agent shows its own title. A write that fails is logged and tried again on the directory's next change.                                                                                                                                                                                    |
-| Where it shows         | Every place the office names an agent: the 3D tags, the 2D floor, the list, the strip, the cards, the stand-up. The agent's card shows the task title under the name when they differ. The rest of Paseo is unchanged.                                                                             |
-| Where it is worked out | Once, on the office's server, into an optional `name` on the office's agent. The client's `agentTitle` reads it.                                                                                                                                                                                   |
+| Question               | Decision                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The name               | `<parent's office name>-<number>`. An agent without a parent, or whose parent the office does not show, keeps its own title.                                                                                                                                                                                                                                     |
+| The number             | Kept in the sub-agent's metadata under `office.subagent.number`. The parent keeps the next number under `office.subagent.next`. Both are written by the office's server through the agent's `setMetadata`.                                                                                                                                                       |
+| Handing one out        | When the office's directory sees a shown sub-agent with no number and a shown parent: the larger of the parent's `next` (1 when unset) and one more than its highest numbered child. Several at once go in creation order, one at a time.                                                                                                                        |
+| Existing sub-agents    | Numbered the same way the first time the office sees them. My call.                                                                                                                                                                                                                                                                                              |
+| A write's side effect  | None in the rest of Paseo. The daemon does not count a plugin's metadata write as the agent's activity: `updatedAt`, which orders Paseo's lists and drives the active window and idle collection, stays. The owner's call.                                                                                                                                       |
+| A moved agent          | The daemon copies the source's plugin metadata to the agent a move hands to, native or handoff, as it copies labels, so the numbers go with it. Move back returns to the original agent, which keeps its own. The owner's call.                                                                                                                                  |
+| Before it is stored    | The sub-agent shows its own title. A write that fails is logged and tried again on the directory's next change.                                                                                                                                                                                                                                                  |
+| Where it shows         | Every place the office names an agent: the 3D tags, the 2D floor, the list, the strip, the cards, the stand-up, the host's card, the server racks and the wake picker. The agent's card shows the task title under the name when they differ; the picker's second line starts with the task, and a search finds the agent by it. The rest of Paseo is unchanged. |
+| Where it is worked out | Once, on the office's server, into an optional `name` on the office's agent. The client's `agentTitle` reads it.                                                                                                                                                                                                                                                 |
 
 ### The card strip
 
@@ -61,15 +62,16 @@ Points 11, 12 and 14 of the owner's review:
 
 - The sub-agent name outside the office.
 - A way to rename or renumber an agent in the office.
-- Numbers across Move session. The daemon does not carry plugin metadata to the moved agent, so a
-  moved parent can hand out an archived child's number again, and a moved sub-agent gets a new
-  number. Open: the owner's call.
 
 ## Verified
 
 - Unit: numbering in creation order, ties by id, no reuse after an archived sibling, a parent's
   counter brought up to date, hidden parents, bad stored values; nested names (Mjd-2-1); the hub
   writes each number once and again after a failed write; `agentTitle` and the task line.
+- Unit, daemon: `setMetadata` keeps `updatedAt` on a live and a stored agent and still sends the
+  state. Daemon test context: a move, native and handoff, carries the metadata.
+- Unit: the host's card and the racks take the office name; the picker's task line and its
+  search by the task.
 - Mounted: the strip wraps with no sideways scroll on a wide screen and scrolls on a phone; the
   fade's rule at the start, the middle, the end and a pixel short of the end.
 - Browser: the built scene in a frame inside a page in headless Chromium. With the outer page
@@ -81,3 +83,4 @@ Points 11, 12 and 14 of the owner's review:
 - The glide's frame rate itself: the test browser draws with software at a few frames a second.
 - The office inside the app with real agents: the numbers written through `setMetadata` and
   read back, and the strip and its fade on a real phone.
+- The two daemon changes on the running daemon: they take effect once the owner restarts it.
