@@ -1,15 +1,18 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import pino from "pino";
 import { afterEach, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { resolveDaemonVersion } from "../daemon-version.js";
+import { ScheduleStore } from "../schedule/store.js";
 import { DaemonClient } from "../test-utils/daemon-client.js";
 import { createTestPaseoDaemon, type TestPaseoDaemon } from "../test-utils/paseo-daemon.js";
-import { BuiltinPluginLoader } from "./builtin/index.js";
+import { BuiltinPluginLoader, type BuiltinPlugin } from "./builtin/index.js";
 
 const PLUGIN_ID = "scheduler";
-const cadence = { type: "every", everyMs: 60_000 } as const;
+// An `every` schedule runs as soon as it is created, so the tick could race the test's own runs.
+const cadence = { type: "cron", expression: "0 0 1 1 *" } as const;
 
 const pluginSource = `import { defineRpc } from "@getpaseo/plugin";
 import { type PluginServerContext } from "@getpaseo/plugin/server";
@@ -30,13 +33,13 @@ export default function contribute(server: PluginServerContext) {
     name: "n",
     handler: "h",
     prompt: "p",
-    cadence: { type: "every", everyMs: 60_000 },
+    cadence: ${JSON.stringify(cadence)},
   });
   server.handleSchedule("h", async ({ paseo, scheduleId, runId }) => {
     recorded.push({ api: typeof paseo.agents.list, scheduleId, runId });
   });
   server.handle(upsert, ({ name, handler }) =>
-    server.schedules.upsert({ name, handler, prompt: "p", cadence: { type: "every", everyMs: 60_000 } }),
+    server.schedules.upsert({ name, handler, prompt: "p", cadence: ${JSON.stringify(cadence)} }),
   );
   server.handle(remove, ({ name }) => server.schedules.remove(name));
   server.handle(list, async () => {
@@ -74,8 +77,33 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
+// The daemon starts built-ins and then configured plugins, so this loader goes first.
+class HeldPluginLoader extends BuiltinPluginLoader {
+  constructor(
+    private readonly beforePlugins: () => Promise<void>,
+    root: string,
+    list: readonly string[],
+  ) {
+    super(root, list);
+  }
+
+  override async load(start: (plugin: BuiltinPlugin) => Promise<void>): Promise<void> {
+    await this.beforePlugins();
+    await super.load(start);
+  }
+}
+
+interface StartPluginOptions {
+  paseoHomeRoot?: string;
+  /** Runs once the daemon's schedules have started and before any plugin loads. */
+  beforePlugins?: () => Promise<void>;
+}
+
 // A plugin's server runs in its own process; a built-in's runs inside the daemon.
-async function startPlugin(kind: "directory" | "built-in"): Promise<ScheduledPlugin> {
+async function startPlugin(
+  kind: "directory" | "built-in",
+  options: StartPluginOptions = {},
+): Promise<ScheduledPlugin> {
   const root = await mkdtemp(path.join(tmpdir(), "paseo-plugin-schedules-"));
   roots.push(root);
   const directory = path.join(root, PLUGIN_ID);
@@ -88,11 +116,17 @@ async function startPlugin(kind: "directory" | "built-in"): Promise<ScheduledPlu
     }),
   );
   await writeFile(path.join(directory, "index.server.ts"), pluginSource);
-  const daemon = await createTestPaseoDaemon(
-    kind === "built-in"
-      ? { builtinPlugins: new BuiltinPluginLoader(root, [PLUGIN_ID]) }
-      : { pluginsEnabled: true },
-  );
+  const held = options.beforePlugins ?? (async () => undefined);
+  const daemon = await createTestPaseoDaemon({
+    paseoHomeRoot: options.paseoHomeRoot,
+    ...(kind === "built-in"
+      ? { builtinPlugins: new HeldPluginLoader(held, root, [PLUGIN_ID]) }
+      : {
+          builtinPlugins: new HeldPluginLoader(held, root, []),
+          pluginsEnabled: true,
+          plugins: { [PLUGIN_ID]: { source: "directory", path: directory, enabled: true } },
+        }),
+  });
   const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
   const invoke = (method: string, input: unknown = {}) =>
     client.invokePluginRpc(PLUGIN_ID, method, input);
@@ -104,8 +138,11 @@ async function startPlugin(kind: "directory" | "built-in"): Promise<ScheduledPlu
   };
   opened.push(plugin);
   await client.connect();
-  if (kind === "directory") await client.installDirectoryPlugin(directory);
   return plugin;
+}
+
+async function waitUntil(condition: () => Promise<boolean>): Promise<void> {
+  while (!(await condition())) await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
 describe.each(["directory", "built-in"] as const)("a %s plugin's schedules", (kind) => {
@@ -153,6 +190,45 @@ describe.each(["directory", "built-in"] as const)("a %s plugin's schedules", (ki
       error: "Unknown schedule handler: missing",
     });
     expect(ran.status).toBe("active");
+  }, 60_000);
+
+  test("a schedule that comes due while the daemon starts runs once its plugin loads", async () => {
+    const paseoHomeRoot = await mkdtemp(path.join(tmpdir(), "paseo-plugin-schedules-home-"));
+    roots.push(paseoHomeRoot);
+    const store = new ScheduleStore(
+      path.join(paseoHomeRoot, ".paseo", "schedules"),
+      pino({ level: "silent" }),
+    );
+    let scheduleId = "";
+    // The schedules have started, so the next tick claims this run before any plugin loads.
+    async function dueBeforePlugins(): Promise<void> {
+      const due = new Date().toISOString();
+      const schedule = await store.create({
+        name: "due",
+        prompt: "p",
+        cadence,
+        target: { type: "plugin", pluginId: PLUGIN_ID, handler: "h" },
+        status: "active",
+        createdAt: due,
+        updatedAt: due,
+        nextRunAt: due,
+        lastRunAt: null,
+        pausedAt: null,
+        expiresAt: null,
+        maxRuns: null,
+        runs: [],
+      });
+      scheduleId = schedule.id;
+      await waitUntil(async () => ((await store.get(scheduleId))?.runs.length ?? 0) > 0);
+    }
+
+    const plugin = await startPlugin(kind, { paseoHomeRoot, beforePlugins: dueBeforePlugins });
+
+    await expect
+      .poll(async () => (await store.get(scheduleId))?.runs.at(-1)?.status, { timeout: 20_000 })
+      .toBe("succeeded");
+    const run = (await store.get(scheduleId))!.runs.at(-1)!;
+    expect(await plugin.invoke("runs")).toEqual([{ api: "function", scheduleId, runId: run.id }]);
   }, 60_000);
 });
 

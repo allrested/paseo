@@ -37,8 +37,11 @@ import {
   UsageSourceRegistry,
 } from "./usage-sources/index.js";
 import type { PluginUsageSourceMetadata } from "./plugin-process-protocol.js";
+import { withTimeout } from "../../utils/promise-timeout.js";
 
 const BUILTIN_PROVIDER_ID_SET: ReadonlySet<string> = new Set(BUILTIN_PROVIDER_IDS);
+// Starting can include building a plugin from source.
+const PLUGIN_STARTUP_WAIT_MS = 5 * 60_000;
 
 interface PluginRuntimePort {
   subscribeSessionOpenChanges?: PluginRuntime["subscribeSessionOpenChanges"];
@@ -111,6 +114,11 @@ export class PluginService {
     { kind: "disable" | "remove"; completion: Promise<void> }
   >();
   private started = false;
+  private settleStartup: () => void = () => undefined;
+  /** Settles once start() has tried every plugin the daemon starts with, or the plugins stop. */
+  private readonly startup = new Promise<void>((resolve) => {
+    this.settleStartup = resolve;
+  });
   private readonly settingsListeners = new Set<(pluginId: string, settingsId: string) => void>();
 
   constructor(
@@ -212,6 +220,13 @@ export class PluginService {
   }
 
   async runSchedule(run: PluginScheduleRun): Promise<void> {
+    // The daemon's schedules start before its plugins, so a run that comes due while the daemon
+    // starts waits for them.
+    await withTimeout({
+      promise: this.startup,
+      timeoutMs: PLUGIN_STARTUP_WAIT_MS,
+      label: "waiting for plugins to start",
+    });
     if (!this.runtime.runSchedule) throw new Error(`Plugin is not available: ${run.pluginId}`);
     await this.runtime.runSchedule(run);
   }
@@ -240,34 +255,38 @@ export class PluginService {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
-    const config = this.configStore.get();
-    this.globalStartsBlocked = config.pluginsEnabled !== true;
-    await this.builtinPlugins.load(async (plugin) => {
-      try {
-        await this.runtime.startBuiltinPlugin?.(plugin);
-        await this.publishProviderRegistrations(plugin.id, plugin.directory);
-        this.publishUsageSources(plugin.id);
-      } catch (error) {
-        this.logger.error({ err: error, pluginId: plugin.id }, "Failed to start built-in plugin");
+    try {
+      const config = this.configStore.get();
+      this.globalStartsBlocked = config.pluginsEnabled !== true;
+      await this.builtinPlugins.load(async (plugin) => {
+        try {
+          await this.runtime.startBuiltinPlugin?.(plugin);
+          await this.publishProviderRegistrations(plugin.id, plugin.directory);
+          this.publishUsageSources(plugin.id);
+        } catch (error) {
+          this.logger.error({ err: error, pluginId: plugin.id }, "Failed to start built-in plugin");
+        }
+      });
+      if (config.pluginsEnabled === true) {
+        let earlierPublished: Promise<unknown> = Promise.resolve();
+        await Promise.all(
+          Object.entries(config.plugins ?? {})
+            .filter(([, source]) => source.enabled !== false)
+            .map(async ([pluginId]) => {
+              const publishTurn = earlierPublished;
+              const starting = this.startConfigured(pluginId, publishTurn);
+              earlierPublished = Promise.all([publishTurn, starting]);
+              await starting;
+              this.notify(pluginId);
+            }),
+        );
       }
-    });
-    if (config.pluginsEnabled === true) {
-      let earlierPublished: Promise<unknown> = Promise.resolve();
-      await Promise.all(
-        Object.entries(config.plugins ?? {})
-          .filter(([, source]) => source.enabled !== false)
-          .map(async ([pluginId]) => {
-            const publishTurn = earlierPublished;
-            const starting = this.startConfigured(pluginId, publishTurn);
-            earlierPublished = Promise.all([publishTurn, starting]);
-            await starting;
-            this.notify(pluginId);
-          }),
-      );
+      this.configStore.onFieldChange("pluginsEnabled", (value) => {
+        this.handleGlobalSwitch(value === true);
+      });
+    } finally {
+      this.settleStartup();
     }
-    this.configStore.onFieldChange("pluginsEnabled", (value) => {
-      this.handleGlobalSwitch(value === true);
-    });
   }
 
   async listPlugins(): Promise<PluginListItem[]> {
@@ -575,6 +594,7 @@ export class PluginService {
   }
 
   async stopAllPlugins(): Promise<void> {
+    this.settleStartup();
     this.globalStartsBlocked = true;
     const stopping = this.stopAll();
     await this.enqueue(async () => {

@@ -1255,11 +1255,14 @@ label. When a schedule is due, the daemon calls the `run` registered for its `ha
 promise `run` returns ends the run. A rejection, an unregistered handler, or 10 minutes without an
 answer fails that run.
 
-The daemon stores the schedule, so it runs after a restart without another `upsert`. A schedule
-whose plugin is not loaded fails that run and stays active, so a later run reaches the plugin once
-it is back. The daemon takes the plugin id from the process that calls, never from the call, so a
-plugin cannot reach another plugin's schedules. The app's schedule screens and the `list_schedules`
-tool do not list plugin schedules.
+The daemon stores the schedule, so it keeps running after a restart without another `upsert`. As
+with every schedule, a run that came due while the daemon was down is skipped: on start the daemon
+moves the schedule to its next time. A run that comes due while the daemon starts waits, for up to
+5 minutes, until the daemon has started its plugins. A schedule whose plugin is not loaded fails
+that run and stays active, so a later run reaches the plugin once it is back. The daemon takes the
+plugin id from the process that calls, never from the call, so a plugin cannot reach another
+plugin's schedules. The app's schedule screens and the `list_schedules` tool do not list plugin
+schedules.
 
 ```ts
 import type { PluginServerContext } from "@getpaseo/plugin/server";
