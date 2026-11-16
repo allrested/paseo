@@ -22,7 +22,8 @@ export interface WorldSession {
   stuck: boolean;
   /**
    * How many sub-agents the agent waits on, set when its own turn has ended and they are still
-   * at work: `status` is `work` then. Paseo's own; the scene does not read it.
+   * at work: `status` is `work` then. Paseo's own: upstream's scene does not read it;
+   * Paseo's `paseo-entry.js` does, for the `subwait` bubble.
    */
   waitingOn?: number;
   subs: never[];

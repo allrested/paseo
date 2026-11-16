@@ -208,6 +208,16 @@ describe("what changed, as things the people do", () => {
     // Said at once to whoever opens the office, and once.
     expect(eventsOf(null, waiting)).toEqual([{ sess: "1", type: "subwait" }]);
     expect(eventsOf(waiting, waiting)).toEqual([]);
+    // The count changes while it waits: told again; the same count is not.
+    const subs = (n: number) =>
+      people([
+        agent("1"),
+        ...Array.from({ length: n }, (_, i) =>
+          agent(String(i + 2), { parentAgentId: "1", status: "running" }),
+        ),
+      ]);
+    expect(eventsOf(subs(3), subs(1))).toEqual([{ sess: "1", type: "subwait" }]);
+    expect(eventsOf(subs(3), subs(3))).toEqual([]);
     // The last sub-agent ends: the turn is reported, as at any turn's end.
     expect(eventsOf(waiting, resting)).toEqual([{ sess: "1", type: "stop" }]);
     // The parent runs again while it waited: that is a turn, and its prompt is carried.

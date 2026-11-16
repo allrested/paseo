@@ -26,7 +26,7 @@ const solo = new Map();   // session id -> { w, kind, e (the errand; null in the
 let lookAt = 0;
 
 // at rest, with nothing else on: as upstream's games choose their players (people/billiards.js who())
-const resting = (w, s) => !w.sub && s?.status === 'rest' && !s.bg?.length && !w.want;
+const resting = (w, s) => !w.sub && s?.status === 'rest' && !s.stuck && !s.bg?.length && !w.want;
 const idle = (w, s) => resting(w, s) && asleep(w) && w.station === 'desk' && !w.onBreak && !w.outing && !w.street && !w.carry && !w.doze && !w.mealBox && !w.shred;
 const sofa = () => (PRO ? STATIONS.coffee.slice(0, 2) : []);   // (the TV's two seats: people/gaming.js)
 const busy = (kind) => [...solo.values()].some((x) => x.kind === kind);
@@ -59,7 +59,8 @@ function away(w, kind, job, secs = 0) {
 const SOLO = {
   nap(w) {
     const seat = sofa().find((s) => !s.by); if (!seat) return false;
-    away(w, 'nap', { spot: seat, anim: 'sleep', line: tr('paseo.leisure.nap'), arrived: () => w.hush() }, rand(...LEISURE.nap));
+    seat.by = w;   // (taken at once, as the cup's chair: a TV start or a coffee cannot take it before the walk)
+    away(w, 'nap', { spot: seat, anim: 'sleep', line: tr('paseo.leisure.nap'), arrived: () => w.hush() }, rand(...LEISURE.nap)).seat = seat;
     return true;
   },
   fish(w) {

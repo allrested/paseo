@@ -1085,7 +1085,7 @@ function teamsOf(rooms: readonly OfficeRoom[], people: WorldPeople): PlanTeam[] 
  * The office as a pixel-art floor, drawn with plain views: it runs on a phone, in a browser
  * without WebGL and on a slow machine. The same agents as the 3D office, and the same places:
  * the library for reading, the racks for commands and tests, the whiteboard for plans, the desk
- * for edits, the pad for a push or a deploy, the coffee machine after a turn. By day whoever
+ * for edits and a push, the racks for a running deploy, the pad for one that succeeded (the rocket flies there), the coffee machine after a turn. By day whoever
  * rests takes turns in the lounge: on the sofa, at the coffee machine, at the plant. The paper on
  * a desk is its agent's context, and the janitor sweeps it away when the context empties.
  */

@@ -261,6 +261,12 @@ test("a deploy says how it ended, as a test run does", () => {
   expect(describeStep([deploy({ status: "completed" }, 1)])?.result).toBe("failed");
   expect(describeStep([deploy({ status: "failed" })])?.result).toBe("failed");
   expect(describeStep([deploy({ status: "canceled" })])).toEqual({ kind: "deploy", key: "d1" });
+  // Cancelled with the exit code a killed process leaves: not a failure.
+  expect(describeStep([deploy({ status: "canceled" }, 130)])).toEqual({
+    kind: "deploy",
+    key: "d1",
+  });
+  expect(describeStep([tests({ status: "canceled" }, 130)])).toEqual({ kind: "test", key: "t1" });
   // A deploy tool has no exit code: the call's status says.
   const tool = (status: string) =>
     describeStep([

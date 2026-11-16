@@ -21,6 +21,7 @@ const OURS = {
   'events.verb.test': 'run {label}',
   'events.verb.testok': 'tests pass',
   'events.verb.testfail': 'tests fail',
+  'events.bubble.deploy': 'Shipped {label}',
   'events.verb.push': 'push the code',
   'events.verb.agent': 'start a subagent',
   'events.bubble.agent': 'Handing off to a subagent',
