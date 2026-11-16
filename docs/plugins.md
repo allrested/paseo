@@ -593,7 +593,7 @@ runs, starts or waits for you: it waits on them (`waitingOnOf` in
 at its desk, at work; the whiteboard and the stand-up say "Waiting on N sub-agents"; and the
 stand-up, the Library and Review cards and the janitor leave it alone. Only agents the office
 shows count. The rule is the client's: the office's server still takes such an agent for idle, so
-a mention on a board wakes it.
+a mention on a board wakes it, and the Host card can still close a waiting agent.
 
 The office also watches the host. While an office surface is open, the `office.machine`
 subscription sends a reading every 10 s: memory (the daemon's cgroup when it has a cap, else the
@@ -686,10 +686,12 @@ down, never sideways. It has 40 desks: more would make a phone lay out thousands
 the line under the room says how many agents are only in the list.
 
 The places are the 3D floor's: the library for a read, a search or a skill, the racks for a command or a
-test run, the whiteboard for a plan or a subagent, the pad for a push or a deploy, which launches
-the rocket, and the desk for everything else. Whoever needs you stays at the desk, where a tap
-opens the card. Where a person stands follows from the agent's state alone
-(`client/pixel/actors.ts`), so an office opened in the middle of a turn shows everyone in place.
+test run, the whiteboard for a plan or a subagent, the desk for a push, the racks for a deploy
+that runs, the pad for a deploy that succeeded, where the rocket flies, and the desk for
+everything else. Whoever needs you stays at the desk, where a tap
+opens the card. Where a person stands follows from the agent's state
+(`client/pixel/actors.ts`), and the lounge's turn also from the time, so an office opened in the
+middle of a turn shows everyone in place.
 Three things are remembered: the coffee break, 30 seconds away from the desk after a turn ends,
 since when each agent rests, and the desks the janitor is due at. While the stand-up is open,
 whoever rests stands at the whiteboard. From 08:00 to 21:00 by the device's clock whoever rests
