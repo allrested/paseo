@@ -125,9 +125,9 @@ export interface StripScroll {
   offset: number;
 }
 
-/** More entries are past the right edge. */
+/** More entries are past the right edge, by more than the 1 dp a whole-pixel offset can miss. */
 export function fadeShown({ viewport, content, offset }: StripScroll): boolean {
-  return viewport > 0 && offset + viewport < content;
+  return viewport > 0 && offset + viewport < content - 1;
 }
 
 /** The agents that need the user, then the office's cards. On a phone this is the fast path. */

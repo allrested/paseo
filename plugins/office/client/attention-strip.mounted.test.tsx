@@ -74,8 +74,14 @@ test("phone: the cards scroll sideways", async () => {
 
 test("the fade shows while more cards are past the edge, and goes at the end", () => {
   expect(fadeShown({ viewport: 375, content: 600, offset: 0 })).toBe(true);
-  expect(fadeShown({ viewport: 375, content: 600, offset: 224 })).toBe(true);
+  expect(fadeShown({ viewport: 375, content: 600, offset: 223 })).toBe(true);
   expect(fadeShown({ viewport: 375, content: 600, offset: 225 })).toBe(false);
   expect(fadeShown({ viewport: 375, content: 300, offset: 0 })).toBe(false);
   expect(fadeShown({ viewport: 0, content: 0, offset: 0 })).toBe(false);
+});
+
+test("the fade goes at the end when the scroll offset falls short of a fractional width", () => {
+  // Android reports the offset in whole device pixels; widths are fractional.
+  expect(fadeShown({ viewport: 375, content: 600.4, offset: 225 })).toBe(false);
+  expect(fadeShown({ viewport: 375.33, content: 600, offset: 224.33 })).toBe(false);
 });
