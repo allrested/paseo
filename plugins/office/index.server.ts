@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginServerContext, PluginSettingsState } from "@getpaseo/plugin/server";
 import { createWorldScript, worldEntryPath, type WorldScript } from "./server/world-script.js";
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
@@ -17,6 +17,7 @@ import { cleanUpAgent } from "./server/machine/cleanup.js";
 import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.js";
 import { createMachineReader } from "./server/machine/machine.js";
 import { createMachineWatch } from "./server/machine/watch.js";
+import { createNotesSchedule } from "./server/notes-schedule.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import { boardsFile, hostSkillFolders, type SkillFolder } from "./server/paths.js";
@@ -56,6 +57,8 @@ export interface OfficePluginDeps {
   machine: MachineHost;
   /** The host's skills folders the library lists. */
   skillFolders: readonly SkillFolder[];
+  /** The IANA zone of the stand-up notes' 8:00 run when the settings name none. */
+  hostTimeZone: string;
 }
 
 export interface MachineHost {
@@ -109,6 +112,21 @@ export function createOfficePlugin(
   const skillsPorts = liveSkillsPorts(holder, hub, deps.skillFolders, () => deps.clock.now(), log);
 
   const settings = server.registerSettings(officeHostSettings);
+  // The daemon keeps the 8:00 schedule across restarts. It follows the settings from each load,
+  // which also picks up a change of the host's zone, and from each save.
+  const notesSchedule = createNotesSchedule({
+    schedules: server.schedules,
+    hostTimeZone: deps.hostTimeZone,
+    log,
+  });
+  function followSettings(state: PluginSettingsState<typeof officeHostSettings.schema>) {
+    if (state.status === "ready") void notesSchedule.sync(state.values);
+  }
+  const stopFollowingSettings = settings.subscribe(followSettings);
+  settings
+    .read()
+    .then(followSettings)
+    .catch((error: unknown) => log(`[office] notes schedule failed: ${errorMessage(error)}`));
 
   async function guarded<T>(name: string, work: () => Promise<T>): Promise<T> {
     try {
@@ -234,6 +252,7 @@ export function createOfficePlugin(
   ];
 
   return async () => {
+    stopFollowingSettings();
     for (const remove of removeHooks) remove();
     machine.stop();
     office.stop();
@@ -271,5 +290,6 @@ export default function contribute(
       sleep: (ms) => delay(ms, undefined, { ref: false }),
     },
     skillFolders: hostSkillFolders(process.env, homedir()),
+    hostTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
 }

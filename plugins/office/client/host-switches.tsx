@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { useSettings, type SettingsState } from "@getpaseo/plugin/client";
+import { TextInput } from "@getpaseo/plugin/client/ui";
 import type { WakeState } from "../shared/contracts.js";
 import { officeHostSettings } from "../shared/settings.js";
 import { failureText } from "./action-button.js";
@@ -10,14 +11,20 @@ import type { OfficeStyles } from "./styles.js";
 import type { BoardActions } from "./use-board-actions.js";
 
 type HostSettings = SettingsState<typeof officeHostSettings.schema>;
+type HostValues = Extract<HostSettings, { status: "ready" }>["values"];
+/** A host setting, as its control is labelled. */
+type HostSetting = "Agent tools" | "Notes folder" | "Time zone";
+
+const DEFAULTS: HostValues = officeHostSettings.schema.parse({});
 
 /**
- * "Agent tools" as the host holds it. A setting that is not valid counts as on, as the host
- * itself reads it, and a tap overwrites it; null while it is read or cannot be read.
+ * The settings as the host holds them. A document that is not valid shows the defaults ("Agent
+ * tools" on, as the host itself reads it), and a change overwrites it; null while it is read or
+ * cannot be read.
  */
-function storedTools(settings: HostSettings): boolean | null {
-  if (settings.status === "ready") return settings.values.agentTools;
-  return settings.status === "invalid" ? true : null;
+function storedValues(settings: HostSettings): HostValues | null {
+  if (settings.status === "ready") return settings.values;
+  return settings.status === "invalid" ? DEFAULTS : null;
 }
 
 export interface HostSwitchesProps {
@@ -27,6 +34,8 @@ export interface HostSwitchesProps {
   styles: OfficeStyles;
   /** A failure of the device's own switch, shown under the row with the host's. */
   deviceProblem: string | null;
+  /** Why the daemon's 8:00 schedule could not follow the notes settings: under the Time zone field. */
+  scheduleError: string | null;
   /** The device's own switch: last in the row, so on a phone it wraps to the line above the view. */
   children?: ReactNode;
 }
@@ -34,13 +43,15 @@ export interface HostSwitchesProps {
 /**
  * The header's switches. Host-wide: "Wake agents" pauses every wake, and "Agent tools" adds the
  * board tools to sessions opened from then on. Each follows the tap at once and goes back if the
- * host refuses it, with the reason on a line under the row.
+ * host refuses it, with the reason on a line under the row. Under them, the stand-up notes'
+ * folder and time zone.
  */
 export function HostSwitches({
   wake,
   actions,
   styles,
   deviceProblem,
+  scheduleError,
   children,
 }: HostSwitchesProps) {
   const settings = useSettings(officeHostSettings);
@@ -70,30 +81,54 @@ export function HostSwitches({
     },
     [actions],
   );
-  const stored = storedTools(settings);
+  const stored = storedValues(settings);
   const revision =
     settings.status === "ready" || settings.status === "invalid" ? settings.revision : null;
-  const [wantedTools, setWantedTools] = useState<boolean | null>(null);
   const { save, saveError } = settings;
+  // The setting the last save changed: its failure shows by its control.
+  const [lastChange, setLastChange] = useState<HostSetting>("Agent tools");
+  const change = useCallback(
+    (setting: HostSetting, patch: Partial<HostValues>): Promise<boolean> => {
+      if (stored === null || revision === null) return Promise.resolve(false);
+      setLastChange(setting);
+      // Never rejects: a refused save leaves its reason in saveError.
+      return save({ ...stored, ...patch }, revision);
+    },
+    [save, stored, revision],
+  );
+  const [wantedTools, setWantedTools] = useState<boolean | null>(null);
   const toggleTools = useCallback(
     (next: boolean) => {
       if (revision === null) return;
       setWantedTools(next);
-      // Never rejects: a refused save leaves its reason in saveError.
-      void save({ agentTools: next }, revision).finally(() => {
+      void change("Agent tools", { agentTools: next }).finally(() => {
         if (mounted.current) setWantedTools(null);
       });
     },
-    [save, revision],
+    [change, revision],
   );
+  const saveFolder = useCallback(
+    (next: string) => change("Notes folder", { notesFolder: next }),
+    [change],
+  );
+  const saveTimeZone = useCallback(
+    (next: string) => change("Time zone", { notesTimeZone: next }),
+    [change],
+  );
+  const saveProblem = (setting: HostSetting): string | null =>
+    saveError !== null && lastChange === setting
+      ? failureText(`Save the ${setting} setting`, saveError)
+      : null;
+  // A refused save of the zone comes first: the schedule then still follows the earlier one.
+  const timeZoneProblem =
+    saveProblem("Time zone") ??
+    (scheduleError === null ? null : failureText("Schedule the stand-up notes", scheduleError));
   const summary = wake === null ? null : wakeSummary(wake);
   const wakesOn = wake === null ? null : !wake.paused;
   const problems = [
     wakeProblem,
-    settings.status === "error"
-      ? failureText("Read the Agent tools setting", settings.error)
-      : null,
-    saveError === null ? null : failureText("Save the Agent tools setting", saveError),
+    settings.status === "error" ? failureText("Read the office settings", settings.error) : null,
+    saveProblem("Agent tools"),
     deviceProblem,
   ].filter((problem): problem is string => problem !== null);
   return (
@@ -108,11 +143,29 @@ export function HostSwitches({
         />
         <LabeledSwitch
           label="Agent tools"
-          value={wantedTools ?? stored}
+          value={wantedTools ?? stored?.agentTools ?? null}
           onChange={toggleTools}
           styles={styles}
         />
         {children}
+      </View>
+      <View style={styles.headerFields}>
+        <SettingField
+          label="Notes folder"
+          hint="Where the stand-up notes are written. Empty turns them off."
+          value={stored?.notesFolder ?? null}
+          onSave={saveFolder}
+          problem={saveProblem("Notes folder")}
+          styles={styles}
+        />
+        <SettingField
+          label="Time zone"
+          hint="For the 8:00 run. Empty uses this host's."
+          value={stored?.notesTimeZone ?? null}
+          onSave={saveTimeZone}
+          problem={timeZoneProblem}
+          styles={styles}
+        />
       </View>
       {problems.length > 0 ? (
         <View style={styles.headerProblems}>
@@ -124,5 +177,73 @@ export function HostSwitches({
         </View>
       ) : null}
     </>
+  );
+}
+
+interface SettingFieldProps {
+  label: string;
+  hint: string;
+  /** Null while the settings are read or cannot be read: the field is then not usable. */
+  value: string | null;
+  /** Resolves once the host has answered, and never rejects. */
+  onSave(next: string): Promise<unknown>;
+  problem: string | null;
+  styles: OfficeStyles;
+}
+
+/**
+ * A host setting typed as text. It saves when it is submitted or loses focus, not on each
+ * keystroke, since each save brings the daemon's schedule in step again. The text, trimmed, shows
+ * until the host has answered; a refused save goes back to the stored value.
+ */
+function SettingField({ label, hint, value, onSave, problem, styles }: SettingFieldProps) {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // What is typed, until the host has answered its save; null shows the stored value.
+  const [draft, setDraft] = useState<string | null>(null);
+  // A submit blurs the field too: one save, not a second against a revision already gone.
+  const saving = useRef(false);
+  const commit = useCallback(() => {
+    if (draft === null || saving.current) return;
+    const next = draft.trim();
+    if (value === null || next === value) {
+      setDraft(null);
+      return;
+    }
+    saving.current = true;
+    setDraft(next);
+    void onSave(next).finally(() => {
+      saving.current = false;
+      if (mounted.current) setDraft(null);
+    });
+  }, [draft, value, onSave]);
+  return (
+    <View style={styles.headerField}>
+      <Text style={styles.sheetLabel}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        accessibilityHint={hint}
+        value={draft ?? value ?? ""}
+        editable={value !== null}
+        onChangeText={setDraft}
+        onBlur={commit}
+        onSubmitEditing={commit}
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+        style={styles.fieldInput}
+      />
+      <Text style={styles.fieldHint}>{hint}</Text>
+      {problem === null ? null : (
+        <Text accessibilityRole="alert" style={styles.actionError}>
+          {problem}
+        </Text>
+      )}
+    </View>
   );
 }

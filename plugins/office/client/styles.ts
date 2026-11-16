@@ -14,6 +14,12 @@ export interface OfficeStyles {
   headerControls: ViewStyle;
   /** The switches' failures, one line each, under their row. */
   headerProblems: ViewStyle;
+  /** The text settings under the switches: side by side on a wide screen, stacked on a phone. */
+  headerFields: ViewStyle;
+  /** One text setting: its label, the field, its hint and its failures. */
+  headerField: ViewStyle;
+  /** A line under a field that says what it is for. */
+  fieldHint: TextStyle;
   control: ViewStyle;
   controlDisabled: ViewStyle;
   controlLabel: TextStyle;
@@ -167,6 +173,8 @@ export interface OfficeStyles {
   pickerLead: ViewStyle;
   /** The page's search field: one line, as tall as a control. */
   pickerSearch: TextStyle;
+  /** A text setting's field, as the search field. */
+  fieldInput: TextStyle;
   iconColor: string;
   scene: ViewStyle;
   sceneStatus: TextStyle;
@@ -319,6 +327,17 @@ export function useOfficeStyles(
       // Clips the pressed fill to the rounded corners.
       overflow: "hidden",
     };
+    const lineInput: TextStyle = {
+      ...prompt,
+      minHeight: controlHeight,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface1,
+      color: colors.foreground,
+    };
     return {
       screen: { flex: 1, backgroundColor: colors.surface0 },
       // No side padding here: the strip scrolls to the screen edge, and each row pads itself.
@@ -335,6 +354,17 @@ export function useOfficeStyles(
         paddingHorizontal: pad,
       },
       headerProblems: { ...column, paddingHorizontal: pad, gap: 4 },
+      // Two fields of 240 and the gap fit beside each other in the column, not on a phone.
+      headerFields: {
+        ...column,
+        flexDirection: "row",
+        flexWrap: "wrap",
+        columnGap: 16,
+        rowGap: 12,
+        paddingHorizontal: pad,
+      },
+      headerField: { flexGrow: 1, flexBasis: 240, gap: 4 },
+      fieldHint: { ...small, color: colors.foregroundMuted },
       control,
       controlDisabled: { ...control, opacity: 0.5 },
       controlLabel: { ...base, color: colors.foregroundMuted },
@@ -621,17 +651,8 @@ export function useOfficeStyles(
       },
       // As wide as the dot even without one, so "Nobody" starts on the agents' rail.
       pickerLead: { width: DOT, height: 20, justifyContent: "center" },
-      pickerSearch: {
-        ...prompt,
-        minHeight: controlHeight,
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.surface1,
-        color: colors.foreground,
-      },
+      pickerSearch: lineInput,
+      fieldInput: lineInput,
       iconColor: colors.foregroundMuted,
       scene: { flex: 1, minHeight: SCENE_MIN_HEIGHT },
       sceneStatus: { ...column, ...base, color: colors.foregroundMuted, padding: pad },

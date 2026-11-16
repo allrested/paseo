@@ -13,11 +13,16 @@ import type { officeHostSettings } from "./shared/settings.js";
 
 type SettingsState = PluginSettingsState<typeof officeHostSettings.schema>;
 type Handler = (input: object, context: PluginHandlerContext) => unknown;
+type SettingsListener = (state: SettingsState) => void | Promise<void>;
 
 interface Recorded {
   hooks: Map<string, Handler>;
   handlers: Map<string, Handler>;
   reads: number;
+  /** Who follows the settings: the daemon calls each after a save. */
+  listeners: Set<SettingsListener>;
+  /** The office's calls on its schedules, as "upsert <name> <expression> <zone>" or "remove <name>". */
+  schedules: string[];
 }
 
 interface Sent {
@@ -26,8 +31,17 @@ interface Sent {
   options: unknown;
 }
 
-const ON: SettingsState = { status: "ready", revision: "1", values: { agentTools: true } };
-const OFF: SettingsState = { status: "ready", revision: "2", values: { agentTools: false } };
+const NO_NOTES = { notesFolder: "", notesTimeZone: "" };
+const ON: SettingsState = {
+  status: "ready",
+  revision: "1",
+  values: { agentTools: true, ...NO_NOTES },
+};
+const OFF: SettingsState = {
+  status: "ready",
+  revision: "2",
+  values: { agentTools: false, ...NO_NOTES },
+};
 const OWN_TOOL = { name: "other_tool", description: "Another plugin's tool", inputSchema: {} };
 
 /** The parts of the daemon's plugin API that the office calls. */
@@ -38,7 +52,12 @@ function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): Plu
         recorded.reads += 1;
         return read();
       },
-      subscribe: () => () => undefined,
+      subscribe: (listener: SettingsListener) => {
+        recorded.listeners.add(listener);
+        return () => {
+          recorded.listeners.delete(listener);
+        };
+      },
     }),
     handle: (contract: { name: string }, handler: Handler) => {
       recorded.handlers.set(contract.name, handler);
@@ -48,6 +67,23 @@ function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): Plu
       return () => {
         recorded.hooks.delete(name);
       };
+    },
+    schedules: {
+      upsert: async ({
+        name,
+        cadence,
+      }: {
+        name: string;
+        cadence: { expression: string; timezone: string };
+      }) => {
+        recorded.schedules.push(`upsert ${name} ${cadence.expression} ${cadence.timezone}`);
+        return { id: "s1", nextRunAt: null };
+      },
+      remove: async (name: string) => {
+        recorded.schedules.push(`remove ${name}`);
+        return false;
+      },
+      list: async () => [],
     },
   };
 }
@@ -130,7 +166,13 @@ function hookAgent(id: string): PluginHookAgent {
 }
 
 function setup(read: () => Promise<SettingsState>) {
-  const recorded: Recorded = { hooks: new Map(), handlers: new Map(), reads: 0 };
+  const recorded: Recorded = {
+    hooks: new Map(),
+    handlers: new Map(),
+    reads: 0,
+    listeners: new Set(),
+    schedules: [],
+  };
   const logs: string[] = [];
   const sent: Sent[] = [];
   const statuses = new Map<string, string>();
@@ -151,6 +193,7 @@ function setup(read: () => Promise<SettingsState>) {
       sleep: async () => undefined,
     },
     skillFolders: [{ label: ".claude", path: "/nonexistent-skills" }],
+    hostTimeZone: "Asia/Riyadh",
   });
   async function open(
     overrides: Partial<PluginSessionOpenRequest> = {},
@@ -187,7 +230,8 @@ test("a session opened before the setting is known waits for it, and gets no too
 });
 
 test("the setting is read at each open, so a change holds from the next session on", async () => {
-  const states = [ON, OFF, ON];
+  // The first read is the office's own at load, for the notes schedule.
+  const states = [ON, ON, OFF, ON];
   const { open, stop, recorded } = setup(async () => states[recorded.reads - 1] ?? ON);
   const results = [await open(), await open(), await open()];
   expect(results.map((result) => result?.tools.length)).toEqual([4, undefined, 4]);
@@ -196,8 +240,9 @@ test("the setting is read at each open, so a change holds from the next session 
 
 test("a session opened to read history gets no tools, and the setting is not read for it", async () => {
   const { open, stop, recorded } = setup(async () => ON);
+  const atLoad = recorded.reads;
   expect(await open({ purpose: "history" })).toBeUndefined();
-  expect(recorded.reads).toBe(0);
+  expect(recorded.reads).toBe(atLoad);
   await stop();
 });
 
@@ -206,8 +251,40 @@ test("a setting that cannot be read leaves the session as it is and is logged", 
     throw new Error("settings store is down");
   });
   expect(await open()).toBeUndefined();
-  expect(logs).toEqual(["[office] agent.open.before failed: settings store is down"]);
+  await settle();
+  // The read at load, for the notes schedule, fails too.
+  expect([...logs].sort()).toEqual([
+    "[office] agent.open.before failed: settings store is down",
+    "[office] notes schedule failed: settings store is down",
+  ]);
   await stop();
+});
+
+test("the notes schedule follows the host settings from load and on each save, until the office stops", async () => {
+  const notes = (notesFolder: string, notesTimeZone: string): SettingsState => ({
+    status: "ready",
+    revision: notesFolder + notesTimeZone,
+    values: { agentTools: true, notesFolder, notesTimeZone },
+  });
+  const { recorded, stop } = setup(async () => notes("/notes", ""));
+  await settle();
+  expect(recorded.schedules).toEqual(["upsert standup-notes 0 8 * * 0-4 Asia/Riyadh"]);
+
+  const follow = (state: SettingsState) =>
+    Promise.all([...recorded.listeners].map((listener) => listener(state)));
+  await follow(notes("/notes", "Europe/Berlin"));
+  // A document that is not valid leaves the schedule as it is.
+  await follow({ status: "invalid", revision: "x", error: "Expected string" });
+  await follow(notes("", "Europe/Berlin"));
+  await settle();
+  expect(recorded.schedules).toEqual([
+    "upsert standup-notes 0 8 * * 0-4 Asia/Riyadh",
+    "upsert standup-notes 0 8 * * 0-4 Europe/Berlin",
+    "remove standup-notes",
+  ]);
+
+  await stop();
+  expect(recorded.listeners.size).toBe(0);
 });
 
 test("a post made through the board call wakes the agent it names over the daemon's API", async () => {
