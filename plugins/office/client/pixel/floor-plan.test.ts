@@ -127,6 +127,37 @@ describe("planFloor", () => {
     expect(planFloor([], 390).spots.pad.xs).toHaveLength(2);
   });
 
+  it("has two places on the sofa and one at the plant, clear of who stands at the machine", () => {
+    for (const widthPx of [360, 390, 800, 1280]) {
+      const plan = planFloor([team("a", 3)], widthPx);
+      const { sofa, plant, coffee } = plan.spots;
+      expect(sofa.xs).toHaveLength(2);
+      expect(plant.xs).toHaveLength(1);
+      const resting = [
+        ...sofa.xs.map((x) => ({ x, y: sofa.y, ...SIZE.person })),
+        ...plant.xs.map((x) => ({ x, y: plant.y, ...SIZE.person })),
+        ...coffee.xs.map((x) => ({ x, y: coffee.y, ...SIZE.person })),
+      ];
+      resting.forEach((box, index) => {
+        for (const other of resting.slice(index + 1)) expect(overlap(box, other)).toBe(false);
+      });
+      // Both sit within the sofa's width, and nobody stands in the lane.
+      const lane = { x: plan.laneX, y: plan.wallHeight, ...SIZE.person, h: plan.height };
+      for (const box of resting) expect(overlap(lane, box)).toBe(false);
+      for (const x of sofa.xs) {
+        expect(x).toBeGreaterThanOrEqual(plan.sofa?.x ?? 0);
+        expect(x + SIZE.person.w).toBeLessThanOrEqual((plan.sofa?.x ?? 0) + SIZE.sofa.w);
+      }
+      expect(plant.y).toBe(coffee.y);
+    }
+    // A room too narrow for a sofa has no place on one; the plant is still there.
+    const narrow = planFloor([], 300);
+    expect(narrow.sofa).toBeNull();
+    expect(narrow.spots.sofa.xs).toEqual([]);
+    expect(narrow.spots.plant.xs).toHaveLength(1);
+    expect(narrow.spots.plant.xs[0]).toBeGreaterThan(narrow.laneX + SIZE.person.w);
+  });
+
   it("has more shelves in a wider room and one rack in a narrow one", () => {
     expect(planFloor([], 300).racks).toHaveLength(1);
     expect(planFloor([], 390).shelves).toHaveLength(1);

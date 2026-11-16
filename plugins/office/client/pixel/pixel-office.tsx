@@ -41,15 +41,20 @@ import {
 } from "../world/adapter.js";
 import {
   NO_BREAKS,
+  NO_RESTS,
   NO_VISITS,
+  TURN_MS,
   breaksAfter,
   castOf,
   nextBreakEnd,
+  restsAfter,
   trayOf,
   visitsAfter,
   visitsSwept,
   type Breaks,
   type CastMember,
+  type Leisure,
+  type Rests,
   type Visits,
 } from "./actors.js";
 import {
@@ -144,6 +149,10 @@ function useReduceMotion(): boolean {
 
 interface FloorLife {
   breaks: Breaks;
+  /** Since when each person rests. */
+  rests: Rests;
+  /** The time the lively floor goes by: it moves on when a turn ends. */
+  now: number;
   /** The desks the janitor is due at. */
   visits: Visits;
   /** The janitor swept at this agent's desk. */
@@ -152,11 +161,13 @@ interface FloorLife {
 
 /**
  * What the floor remembers. Who is on a coffee break: a turn that ended starts one, and its time
- * or new work ends it. And the janitor's round: a context that emptied calls the janitor to
- * that desk.
+ * or new work ends it. Since when each person rests, for the lively floor, and the time its
+ * turns go by. And the janitor's round: a context that emptied calls the janitor to that desk.
  */
 function useFloorLife(people: WorldPeople, still: boolean): FloorLife {
   const [breaks, setBreaks] = useState<Breaks>(NO_BREAKS);
+  const [rests, setRests] = useState<Rests>(NO_RESTS);
+  const [now, setNow] = useState(() => Date.now());
   const [visits, setVisits] = useState<Visits>(NO_VISITS);
   const memory = useRef<WorldMemory | null>(null);
   const sessions = useRef(people.sessions);
@@ -167,8 +178,15 @@ function useFloorLife(people: WorldPeople, still: boolean): FloorLife {
     memory.current = changes.memory;
     const seated = new Set(people.sessions.map((session) => session.id));
     setBreaks((before) => breaksAfter(before, changes.events, people.sessions, Date.now()));
+    setRests((before) => restsAfter(before, people.sessions, Date.now()));
     setVisits((before) => visitsAfter(before, changes.events, known, seated));
   }, [people]);
+  // The lounge is looked at again when a turn of the lively floor ends.
+  useEffect(() => {
+    if (still) return undefined;
+    const timer = setTimeout(() => setNow(Date.now()), TURN_MS - (now % TURN_MS) + 20);
+    return () => clearTimeout(timer);
+  }, [now, still]);
   const swept = useCallback(
     (agentId: string) => setVisits((before) => visitsSwept(before, agentId)),
     [],
@@ -184,7 +202,9 @@ function useFloorLife(people: WorldPeople, still: boolean): FloorLife {
   }, [breaks]);
   // With motion reduced nobody walks: nobody is shown away for a break, and a tray is empty
   // without a visit.
-  return still ? { breaks: NO_BREAKS, visits: NO_VISITS, swept } : { breaks, visits, swept };
+  return still
+    ? { breaks: NO_BREAKS, rests, now, visits: NO_VISITS, swept }
+    : { breaks, rests, now, visits, swept };
 }
 
 interface PixelStyles {
@@ -663,8 +683,8 @@ type Motion = { kind: "seated" } | { kind: "standing" } | { kind: "walking"; up:
 
 const SEATED: Motion = { kind: "seated" };
 const STANDING: Motion = { kind: "standing" };
-/** At these a person looks at the wall; in the lounge, at the room. */
-const AT_THE_WALL: ReadonlySet<PlaceKind> = new Set(["library", "board", "racks"]);
+/** At these a person looks at the wall, or at the plant; elsewhere in the lounge, at the room. */
+const AT_THE_WALL: ReadonlySet<PlaceKind> = new Set(["library", "board", "racks", "plant"]);
 
 function poseOf(motion: Motion, place: PlaceKind | null, frame: number): Pose {
   if (motion.kind === "seated") return "seated";
@@ -1065,8 +1085,9 @@ function teamsOf(rooms: readonly OfficeRoom[], people: WorldPeople): PlanTeam[] 
  * The office as a pixel-art floor, drawn with plain views: it runs on a phone, in a browser
  * without WebGL and on a slow machine. The same agents as the 3D office, and the same places:
  * the library for reading, the racks for commands and tests, the whiteboard for plans, the desk
- * for edits, the pad for a push or a deploy, the coffee machine after a turn. The paper on a
- * desk is its agent's context, and the janitor sweeps it away when the context empties.
+ * for edits, the pad for a push or a deploy, the coffee machine after a turn. By day whoever
+ * rests takes turns in the lounge: on the sofa, at the coffee machine, at the plant. The paper on
+ * a desk is its agent's context, and the janitor sweeps it away when the context empties.
  */
 export function PixelOffice({
   model,
@@ -1092,10 +1113,9 @@ export function PixelOffice({
   // The floor seats the surface's order, so a workspace tab has its own team at the top.
   const ordered = useMemo((): OfficeModel => ({ ...model, rooms: [...rooms] }), [model, rooms]);
   const people = useMemo(() => worldPeople(ordered, FLOOR_DESKS), [ordered]);
-  const { breaks, visits, swept } = useFloorLife(people, still);
+  const { breaks, rests, now, visits, swept } = useFloorLife(people, still);
   // With motion reduced nobody walks to a stand-up either.
   const gathered = meeting && !still;
-  const cast = useMemo(() => castOf(people, breaks, gathered), [people, breaks, gathered]);
   // A desk the janitor is due at keeps its paper until the janitor has swept.
   const trays = useMemo(() => {
     const due = new Map(visits.map((visit) => [visit.agentId, visit.from]));
@@ -1108,6 +1128,16 @@ export function PixelOffice({
   }, [people, visits]);
   const teams = useMemo(() => teamsOf(rooms, people), [rooms, people]);
   const plan = useMemo(() => (widthPx > 0 ? planFloor(teams, widthPx) : null), [teams, widthPx]);
+  // Nor to the lounge: the lively floor is for who may see people walk.
+  const hasSofa = plan !== null && plan.sofa !== null;
+  const leisure = useMemo(
+    (): Leisure | null => (still ? null : { now, rests, sofa: hasSofa }),
+    [still, now, rests, hasSofa],
+  );
+  const cast = useMemo(
+    () => castOf(people, breaks, gathered, leisure),
+    [people, breaks, gathered, leisure],
+  );
   const styles = useMemo(() => pixelStyles(art, plan), [art, plan]);
 
   const labels = useMemo(() => {

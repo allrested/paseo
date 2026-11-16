@@ -4,15 +4,21 @@ import type { WorldSession } from "../world/world-api.js";
 import type { WorldMemory } from "../world/adapter.js";
 import {
   BREAK_MS,
+  LONG_REST_MS,
   NO_BREAKS,
+  NO_RESTS,
   NO_VISITS,
+  TURN_MS,
   breaksAfter,
   castOf,
   nextBreakEnd,
+  restWishes,
+  restsAfter,
   standingOf,
   trayOf,
   visitsAfter,
   visitsSwept,
+  type Leisure,
 } from "./actors.js";
 
 function session(id: string, patch: Partial<WorldSession> = {}): WorldSession {
@@ -201,6 +207,167 @@ describe("trayOf", () => {
     expect(trayOf(0.84)).toEqual({ sheets: 3, flag: false });
     expect(trayOf(0.85)).toEqual({ sheets: 3, flag: true });
     expect(trayOf(1)).toEqual({ sheets: 3, flag: true });
+  });
+});
+
+describe("the lively floor", () => {
+  /** A time of 16 November 2026 by the device's clock; a turn starts on every third minute. */
+  const at = (hour: number, minute = 0) => new Date(2026, 10, 16, hour, minute).getTime();
+  const floor = (now: number, patch: Partial<Leisure> = {}): Leisure => ({
+    now,
+    rests: NO_RESTS,
+    sofa: true,
+    ...patch,
+  });
+  const ids = Array.from({ length: 40 }, (_, index) => `agent-${index}`);
+  const resting = (list: readonly string[]) => ({
+    sessions: list.map((id) => session(id, { status: "rest" })),
+    overflow: 0,
+    steps: new Map<string, ActivityStep>(),
+  });
+  const placeOf = (id: string, leisure: Leisure) => restWishes(id, leisure)[0] ?? null;
+
+  it("keeps since when each person rests, and drops who works or left", () => {
+    const first = restsAfter(NO_RESTS, [session("a", { status: "rest" }), session("b")], 1_000);
+    expect([...first]).toEqual([["a", 1_000]]);
+    const both = [session("a", { status: "rest" }), session("b", { status: "rest" })];
+    const second = restsAfter(first, both, 5_000);
+    expect([...second]).toEqual([
+      ["a", 1_000],
+      ["b", 5_000],
+    ]);
+    // Nothing changed: the same map, so nothing draws again.
+    expect(restsAfter(second, both, 9_000)).toBe(second);
+    expect([...restsAfter(second, [session("b", { status: "rest", stuck: true })], 9_000)]).toEqual(
+      [],
+    );
+    expect(restsAfter(NO_RESTS, [session("a")], 1_000)).toBe(NO_RESTS);
+  });
+
+  it("sends a resting person to the lounge every other turn by day, each time somewhere else", () => {
+    for (const id of ids) {
+      const turns = Array.from({ length: 12 }, (_, turn) =>
+        placeOf(id, floor(at(10) + turn * TURN_MS)),
+      );
+      // Away and at the desk in turn: never at one place two turns running.
+      turns.forEach((place, turn) => {
+        expect(place === null).toBe((turns[0] === null) === (turn % 2 === 0));
+      });
+      const away = turns.filter((place) => place !== null);
+      expect(away).toHaveLength(6);
+      away.forEach((place, index) => {
+        if (index > 0) expect(place).not.toBe(away[index - 1]);
+      });
+      expect(new Set(away)).toEqual(new Set(["sofa", "coffee", "plant"]));
+    }
+    // The whole of a turn is one answer, on every device.
+    expect(placeOf("agent-1", floor(at(10, 0) + 1))).toBe(placeOf("agent-1", floor(at(10, 3) - 1)));
+  });
+
+  it("offers the other places when the first is taken, and none on the sofa of a room without one", () => {
+    const id = ids.find((one) => placeOf(one, floor(at(10))) === "sofa") ?? "";
+    expect(restWishes(id, floor(at(10)))).toEqual(["sofa", "coffee", "plant"]);
+    for (const one of ids) {
+      for (let turn = 0; turn < 6; turn += 1) {
+        expect(restWishes(one, floor(at(10) + turn * TURN_MS, { sofa: false }))).not.toContain(
+          "sofa",
+        );
+      }
+    }
+  });
+
+  it("keeps everyone at the desk at night", () => {
+    for (const hour of [21, 23, 0, 3, 7]) {
+      for (let turn = 0; turn < 4; turn += 1) {
+        for (const id of ids) {
+          expect(restWishes(id, floor(at(hour) + turn * TURN_MS))).toEqual([]);
+        }
+      }
+    }
+    expect(ids.some((id) => restWishes(id, floor(at(8))).length > 0)).toBe(true);
+    expect(ids.some((id) => restWishes(id, floor(at(20, 57))).length > 0)).toBe(true);
+  });
+
+  it("mostly keeps someone who has rested two hours at the desk", () => {
+    const now = at(14);
+    const count = (rests: ReadonlyMap<string, number>) =>
+      Array.from({ length: 12 }, (_, turn) =>
+        placeOf("agent-3", floor(now + turn * TURN_MS, { rests })),
+      ).filter((place) => place !== null).length;
+    expect(count(new Map([["agent-3", now - LONG_REST_MS + 13 * TURN_MS]]))).toBe(6);
+    expect(count(new Map([["agent-3", now - LONG_REST_MS]]))).toBe(2);
+  });
+
+  it("puts one person on a spot: two on the sofa, one at the machine, one at the plant", () => {
+    for (let turn = 0; turn < 6; turn += 1) {
+      const cast = castOf(resting(ids), NO_BREAKS, false, floor(at(11) + turn * TURN_MS));
+      const taken = cast.map((member) => `${member.standing.place}:${member.spot}`);
+      const away = taken.filter((key) => !key.startsWith("null"));
+      expect(new Set(away).size).toBe(away.length);
+      expect(away.toSorted()).toEqual(["coffee:0", "plant:0", "sofa:0", "sofa:1"]);
+    }
+    // Without a sofa: the machine and the plant.
+    const narrow = castOf(resting(ids), NO_BREAKS, false, floor(at(11), { sofa: false }));
+    expect(
+      narrow
+        .map((member) => member.standing.place)
+        .filter((place) => place !== null)
+        .toSorted(),
+    ).toEqual(["coffee", "plant"]);
+  });
+
+  it("shows a nap on the sofa and a look at the plant with the screen off, and a cup at the machine", () => {
+    const rest = session("a", { status: "rest" });
+    expect(standingOf(rest, undefined, false, false, "sofa")).toEqual({
+      place: "sofa",
+      icon: null,
+      screen: "off",
+    });
+    expect(standingOf(rest, undefined, false, false, "plant")).toEqual({
+      place: "plant",
+      icon: null,
+      screen: "off",
+    });
+    expect(standingOf(rest, undefined, false, false, "coffee")).toEqual({
+      place: "coffee",
+      icon: "coffee",
+      screen: "off",
+    });
+  });
+
+  it("lets a break, a stand-up and work come first", () => {
+    const id = ids.find((one) => placeOf(one, floor(at(10))) === "sofa") ?? "";
+    const leisure = floor(at(10));
+    const one = (patch: Partial<WorldSession>, steps = new Map<string, ActivityStep>()) => ({
+      sessions: [session(id, patch)],
+      overflow: 0,
+      steps,
+    });
+    const placeIn = (cast: ReturnType<typeof castOf>) => cast[0]?.standing.place;
+    expect(placeIn(castOf(one({ status: "rest" }), NO_BREAKS, false, leisure))).toBe("sofa");
+    // The coffee after a turn.
+    const onBreak = new Map([[id, at(10) + BREAK_MS]]);
+    expect(placeIn(castOf(one({ status: "rest" }), onBreak, false, leisure))).toBe("coffee");
+    // A stand-up at the whiteboard.
+    expect(placeIn(castOf(one({ status: "rest" }), NO_BREAKS, true, leisure))).toBe("board");
+    // Work, a question and an error.
+    const reading = new Map([[id, step("read")]]);
+    expect(placeIn(castOf(one({ status: "work" }, reading), NO_BREAKS, false, leisure))).toBe(
+      "library",
+    );
+    expect(placeIn(castOf(one({ status: "work" }), NO_BREAKS, false, leisure))).toBeNull();
+    expect(placeIn(castOf(one({ status: "wait" }), NO_BREAKS, false, leisure))).toBeNull();
+    expect(
+      placeIn(castOf(one({ status: "rest", stuck: true }), NO_BREAKS, false, leisure)),
+    ).toBeNull();
+  });
+
+  it("keeps everyone at the desk with motion reduced", () => {
+    const cast = castOf(resting(ids), NO_BREAKS, false, null);
+    expect(cast.every((member) => member.standing.place === null)).toBe(true);
+    expect(castOf(resting(ids), NO_BREAKS, false).every((m) => m.standing.place === null)).toBe(
+      true,
+    );
   });
 });
 
