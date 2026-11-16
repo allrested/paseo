@@ -117,6 +117,12 @@ test("a deploy script, a make or just target, a Dokploy redeploy and a deploy wo
   expect(shell("gh workflow run deploy.yml --ref main")).toBe("deploy");
   expect(shell('gh workflow run "Release app" -f channel=beta')).toBe("deploy");
   expect(shell("gh workflow run .github/workflows/Deploy-prod.yml")).toBe("deploy");
+  // A command after another, or after a prefix.
+  expect(shell("cd infra && make deploy")).toBe("deploy");
+  expect(shell("FOO=1 just deploy-prod")).toBe("deploy");
+  expect(shell("sudo make deploy")).toBe("deploy");
+  expect(shell("curl -X POST \"$DOKPLOY_URL/api/compose.deploy\" -d '{}'")).toBe("deploy");
+  expect(shell("cd .. && gh workflow run deploy.yml --ref main")).toBe("deploy");
 });
 
 test("a command that only names a deploy is not one", () => {
@@ -134,6 +140,11 @@ test("a command that only names a deploy is not one", () => {
   expect(shell("curl $DOKPLOY/api/application.deployments")).toBe("command");
   expect(shell("gh workflow run ci.yml -f target=release")).toBe("command");
   expect(shell("gh workflow list")).toBe("command");
+  // A deploy's words in a message or a search are not a command.
+  expect(shell("git commit -m 'make deploy fix'")).toBe("commit");
+  expect(shell("echo make deploy")).toBe("command");
+  expect(shell("grep application.deploy README.md")).toBe("command");
+  expect(shell('git commit -m "gh workflow run deploy.yml"')).toBe("commit");
 });
 
 test("a tool whose own name starts with deploy, release, publish or rollout is a deploy", () => {
