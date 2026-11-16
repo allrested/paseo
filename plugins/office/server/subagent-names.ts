@@ -30,7 +30,8 @@ function byCreation(left: NumberedAgent, right: NumberedAgent): number {
 /**
  * The metadata to write so every shown sub-agent of a shown parent has a number: a new one gets
  * the larger of the parent's next and one more than its highest numbered child, in creation
- * order. The parent's next follows. The sub-agents' writes come before their parent's.
+ * order. For each parent its next comes first, then its sub-agents' numbers: the hub stores the
+ * next before it hands the numbers out, so a write that fails leaves a gap, never a reused number.
  */
 export function planNumbers(agents: readonly NumberedAgent[]): NumberWrite[] {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
@@ -48,12 +49,14 @@ export function planNumbers(agents: readonly NumberedAgent[]): NumberWrite[] {
     for (const child of own)
       if (child.number !== undefined) highest = Math.max(highest, child.number);
     let next = Math.max(parent.next ?? 1, highest + 1);
+    const numbered: NumberWrite[] = [];
     for (const child of [...own].sort(byCreation)) {
       if (child.number !== undefined) continue;
-      writes.push({ agentId: child.id, patch: { [NUMBER_KEY]: next } });
+      numbered.push({ agentId: child.id, patch: { [NUMBER_KEY]: next } });
       next += 1;
     }
     if (next !== parent.next) writes.push({ agentId: parentId, patch: { [NEXT_KEY]: next } });
+    writes.push(...numbered);
   }
   return writes;
 }
