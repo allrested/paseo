@@ -50,6 +50,7 @@ describe("the vendored entry", () => {
     // The lively floor: what someone says on the way to the fish, and Paseo's schedule itself
     // (the station of someone it stopped for the bell).
     expect(script).toContain("Feeding the fish");
+    expect(script).toContain("Back in a minute");
     expect(script).toContain('.station="leisure"');
     // Upstream's four games are in: pool, the TV matches, foosball and karaoke.
     for (const line of ["billiards", "tv", "foos", "karaoke"]) {
