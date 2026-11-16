@@ -743,16 +743,16 @@ newest 40 lines that have something on them, each cut at 400 characters
 check's own log stays on the forge: no SDK call fetches it. Design:
 [QA](superpowers/specs/2026-11-16-office-qa-design.md).
 
-The Library entry is in the strip while the office has a team. An agent whose step opens a skill
-(Claude Code's `Skill` tool), reads or writes a `SKILL.md`, or runs a command that names one goes
-to the library, and the step's kind is `skill`.
-In the 3D office the library's chip and its bookshelf open the same card, also in an office
-without a team, where it lists the host's skills. The card lists each workspace's skills
-from its `.claude/skills`, `.agents/skills` and `.codex/skills`, and the host's from the Claude
-config folder's `skills/`, `~/.agents/skills` and `~/.codex/skills`, the folders Paseo installs
-its own skills to. They are read through `office.skills.request` each time the card opens; the
-server reads only those folders and finds a workspace's folder through the SDK, so a client sends
-no path (`plugins/office/server/skills.ts`). "Teach a skill" posts a note to an idle agent of the
+The Library card lists each workspace's skills from its `.claude/skills`, `.agents/skills` and
+`.codex/skills`, and the host's from the Claude config folder's `skills/`, `~/.agents/skills` and
+`~/.codex/skills`, the folders Paseo installs its own skills to. They are read through
+`office.skills.request` each time the card opens; the server reads only those folders and finds a
+workspace's folder through the SDK, so a client sends no path (`plugins/office/server/skills.ts`).
+The Library entry is in the strip while the office has a team. In the 3D office the library's chip
+and its bookshelf open the same card, also in an office without a team, where it lists the host's
+skills. An agent whose step opens a skill (Claude Code's `Skill` tool), reads or writes a
+`SKILL.md`, or runs a command that names one goes to the library, and the step's kind is `skill`.
+"Teach a skill" posts a note to an idle agent of the
 team, as a review request does: its first line starts with `Skill request:` and names what the
 skill teaches, and the agent writes the skill into the workspace, where it is in the changes to
 review. The office installs and removes no skill: that is the `default-skills` built-in's Skills
