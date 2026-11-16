@@ -72,6 +72,7 @@ places it. Each later one gets its own spec.
 | Search                       | A field over the list when the office has more than eight agents. It matches the title and the room's name, without case. Nothing found: "No agent matches."                                                                                               |
 | Choosing                     | A press on a row chooses it and returns to the form. Back and Escape return without a change. What was typed in the form is kept.                                                                                                                          |
 | A chosen agent that leaves   | The choice is "Nobody" again.                                                                                                                                                                                                                              |
+| A close from the page        | A wide sheet is closed by Escape, its close button or a press beside it: from the page these go back to the form. A phone's sheet is already swiped away when it says so, and closes.                                                                      |
 | Other chips                  | The kind of post keeps its two chips. The Library and Review cards keep theirs: they list one team's idle agents.                                                                                                                                          |
 | The sign's words             | The brand's name. Without a brand, "Paseo".                                                                                                                                                                                                                |
 | The sign's mark              | The brand's logo, fitted into the mark's square. Without one, or when it does not load, upstream's building mark.                                                                                                                                          |
@@ -90,13 +91,15 @@ places it. Each later one gets its own spec.
 - `client/agent-picker-text.ts`: pure. The rows in their order and groups, a row's second line,
   the search.
 - `client/agent-picker.tsx`: the page. `client/board-sheet.tsx` holds which page shows, sets the
-  sheet's title, and takes Escape on the page as Back.
-- `client/web-env.web.ts`: `readBrand()`. `client/world/adapter.ts`: `worldBrand()`, the name's
-  default.
+  sheet's title, and decides what a close does.
+- `client/brand.ts`: `parseBrand()`, pure. `client/web-env.web.ts`: `readBrand()`, which reads
+  the page. `client/world/adapter.ts`: `worldBrand()`, the name's default.
 - `client/world/world-api.ts`: `brand?: { name, logoUrl }` and `onLibrary?()` in the start
   options. Both are optional, so the contract's version stays.
-- The scene: `paseo-host.js` has `library`. `paseo-entry.js` redraws the sign and sets the
-  library's opening.
+- The scene: `paseo-host.js` has `library`. `paseo-sign.js`, a new file of Paseo's, draws the
+  sign on a 2D context and fits the name. `paseo-entry.js` puts that picture on the sign's
+  material and sets the library's opening. `import-upstream.mjs` lists the new file as Paseo's.
+- `docs/docker.md`: the brand's table says what the name and the logo change in the office.
 
 ### Errors
 
