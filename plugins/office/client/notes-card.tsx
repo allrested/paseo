@@ -151,7 +151,7 @@ function NotesBody({ shown, styles }: NotesBodyProps) {
 
 export interface NotesCardProps {
   open: boolean;
-  /** The writer's state in the office's snapshot: a new `writtenAt` reads the month again. */
+  /** The writer's state in the office's snapshot: a writer that ends reads the month again. */
   notes: NotesState | undefined;
   /** When the card opened: the line's "today". */
   now: number;
@@ -194,9 +194,11 @@ export function NotesCard({
     setAsked(null);
     setShown(null);
   }, [open]);
-  // A writer that ends sets a new writtenAt, which reads the month again: this month is asked for
-  // as this month again, so an entry that started a new month shows.
+  // A writer that ends reads the month again, however it ends: with a new writtenAt, or stopped
+  // (`writing` turns off), as it may have written part of the entry. This month is asked for as
+  // this month again, so an entry that started a new month shows.
   const writtenAt = notes?.writtenAt ?? null;
+  const writing = notes?.writing ?? false;
   useEffect(() => {
     if (!open) return;
     let current = true;
@@ -214,7 +216,7 @@ export function NotesCard({
     return () => {
       current = false;
     };
-  }, [open, asked, writtenAt, read]);
+  }, [open, asked, writtenAt, writing, read]);
   const month = shown?.status === "read" && shown.month.folderSet ? shown.month : null;
   return (
     <Modal title="Stand-up notes" open={open} onOpenChange={change}>
