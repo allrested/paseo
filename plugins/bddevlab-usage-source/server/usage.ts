@@ -109,7 +109,8 @@ async function gatewayEntries(env: Env): Promise<GatewayEntry[]> {
 
 function entryAccount(entry: GatewayEntry): UsageAccount {
   return {
-    key: `provider:${entry.id}`,
+    // (a key is [A-Za-z0-9._-]{1,128}: packages/plugin/src/server/usage.ts)
+    key: `provider.${entry.id.replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 128),
     label: entry.id,
     input: { store: "provider", locator: entry.id },
   };
