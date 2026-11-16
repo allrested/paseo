@@ -10,6 +10,7 @@ import {
   isDarkTheme,
   teamOfRoom,
   worldBoardRows,
+  worldBrand,
   worldChanges,
   worldMachine,
   worldPeople,
@@ -438,5 +439,14 @@ describe("floorNote", () => {
     expect(floorNote(5, 0)).toBe(null);
     expect(floorNote(13, 1)).toBe("1 agent has no desk on this floor. The list shows everyone.");
     expect(floorNote(15, 3)).toBe("3 agents have no desk on this floor. The list shows everyone.");
+  });
+});
+
+describe("the lobby's sign", () => {
+  it("shows the host's brand, and the product's name where it has none", () => {
+    const logoUrl = "https://office.example/_brand/logo.svg";
+    expect(worldBrand({ name: "Flavours", logoUrl })).toEqual({ name: "Flavours", logoUrl });
+    expect(worldBrand({ name: null, logoUrl })).toEqual({ name: "Paseo", logoUrl });
+    expect(worldBrand(null)).toEqual({ name: "Paseo", logoUrl: null });
   });
 });

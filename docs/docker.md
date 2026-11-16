@@ -202,12 +202,12 @@ IPs and `localhost` are allowed by default.
 The web UI the daemon serves can carry your own name, logo, icon and colour. Set them in the
 daemon's environment; each one works alone.
 
-| Variable            | Value                                                              | Changes                                                                 |
-| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `PASEO_BRAND_NAME`  | 1 to 40 characters                                                 | The page title, the installed app's name, and "Paseo" in the app's text |
-| `PASEO_BRAND_LOGO`  | Path to an `.svg`, `.png`, `.jpg`, `.jpeg` or `.webp`, up to 1 MiB | The logo on the welcome, start-up, open-project and onboarding screens  |
-| `PASEO_BRAND_ICON`  | Path to a square `.png` of 512 px or more, up to 1 MiB             | The favicon, the Apple touch icon and the installed app's icon          |
-| `PASEO_BRAND_COLOR` | `#RRGGBB`                                                          | The browser bar and the installed app's title bar                       |
+| Variable            | Value                                                              | Changes                                                                                                          |
+| ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `PASEO_BRAND_NAME`  | 1 to 40 characters                                                 | The page title, the installed app's name, "Paseo" in the app's text, and the sign over the lift in the 3D office |
+| `PASEO_BRAND_LOGO`  | Path to an `.svg`, `.png`, `.jpg`, `.jpeg` or `.webp`, up to 1 MiB | The logo on the welcome, start-up, open-project and onboarding screens, and the mark on the 3D office's sign     |
+| `PASEO_BRAND_ICON`  | Path to a square `.png` of 512 px or more, up to 1 MiB             | The favicon, the Apple touch icon and the installed app's icon                                                   |
+| `PASEO_BRAND_COLOR` | `#RRGGBB`                                                          | The browser bar and the installed app's title bar                                                                |
 
 ```yaml
 services:

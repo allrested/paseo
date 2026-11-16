@@ -8,6 +8,7 @@ import { host } from './paseo-host.js';
 import { STYLE } from './paseo-style.js';
 import { reduceMotion, short } from './core/env.js';
 import { renderer } from './scene/renderer.js';
+import { canvasTex } from './scene/blocks.js';
 import { focusTarget } from './core/loop.js';
 import * as live from './net/live.js';
 import * as whiteboard from './ui/whiteboard.js';
@@ -19,6 +20,8 @@ import { closeSession, openSession } from './ui/session-drawer.js';
 import { setMacSnap } from './ui/mac-drawer.js';
 import { PLACES } from './interact/place-chips.js';
 import { closePlace } from './interact/place-cards.js';
+import { OFFICE_MARK, PRO_FX } from './world/pro/pieces.js';
+import { SIGN, drawSign } from './paseo-sign.js';
 import { dropSub, sessions, spawnSub, subAct, subs, workers } from './people/workers.js';
 import { director } from './people/director.js';
 import { STATIONS } from './people/navigation.js';
@@ -101,6 +104,38 @@ function showMachine(on) {
   document.querySelector('.zone[data-place="server"]')?.toggleAttribute('hidden', !host.machine);
 }
 
+/** Upstream's mark on the sign, as world/pro/floor.js draws it: the sign of a host without a logo. */
+function drawMark(g) {
+  g.save();
+  g.translate(150, SIGN.height / 2);
+  g.scale(6.2, 6.2);
+  g.translate(-12, -12);
+  g.fillStyle = '#E8865F';
+  g.fill(new Path2D(OFFICE_MARK), 'evenodd');
+  g.restore();
+}
+/**
+ * The lobby's sign and the reception's plaque share one material (upstream's PRO_FX.logoM): its picture is drawn again
+ * with the host's brand. The name shows at once over the scene's mark; the logo takes the mark's place when it has
+ * loaded, and one that does not load leaves the mark. The one-room floor has no lobby and no sign.
+ */
+function showBrand(brand) {
+  const material = PRO_FX.logoM;
+  if (!material || !brand || typeof brand.name !== 'string' || !brand.name) return;
+  const paint = (logo) => {
+    if (stopped) return;
+    const old = material.map;
+    material.map = canvasTex(SIGN.width, SIGN.height, (g, w, h) => drawSign(g, w, h, { name: brand.name, logo, mark: drawMark }));
+    material.needsUpdate = true;
+    old?.dispose();
+  };
+  paint(null);
+  if (typeof brand.logoUrl !== 'string' || !brand.logoUrl) return;
+  const image = new Image();
+  image.onload = () => paint(image);
+  image.src = brand.logoUrl;
+}
+
 /** What the place cards and the wall screen count an event as. */
 const COUNTED = { prompt: 'prompts', read: 'read', grep: 'read', skill: 'read', web: 'web', mcp: 'web', edit: 'edit', write: 'edit', bash: 'cmd', test: 'cmd', commit: 'cmd', push: 'cmd', deploy: 'deploy' };
 const FEED_MAX = 300;
@@ -154,7 +189,8 @@ function onEvent(e) {
 const api = {
   version: VERSION,
   /**
-   * Builds the office. `options`: plan ('pro' | 'cozy'), dark, colors (the app theme), and what
+   * Builds the office. `options`: plan ('pro' | 'cozy'), dark, colors (the app theme), brand
+   * ({ name, logoUrl }, for the lobby's sign), and what
    * the scene tells Paseo: onSelect(id | null), onBoard(project | null) (a team's chip, or the
    * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
    * (the server racks), onLibrary() (the library's chip and the bookshelf) and onToast(text).
@@ -205,6 +241,7 @@ const api = {
     // (upstream marks the lounge with its sparkle; the cup that marks who rests there says what the place is for)
     for (const place of Object.values(PLACES || {})) if (place.icon === 'sparkle') place.el?.querySelector('.z-ico')?.replaceChildren(icon('coffee'));
     showMachine(false);
+    showBrand(options.brand);
     // (the tag over the boxes left behind opens the panel; upstream listens for its click already)
     if (lostObj) asButton(lostObj.element, () => host.machine?.());
     renderer.domElement.addEventListener('webglcontextlost', () => { if (!stopped) problem('the graphics context was lost'); });
