@@ -579,7 +579,6 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     [model.rooms, focusRoomId],
   );
   const name = useCallback((author: string) => authorName(author, model.agents), [model.agents]);
-  const agentList = useMemo(() => [...model.agents.values()], [model.agents]);
   // In error or closed the data is frozen: no strip, no card and no board sheet to act on it.
   const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
   const board = useBoardSheet(model, live);
@@ -759,10 +758,11 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
       />
       <BoardSheet
         room={board.room}
-        agents={agentList}
+        rooms={model.rooms}
         name={name}
         actions={boardActions}
         wakesPaused={office.state.wake.paused}
+        compact={layout.compact}
         styles={styles}
         onClose={board.close}
       />
