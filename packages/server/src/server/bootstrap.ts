@@ -531,6 +531,7 @@ export interface PaseoDaemon {
   config: PaseoDaemonConfig;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
+  scheduleService: ScheduleService;
   providerSnapshotManager: ProviderSnapshotManager;
   terminalManager: TerminalManager;
   serviceProxy: ServiceProxySubsystem;
@@ -1568,7 +1569,9 @@ export async function createPaseoDaemon(
     createDirectoryWorkspace: createScheduleLocalWorkspaceExternal,
     createPaseoWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
+    runPluginSchedule: (run) => pluginRuntime.runSchedule(run),
   });
+  pluginRuntime.bindSchedules(scheduleService);
   await scheduleService.start();
 
   agentManager.setAgentArchivedCallback(async (agentId) => {
@@ -2275,6 +2278,7 @@ export async function createPaseoDaemon(
     config,
     agentManager,
     agentStorage,
+    scheduleService,
     providerSnapshotManager,
     terminalManager,
     serviceProxy,

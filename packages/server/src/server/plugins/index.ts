@@ -24,7 +24,8 @@ import { type ManagedPluginCandidate, ManagedPluginSources } from "./managed-sou
 import { readPluginManifest } from "./manifest.js";
 import { expandTilde } from "../../utils/path.js";
 import { runPluginBuild } from "./preparation.js";
-import { PluginRuntime } from "./runtime.js";
+import { PluginRuntime, type PluginScheduleHost } from "./runtime.js";
+import type { PluginScheduleRun } from "../schedule/service.js";
 import type { PluginRuntimeSubscription } from "./runtime-subscription.js";
 import { BuiltinPluginLoader, type BuiltinPlugin } from "./builtin/index.js";
 import type { BuiltinPluginExtras } from "./bundle-evaluator.js";
@@ -60,6 +61,8 @@ interface PluginRuntimePort {
   connectProvider: PluginRuntime["connectProvider"];
   getProviderCatalogCacheKey?: PluginRuntime["getProviderCatalogCacheKey"];
   getProviderStatus?: PluginRuntime["getProviderStatus"];
+  bindSchedules?: PluginRuntime["bindSchedules"];
+  runSchedule?: PluginRuntime["runSchedule"];
   validatePlugin?(path: string): Promise<void>;
   startPlugin(pluginId: string, path: string, canPublish: () => boolean): Promise<void>;
   startBuiltinPlugin?(plugin: BuiltinPlugin): Promise<void>;
@@ -202,6 +205,15 @@ export class PluginService {
 
   bindPaseoSessionHost(sessionHost: Parameters<PluginRuntime["bindPaseoSessionHost"]>[0]): void {
     this.runtime.bindPaseoSessionHost(sessionHost);
+  }
+
+  bindSchedules(schedules: PluginScheduleHost): void {
+    this.runtime.bindSchedules?.(schedules);
+  }
+
+  async runSchedule(run: PluginScheduleRun): Promise<void> {
+    if (!this.runtime.runSchedule) throw new Error(`Plugin is not available: ${run.pluginId}`);
+    await this.runtime.runSchedule(run);
   }
 
   getProviderRegistrations(): readonly ProviderRegistration[] {
