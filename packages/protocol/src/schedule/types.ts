@@ -40,6 +40,11 @@ export const ScheduleTargetSchema = z.discriminatedUnion("type", [
       mcpServers: z.record(z.string(), z.unknown()).optional(),
     }),
   }),
+  z.object({
+    type: z.literal("plugin"),
+    pluginId: z.string().min(1),
+    handler: z.string().min(1),
+  }),
 ]);
 export type ScheduleTarget = z.infer<typeof ScheduleTargetSchema>;
 

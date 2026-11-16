@@ -3843,4 +3843,163 @@ describe("ScheduleService", () => {
     expect(await service.completeForAgent(agentId)).toBe(1);
     expect(await service.completeForAgent(agentId)).toBe(0);
   });
+
+  describe("plugin schedules", () => {
+    type RunPluginSchedule = NonNullable<ScheduleServiceOptions["runPluginSchedule"]>;
+
+    const base = {
+      pluginId: "office",
+      name: "standup-notes",
+      handler: "standup-notes",
+      prompt: "Stand-up notes",
+      cadence: { type: "cron" as const, expression: "0 8 * * 0-4", timezone: "Asia/Riyadh" },
+    };
+
+    function cronAt(expression: string, timezone: string) {
+      return { type: "cron" as const, expression, timezone };
+    }
+
+    async function pluginRunSucceeds(): Promise<void> {}
+
+    function createPluginScheduleService(runPluginSchedule?: RunPluginSchedule): ScheduleService {
+      return createScheduleService({
+        paseoHome: tempDir,
+        logger: createTestLogger(),
+        agentManager: new AgentManager({ logger: createTestLogger() }),
+        agentStorage,
+        providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+        now: () => now,
+        runPluginSchedule,
+      });
+    }
+
+    test("a due plugin schedule calls its plugin's handler", async () => {
+      const runPluginSchedule = vi.fn<RunPluginSchedule>(pluginRunSucceeds);
+      const service = createPluginScheduleService(runPluginSchedule);
+      // Friday 20 November 2026; the next weekday slot is Sunday 08:00 in Riyadh.
+      now = new Date("2026-11-20T12:00:00.000Z");
+      const schedule = await service.upsertPluginSchedule(base);
+      expect(schedule.nextRunAt).toBe("2026-11-22T05:00:00.000Z");
+
+      now = new Date("2026-11-22T05:00:00.000Z");
+      await service.tick();
+
+      const [stored] = await service.listPluginSchedules("office");
+      expect(runPluginSchedule).toHaveBeenCalledTimes(1);
+      expect(runPluginSchedule).toHaveBeenCalledWith({
+        pluginId: "office",
+        handler: "standup-notes",
+        scheduleId: schedule.id,
+        runId: stored.runs[0].id,
+      });
+      expect(stored.runs).toEqual([
+        expect.objectContaining({ status: "succeeded", agentId: null, output: null, error: null }),
+      ]);
+    });
+
+    test("upserting by the same plugin and name updates, it does not add", async () => {
+      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
+      const first = await service.upsertPluginSchedule({
+        ...base,
+        cadence: cronAt("0 8 * * 0-4", "Asia/Riyadh"),
+      });
+      const second = await service.upsertPluginSchedule({
+        ...base,
+        handler: "write-notes",
+        cadence: cronAt("0 8 * * 0-4", "Europe/Berlin"),
+      });
+
+      const owned = await service.listPluginSchedules("office");
+      expect(owned).toHaveLength(1);
+      expect(second.id).toBe(first.id);
+      expect(owned[0].cadence).toMatchObject({ timezone: "Europe/Berlin" });
+      expect(owned[0].target).toEqual({
+        type: "plugin",
+        pluginId: "office",
+        handler: "write-notes",
+      });
+    });
+
+    test("a plugin sees and removes only its own schedules", async () => {
+      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
+      await service.upsertPluginSchedule({ ...base, pluginId: "office" });
+      await service.upsertPluginSchedule({ ...base, pluginId: "other" });
+      await service.create({
+        name: base.name,
+        prompt: base.prompt,
+        cadence: base.cadence,
+        target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+      });
+
+      expect(await service.listPluginSchedules("office")).toHaveLength(1);
+      expect(await service.removePluginSchedule("office", base.name)).toBe(true);
+      expect(await service.listPluginSchedules("office")).toEqual([]);
+      expect(await service.listPluginSchedules("other")).toHaveLength(1);
+      expect(await service.removePluginSchedule("office", base.name)).toBe(false);
+      expect(await service.list()).toHaveLength(2);
+    });
+
+    test("a plugin that is not loaded fails the run and keeps the schedule active", async () => {
+      const runPluginSchedule = vi.fn<RunPluginSchedule>(pluginRunSucceeds);
+      runPluginSchedule.mockRejectedValueOnce(new Error("Plugin is not available: office"));
+      const service = createPluginScheduleService(runPluginSchedule);
+      now = new Date("2026-11-20T12:00:00.000Z");
+      await service.upsertPluginSchedule(base);
+
+      now = new Date("2026-11-22T05:00:00.000Z");
+      await service.tick();
+
+      const [stored] = await service.listPluginSchedules("office");
+      expect(stored.status).toBe("active");
+      expect(stored.nextRunAt).toBe("2026-11-23T05:00:00.000Z");
+      expect(stored.runs.at(-1)).toMatchObject({
+        status: "failed",
+        error: "Plugin is not available: office",
+      });
+    });
+
+    test("a plugin schedule fails its run on a daemon without a plugin runner", async () => {
+      const service = createPluginScheduleService();
+      now = new Date("2026-11-20T12:00:00.000Z");
+      await service.upsertPluginSchedule(base);
+
+      now = new Date("2026-11-22T05:00:00.000Z");
+      await service.tick();
+
+      const [stored] = await service.listPluginSchedules("office");
+      expect(stored.status).toBe("active");
+      expect(stored.runs.at(-1)).toMatchObject({
+        status: "failed",
+        error: "Plugin schedules are not available",
+      });
+    });
+
+    test("upserting refuses an invalid cron expression or time zone before saving", async () => {
+      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
+
+      await expect(
+        service.upsertPluginSchedule({ ...base, cadence: cronAt("0 8 * * 0-4", "Mars/Base") }),
+      ).rejects.toThrow("Invalid cron time zone: Mars/Base");
+      await expect(
+        service.upsertPluginSchedule({ ...base, cadence: cronAt("0/15 * * * *", "Asia/Riyadh") }),
+      ).rejects.toThrow("Invalid cron minute step: use * or a range before /");
+      expect(await service.listPluginSchedules("office")).toEqual([]);
+
+      await service.upsertPluginSchedule(base);
+      await expect(
+        service.upsertPluginSchedule({ ...base, cadence: cronAt("0 8 * * 0-4", "Mars/Base") }),
+      ).rejects.toThrow("Invalid cron time zone: Mars/Base");
+      const [stored] = await service.listPluginSchedules("office");
+      expect(stored.cadence).toEqual(base.cadence);
+    });
+
+    test("update rejects new-agent fields on plugin-target schedules", async () => {
+      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
+      const schedule = await service.upsertPluginSchedule(base);
+
+      await expect(
+        service.update({ id: schedule.id, newAgentConfig: { provider: "codex" } }),
+      ).rejects.toThrow("only valid for new-agent target schedules");
+    });
+  });
 });

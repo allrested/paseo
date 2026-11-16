@@ -59,6 +59,14 @@ function targetIdentity(target: ScheduleTarget): unknown {
     };
   }
 
+  // A plugin names its schedules, so its handler can change under the same name.
+  if (target.type === "plugin") {
+    return {
+      type: target.type,
+      pluginId: target.pluginId,
+    };
+  }
+
   return {
     type: target.type,
     config: target.config,

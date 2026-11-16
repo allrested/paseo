@@ -19,6 +19,7 @@ import { computeNextRunAt, validateScheduleCadence } from "./cron.js";
 import { foldFeatureValues } from "../agent/option-controls.js";
 import type {
   CreateScheduleInput,
+  ScheduleCadence,
   ScheduleExecutionResult,
   ScheduleRun,
   ScheduleTarget,
@@ -251,6 +252,21 @@ interface ScheduleWorkspaceCreateInput {
   firstAgentContext: FirstAgentContext;
 }
 
+export interface PluginScheduleRun {
+  pluginId: string;
+  handler: string;
+  scheduleId: string;
+  runId: string;
+}
+
+export interface UpsertPluginScheduleInput {
+  pluginId: string;
+  name: string;
+  handler: string;
+  prompt: string;
+  cadence: ScheduleCadence;
+}
+
 export interface ScheduleServiceOptions {
   paseoHome: string;
   logger: Logger;
@@ -266,6 +282,7 @@ export interface ScheduleServiceOptions {
   archiveWorkspace: (workspaceId: string) => Promise<void>;
   now?: () => Date;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
+  runPluginSchedule?: (input: PluginScheduleRun) => Promise<void>;
 }
 
 export class ScheduleService {
@@ -286,6 +303,7 @@ export class ScheduleService {
     schedule: StoredSchedule,
     runId: string,
   ) => Promise<ScheduleExecutionResult>;
+  private readonly runPluginSchedule: ((input: PluginScheduleRun) => Promise<void>) | null;
   private readonly runningScheduleIds = new Set<string>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -300,6 +318,7 @@ export class ScheduleService {
     this.archiveWorkspace = options.archiveWorkspace;
     this.now = options.now ?? (() => new Date());
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
+    this.runPluginSchedule = options.runPluginSchedule ?? null;
   }
 
   async start(): Promise<void> {
@@ -401,6 +420,58 @@ export class ScheduleService {
         };
       },
     });
+  }
+
+  // A plugin and a name pick one schedule, so the plugin can change its handler and
+  // cadence in place. The cadence is replaced whole: unlike createOrReplace, an omitted
+  // time zone does not keep the stored one.
+  async upsertPluginSchedule(input: UpsertPluginScheduleInput): Promise<StoredSchedule> {
+    const name = trimOptionalName(input.name);
+    if (name === null) {
+      throw new Error("Schedule name is required");
+    }
+    const prompt = normalizePrompt(input.prompt);
+    validateScheduleCadence(input.cadence);
+    const target: ScheduleTarget = {
+      type: "plugin",
+      pluginId: input.pluginId,
+      handler: input.handler,
+    };
+    return this.store.upsertByNameAndTarget(name, target, {
+      create: async () =>
+        this.buildScheduleRecord(
+          { prompt, cadence: input.cadence, target },
+          { name, prompt, target },
+        ),
+      update: async (current) => {
+        const now = this.now();
+        return {
+          ...current,
+          name,
+          prompt,
+          cadence: input.cadence,
+          target,
+          status: "active",
+          pausedAt: null,
+          nextRunAt: computeNextRunAt(input.cadence, now).toISOString(),
+          updatedAt: now.toISOString(),
+        };
+      },
+    });
+  }
+
+  async removePluginSchedule(pluginId: string, name: string): Promise<boolean> {
+    const owned = (await this.listPluginSchedules(pluginId)).filter(
+      (schedule) => schedule.name === name.trim(),
+    );
+    await Promise.all(owned.map((schedule) => this.store.delete(schedule.id)));
+    return owned.length > 0;
+  }
+
+  async listPluginSchedules(pluginId: string): Promise<StoredSchedule[]> {
+    return (await this.store.list()).filter(
+      (schedule) => schedule.target.type === "plugin" && schedule.target.pluginId === pluginId,
+    );
   }
 
   async list(): Promise<StoredSchedule[]> {
@@ -966,6 +1037,15 @@ export class ScheduleService {
     schedule: StoredSchedule,
     runId: string,
   ): Promise<ScheduleExecutionResult> {
+    if (schedule.target.type === "plugin") {
+      return this.executePluginSchedule({
+        pluginId: schedule.target.pluginId,
+        handler: schedule.target.handler,
+        scheduleId: schedule.id,
+        runId,
+      });
+    }
+
     if (schedule.target.type === "agent") {
       const wrappedPrompt = formatSystemNotificationPrompt(buildScheduleFireBody(schedule, runId));
       const record = await this.agentStorage.get(schedule.target.agentId);
@@ -1013,10 +1093,7 @@ export class ScheduleService {
       };
     }
 
-    const config = schedule.target.type === "new-agent" ? schedule.target.config : null;
-    if (!config) {
-      throw new Error(`Schedule ${schedule.id} target changed during execution`);
-    }
+    const config = schedule.target.config;
     await this.assertNewAgentCwdDirectory(config.cwd);
     let workspace: PersistedWorkspaceRecord | null = null;
     let agentId: string | null = null;
@@ -1100,6 +1177,14 @@ export class ScheduleService {
         }
       }
     }
+  }
+
+  private async executePluginSchedule(run: PluginScheduleRun): Promise<ScheduleExecutionResult> {
+    if (!this.runPluginSchedule) {
+      throw new Error("Plugin schedules are not available");
+    }
+    await this.runPluginSchedule(run);
+    return { agentId: null, output: null };
   }
 
   private async createScheduleRunWorkspace(
