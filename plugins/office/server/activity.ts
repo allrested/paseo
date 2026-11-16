@@ -47,6 +47,10 @@ const DETAIL_KINDS: Readonly<Record<string, ActivityKind>> = {
   plan: "plan",
 };
 
+// Where a command starts: the start of the string, or after `;`, `&&`, `||`, `|`, `(` or a newline,
+// past what a command line puts before the command (`sudo`, `env`, `NAME=value`).
+const COMMAND_START = String.raw`(?:^|[;&|(\n])\s*(?:(?:sudo|env)(?:\s+-\S+)*\s+|\w+=\S*\s+)*`;
+
 // A push of a version tag, or a command whose job is to put something live.
 const DEPLOY = [
   /\bgit\s+push\b[^\n;|&]*(?:--tags\b|\bv\d+\.\d+\.\d+)/,
@@ -59,11 +63,20 @@ const DEPLOY = [
   /\bdocker\s+push\b/,
   /\bgh\s+release\s+create\b/,
   // `make deploy`, `just deploy`, and their `deploy-…` targets.
-  /\b(?:make|just)\b[^\n;|&]*?\sdeploy(?:-[\w-]*)?(?=$|[\s;|&)])/,
-  // A Dokploy redeploy: its API's method is in the address the command calls.
-  /\b(?:compose|application)\.(?:deploy|redeploy)\b/,
+  new RegExp(
+    COMMAND_START + String.raw`(?:make|just)\b[^\n;|&]*?\sdeploy(?:-[\w-]*)?(?=$|[\s;|&)])`,
+  ),
+  // A Dokploy redeploy: an HTTP client calls its API's method, which may come anywhere on its line.
+  new RegExp(
+    COMMAND_START +
+      String.raw`(?:curl|wget|https?|xh)\b[^\n;|&]*?\b(?:compose|application)\.(?:deploy|redeploy)\b`,
+  ),
   // A run of a workflow named for a deploy or a release: the name is the first argument.
-  /\bgh\s+workflow\s+run\s+(?:"[^"\n]*(?:deploy|release)|'[^'\n]*(?:deploy|release)|[^\s"';|&]*(?:deploy|release))/i,
+  new RegExp(
+    COMMAND_START +
+      String.raw`gh\s+workflow\s+run\s+(?:"[^"\n]*(?:deploy|release)|'[^'\n]*(?:deploy|release)|[^\s"';|&]*(?:deploy|release))`,
+    "i",
+  ),
 ];
 // A script whose file name starts with `deploy`, where a command starts or after what runs it:
 // `scripts/deploy.sh pos`, `./deploy-prod.mjs`, `node deploy.mjs`. A name without an extension
