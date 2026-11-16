@@ -38,7 +38,13 @@ const DENY = [
   /^i18n\/locales\/(?!en\/)/,
 ];
 /** Written by hand or by this script, never copied from upstream. */
-const OWN = new Set(["office/paseo-entry.js", "office/paseo-host.js", "office/paseo-style.js", "office/paseo-modules.js"]);
+const OWN = new Set([
+  "office/paseo-entry.js",
+  "office/paseo-host.js",
+  "office/paseo-style.js",
+  "office/paseo-modules.js",
+  "office/paseo-sign.js",
+]);
 const denied = (rel) => DENY.some((re) => re.test(rel));
 const srcOf = (rel) => path.join(FROM, "src", rel);
 const outOf = (rel) => path.join(HERE, "src", rel);
