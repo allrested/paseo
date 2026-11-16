@@ -27,6 +27,20 @@ While the spec was written the owner added a tenth:
 
 10. The 3D office works on Android too.
 
+After using the office again the owner added:
+
+11. A sub-agent is named after its parent with a number (Mjd-1, Mjd-2), not its task, so the 3D
+    office looks tidy.
+12. The strip of cards over the office looks cut off at its edge.
+13. Upstream's camera toolbar is missing: Overview, Desks, Meeting room, Servers, zoom,
+    fullscreen, photo, and Walk in.
+14. The glide after a drag with the mouse is jerky; upstream's is smooth.
+15. Upstream's Sessions and Activity panels beside the 3D floor are missing.
+16. Upstream's list mode is better: filter tabs, a search, and rows with context, time and cost.
+17. A new Jira bug or Sentry issue sets off upstream's incident alarm. The office checks Jira and
+    Sentry itself every few minutes.
+18. Upstream's team chat is missing.
+
 ## What the code does today
 
 | Point | Today                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -41,19 +55,30 @@ While the spec was written the owner added a tenth:
 | 8     | `navigation.openAgent` leaves the office for the agent's workspace. The kit has no component for an agent's conversation, and the app's needs the workspace pane's context.                                                                                                                                                                                                                                                    |
 | 9     | The gym was put in the library by design: the scene has no gym, and a skill is opened at the library.                                                                                                                                                                                                                                                                                                                          |
 | 10    | Only a browser with WebGL2 is offered the 3D floor. Chrome on Android is one, not tried on a phone; the installed app shows the 2D office. The installed app is upstream's store build. Its one frame for plugins (`DocumentFrame`) loads local files with scripts off. The pictures the host drew for phones were of the first robot scene and are gone; the host's Chromium draws the floor at about 1.5 frames a second.    |
+| 11    | A sub-agent shows its own title, which is its task (`client/model.ts` `agentTitle`). Every agent carries `parentAgentId`.                                                                                                                                                                                                                                                                                                      |
+| 12    | The strip is a horizontal `ScrollView` with no scrollbar and no fade (`client/attention-strip.tsx`), so the last card looks cut.                                                                                                                                                                                                                                                                                               |
+| 13    | `ui/camera-bar.js` and `interact/first-person.js` are stand-ins: one fitted view, no toolbar, no walking in.                                                                                                                                                                                                                                                                                                                   |
+| 14    | The loop is upstream's. It draws 8 frames a second when its document has no focus (`core/loop.js` `frameGap`), and the office's frame hands focus back to the app, so the glide after a drag runs at 8 frames a second.                                                                                                                                                                                                        |
+| 15    | Upstream's panels (`ui/activity.js`, `ui/session-drawer.js`) are not taken; they read upstream's own server.                                                                                                                                                                                                                                                                                                                   |
+| 16    | The List view is Paseo's own (`client/structure-view.tsx`), with no filter, search, context, time or cost.                                                                                                                                                                                                                                                                                                                     |
+| 17    | Upstream's alarm (`life/incidents.js`) is a stand-in. Upstream fires it on three failures in five minutes. The office calls no tracker. The host has a Jira token in its env; the Sentry token the MCP server reads is not set on this host.                                                                                                                                                                                   |
+| 18    | Upstream's team chat (`ui/group-chat.js`, `ui/group-chat-view.js`) is not taken. The office has a board per room and the lobby's board.                                                                                                                                                                                                                                                                                        |
 
 ## Sub-projects
 
-The owner chose the order of the first four. The fifth came later and is last until the owner
-places it. Each later one gets its own spec.
+The owner chose the order of the first four. The fifth came later, and the sixth to eighth after
+another look at the office; their order is the owner's to place. Each later one gets its own spec.
 
-| #   | Sub-project            | Points  | What it needs                                                                |
-| --- | ---------------------- | ------- | ---------------------------------------------------------------------------- |
-| 1   | Small fixes            | 9, 7, 6 | The plugin's client and the scene's entry. This document.                    |
-| 2   | A lively floor         | 1, 2    | Upstream's leisure modules, a routine for the rest, and what a deploy is.    |
-| 3   | Stand-up notes         | 3, 4    | A daily run on the host, an agent that writes, a reader for the notes.       |
-| 4   | The office as one page | 8, 5    | A change to the app: a plugin cannot show a session or another plugin.       |
-| 5   | 3D in the Android app  | 10      | A way for the installed app to run the scene, or an app build of the fork's. |
+| #   | Sub-project            | Points         | What it needs                                                                |
+| --- | ---------------------- | -------------- | ---------------------------------------------------------------------------- |
+| 1   | Small fixes            | 9, 7, 6        | The plugin's client and the scene's entry. This document.                    |
+| 2   | A lively floor         | 1, 2           | Upstream's leisure modules, a routine for the rest, and what a deploy is.    |
+| 3   | Stand-up notes         | 3, 4           | A daily run on the host, an agent that writes, a reader for the notes.       |
+| 4   | The office as one page | 8, 5           | A change to the app: a plugin cannot show a session or another plugin.       |
+| 5   | 3D in the Android app  | 10             | A way for the installed app to run the scene, or an app build of the fork's. |
+| 6   | Small fixes, again     | 11, 12, 14     | The plugin's client and the scene's entry.                                   |
+| 7   | Upstream's controls    | 13, 15, 16, 18 | Upstream's toolbar and walk-in, and panels fed by Paseo's data.              |
+| 8   | Incidents              | 17             | A reader of Jira and Sentry on the host, and upstream's alarm.               |
 
 ## Sub-project 1
 
