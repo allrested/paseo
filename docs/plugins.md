@@ -580,7 +580,8 @@ how it ended. The host decides the kind, from the tool call's normalised detail 
 call from its command (`plugins/office/server/activity.ts`); the command, a file name or a query
 never leave it. A deploy is a tool named for one (`deploy_service`), a deploy script or a
 `make`/`just` target, a Dokploy redeploy, a run of a deploy or release workflow, a push of a
-version tag, or a hosting tool's own command. Tapping a row opens a card
+version tag, or a hosting tool's own command; run as a check or a dry run (`--check`, `--dry-run`,
+`--list`, or `-n` to make, just or a deploy script) it is a command. Tapping a row opens a card
 that opens the session, sends a prompt, answers a tool, mode or other permission (a plan or a
 question says to answer it in the session), or stops the running turn with the SDK's `cancel()`.
 The server keeps one directory from subscribed `agents.list` and `workspaces.list` calls (the
@@ -650,8 +651,9 @@ keyboard focus back to the app's window. The floor has 12 desks. With more agent
 need the user and the ones at work sit first, and a line over the scene says how many are only in
 the list. A step sends its person to that work's place: the library for a read, a search or a
 skill, the desk for an edit, the server room for a command, the test board for a test run. A commit prints a
-page, and the desks near a push applaud. A deploy is a command at the server room's console until
-it ends: one that succeeds launches the rocket, one that fails gets the failure's sweat, and one
+page, and the desks near a push applaud, once in ten minutes a person. A deploy is a command at the
+server room's console until it ends: one that succeeds launches the rocket and is applauded every
+time, one that fails gets the failure's sweat, and one
 cancelled or never seen to end does nothing. The reads are 5 s apart. A tool call that starts and
 ends between two of them, as a web search often does, is the step of the read after it, for that
 one read, so its person still walks there. With a host reading, the server room's chip,
@@ -667,7 +669,8 @@ resting agent, for karaoke, a nap on the sofa, the fish, the arcade, a cup in th
 the restroom, never the same thing twice running, and work calls it back at once. After two hours
 of rest the gaps are 10 to 20 minutes. The games are upstream's, and Paseo's schedule
 (`vendor/my-office/src/office/paseo-leisure.js`) only starts them; it starts nothing at night,
-during a gathering or with reduced motion. Designs:
+during a gathering or with reduced motion. After 21:00 an agent that has rested 30 minutes walks
+home, its rest counted from when the office saw it begin. Designs:
 [the lively floor](superpowers/specs/2026-11-16-office-lively-floor-design.md),
 [the floor](superpowers/specs/2026-11-16-office-my-office-port-design.md),
 [the places](superpowers/specs/2026-11-16-office-activity-places-design.md),

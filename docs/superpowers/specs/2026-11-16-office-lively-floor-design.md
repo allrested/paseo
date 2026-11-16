@@ -1,6 +1,6 @@
 # The office's lively floor: design
 
-Date: 2026-11-16. Status: built. Sub-project 2 of
+Date: 2026-11-16. Status: built, with the four follow-ups of its review. Sub-project 2 of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects.
 
@@ -56,8 +56,8 @@ Points 1 and 2 of the owner's review:
 | The activities        | With a second free agent: a game (pool, foosball, or a TV match). Karaoke, alone or with one other. Alone: a nap on a sofa seat (3 to 6 minutes, when the TV is not using the seats), feeding the fish, the arcade (1 to 3 minutes), a cup brewed at the coffee machine and drunk at a dining table (2 to 4 minutes), the restroom. |
 | Choosing              | Among what is possible now, at random, never the agent's last activity. One agent at a time at the fish, at the arcade, in each restroom stall; one game at a time at each table and at the TV.                                                                                                                                     |
 | A long idle           | After two hours of resting the gap is 10 to 20 minutes, asleep at the desk.                                                                                                                                                                                                                                                         |
-| Night                 | Unchanged: after 21:00 an agent that has rested 30 minutes goes home by the lift, and comes back for work or at 08:00. No activity starts outside daytime.                                                                                                                                                                          |
-| Work                  | An agent that gets a prompt or waits for the user leaves its activity at once and walks to its desk. Upstream's games already end that way.                                                                                                                                                                                         |
+| Night                 | After 21:00 an agent that has rested 30 minutes goes home by the lift, as upstream has it, and comes back for work or at 08:00. The rest counts from when the office saw it begin, or from when the office opened on the agent resting (the session's `doneAt`). No activity starts outside daytime.                                |
+| Work                  | An agent that gets a prompt or waits for the user leaves its activity at once and walks to its desk. From the restroom, upstream's own visit included, it goes straight to the work. Upstream's games already end that way.                                                                                                         |
 | The stand-up bell     | Before the bell rings (the Stand-up card's `meet()`, a click on the bell), an agent in a solo activity stops where it stands, so the gathering takes it along. A player in a game finishes the game first, as upstream's games do, and misses that stand-up. No activity starts while a gathering is on (`gatheringNow()`).         |
 | Reduced motion        | No activity starts, as upstream's games already do.                                                                                                                                                                                                                                                                                 |
 | Upstream's own starts | The games keep their own occasional starts. Upstream's midday nap stays out: it would put the whole floor to sleep.                                                                                                                                                                                                                 |
@@ -79,20 +79,21 @@ Points 1 and 2 of the owner's review:
 
 ### The rocket
 
-| Question                  | Decision                                                                                                                                                                                                                                                                                 |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A deploy tool             | A tool whose own name starts with `deploy`, `release`, `publish` or `rollout`, followed by the end of the name, `_` or `-`. For an MCP tool the own name is the part after the server's name: `mcp__flavours-observability__deploy_service` is `deploy_service`.                         |
-| A deploy script or target | A shell command that runs a script whose file name starts with `deploy` (`scripts/deploy.sh pos …`, `./deploy-prod.mjs`), or `make deploy` / `just deploy` and their `deploy-…` targets.                                                                                                 |
-| A Dokploy redeploy        | A command that calls `compose.deploy`, `compose.redeploy`, `application.deploy` or `application.redeploy` of a Dokploy API.                                                                                                                                                              |
-| A deploy workflow run     | `gh workflow run` of a workflow whose name has `deploy` or `release` in it.                                                                                                                                                                                                              |
-| The existing list         | Stays: a push of a version tag, `npm run deploy`, the hosting tools, `kubectl apply`, `helm upgrade`, `terraform apply`, `docker push`, `gh release create`.                                                                                                                             |
-| What leaves the host      | As before: the kind, the call's id and its result. Never the command or the arguments.                                                                                                                                                                                                   |
-| The start                 | The agent walks to the server room and works at the console, as for a command.                                                                                                                                                                                                           |
-| The end                   | A deploy that succeeds launches the rocket, the desks nearby applaud, and the agent celebrates in the server room. One that fails gets the failure reaction (the sweat; a second failure within two minutes, the fist on the desk). One cancelled, or never seen to end, does nothing.   |
-| Finding the end           | As a test run's: the host reports the result when the call ends, and looks the call up again in the timeline's tail when the agent has moved on (`server/activity.ts` `nextStep`).                                                                                                       |
-| A push                    | A plain `git push` keeps the applause and no longer launches the rocket. A push of a version tag is a deploy.                                                                                                                                                                            |
-| The launch pad's card     | Counts the deploys that succeeded.                                                                                                                                                                                                                                                       |
-| A step between two reads  | The host still reads every 5 s. A read reports the newest tool call made since the read before, also when the agent has gone back to writing: once, by the call's id, and of several the newest. A prompt after it is a new turn and no step. An office just opened reports no old call. |
+| Question                  | Decision                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A deploy tool             | A tool whose own name starts with `deploy`, `release`, `publish` or `rollout`, followed by the end of the name, `_` or `-`. For an MCP tool the own name is the part after the server's name: `mcp__flavours-observability__deploy_service` is `deploy_service`.                                                                                                 |
+| A deploy script or target | A shell command that runs a script whose file name starts with `deploy` (`scripts/deploy.sh pos …`, `./deploy-prod.mjs`), or `make deploy` / `just deploy` and their `deploy-…` targets.                                                                                                                                                                         |
+| A Dokploy redeploy        | A command that calls `compose.deploy`, `compose.redeploy`, `application.deploy` or `application.redeploy` of a Dokploy API.                                                                                                                                                                                                                                      |
+| A deploy workflow run     | `gh workflow run` of a workflow whose name has `deploy` or `release` in it.                                                                                                                                                                                                                                                                                      |
+| A check or a dry run      | A command, not a deploy: `--check`, `--dry-run` or `--list` on any of the above, and `-n` to make, just or a deploy script (to kubectl and helm it names a namespace). Each command of a line counts on its own: `make -n deploy && make deploy` is a deploy.                                                                                                    |
+| The existing list         | Stays: a push of a version tag, `npm run deploy`, the hosting tools, `kubectl apply`, `helm upgrade`, `terraform apply`, `docker push`, `gh release create`.                                                                                                                                                                                                     |
+| What leaves the host      | As before: the kind, the call's id and its result. Never the command or the arguments.                                                                                                                                                                                                                                                                           |
+| The start                 | The agent walks to the server room and works at the console, as for a command.                                                                                                                                                                                                                                                                                   |
+| The end                   | A deploy that succeeds launches the rocket, the desks nearby applaud, also right after a push (upstream applauds a person once in ten minutes), and the agent celebrates in the server room. One that fails gets the failure reaction (the sweat; a second failure within two minutes, the fist on the desk). One cancelled, or never seen to end, does nothing. |
+| Finding the end           | As a test run's: the host reports the result when the call ends, and looks the call up again in the timeline's tail when the agent has moved on (`server/activity.ts` `nextStep`).                                                                                                                                                                               |
+| A push                    | A plain `git push` keeps the applause and no longer launches the rocket. A push of a version tag is a deploy.                                                                                                                                                                                                                                                    |
+| The launch pad's card     | Counts the deploys that succeeded.                                                                                                                                                                                                                                                                                                                               |
+| A step between two reads  | The host still reads every 5 s. A read reports the newest tool call made since the read before, also when the agent has gone back to writing: once, by the call's id, and of several the newest. A prompt after it is a new turn and no step. An office just opened reports no old call.                                                                         |
 
 ### Sub-agents
 
@@ -154,6 +155,9 @@ push` of a branch, `make build`, a tool named `get_deploy_status`); a deploy's s
   failure through the look-back.
 - Unit, the adapter: a deploy's start as a command, its success as `deploy`, its failure as `fail`,
   its cancellation as nothing; a push without the rocket.
+- Unit, Paseo's own scene code with upstream's modules stood in (`client/world/entry.test.ts`,
+  `client/world/leisure-scene.test.ts`): a deploy applauded after a push, the last event kept
+  across lists, work calling someone out of the restroom.
 - Unit, the 3D schedule's pure part: daytime, the gaps, the long idle, no repeat, work interrupting,
   no start in a gathering, reduced motion.
 - Unit, the 2D rotation (`actors.test.ts`): daytime, no shared spot, no repeat, what comes first,
@@ -171,10 +175,10 @@ push` of a branch, `make build`, a tool named `get_deploy_status`); a deploy's s
 - The office inside the app, with real agents: the scene and the 2D office were looked at in static
   pages with made-up agents. A real deploy's end, read by the host 5 s apart, is covered by the
   unit tests only.
-- The walk home at night: the pages' agents carry no time of their last activity, so nobody had
-  rested 30 minutes. It rarely triggers in the app either, a limit from before this branch:
-  `WorldSession` carries no time of the last turn, and `setSessions` replaces the session object
-  the scene's `lastAt` lives on.
+- The walk home at night: no page and no app showed it. A session carries when the office saw
+  its agent come to rest, and a new list keeps the last event the scene saw of each person; unit
+  tests cover both (`adapter.test.ts`, `entry.test.ts`), not upstream's `lateRest` reading them.
+  An agent already resting when the 3D view opened counts its rest from the opening.
 - An agent that waits on real sub-agents: the pages set the wait by hand. The rule, read from the
   agents' parents, is covered by the unit tests; that the directory leaves background agents out
   before the client was not looked at.
@@ -193,8 +197,11 @@ push` of a branch, `make build`, a tool named `get_deploy_status`); a deploy's s
   `free(w) || asleep(w)`, and `free` rejects only a priority `want`, so an agent that just ended
   its turn (its report to the director queued) is taken, and the game's own `called()` ends it on
   the next frame. It is upstream's and harmless: the due agent is asked again the next second.
-- Neither a test nor browser evidence: work calling an agent out of the restroom, the 2D rocket
-  for a successful deploy, the bell during a game, an agent leaving mid-activity.
+- Work calling an agent out of the restroom (Paseo's visit or upstream's own) and a deploy
+  applauded right after a push: unit tests with upstream's moves and applause stood in, not seen
+  in the scene.
+- Neither a test nor browser evidence: the 2D rocket for a successful deploy, the bell during a
+  game, an agent leaving mid-activity.
 
 ## Not built
 
