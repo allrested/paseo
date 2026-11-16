@@ -57,13 +57,18 @@ with `// PASEO: stand-in`. Most export what is asked of them and do nothing. The
 | `ui/activity.js`            | Passes the scene's toasts to Paseo                                     |
 | `interact/first-person.js`  | The collision grid people route around, without the first-person walk  |
 | `world/backdrops/index.js`  | A plain backdrop in the app's surface colour; day and night            |
+| `life/nap.js`               | No midday nap; calls Paseo's lively floor every frame                  |
 
 Paseo's own files sit beside upstream's and are named for it: `paseo-entry.js` (the bundle's
 entry: builds the page, starts the modules in upstream's order, sets `PaseoOfficeWorld`),
 `paseo-host.js` (what the stand-ins read and call), `paseo-style.js` (the page's stylesheet, in
-Paseo's design language), `paseo-modules.js` (generated: the kept modules in start-up order), and
+Paseo's design language), `paseo-modules.js` (generated: the kept modules in start-up order),
 `paseo-sign.js` (the picture on the lobby's sign and the reception's plaque, with the host's
-brand; the entry puts it on the material upstream's floor made).
+brand; the entry puts it on the material upstream's floor made), and the lively floor:
+`paseo-leisure-plan.js` (who gets up from a rest, when and for what; no scene in it, so
+`client/world/leisure.test.ts` runs it) and `paseo-leisure.js` (which moves the people with
+upstream's own moves and starts upstream's games through their starters). The stand-in of
+`life/nap.js` runs it every frame: the scene's loop already calls `updateNap`.
 
 The library's place card is not shown: `paseo-entry.js` gives the place an `open`, so its chip
 and the bookshelf open Paseo's Library card.
