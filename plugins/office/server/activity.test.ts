@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   ACTIVITY_INTERVAL_MS,
+  callsIn,
   describeActivity,
   describeStep,
   nextStep,
@@ -290,6 +291,62 @@ test("a deploy that ended while nobody read is reported before what came after i
   });
 });
 
+const search = (callId: string, patch: Partial<ActivityItem> = {}) =>
+  call(
+    { type: "search", query: "x", toolName: "web_search" },
+    { callId, status: "completed", ...patch },
+  );
+const wrote: ActivityItem = { type: "assistant_message" };
+
+test("a call made and ended since the last read is still the step, once", () => {
+  const before = callsIn([call({ type: "read", filePath: "a" }, { callId: "r1" })]);
+  const tail = [call({ type: "read", filePath: "a" }, { callId: "r1" }), search("w1"), wrote];
+  // The agent went back to writing, but the search is new since the last read.
+  expect(describeStep(tail, before)).toEqual({ kind: "web", key: "w1" });
+  expect(describeStep([search("w1"), { type: "reasoning" }, wrote], before)).toEqual({
+    kind: "web",
+    key: "w1",
+  });
+  // The read after it has seen the call: it is not told again.
+  expect(describeStep(tail, callsIn(tail))).toBe(null);
+  // Without a read before there is no "since": an office just opened tells no old call.
+  expect(describeStep(tail)).toBe(null);
+  expect(callsIn(tail)).toEqual(new Set(["r1", "w1"]));
+});
+
+test("of several calls between two reads the newest is the step", () => {
+  const tail = [search("w1"), wrote, call({ type: "fetch", url: "u" }, { callId: "f1" }), wrote];
+  expect(describeStep(tail, new Set())).toEqual({ kind: "web", key: "f1" });
+  // Only the newest call is looked at: an older new one behind a seen one is not dug up.
+  expect(describeStep(tail, new Set(["f1"]))).toBe(null);
+});
+
+test("a prompt after a call is a new turn, and a call without an id cannot be told apart", () => {
+  expect(describeStep([search("w1"), { type: "user_message" }], new Set())).toBe(null);
+  expect(describeStep([search("w1"), wrote, { type: "user_message" }, wrote], new Set())).toBe(
+    null,
+  );
+  expect(describeStep([search("w1", { callId: undefined }), wrote], new Set())).toBe(null);
+  // The newest item is still a step whatever was seen: the agent is at it now.
+  expect(describeStep([wrote, search("w1")], new Set(["w1"]))).toEqual({ kind: "web", key: "w1" });
+});
+
+test("a test run or a deploy that came and went between two reads says how it ended", () => {
+  const ran = [tests({ status: "completed" }, 1), wrote];
+  expect(describeStep(ran, new Set())).toEqual({ kind: "test", key: "t1", result: "failed" });
+  expect(nextStep(undefined, ran, new Set())).toEqual({
+    kind: "test",
+    key: "t1",
+    result: "failed",
+  });
+  // The look-back for a run last seen running is as it was, with a newer call behind it or not.
+  const running: ActivityStep = { kind: "test", key: "t1" };
+  expect(nextStep(running, ran, new Set(["t1"]))).toEqual({ ...running, result: "failed" });
+  expect(
+    nextStep(running, [tests({ status: "completed" }, 0), search("w1"), wrote], new Set(["t1"])),
+  ).toEqual({ ...running, result: "passed" });
+});
+
 interface PollerHarness {
   clock: FakeClock;
   running: string[];
@@ -390,6 +447,50 @@ test("a test run's end is a change, and holds the next step back for one read", 
     { a: { kind: "test", key: "t1" } },
     { a: { kind: "test", key: "t1", result: "passed" } },
     { a: { kind: "edit", key: "c2" } },
+  ]);
+  harness.poller.stop();
+});
+
+test("a search that ended between two reads is reported for one read", async () => {
+  const tails = new Map<string, ActivityItem[]>([["a", [{ type: "reasoning" }]]]);
+  const harness = startHarness(["a"], tails);
+  await settle();
+  tails.set("a", [{ type: "reasoning" }, search("w1"), wrote]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  // The next call is not blocked by it.
+  tails.set("a", [search("w1"), wrote, search("w2"), wrote]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+
+  expect(harness.steps).toEqual([
+    {},
+    { a: { kind: "web", key: "w1" } },
+    {},
+    { a: { kind: "web", key: "w2" } },
+  ]);
+  harness.poller.stop();
+});
+
+test("a call held back for a test run's end is told on the read after it", async () => {
+  const tails = new Map<string, ActivityItem[]>([["a", [tests()]]]);
+  const harness = startHarness(["a"], tails);
+  await settle();
+  tails.set("a", [tests({ status: "completed" }, 0), search("w1"), wrote]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+
+  expect(harness.steps).toEqual([
+    { a: { kind: "test", key: "t1" } },
+    { a: { kind: "test", key: "t1", result: "passed" } },
+    { a: { kind: "web", key: "w1" } },
+    {},
   ]);
   harness.poller.stop();
 });

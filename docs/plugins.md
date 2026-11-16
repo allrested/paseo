@@ -652,8 +652,9 @@ the list. A step sends its person to that work's place: the library for a read, 
 skill, the desk for an edit, the server room for a command, the test board for a test run. A commit prints a
 page, and the desks near a push applaud. A deploy is a command at the server room's console until
 it ends: one that succeeds launches the rocket, one that fails gets the failure's sweat, and one
-cancelled or never seen to end does nothing. The reads are 5 s apart, so a tool call that
-starts and ends between two of them is never shown. With a host reading, the server room's chip,
+cancelled or never seen to end does nothing. The reads are 5 s apart. A tool call that starts and
+ends between two of them, as a web search often does, is the step of the read after it, for that
+one read, so its person still walks there. With a host reading, the server room's chip,
 its racks and the wall screen open the Host card, the wall screen shows memory and CPU, an agent
 with a port open has a small server on its desk, and what was left running stands in the server
 room under a red light. The paper on a desk and in its bin is the agent's context, with a flag in

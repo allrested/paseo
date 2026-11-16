@@ -157,22 +157,41 @@ function stepOf(item: ActivityItem): ActivityStep {
   return result === null ? { kind, key } : { kind, key, result };
 }
 
-/**
- * The newest item as a step, when it is a tool call. An agent that writes, thinks or reads its
- * prompt is at no step. The key is the call's id, so two calls of one tool are two steps; a
- * provider that numbers no calls gives the kind, and then only a change of kind is a new step.
- * A test run or a deploy that has ended says how.
- */
-export function describeStep(items: readonly ActivityItem[]): ActivityStep | null {
-  for (const item of items.toReversed()) {
-    if (item.type === "tool_call") return stepOf(item);
-    if (
-      item.type === "assistant_message" ||
-      item.type === "reasoning" ||
-      item.type === "user_message"
-    ) {
-      return null;
+/** The ids of the tool calls in a tail: what a read has seen, for the read after it. */
+export function callsIn(items: readonly ActivityItem[]): Set<string> {
+  const calls = new Set<string>();
+  for (const item of items) {
+    if (item.type === "tool_call" && typeof item.callId === "string" && item.callId !== "") {
+      calls.add(item.callId);
     }
+  }
+  return calls;
+}
+
+/**
+ * The newest tool call as a step. It is the step while it is the newest item: the agent is at
+ * it. Once the agent has written or thought since, it is the step only when the read before
+ * (`seen`, that read's `callsIn`) had not seen it: a search or a fetch often starts and ends
+ * between two reads, and would never be told. Without `seen` there is no read before, and an
+ * agent that writes is at no step. A prompt after the call is a new turn, and no step. The key
+ * is the call's id, so two calls of one tool are two steps; a provider that numbers no calls
+ * gives the kind, and then only a change of kind is a new step, and a call it has moved on from
+ * cannot be told. A test run or a deploy that has ended says how.
+ */
+export function describeStep(
+  items: readonly ActivityItem[],
+  seen?: ReadonlySet<string>,
+): ActivityStep | null {
+  let movedOn = false;
+  for (const item of items.toReversed()) {
+    if (item.type === "tool_call") {
+      if (!movedOn) return stepOf(item);
+      const id = item.callId;
+      const fresh = seen !== undefined && typeof id === "string" && id !== "" && !seen.has(id);
+      return fresh ? stepOf(item) : null;
+    }
+    if (item.type === "user_message") return null;
+    if (item.type === "assistant_message" || item.type === "reasoning") movedOn = true;
   }
   return null;
 }
@@ -186,8 +205,9 @@ export function describeStep(items: readonly ActivityItem[]): ActivityStep | nul
 export function nextStep(
   before: ActivityStep | undefined,
   items: readonly ActivityItem[],
+  seen?: ReadonlySet<string>,
 ): ActivityStep | null {
-  const step = describeStep(items);
+  const step = describeStep(items, seen);
   if (
     before === undefined ||
     !ENDS.has(before.kind) ||
@@ -241,6 +261,9 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
   let cancel: (() => void) | null = null;
   let previous: ActivityLines = {};
   let previousSteps: ActivitySteps = {};
+  // The calls each agent's last read saw, kept while the poller runs: an agent's next turn is
+  // read against them too. A prompt ends the look back, so an old turn's call is never told.
+  const seenCalls = new Map<string, ReadonlySet<string>>();
 
   async function readOne(
     agentId: string,
@@ -251,8 +274,14 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
       const items = await ports.tail(agentId);
       const line = describeActivity(items);
       if (line !== null) next[agentId] = line;
-      const step = nextStep(previousSteps[agentId], items);
+      const seen = seenCalls.get(agentId);
+      const step = nextStep(previousSteps[agentId], items, seen);
       if (step !== null) steps[agentId] = step;
+      const calls = callsIn(items);
+      // A call held back for a run's end has not been told: it stays new for the next read.
+      const newest = describeStep(items, seen);
+      if (newest !== null && newest.key !== step?.key) calls.delete(newest.key);
+      seenCalls.set(agentId, calls);
     } catch (error) {
       if (!stopped) ports.log(`[office] activity of ${agentId}: ${errorMessage(error)}`);
       const kept = previous[agentId];

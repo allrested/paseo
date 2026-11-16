@@ -15,7 +15,7 @@ export interface OfficeRow {
   depth: 0 | 1;
   /** The "doing now" line; running agents only. */
   activity: string | null;
-  /** The tool call a running agent is at, when its newest timeline item is one. */
+  /** The tool call a running agent is at, or made since the host's read before; null at none. */
   step: ActivityStep | null;
   /**
    * How many agents this one started are still at work, when its own turn has ended: it waits on

@@ -161,7 +161,7 @@ export const OfficeSnapshotSchema = z.object({
   workspaces: z.array(OfficeWorkspaceSchema),
   /** The "doing now" line of each running agent that has one. */
   activity: z.record(z.string(), z.string()),
-  /** The step of each running agent whose newest timeline item is a tool call. */
+  /** The step of each running agent: the tool call it is at, or made since the read before. */
   doing: z.record(z.string(), ActivityStepSchema).optional(),
   boards: z.record(z.string(), z.array(PostSchema)),
   wake: WakeStateSchema,
