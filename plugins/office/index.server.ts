@@ -1,6 +1,10 @@
 import { homedir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import type { PluginServerContext, PluginSettingsState } from "@getpaseo/plugin/server";
+import type {
+  PluginServerContext,
+  PluginSettingsState,
+  PluginTurnOutcome,
+} from "@getpaseo/plugin/server";
 import { createWorldScript, worldEntryPath, type WorldScript } from "./server/world-script.js";
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
@@ -10,6 +14,7 @@ import {
   liveAgentPorts,
   liveHubPorts,
   liveJanitorPorts,
+  liveNotesPorts,
   liveScriptLogPorts,
   liveSkillsPorts,
 } from "./server/live-ports.js";
@@ -17,10 +22,15 @@ import { cleanUpAgent } from "./server/machine/cleanup.js";
 import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.js";
 import { createMachineReader } from "./server/machine/machine.js";
 import { createMachineWatch } from "./server/machine/watch.js";
-import { createNotesSchedule } from "./server/notes-schedule.js";
+import {
+  createNotesSchedule,
+  NOTES_SCHEDULE,
+  type NotesSettings,
+} from "./server/notes-schedule.js";
+import { createNotesStore, createNotesWriter, type NotesStore } from "./server/notes-writer.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
-import { boardsFile, hostSkillFolders, type SkillFolder } from "./server/paths.js";
+import { boardsFile, hostSkillFolders, notesWriterFile, type SkillFolder } from "./server/paths.js";
 import { readScriptLog } from "./server/script-log.js";
 import { readSkills } from "./server/skills.js";
 import { nodeClock, type Clock } from "./server/timers.js";
@@ -29,6 +39,7 @@ import {
   deleteRpc,
   janitorRpc,
   machineSubscription,
+  notesWriteRpc,
   officeStateSubscription,
   postRpc,
   scriptLogRpc,
@@ -49,6 +60,8 @@ interface BuiltinPluginInfo {
 /** What the office needs from outside the daemon's plugin API. */
 export interface OfficePluginDeps {
   store: BoardStore;
+  /** Where the stand-up notes writer keeps its state. */
+  notesStore: NotesStore;
   clock: Clock;
   log(message: string): void;
   /** The 3D office's page script; null when the daemon cannot build one. */
@@ -71,6 +84,18 @@ export interface MachineHost {
   /** Sends SIGTERM. */
   stop(pid: number): void;
   sleep(ms: number): Promise<void>;
+}
+
+/** Why a turn did not complete, for the notes writer; null for one that did. */
+function turnProblem(outcome: PluginTurnOutcome): string | null {
+  switch (outcome.kind) {
+    case "completed":
+      return null;
+    case "failed":
+      return outcome.error.message;
+    case "canceled":
+      return outcome.reason;
+  }
 }
 
 // Runs inside the daemon process: every handler, hook and timer catches its own errors.
@@ -119,8 +144,33 @@ export function createOfficePlugin(
     hostTimeZone: deps.hostTimeZone,
     log,
   });
-  function followSettings(state: PluginSettingsState<typeof officeHostSettings.schema>) {
-    if (state.status === "ready") void notesSchedule.sync(state.values);
+  async function readNotesSettings(): Promise<NotesSettings> {
+    const state = await settings.read();
+    if (state.status !== "ready") {
+      throw new Error(`The office's settings cannot be read: ${state.error}`);
+    }
+    return state.values;
+  }
+  // One writer of the day's stand-up entry at a time, started at 8:00 and by the bell.
+  const writer = createNotesWriter({
+    ...liveNotesPorts(holder, hub),
+    settings: readNotesSettings,
+    hostTimeZone: deps.hostTimeZone,
+    now: () => deps.clock.now(),
+    load: () => deps.notesStore.load(),
+    save: (state) => deps.notesStore.save(state),
+    changed: (state) => hub.setNotes({ ...state, scheduleError: notesSchedule.error() }),
+    log,
+  });
+  async function followSettings(
+    state: PluginSettingsState<typeof officeHostSettings.schema>,
+  ): Promise<void> {
+    if (state.status !== "ready") return;
+    await notesSchedule.sync(state.values);
+    // The writer reads the folder again, and its push carries the schedule's error with it.
+    await writer
+      .settingsChanged()
+      .catch((error: unknown) => log(`[office] notes state failed: ${errorMessage(error)}`));
   }
   const stopFollowingSettings = settings.subscribe(followSettings);
   settings
@@ -198,6 +248,16 @@ export function createOfficePlugin(
     holder.remember(context.paseo);
     return guarded("pause", () => office.setWakesPaused(input.paused));
   });
+  // The bell. A start never rejects: why none started is in the snapshot's notes.
+  server.handle(notesWriteRpc, (_input, context) => {
+    holder.remember(context.paseo);
+    return writer.start();
+  });
+  // The 8:00 run ends once the writer started; the writer's own end is its turn's hook.
+  const stopNotesRuns = server.handleSchedule(NOTES_SCHEDULE, async ({ paseo }) => {
+    holder.remember(paseo);
+    await writer.start();
+  });
 
   const removeHooks = [
     server.addHook("agent.open.before", async ({ request }, context) => {
@@ -219,7 +279,7 @@ export function createOfficePlugin(
         return undefined;
       }
     }),
-    server.addHook("agent.turn.after", async ({ agent }, context) => {
+    server.addHook("agent.turn.after", async ({ agent, outcome }, context) => {
       try {
         holder.remember(context.paseo);
         office.noteAgent(agent);
@@ -227,10 +287,17 @@ export function createOfficePlugin(
       } catch (error) {
         log(`[office] agent.turn.after failed: ${errorMessage(error)}`);
       }
+      // A stopped turn counts as failed: the entry is not written, and the writer is left.
+      try {
+        await writer.turnEnded(agent.id, outcome.kind !== "completed", turnProblem(outcome));
+      } catch (error) {
+        log(`[office] notes writer turn end failed: ${errorMessage(error)}`);
+      }
     }),
     server.addHook("agent.close.after", async ({ agent }) => {
       try {
         office.agentGone(agent.id);
+        await writer.agentGone(agent.id);
       } catch (error) {
         log(`[office] agent.close.after failed: ${errorMessage(error)}`);
       }
@@ -238,6 +305,7 @@ export function createOfficePlugin(
     server.addHook("agent.archive.after", async ({ agent }) => {
       try {
         office.agentGone(agent.id);
+        await writer.agentGone(agent.id);
       } catch (error) {
         log(`[office] agent.archive.after failed: ${errorMessage(error)}`);
       }
@@ -253,6 +321,7 @@ export function createOfficePlugin(
 
   return async () => {
     stopFollowingSettings();
+    stopNotesRuns();
     for (const remove of removeHooks) remove();
     machine.stop();
     office.stop();
@@ -272,6 +341,7 @@ export default function contribute(
       now: () => Date.now(),
       log,
     }),
+    notesStore: createNotesStore({ file: notesWriterFile(process.env, homedir()), log }),
     clock: nodeClock,
     log,
     world: builtin?.bundleBrowserScript

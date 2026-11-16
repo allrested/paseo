@@ -1,4 +1,5 @@
 import type {
+  NotesState,
   OfficeAgent,
   OfficeEvent,
   OfficeSnapshot,
@@ -51,6 +52,14 @@ export interface Hub {
   setBoard(board: string, posts: readonly Post[]): void;
   removeBoard(board: string): void;
   setWake(wake: WakeState): void;
+  /** The stand-up notes writer's state; the same state again sends nothing. */
+  setNotes(notes: NotesState): void;
+  /**
+   * The office now, for the stand-up report. While an office is open it is what its subscribers
+   * see; while none is, a directory is opened for this read alone and closed again, so the read
+   * has the agents and rooms but no "doing now" lines.
+   */
+  read(): Promise<OfficeSnapshot>;
   /**
    * The office reset this agent's conversation: its context reads empty from now until its
    * provider says another number than the one it says now.
@@ -89,6 +98,8 @@ export function createHub(ports: HubPorts): Hub {
   let doing: ActivitySteps = {};
   let boards: Record<string, readonly Post[]> = {};
   let wake: WakeState = { paused: false, queued: {} };
+  let notes: NotesState | null = null;
+  let sentNotes = "";
   let starting: Promise<void> | null = null;
   let stopDirectory: (() => Promise<void>) | null = null;
   let stopActivity: (() => void) | null = null;
@@ -108,6 +119,7 @@ export function createHub(ports: HubPorts): Hub {
       doing: { ...doing },
       boards: copy,
       wake: { paused: wake.paused, queued: { ...wake.queued } },
+      ...(notes === null ? {} : { notes: { ...notes } }),
     };
   }
 
@@ -303,6 +315,26 @@ export function createHub(ports: HubPorts): Hub {
     setWake(next) {
       wake = { paused: next.paused, queued: { ...next.queued } };
       broadcast({ type: "wake", wake: { paused: wake.paused, queued: { ...wake.queued } } });
+    },
+    setNotes(next) {
+      const text = JSON.stringify(next);
+      if (text === sentNotes) return;
+      sentNotes = text;
+      notes = { ...next };
+      broadcast({ type: "snapshot", state: snapshot() });
+    },
+    async read() {
+      if (stopDirectory !== null) return snapshot();
+      let latest = EMPTY_VIEW;
+      const stop = await ports.openDirectory((next) => {
+        latest = next;
+      });
+      try {
+        await stop();
+      } catch (error) {
+        ports.log(`[office] directory stop failed: ${errorMessage(error)}`);
+      }
+      return { ...snapshot(), agents: [...latest.agents], workspaces: [...latest.workspaces] };
     },
     script(workspaceId, name) {
       const workspace = reported.workspaces.find((candidate) => candidate.id === workspaceId);

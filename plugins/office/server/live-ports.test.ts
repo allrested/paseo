@@ -1,5 +1,8 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vitest";
-import { liveAgentPorts } from "./live-ports.js";
+import { liveAgentPorts, liveNotesPorts } from "./live-ports.js";
 import type { PaseoHolder } from "./paseo-holder.js";
 
 interface FakeAgent {
@@ -85,4 +88,142 @@ test("a wake names its source agent; a wake as from the user names none and neve
       options: { activeTurnBehavior: "steer" },
     },
   ]);
+});
+
+interface Created {
+  cwd: string;
+  options: unknown;
+}
+
+interface ProviderEntry {
+  provider: string;
+  status: string;
+  enabled: boolean;
+  defaultModeId?: string | null;
+  models?: { id: string; isDefault?: boolean; isSelectable?: boolean }[];
+}
+
+/** The daemon's API as the notes writer uses it: a workspace per folder, and the providers given. */
+function notesHolder(entries: ProviderEntry[], created: Created[], archived: string[]) {
+  const paseo = {
+    providers: {
+      waitForReady: async ({ cwd }: { cwd: string }) => ({ cwd, entries }),
+    },
+    workspaces: {
+      open: async (cwd: string) => ({
+        id: "wks_notes",
+        directory: cwd,
+        agents: {
+          create: async (options: unknown) => {
+            created.push({ cwd, options });
+            return { id: "writer-1" };
+          },
+        },
+      }),
+    },
+    agents: {
+      ref: (agentId: string) => ({
+        refresh: async () => {
+          const found = KNOWN.get(agentId);
+          return found ? { agent: found, project: null } : null;
+        },
+        archive: async () => {
+          archived.push(agentId);
+          return { archivedAt: "2026-11-17T05:10:00.000Z" };
+        },
+      }),
+    },
+  };
+  return { remember: () => undefined, require: () => paseo } as unknown as PaseoHolder;
+}
+
+const NO_HUB = {
+  read: async () => {
+    throw new Error("not read");
+  },
+};
+
+test("the writer starts in the folder's workspace, on the first ready provider with the model and mode it offers first", async () => {
+  const created: Created[] = [];
+  const entries: ProviderEntry[] = [
+    { provider: "codex", status: "error", enabled: true, models: [{ id: "gpt" }] },
+    { provider: "opencode", status: "ready", enabled: false, models: [{ id: "big" }] },
+    {
+      provider: "claude",
+      status: "ready",
+      enabled: true,
+      defaultModeId: "auto",
+      models: [
+        { id: "haiku", isSelectable: false, isDefault: true },
+        { id: "opus" },
+        { id: "sonnet", isDefault: true },
+      ],
+    },
+  ];
+  const ports = liveNotesPorts(notesHolder(entries, created, []), NO_HUB);
+  expect(await ports.startAgent({ cwd: "/n", title: "Stand-up notes", prompt: "Write" })).toBe(
+    "writer-1",
+  );
+  expect(created).toEqual([
+    {
+      cwd: "/n",
+      options: {
+        config: { provider: "claude/sonnet", modeId: "auto" },
+        title: "Stand-up notes",
+        prompt: "Write",
+      },
+    },
+  ]);
+});
+
+test("a provider without a default model takes its first, and no mode when it names none", async () => {
+  const created: Created[] = [];
+  const entries = [
+    { provider: "pi", status: "ready", enabled: true, defaultModeId: null, models: [{ id: "a" }] },
+  ];
+  await liveNotesPorts(notesHolder(entries, created, []), NO_HUB).startAgent({
+    cwd: "/n",
+    title: "Stand-up notes",
+    prompt: "Write",
+  });
+  expect(created[0]?.options).toMatchObject({ config: { provider: "pi/a" } });
+  expect(created[0]?.options).not.toHaveProperty("config.modeId");
+});
+
+test("a host with no ready provider starts no writer and says so", async () => {
+  const created: Created[] = [];
+  const entries = [{ provider: "claude", status: "loading", enabled: true, models: [] }];
+  await expect(
+    liveNotesPorts(notesHolder(entries, created, []), NO_HUB).startAgent({
+      cwd: "/n",
+      title: "Stand-up notes",
+      prompt: "Write",
+    }),
+  ).rejects.toThrow("No agent provider is ready on this host");
+  expect(created).toEqual([]);
+});
+
+test("a writer is at its turn only while it runs, and is archived through the daemon", async () => {
+  const archived: string[] = [];
+  const ports = liveNotesPorts(notesHolder([], [], archived), NO_HUB);
+  expect(await ports.alive("run")).toBe(true);
+  expect(await ports.alive("b-full-id")).toBe(false);
+  expect(await ports.alive("old")).toBe(false);
+  expect(await ports.alive("shut")).toBe(false);
+  expect(await ports.alive("nobody")).toBe(false);
+  await ports.archive("run");
+  expect(archived).toEqual(["run"]);
+});
+
+test("only a directory is a folder", async () => {
+  const home = await mkdtemp(join(tmpdir(), "office-notes-folder-"));
+  try {
+    await writeFile(join(home, "file.md"), "", "utf8");
+    const ports = liveNotesPorts(notesHolder([], [], []), NO_HUB);
+    expect(await ports.isDirectory(home)).toBe(true);
+    expect(await ports.isDirectory(join(home, "file.md"))).toBe(false);
+    expect(await ports.isDirectory(join(home, "missing"))).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
