@@ -13,6 +13,8 @@ export const host = {
   board() {},
   /** The server racks or the wall screen were chosen; null while Paseo has nothing to open for them. */
   machine: null,
+  /** The library's chip or the bookshelf was chosen; null while Paseo has nothing to open for them. */
+  library: null,
   /** A short line the office says once. */
   toast() {},
   /** Usage windows, as upstream's plan card has them: [{ key, pct, resetsAt }]. */

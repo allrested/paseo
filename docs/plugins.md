@@ -745,7 +745,9 @@ check's own log stays on the forge: no SDK call fetches it. Design:
 
 The Library entry is in the strip while the office has a team. An agent whose step opens a skill
 (Claude Code's `Skill` tool), reads or writes a `SKILL.md`, or runs a command that names one goes
-to the library, and the step's kind is `skill`. The card lists each workspace's skills
+to the library, and the step's kind is `skill`.
+In the 3D office the library's chip and its bookshelf open the same card, also in an office
+without a team, where it lists the host's skills. The card lists each workspace's skills
 from its `.claude/skills`, `.agents/skills` and `.codex/skills`, and the host's from the Claude
 config folder's `skills/`, `~/.agents/skills` and `~/.codex/skills`, the folders Paseo installs
 its own skills to. They are read through `office.skills.request` each time the card opens; the

@@ -98,6 +98,8 @@ export interface WorldStartOptions {
   onProblem(message: string): void;
   /** The server room was chosen: its chip, the racks, the wall screen or a server box. */
   onMachine?(): void;
+  /** The library was chosen: its chip or the bookshelf. Absent: the scene's own card opens. */
+  onLibrary?(): void;
   /** A short line the office says once. */
   onToast?(text: string): void;
 }
