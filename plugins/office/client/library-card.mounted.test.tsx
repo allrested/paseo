@@ -9,7 +9,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { SkillsResult } from "../shared/contracts.js";
 import { LibraryCard } from "./library-card.js";
-import type { LibraryTeam } from "./library-text.js";
+import { LIBRARY_HELP, type LibraryTeam } from "./library-text.js";
 import { useOfficeStyles } from "./styles.js";
 
 vi.mock("@getpaseo/plugin/client/ui", async () => {
@@ -29,6 +29,15 @@ const SKILLS: SkillsResult = {
   host: [{ name: "deploy", description: "Ship a release", folders: [".claude"] }],
   workspaces: {},
   readAt: "2026-11-16T08:00:00.000Z",
+};
+/** More than the six that show before the host's skills fold. */
+const SEVEN: SkillsResult = {
+  ...SKILLS,
+  host: Array.from({ length: 7 }, (_, index) => ({
+    name: `skill-${index + 1}`,
+    description: null,
+    folders: [".claude"],
+  })),
 };
 const NO_TEAMS: readonly LibraryTeam[] = [];
 const nothing = async () => undefined;
@@ -78,4 +87,13 @@ test("before the first reading there is no list of the host's", async () => {
   const card = container.querySelector('section[aria-label="Library"]');
   expect(card?.textContent).toContain("Reading the skills on this host.");
   expect(card?.textContent).not.toContain("On this host");
+});
+
+test("without a team the host's skills are all shown, and the help about teams is not", async () => {
+  await act(async () => root.render(<Harness skills={SEVEN} />));
+  const card = container.querySelector('section[aria-label="Library"]');
+  for (let index = 1; index <= 7; index += 1) expect(card?.textContent).toContain(`skill-${index}`);
+  expect(card?.querySelector('[aria-label="Show 7 skills"]')).toBeNull();
+  expect(card?.textContent).not.toContain("Show 7 skills");
+  expect(card?.textContent).not.toContain(LIBRARY_HELP);
 });
