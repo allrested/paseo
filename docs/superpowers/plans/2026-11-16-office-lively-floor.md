@@ -2837,6 +2837,1527 @@ git add plugins/office/client/pixel/actors.ts plugins/office/client/pixel/actors
 git commit -m "feat(office): the 2D rocket flies for a deploy that succeeded, not a push"
 ```
 
+### Task 6c: An agent that waits on its sub-agents is not idle
+
+**Files:**
+
+- Modify: `plugins/office/client/model.ts`, `plugins/office/client/model.test.ts`
+- Modify: `plugins/office/client/world/world-api.ts` (`WorldSession.waitingOn`, the `subwait` event)
+- Modify: `plugins/office/client/world/adapter.ts`, `plugins/office/client/world/adapter.test.ts`
+- Modify: `plugins/office/client/pixel/actors.ts`, `plugins/office/client/pixel/actors.test.ts`
+- Modify: `plugins/office/client/standup-text.ts`, `plugins/office/client/standup-text.test.ts`
+- Modify: `plugins/office/client/ask-text.ts`, `plugins/office/client/library-text.test.ts`
+- Modify: `plugins/office/client/context-text.ts`, `plugins/office/client/context-text.test.ts`, `plugins/office/client/office-surface.tsx`
+- Modify: `plugins/office/vendor/my-office/src/office/paseo-entry.js`, `plugins/office/vendor/my-office/src/i18n/index.js` (a stand-in)
+- Modify: `plugins/office/server/world-script.test.ts`
+- Modify: `docs/plugins.md`
+
+**Interfaces:**
+
+- Consumes: `OfficeAgent` (`status`, `permissions`, `parentAgentId`); `standingOf(session, step, onBreak, meeting, rest)` as Tasks 6 and 6b leave it; `worldChanges`, whose memory entries have `running` (Task 2).
+- Produces:
+  - From `client/model.ts`: `waitingOnOf(agents: Iterable<OfficeAgent>): Map<string, number>` (the one place the rule is worked out), `waitingOnText(count: number): string` ("Waiting on 1 sub-agent", "Waiting on 3 sub-agents"), `OfficeRow.waitingOn: number` (0 for who does not wait), `OfficeModel.waitingOn: ReadonlyMap<string, number>`.
+  - `WorldSession.waitingOn?: number`: set, with `status: "work"`, on an agent whose own turn has ended and that waits on that many sub-agents. `WorldEventType` has `"subwait"`.
+  - `worldChanges` sends `subwait` once when an agent starts to wait, no `prompt` for it, `stop` when its last sub-agent ended, and `prompt` when it runs again from the wait. Its memory entries have `busy: boolean`.
+  - `standingOf` takes `Pick<WorldSession, "status" | "stuck" | "waitingOn">`.
+  - `janitorRows(agents, waitingOn?: ReadonlyMap<string, number>)`.
+  - In the scene: `api.event({ sess, type: 'subwait' })` sends the person to the desk, thinking, under "Waiting on N sub-agents" (the stand-in's line `paseo.subwait`).
+
+The rule, as the owner approved it: an agent whose own turn has ended (idle, with no question open) is busy while an agent it started, or one those started, is running, starting, or waiting for the user. Only agents the office shows count. Claude Code's own sub-agents (its Task tool) keep their parent running already; nothing changes for them.
+
+How the adapter tells "turned busy" from "a turn started": a waiting agent's session carries `waitingOn`, and the adapter's memory keeps `busy`. A `prompt` is sent only for an agent that runs itself (`status` is `work` and `waitingOn` is absent) after a rest or after a wait.
+
+- [ ] **Step 1: Write the failing tests of the rule**
+
+In `plugins/office/client/model.test.ts`, replace
+
+```text
+  orderRoomsForFocus,
+} from "./model.js";
+```
+
+with
+
+```text
+  orderRoomsForFocus,
+  waitingOnOf,
+  waitingOnText,
+} from "./model.js";
+```
+
+and replace
+
+```text
+test("doing now shows for running agents only; closed agents are left out", () => {
+```
+
+with
+
+```text
+test("an agent whose turn has ended waits on the agents it started that are still at work", () => {
+  const asks = [{ id: "q", kind: "tool" as const, title: "Run?" }];
+  const waiting = (agents: OfficeAgent[]) => [...waitingOnOf(agents)];
+  const child = (id: string, overrides: Partial<OfficeAgent> = {}) =>
+    agent(id, { parentAgentId: "p", ...overrides });
+
+  // Running, starting, or waiting for the user: each counts. Idle, stopped or closed does not.
+  expect(
+    waiting([
+      agent("p"),
+      child("c1", { status: "running" }),
+      child("c2", { status: "initializing" }),
+      child("c3", { permissions: asks }),
+      child("c4"),
+      child("c5", { status: "error" }),
+    ]),
+  ).toEqual([["p", 3]]);
+  expect(waiting([agent("p"), child("c1"), child("c2", { status: "error" })])).toEqual([]);
+  // Down the chain: a grandchild at work keeps both its idle parent and its idle grandparent.
+  expect(
+    waiting([
+      agent("p"),
+      child("c1"),
+      agent("g1", { parentAgentId: "c1", status: "running" }),
+      agent("other", { status: "running" }),
+    ]),
+  ).toEqual([
+    ["p", 1],
+    ["c1", 1],
+  ]);
+  // A parent in its own turn, with a question open or stopped on an error is not waiting.
+  for (const own of [
+    { status: "running" as const },
+    { permissions: asks },
+    { status: "error" as const },
+  ]) {
+    expect(waiting([agent("p", own), child("c1", { status: "running" })])).toEqual([]);
+  }
+  // A child in another room counts; a parent chain that loops ends.
+  expect(waiting([agent("p"), child("c1", { status: "running", workspaceId: "w2" })])).toEqual([
+    ["p", 1],
+  ]);
+  expect(
+    waiting([
+      agent("l1", { parentAgentId: "l2" }),
+      agent("l2", { parentAgentId: "l1", status: "running" }),
+    ]),
+  ).toEqual([["l1", 1]]);
+  expect(waitingOnText(1)).toBe("Waiting on 1 sub-agent");
+  expect(waitingOnText(3)).toBe("Waiting on 3 sub-agents");
+});
+
+test("the model says who waits on sub-agents, on the row and by id; closed agents do not count", () => {
+  const model = buildOfficeModel(
+    snapshot({
+      agents: [
+        agent("p", { createdAt: "2026-11-11T08:00:00.000Z" }),
+        agent("c1", {
+          parentAgentId: "p",
+          status: "running",
+          createdAt: "2026-11-11T08:01:00.000Z",
+        }),
+        agent("q", { createdAt: "2026-11-11T08:02:00.000Z" }),
+        agent("c2", {
+          parentAgentId: "q",
+          status: "closed",
+          createdAt: "2026-11-11T08:03:00.000Z",
+        }),
+      ],
+    }),
+  );
+  expect([...model.waitingOn]).toEqual([["p", 1]]);
+  const room = model.rooms.find((candidate) => candidate.id === "w1");
+  expect(room?.rows.map((row) => [row.agent.id, row.waitingOn])).toEqual([
+    ["p", 1],
+    ["c1", 0],
+    ["q", 0],
+  ]);
+});
+
+test("doing now shows for running agents only; closed agents are left out", () => {
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run plugins/office/client/model.test.ts --bail=1`
+Expected: FAIL in "an agent whose turn has ended waits on the agents it started that are still at work": `waitingOnOf is not a function`.
+
+- [ ] **Step 3: Work the rule out once, in the model**
+
+In `plugins/office/client/model.ts`, replace
+
+```text
+  /** The tool call a running agent is at, when its newest timeline item is one. */
+  step: ActivityStep | null;
+}
+```
+
+with
+
+```text
+  /** The tool call a running agent is at, when its newest timeline item is one. */
+  step: ActivityStep | null;
+  /**
+   * How many agents this one started are still at work, when its own turn has ended: it waits on
+   * them, so it is not idle. 0 for everyone else.
+   */
+  waitingOn: number;
+}
+```
+
+then replace
+
+```text
+  agents: ReadonlyMap<string, OfficeAgent>;
+  roomOfAgent: ReadonlyMap<string, string>;
+}
+```
+
+with
+
+```text
+  agents: ReadonlyMap<string, OfficeAgent>;
+  roomOfAgent: ReadonlyMap<string, string>;
+  /** The agents that wait on sub-agents, each with how many (`waitingOnOf`). */
+  waitingOn: ReadonlyMap<string, number>;
+}
+```
+
+then replace
+
+```text
+// Same order as server/directory.ts sortAgents; the fake office (Task 16) is not pre-sorted.
+```
+
+with
+
+```text
+/** At work, as far as a parent that waits is concerned: running, starting, or asking the user. */
+function atWork(agent: OfficeAgent): boolean {
+  return (
+    agent.status === "running" || agent.status === "initializing" || agent.permissions.length > 0
+  );
+}
+
+/**
+ * Who waits on sub-agents, and on how many. An agent whose own turn has ended (idle, with no
+ * question open) is busy while an agent it started, or one those started, runs, starts or waits
+ * for the user. Only the agents given count: the directory drops the ones the office does not
+ * show before they get here. This is the one place the rule is worked out; the floors, the
+ * stand-up, the cards that ask an agent and the janitor read its answer.
+ */
+export function waitingOnOf(agents: Iterable<OfficeAgent>): Map<string, number> {
+  const all = [...agents];
+  const started = new Map<string, OfficeAgent[]>();
+  for (const agent of all) {
+    const parent = agent.parentAgentId;
+    if (parent === null || parent === agent.id) continue;
+    started.set(parent, [...(started.get(parent) ?? []), agent]);
+  }
+  const waiting = new Map<string, number>();
+  for (const agent of all) {
+    if (agent.status !== "idle" || agent.permissions.length > 0) continue;
+    const seen = new Set([agent.id]);
+    const below = [...(started.get(agent.id) ?? [])];
+    let count = 0;
+    // (the list grows as it is walked: each one's own sub-agents are added behind it)
+    for (const one of below) {
+      if (seen.has(one.id)) continue;
+      seen.add(one.id);
+      if (atWork(one)) count += 1;
+      below.push(...(started.get(one.id) ?? []));
+    }
+    if (count > 0) waiting.set(agent.id, count);
+  }
+  return waiting;
+}
+
+/** What a waiting agent is at, in words: "Waiting on 2 sub-agents". */
+export function waitingOnText(count: number): string {
+  return count === 1 ? "Waiting on 1 sub-agent" : `Waiting on ${count} sub-agents`;
+}
+
+// Same order as server/directory.ts sortAgents; the fake office (Task 16) is not pre-sorted.
+```
+
+then, in `orderRows`, replace
+
+```text
+  doing: Readonly<Record<string, ActivityStep>>,
+): OfficeRow[] {
+```
+
+with
+
+```text
+  doing: Readonly<Record<string, ActivityStep>>,
+  waitingOn: ReadonlyMap<string, number>,
+): OfficeRow[] {
+```
+
+and replace
+
+```text
+      step: running ? (doing[agent.id] ?? null) : null,
+    });
+```
+
+with
+
+```text
+      step: running ? (doing[agent.id] ?? null) : null,
+      waitingOn: waitingOn.get(agent.id) ?? 0,
+    });
+```
+
+then, in `buildOfficeModel`, replace
+
+```text
+  const byRoom = new Map<string, OfficeAgent[]>();
+  const roomOfAgent = new Map<string, string>();
+  for (const agent of agents.values()) {
+```
+
+with
+
+```text
+  const waitingOn = waitingOnOf(agents.values());
+  const byRoom = new Map<string, OfficeAgent[]>();
+  const roomOfAgent = new Map<string, string>();
+  for (const agent of agents.values()) {
+```
+
+and replace
+
+```text
+      rows: orderRows(byRoom.get(id) ?? [], state.activity, state.doing ?? {}),
+```
+
+with
+
+```text
+      rows: orderRows(byRoom.get(id) ?? [], state.activity, state.doing ?? {}, waitingOn),
+```
+
+and replace
+
+```text
+  return { rooms, attention: attentionList(agents.values(), roomOfAgent), agents, roomOfAgent };
+```
+
+with
+
+```text
+  return {
+    rooms,
+    attention: attentionList(agents.values(), roomOfAgent),
+    agents,
+    roomOfAgent,
+    waitingOn,
+  };
+```
+
+- [ ] **Step 4: Run them to verify they pass**
+
+Run: `npx vitest run plugins/office/client/model.test.ts --bail=1`
+Expected: PASS, 10 tests.
+
+- [ ] **Step 5: Write the failing tests of the two floors**
+
+In `plugins/office/client/world/adapter.test.ts`, replace
+
+```text
+  it("gives a person the context of their agent, when its provider says it", () => {
+```
+
+with
+
+```text
+  it("seats an agent that waits on sub-agents as at work, and the board says on how many", () => {
+    const model = buildOfficeModel(
+      office([
+        agent("1"),
+        agent("2", { parentAgentId: "1", status: "running" }),
+        agent("3", { parentAgentId: "1", status: "initializing" }),
+        agent("4"),
+      ]),
+    );
+
+    const { sessions } = worldPeople(model, PLAN_DESKS.pro);
+
+    expect(sessions.map((session) => [session.id, session.status, session.waitingOn])).toEqual([
+      ["1", "work", 2],
+      ["2", "work", undefined],
+      ["3", "work", undefined],
+      ["4", "rest", undefined],
+    ]);
+    expect(worldBoardRows(model, sessions).find((row) => row.id === "1")).toEqual({
+      id: "1",
+      name: "Agent 1",
+      text: "Waiting on 2 sub-agents",
+      state: "doing",
+    });
+  });
+
+  it("gives a person the context of their agent, when its provider says it", () => {
+```
+
+and replace
+
+```text
+  it("is a failure when an agent ends in an error, once", () => {
+```
+
+with
+
+```text
+  it("sends an agent that turns busy with a sub-agent to wait at its desk, with no prompt", () => {
+    const sub = (status: OfficeAgent["status"]) => agent("2", { parentAgentId: "1", status });
+    const resting = people([agent("1"), sub("idle")]);
+    const waiting = people([agent("1"), sub("running")]);
+    const running = people([agent("1", { status: "running" }), sub("running")]);
+    const eventsOf = (before: WorldPeople | null, now: WorldPeople) =>
+      worldEvents(before === null ? null : rememberPeople(before), now).filter(
+        (event) => event.sess === "1",
+      );
+
+    // A sub-agent starts while its parent rests: the parent waits at its desk. Nobody sent it a
+    // prompt, so none is carried to it.
+    expect(eventsOf(resting, waiting)).toEqual([{ sess: "1", type: "subwait" }]);
+    // The parent's own turn ends while its sub-agent runs: it waits, and reports nothing yet.
+    expect(eventsOf(running, waiting)).toEqual([{ sess: "1", type: "subwait" }]);
+    // Said at once to whoever opens the office, and once.
+    expect(eventsOf(null, waiting)).toEqual([{ sess: "1", type: "subwait" }]);
+    expect(eventsOf(waiting, waiting)).toEqual([]);
+    // The last sub-agent ends: the turn is reported, as at any turn's end.
+    expect(eventsOf(waiting, resting)).toEqual([{ sess: "1", type: "stop" }]);
+    // The parent runs again while it waited: that is a turn, and its prompt is carried.
+    expect(eventsOf(waiting, running)).toEqual([{ sess: "1", type: "prompt" }]);
+  });
+
+  it("is a failure when an agent ends in an error, once", () => {
+```
+
+In `plugins/office/client/pixel/actors.test.ts`, replace
+
+```text
+  it("keeps whoever needs the user at the desk, an error before a question", () => {
+```
+
+with
+
+```text
+  it("keeps an agent that waits on sub-agents at the desk, screen on, under the sub-agent's icon", () => {
+    const waiting = session("a", { status: "work", waitingOn: 2 });
+    const atDesk = { place: null, icon: "subagent", screen: "code" };
+    expect(standingOf(waiting, undefined, false, false)).toEqual(atDesk);
+    // Neither a stand-up nor a turn in the lounge takes it from there.
+    expect(standingOf(waiting, undefined, false, true, "sofa")).toEqual(atDesk);
+    expect(standingOf(waiting, undefined, true, false)).toEqual(atDesk);
+  });
+
+  it("keeps whoever needs the user at the desk, an error before a question", () => {
+```
+
+and replace
+
+```text
+  it("keeps everyone at the desk with motion reduced", () => {
+```
+
+with
+
+```text
+  it("leaves an agent that waits on sub-agents out of the lounge", () => {
+    for (let turn = 0; turn < 4; turn += 1) {
+      const leisure = floor(at(10) + turn * TURN_MS);
+      const people = {
+        ...resting(ids),
+        sessions: ids.map((id) => session(id, { status: "work", waitingOn: 1 })),
+      };
+      const cast = castOf(people, NO_BREAKS, false, leisure);
+      expect(cast.every((member) => member.standing.place === null)).toBe(true);
+      expect(cast.every((member) => member.standing.icon === "subagent")).toBe(true);
+      expect(restsAfter(NO_RESTS, people.sessions, leisure.now)).toBe(NO_RESTS);
+    }
+  });
+
+  it("keeps everyone at the desk with motion reduced", () => {
+```
+
+and, in the memory the janitor's tests build, replace
+
+```text
+    stuck: false,
+    step: null,
+    running: null,
+```
+
+with
+
+```text
+    stuck: false,
+    busy: false,
+    step: null,
+    running: null,
+```
+
+- [ ] **Step 6: Run them to verify they fail**
+
+Run: `npx vitest run plugins/office/client/world/adapter.test.ts --bail=1`
+Expected: FAIL in "seats an agent that waits on sub-agents as at work, and the board says on how many": agent 1 is `"rest"`.
+
+Run: `npx vitest run plugins/office/client/pixel/actors.test.ts --bail=1`
+Expected: FAIL in "keeps an agent that waits on sub-agents at the desk, screen on, under the sub-agent's icon": the icon is `null`.
+
+- [ ] **Step 7: Seat a waiting agent at work, on both floors**
+
+In `plugins/office/client/world/world-api.ts`, replace
+
+```text
+  /** A red name tag: the agent ended in an error. */
+  stuck: boolean;
+```
+
+with
+
+```text
+  /** A red name tag: the agent ended in an error. */
+  stuck: boolean;
+  /**
+   * How many sub-agents the agent waits on, set when its own turn has ended and they are still
+   * at work: `status` is `work` then. Paseo's own; the scene does not read it.
+   */
+  waitingOn?: number;
+```
+
+and replace
+
+```text
+  /** The conversation was compacted or started over: the person takes the paper to the shredder. */
+  | "compact";
+```
+
+with
+
+```text
+  /** The conversation was compacted or started over: the person takes the paper to the shredder. */
+  | "compact"
+  /** Paseo's own: the agent's turn has ended and it waits at its desk on its sub-agents. */
+  | "subwait";
+```
+
+In `plugins/office/client/world/adapter.ts`, replace
+
+```text
+import { agentTitle, attentionReason, type OfficeModel, type OfficeRow } from "../model.js";
+```
+
+with
+
+```text
+import {
+  agentTitle,
+  attentionReason,
+  waitingOnText,
+  type OfficeModel,
+  type OfficeRow,
+} from "../model.js";
+```
+
+then replace
+
+```text
+function statusOf(agent: OfficeAgent): WorldSession["status"] {
+  if (agent.permissions.length > 0) return "wait";
+  if (agent.status === "running" || agent.status === "initializing") return "work";
+  return "rest";
+}
+```
+
+with
+
+```text
+/** An agent that waits on sub-agents is at work: it keeps its desk, and no game picks it. */
+function statusOf(agent: OfficeAgent, waitingOn: number): WorldSession["status"] {
+  if (agent.permissions.length > 0) return "wait";
+  if (agent.status === "running" || agent.status === "initializing" || waitingOn > 0) return "work";
+  return "rest";
+}
+```
+
+then, in `toSession`, replace
+
+```text
+    status: statusOf(agent),
+```
+
+with
+
+```text
+    status: statusOf(agent, row.waitingOn),
+```
+
+and replace
+
+```text
+    stuck: attentionReason(agent) === "error",
+    subs: [],
+```
+
+with
+
+```text
+    stuck: attentionReason(agent) === "error",
+    ...(row.waitingOn > 0 ? { waitingOn: row.waitingOn } : {}),
+    subs: [],
+```
+
+then, in `boardText`, replace
+
+```text
+  if (session.status === "wait") return "Waiting for your answer";
+  if (session.status === "work") return activity ?? "Working";
+  return "Resting";
+```
+
+with
+
+```text
+  if (session.status === "wait") return "Waiting for your answer";
+  if (session.waitingOn !== undefined) return waitingOnText(session.waitingOn);
+  if (session.status === "work") return activity ?? "Working";
+  return "Resting";
+```
+
+then replace
+
+```text
+  status: WorldSession["status"];
+  stuck: boolean;
+  /** The key of the step the person was sent to; null when at none. */
+```
+
+with
+
+```text
+  status: WorldSession["status"];
+  stuck: boolean;
+  /** At work only because it waited on sub-agents: its own turn had ended. */
+  busy: boolean;
+  /** The key of the step the person was sent to; null when at none. */
+```
+
+then replace
+
+```text
+/** A turn that starts, one that ends, a new error; none for someone seen for the first time. */
+function turnEvent(session: WorldSession, was: Told | undefined): WorldEventType | null {
+  if (was === undefined) return null;
+  if (session.stuck && !was.stuck) return "fail";
+  if (was.status === "rest" && session.status === "work") return "prompt";
+  return was.status !== "rest" && session.status === "rest" && !session.stuck ? "stop" : null;
+}
+```
+
+with
+
+```text
+/**
+ * A turn that starts, one that ends, a new error; none for someone seen for the first time. An
+ * agent that turns busy because a sub-agent started gets no prompt: nobody sent it one. Its own
+ * turn starts when it runs again, from a rest or from that wait, and ends when it rests, which
+ * for a waiting agent is when its last sub-agent ended.
+ */
+function turnEvent(session: WorldSession, was: Told | undefined): WorldEventType | null {
+  if (was === undefined) return null;
+  if (session.stuck && !was.stuck) return "fail";
+  const runs = session.status === "work" && session.waitingOn === undefined;
+  if (runs && (was.status === "rest" || was.busy)) return "prompt";
+  return was.status !== "rest" && session.status === "rest" && !session.stuck ? "stop" : null;
+}
+```
+
+then, over `worldChanges`, replace
+
+```text
+ * prompt carried to the desk, one that ends is reported and followed by a rest, an error is a
+ * failure. A new tool call of an agent at work sends the person to that work's place, and that
+```
+
+with
+
+```text
+ * prompt carried to the desk, one that ends is reported and followed by a rest, an error is a
+ * failure. An agent whose turn has ended while agents it started are still at work is sent to
+ * wait at its desk, once, and its turn is reported when the last of them ends. A new tool call
+ * of an agent at work sends the person to that work's place, and that
+```
+
+and in it replace
+
+```text
+    if (turn !== null) events.push({ sess: session.id, type: turn });
+```
+
+with
+
+```text
+    if (turn !== null) events.push({ sess: session.id, type: turn });
+    if (session.waitingOn !== undefined && was?.busy !== true) {
+      events.push({ sess: session.id, type: "subwait" });
+    }
+```
+
+and replace
+
+```text
+      status: session.status,
+      stuck: session.stuck,
+      step: steps.step,
+```
+
+with
+
+```text
+      status: session.status,
+      stuck: session.stuck,
+      busy: session.waitingOn !== undefined,
+      step: steps.step,
+```
+
+In `plugins/office/client/pixel/actors.ts`, replace
+
+```text
+export function standingOf(
+  session: Pick<WorldSession, "status" | "stuck">,
+```
+
+with
+
+```text
+export function standingOf(
+  session: Pick<WorldSession, "status" | "stuck" | "waitingOn">,
+```
+
+and replace
+
+```text
+  if (step === undefined) return { place: null, icon: null, screen: "code" };
+```
+
+with
+
+```text
+  // Its own turn has ended and it waits on sub-agents: at the desk, with their icon over it.
+  if (session.waitingOn !== undefined) return { place: null, icon: "subagent", screen: "code" };
+  if (step === undefined) return { place: null, icon: null, screen: "code" };
+```
+
+Nothing else changes in 2D: a waiting agent's session is at `work`, so `restsAfter`, `breaksAfter` and `castOf`'s lounge rotation leave it out already, and `boardText` gives its desk's label "Waiting on N sub-agents".
+
+- [ ] **Step 8: Run them to verify they pass**
+
+Run: `npx vitest run plugins/office/client/world/adapter.test.ts --bail=1`
+Expected: PASS, 32 tests.
+
+Run: `npx vitest run plugins/office/client/pixel/actors.test.ts --bail=1`
+Expected: PASS, 29 tests.
+
+- [ ] **Step 9: Write the failing tests of the stand-up, the asking cards and the janitor**
+
+In `plugins/office/client/standup-text.test.ts`, replace
+
+```text
+test("review and conflicts block an open request, and nothing blocks a merged one", () => {
+```
+
+with
+
+```text
+test("an agent that waits on sub-agents says so, and is not asked for an update", () => {
+  const model = buildOfficeModel(
+    office(
+      [
+        agent("Lead"),
+        agent("Helper", { parentAgentId: "Lead", status: "running" }),
+        agent("Scout", { parentAgentId: "Lead", status: "initializing" }),
+        agent("Spare"),
+      ],
+      [SHOP],
+    ),
+  );
+
+  const [team] = standupTeams(model, NOW);
+
+  expect(team?.people.map((person) => [person.title, person.line, person.free])).toEqual([
+    ["Lead", "Waiting on 2 sub-agents", false],
+    ["Scout", "Starting", false],
+    ["Helper", "Working", false],
+    ["Spare", "Idle", true],
+  ]);
+});
+
+test("review and conflicts block an open request, and nothing blocks a merged one", () => {
+```
+
+In `plugins/office/client/library-text.test.ts`, in the test "every workspace is a team with its skills, who is at a skill now and who can be asked", replace
+
+```text
+        agent("busy", { status: "running" }),
+        agent("asking", { permissions: [{ id: "q", kind: "tool", title: "Run?" }] }),
+```
+
+with
+
+```text
+        agent("busy", { status: "running" }),
+        // (its own turn has ended, and it waits on the sub-agent it started: not asked)
+        agent("lead", { createdAt: "2026-11-16T06:00:00Z" }),
+        agent("sub", {
+          parentAgentId: "lead",
+          status: "running",
+          createdAt: "2026-11-16T07:00:00Z",
+        }),
+        agent("asking", { permissions: [{ id: "q", kind: "tool", title: "Run?" }] }),
+```
+
+The test's expected `writers` stay `new` and `old`: `lead` is newer than both, idle, and must not be offered.
+
+In `plugins/office/client/context-text.test.ts`, replace
+
+```text
+test("the janitor's note counts the nearly full, else names the fullest", () => {
+```
+
+with
+
+```text
+test("the janitor leaves an agent that waits on sub-agents alone", () => {
+  const rows = janitorRows(
+    [agent("lead", at(150_000)), agent("spare", at(100_000))],
+    new Map([["lead", 2]]),
+  );
+  expect(rows.map((row) => [row.agentId, row.state, row.tidy])).toEqual([
+    ["lead", "Waiting on 2 sub-agents", false],
+    ["spare", "Idle", true],
+  ]);
+});
+
+test("the janitor's note counts the nearly full, else names the fullest", () => {
+```
+
+- [ ] **Step 10: Run them to verify they fail**
+
+Run: `npx vitest run plugins/office/client/standup-text.test.ts --bail=1`
+Expected: FAIL in "an agent that waits on sub-agents says so, and is not asked for an update": Lead's line is "Idle" and it is free.
+
+Run: `npx vitest run plugins/office/client/library-text.test.ts --bail=1`
+Expected: FAIL in "every workspace is a team with its skills, who is at a skill now and who can be asked": `writers` starts with `lead`.
+
+Run: `npx vitest run plugins/office/client/context-text.test.ts --bail=1`
+Expected: FAIL in "the janitor leaves an agent that waits on sub-agents alone": lead's state is "Idle" and it can be tidied.
+
+- [ ] **Step 11: Leave a waiting agent alone**
+
+In `plugins/office/client/standup-text.ts`, replace
+
+```text
+import { agentTitle, type OfficeModel, type OfficeRoom, type OfficeRow } from "./model.js";
+```
+
+with
+
+```text
+import {
+  agentTitle,
+  waitingOnText,
+  type OfficeModel,
+  type OfficeRoom,
+  type OfficeRow,
+} from "./model.js";
+```
+
+then replace
+
+```text
+  /** A request for an update reaches it now: it is idle. */
+```
+
+with
+
+```text
+  /** A request for an update reaches it now: it is idle, and waits on no sub-agent. */
+```
+
+then, in `personLine`, replace
+
+```text
+  if (agent.status === "running") return row.activity ?? "Working";
+  return agent.status === "initializing" ? "Starting" : "Idle";
+```
+
+with
+
+```text
+  if (agent.status === "running") return row.activity ?? "Working";
+  if (row.waitingOn > 0) return waitingOnText(row.waitingOn);
+  return agent.status === "initializing" ? "Starting" : "Idle";
+```
+
+and, in `standupTeams`, replace
+
+```text
+          free: row.agent.status === "idle" && row.agent.permissions.length === 0,
+```
+
+with
+
+```text
+          free:
+            row.agent.status === "idle" &&
+            row.agent.permissions.length === 0 &&
+            row.waitingOn === 0,
+```
+
+In `plugins/office/client/ask-text.ts`, replace
+
+```text
+/** The room's agents that can be asked now: idle, with no question open. The newest first. */
+export function idleAgents(room: OfficeRoom): OfficeAgent[] {
+  return room.rows
+    .map((row) => row.agent)
+    .filter((agent) => agent.status === "idle" && agent.permissions.length === 0)
+    .sort(newestFirst);
+}
+```
+
+with
+
+```text
+/**
+ * The room's agents that can be asked now: idle, with no question open, and waiting on no
+ * sub-agent. The newest first.
+ */
+export function idleAgents(room: OfficeRoom): OfficeAgent[] {
+  return room.rows
+    .filter((row) => row.waitingOn === 0)
+    .map((row) => row.agent)
+    .filter((agent) => agent.status === "idle" && agent.permissions.length === 0)
+    .sort(newestFirst);
+}
+```
+
+`idleAgents` is what the Library card (`library-text.ts`) and the Review card (`review-text.ts`) offer.
+
+In `plugins/office/client/context-text.ts`, replace
+
+```text
+import { agentTitle } from "./model.js";
+```
+
+with
+
+```text
+import { agentTitle, waitingOnText } from "./model.js";
+```
+
+and replace
+
+```text
+function stateOf(agent: OfficeAgent): string {
+  if (agent.permissions.length > 0) return "Waiting for your answer";
+  if (agent.status === "error") return "Stopped on an error";
+  if (agent.status === "running") return "At work";
+  return agent.status === "initializing" ? "Starting" : "Idle";
+}
+
+/** Every agent of the office, the fullest context first; who reports none comes last, by name. */
+export function janitorRows(agents: Iterable<OfficeAgent>): JanitorRow[] {
+  const rows = [...agents].map((agent): JanitorRow => {
+    const waits = agent.permissions.length > 0;
+    return {
+      agentId: agent.id,
+      title: agentTitle(agent),
+      percent: contextPercent(agent),
+      detail: contextDetail(agent),
+      state: stateOf(agent),
+      tidy: !waits && (agent.status === "idle" || agent.status === "error"),
+    };
+  });
+```
+
+with
+
+```text
+function stateOf(agent: OfficeAgent, waitingOn: number): string {
+  if (agent.permissions.length > 0) return "Waiting for your answer";
+  if (agent.status === "error") return "Stopped on an error";
+  if (agent.status === "running") return "At work";
+  if (waitingOn > 0) return waitingOnText(waitingOn);
+  return agent.status === "initializing" ? "Starting" : "Idle";
+}
+
+const NOBODY_WAITS: ReadonlyMap<string, number> = new Map();
+
+/**
+ * Every agent of the office, the fullest context first; who reports none comes last, by name.
+ * `waitingOn` is the model's: an agent that waits on sub-agents is left alone, as one at work.
+ */
+export function janitorRows(
+  agents: Iterable<OfficeAgent>,
+  waitingOn: ReadonlyMap<string, number> = NOBODY_WAITS,
+): JanitorRow[] {
+  const rows = [...agents].map((agent): JanitorRow => {
+    const waits = agent.permissions.length > 0;
+    const busy = waitingOn.get(agent.id) ?? 0;
+    return {
+      agentId: agent.id,
+      title: agentTitle(agent),
+      percent: contextPercent(agent),
+      detail: contextDetail(agent),
+      state: stateOf(agent, busy),
+      tidy: !waits && busy === 0 && (agent.status === "idle" || agent.status === "error"),
+    };
+  });
+```
+
+In `plugins/office/client/office-surface.tsx`, replace
+
+```text
+  const contexts = useMemo(() => janitorRows(model.agents.values()), [model.agents]);
+```
+
+with
+
+```text
+  const contexts = useMemo(
+    () => janitorRows(model.agents.values(), model.waitingOn),
+    [model.agents, model.waitingOn],
+  );
+```
+
+- [ ] **Step 12: Run them to verify they pass**
+
+Run: `npx vitest run plugins/office/client/standup-text.test.ts --bail=1`
+Expected: PASS, 12 tests.
+
+Run: `npx vitest run plugins/office/client/library-text.test.ts --bail=1`
+Expected: PASS, 7 tests.
+
+Run: `npx vitest run plugins/office/client/review-text.test.ts --bail=1`
+Expected: PASS, 12 tests.
+
+Run: `npx vitest run plugins/office/client/context-text.test.ts --bail=1`
+Expected: PASS, 10 tests.
+
+- [ ] **Step 13: Ask the built scene for the waiting line (failing build test)**
+
+In `plugins/office/server/world-script.test.ts`, replace
+
+```text
+    // A deploy that failed has its own line in the bubble.
+    expect(script).toContain("paseo.deploy.failed");
+```
+
+with
+
+```text
+    // A deploy that failed has its own line in the bubble.
+    expect(script).toContain("paseo.deploy.failed");
+    // So has an agent that waits on its sub-agents.
+    expect(script).toContain("paseo.subwait");
+```
+
+Run: `npx vitest run plugins/office/server/world-script.test.ts --bail=1`
+Expected: FAIL: the script does not contain `paseo.subwait`.
+
+- [ ] **Step 14: Send the person to wait at the desk in the scene**
+
+In `plugins/office/vendor/my-office/src/office/paseo-entry.js`, replace
+
+```text
+const clockTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+```
+
+with
+
+```text
+const clockTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Paseo's own: someone whose turn has ended waits on the agents they started (the session's `waitingOn` says how many).
+ * To the desk, thinking, with that in the bubble. It is no step and no prompt: nothing goes to the feed or the counts,
+ * and the director carries nothing over.
+ */
+function waitOnSubs(id) {
+  const w = workers.get(id), n = sessions.get(id)?.waitingOn || 1;
+  if (w) w.push({ station: 'desk', anim: 'think', type: 'agent', text: tr('paseo.subwait', { n }), dwell: 2 });
+}
+```
+
+and, in `event(e)` of the `api` object, replace
+
+```text
+    if (e.type === 'testend') { clearRun(e.sess); return; }
+```
+
+with
+
+```text
+    if (e.type === 'testend') { clearRun(e.sess); return; }
+    if (e.type === 'subwait') { waitOnSubs(e.sess); return; }
+```
+
+In `plugins/office/vendor/my-office/src/i18n/index.js`, in `OURS`, replace
+
+```text
+  'paseo.deploy.failed': 'The deploy failed',
+```
+
+with
+
+```text
+  'paseo.deploy.failed': 'The deploy failed',
+  // (the same words as the whiteboard's row: client/model.ts waitingOnText)
+  'paseo.subwait': { one: 'Waiting on {n} sub-agent', other: 'Waiting on {n} sub-agents' },
+```
+
+The scene needs nothing else: a session at `work` wakes at its desk, leaves a solo activity of the lively floor (`called`), and upstream's games pick only sessions at `rest`. `setSessions` runs before the events (`world-view.tsx`), so the session's `waitingOn` is there when `subwait` arrives. `paseo-leisure.js` is not touched.
+
+- [ ] **Step 15: Run the build test to verify it passes**
+
+Run: `npx vitest run plugins/office/server/world-script.test.ts --bail=1`
+Expected: PASS, every test of the file.
+
+- [ ] **Step 16: Say it in `docs/plugins.md`**
+
+After the paragraph that starts "The `office` built-in shows every agent", replace
+
+```text
+directory and the 5 s "doing now" reads run only while an office surface is open.
+
+The office also watches the host.
+```
+
+with
+
+```text
+directory and the 5 s "doing now" reads run only while an office surface is open.
+
+An agent whose own turn has ended is not idle while an agent it started, or one those started,
+runs, starts or waits for you: it waits on them (`waitingOnOf` in
+`plugins/office/client/model.ts`, the one place the rule is worked out). On both floors it stays
+at its desk, at work; the whiteboard and the stand-up say "Waiting on N sub-agents"; and the
+stand-up, the Library and Review cards and the janitor leave it alone. Only agents the office
+shows count. The rule is the client's: the office's server still takes such an agent for idle, so
+a mention on a board wakes it.
+
+The office also watches the host.
+```
+
+- [ ] **Step 17: Check and commit**
+
+```bash
+cd /workspace/QFlavours/paseo
+npm run typecheck --workspace=@getpaseo/builtin-plugins
+npm run lint -- plugins/office/client/model.ts plugins/office/client/model.test.ts plugins/office/client/world/world-api.ts plugins/office/client/world/adapter.ts plugins/office/client/world/adapter.test.ts plugins/office/client/pixel/actors.ts plugins/office/client/pixel/actors.test.ts plugins/office/client/standup-text.ts plugins/office/client/standup-text.test.ts plugins/office/client/ask-text.ts plugins/office/client/library-text.test.ts plugins/office/client/context-text.ts plugins/office/client/context-text.test.ts plugins/office/client/office-surface.tsx plugins/office/server/world-script.test.ts
+npm run format:files -- plugins/office/client/model.ts plugins/office/client/model.test.ts plugins/office/client/world/world-api.ts plugins/office/client/world/adapter.ts plugins/office/client/world/adapter.test.ts plugins/office/client/pixel/actors.ts plugins/office/client/pixel/actors.test.ts plugins/office/client/standup-text.ts plugins/office/client/standup-text.test.ts plugins/office/client/ask-text.ts plugins/office/client/library-text.test.ts plugins/office/client/context-text.ts plugins/office/client/context-text.test.ts plugins/office/client/office-surface.tsx plugins/office/server/world-script.test.ts docs/plugins.md
+git add plugins/office/client plugins/office/server/world-script.test.ts plugins/office/vendor/my-office/src/office/paseo-entry.js plugins/office/vendor/my-office/src/i18n/index.js docs/plugins.md
+git commit -m "feat(office): an agent that waits on its sub-agents is at work, not idle"
+```
+
+Expected: typecheck and lint print no error; the formatter changes nothing; the commit succeeds.
+
+---
+
+### Task 6d: A step between two reads still counts
+
+**Files:**
+
+- Modify: `plugins/office/server/activity.ts`
+- Test: `plugins/office/server/activity.test.ts`
+- Modify: `plugins/office/client/world/adapter.test.ts` (one test that pins what the adapter already does)
+- Modify: `plugins/office/shared/contracts.ts`, `plugins/office/client/model.ts` (one comment each)
+- Modify: `docs/plugins.md`
+
+**Interfaces:**
+
+- Consumes: `describeStep(items)`, `nextStep(before, items)` and its look-back for a test run's or a deploy's end (`ENDS`, Task 2), `startActivityPoller(ports)`; the test file's helpers `call(detail, patch)`, `tests(patch, exitCode)`, `startHarness(running, tails)`, `settle()`.
+- Produces:
+  - `callsIn(items: readonly ActivityItem[]): Set<string>`: the ids of the tool calls in a tail.
+  - `describeStep(items, seen?: ReadonlySet<string>)` and `nextStep(before, items, seen?)`: with `seen` (the `callsIn` of the read before), the newest tool call is the step also after the agent wrote or thought, when `seen` does not have its id.
+  - The poller keeps `callsIn` of each agent's last read. `ACTIVITY_INTERVAL_MS` stays 5000.
+
+Why: the host reads each running agent's tail every 5 s, and reported a step only when the newest item was a tool call. A web search, a page fetch or a documentation lookup ends in 1 to 4 s and the agent writes again, so the read after it saw text and no step: the agent never walked to the globe.
+
+How "since the previous read" is known: by the tool calls' ids. The poller remembers the ids in the tail of each agent's last read; a call whose id is not among them was made since. A call is reported for one read, then its id is among the seen ones. A call that a test run's or a deploy's end was reported instead of stays new for the next read. A provider that numbers no calls cannot be told apart this way, and keeps the old behaviour. An agent's first read has nothing before it and reports only a call that is the newest item, so opening the office tells no old call.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `plugins/office/server/activity.test.ts`, replace
+
+```text
+  ACTIVITY_INTERVAL_MS,
+  describeActivity,
+```
+
+with
+
+```text
+  ACTIVITY_INTERVAL_MS,
+  callsIn,
+  describeActivity,
+```
+
+then replace
+
+```text
+interface PollerHarness {
+```
+
+with
+
+```text
+const search = (callId: string, patch: Partial<ActivityItem> = {}) =>
+  call(
+    { type: "search", query: "x", toolName: "web_search" },
+    { callId, status: "completed", ...patch },
+  );
+const wrote: ActivityItem = { type: "assistant_message" };
+
+test("a call made and ended since the last read is still the step, once", () => {
+  const before = callsIn([call({ type: "read", filePath: "a" }, { callId: "r1" })]);
+  const tail = [call({ type: "read", filePath: "a" }, { callId: "r1" }), search("w1"), wrote];
+  // The agent went back to writing, but the search is new since the last read.
+  expect(describeStep(tail, before)).toEqual({ kind: "web", key: "w1" });
+  expect(describeStep([search("w1"), { type: "reasoning" }, wrote], before)).toEqual({
+    kind: "web",
+    key: "w1",
+  });
+  // The read after it has seen the call: it is not told again.
+  expect(describeStep(tail, callsIn(tail))).toBe(null);
+  // Without a read before there is no "since": an office just opened tells no old call.
+  expect(describeStep(tail)).toBe(null);
+  expect(callsIn(tail)).toEqual(new Set(["r1", "w1"]));
+});
+
+test("of several calls between two reads the newest is the step", () => {
+  const tail = [search("w1"), wrote, call({ type: "fetch", url: "u" }, { callId: "f1" }), wrote];
+  expect(describeStep(tail, new Set())).toEqual({ kind: "web", key: "f1" });
+  // Only the newest call is looked at: an older new one behind a seen one is not dug up.
+  expect(describeStep(tail, new Set(["f1"]))).toBe(null);
+});
+
+test("a prompt after a call is a new turn, and a call without an id cannot be told apart", () => {
+  expect(describeStep([search("w1"), { type: "user_message" }], new Set())).toBe(null);
+  expect(describeStep([search("w1"), wrote, { type: "user_message" }, wrote], new Set())).toBe(
+    null,
+  );
+  expect(describeStep([search("w1", { callId: undefined }), wrote], new Set())).toBe(null);
+  // The newest item is still a step whatever was seen: the agent is at it now.
+  expect(describeStep([wrote, search("w1")], new Set(["w1"]))).toEqual({ kind: "web", key: "w1" });
+});
+
+test("a test run or a deploy that came and went between two reads says how it ended", () => {
+  const ran = [tests({ status: "completed" }, 1), wrote];
+  expect(describeStep(ran, new Set())).toEqual({ kind: "test", key: "t1", result: "failed" });
+  expect(nextStep(undefined, ran, new Set())).toEqual({
+    kind: "test",
+    key: "t1",
+    result: "failed",
+  });
+  // The look-back for a run last seen running is as it was, with a newer call behind it or not.
+  const running: ActivityStep = { kind: "test", key: "t1" };
+  expect(nextStep(running, ran, new Set(["t1"]))).toEqual({ ...running, result: "failed" });
+  expect(
+    nextStep(running, [tests({ status: "completed" }, 0), search("w1"), wrote], new Set(["t1"])),
+  ).toEqual({ ...running, result: "passed" });
+});
+
+interface PollerHarness {
+```
+
+and replace
+
+```text
+test("an agent that stops running loses its line", async () => {
+```
+
+with
+
+```text
+test("a search that ended between two reads is reported for one read", async () => {
+  const tails = new Map<string, ActivityItem[]>([["a", [{ type: "reasoning" }]]]);
+  const harness = startHarness(["a"], tails);
+  await settle();
+  tails.set("a", [{ type: "reasoning" }, search("w1"), wrote]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  // The next call is not blocked by it.
+  tails.set("a", [search("w1"), wrote, search("w2"), wrote]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+
+  expect(harness.steps).toEqual([
+    {},
+    { a: { kind: "web", key: "w1" } },
+    {},
+    { a: { kind: "web", key: "w2" } },
+  ]);
+  harness.poller.stop();
+});
+
+test("a call held back for a test run's end is told on the read after it", async () => {
+  const tails = new Map<string, ActivityItem[]>([["a", [tests()]]]);
+  const harness = startHarness(["a"], tails);
+  await settle();
+  tails.set("a", [tests({ status: "completed" }, 0), search("w1"), wrote]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+
+  expect(harness.steps).toEqual([
+    { a: { kind: "test", key: "t1" } },
+    { a: { kind: "test", key: "t1", result: "passed" } },
+    { a: { kind: "web", key: "w1" } },
+    {},
+  ]);
+  harness.poller.stop();
+});
+
+test("an agent that stops running loses its line", async () => {
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run plugins/office/server/activity.test.ts --bail=1`
+Expected: FAIL in "a call made and ended since the last read is still the step, once": `callsIn is not a function`.
+
+- [ ] **Step 3: Report the newest call since the read before**
+
+In `plugins/office/server/activity.ts`, replace
+
+```text
+/**
+ * The newest item as a step, when it is a tool call. An agent that writes, thinks or reads its
+ * prompt is at no step. The key is the call's id, so two calls of one tool are two steps; a
+ * provider that numbers no calls gives the kind, and then only a change of kind is a new step.
+ * A test run or a deploy that has ended says how.
+ */
+export function describeStep(items: readonly ActivityItem[]): ActivityStep | null {
+  for (const item of items.toReversed()) {
+    if (item.type === "tool_call") return stepOf(item);
+    if (
+      item.type === "assistant_message" ||
+      item.type === "reasoning" ||
+      item.type === "user_message"
+    ) {
+      return null;
+    }
+  }
+  return null;
+}
+```
+
+with
+
+```text
+/** The ids of the tool calls in a tail: what a read has seen, for the read after it. */
+export function callsIn(items: readonly ActivityItem[]): Set<string> {
+  const calls = new Set<string>();
+  for (const item of items) {
+    if (item.type === "tool_call" && typeof item.callId === "string" && item.callId !== "") {
+      calls.add(item.callId);
+    }
+  }
+  return calls;
+}
+
+/**
+ * The newest tool call as a step. It is the step while it is the newest item: the agent is at
+ * it. Once the agent has written or thought since, it is the step only when the read before
+ * (`seen`, that read's `callsIn`) had not seen it: a search or a fetch often starts and ends
+ * between two reads, and would never be told. Without `seen` there is no read before, and an
+ * agent that writes is at no step. A prompt after the call is a new turn, and no step. The key
+ * is the call's id, so two calls of one tool are two steps; a provider that numbers no calls
+ * gives the kind, and then only a change of kind is a new step, and a call it has moved on from
+ * cannot be told. A test run or a deploy that has ended says how.
+ */
+export function describeStep(
+  items: readonly ActivityItem[],
+  seen?: ReadonlySet<string>,
+): ActivityStep | null {
+  let movedOn = false;
+  for (const item of items.toReversed()) {
+    if (item.type === "tool_call") {
+      if (!movedOn) return stepOf(item);
+      const id = item.callId;
+      const fresh = seen !== undefined && typeof id === "string" && id !== "" && !seen.has(id);
+      return fresh ? stepOf(item) : null;
+    }
+    if (item.type === "user_message") return null;
+    if (item.type === "assistant_message" || item.type === "reasoning") movedOn = true;
+  }
+  return null;
+}
+```
+
+then, in `nextStep`, replace
+
+```text
+  before: ActivityStep | undefined,
+  items: readonly ActivityItem[],
+): ActivityStep | null {
+  const step = describeStep(items);
+```
+
+with
+
+```text
+  before: ActivityStep | undefined,
+  items: readonly ActivityItem[],
+  seen?: ReadonlySet<string>,
+): ActivityStep | null {
+  const step = describeStep(items, seen);
+```
+
+then, in `startActivityPoller`, replace
+
+```text
+  let previousSteps: ActivitySteps = {};
+```
+
+with
+
+```text
+  let previousSteps: ActivitySteps = {};
+  // The calls each agent's last read saw, kept while the poller runs: an agent's next turn is
+  // read against them too. A prompt ends the look back, so an old turn's call is never told.
+  const seenCalls = new Map<string, ReadonlySet<string>>();
+```
+
+and in `readOne` replace
+
+```text
+      const step = nextStep(previousSteps[agentId], items);
+      if (step !== null) steps[agentId] = step;
+```
+
+with
+
+```text
+      const seen = seenCalls.get(agentId);
+      const step = nextStep(previousSteps[agentId], items, seen);
+      if (step !== null) steps[agentId] = step;
+      const calls = callsIn(items);
+      // A call held back for a run's end has not been told: it stays new for the next read.
+      const newest = describeStep(items, seen);
+      if (newest !== null && newest.key !== step?.key) calls.delete(newest.key);
+      seenCalls.set(agentId, calls);
+```
+
+A read that fails keeps what the read before saw: the `catch` of `readOne` does not touch `seenCalls`.
+
+- [ ] **Step 4: Run them to verify they pass**
+
+Run: `npx vitest run plugins/office/server/activity.test.ts --bail=1`
+Expected: PASS, every test of the file: the six new ones, and every earlier one unchanged, the test run's and the deploy's look-back among them.
+
+- [ ] **Step 5: Pin what the adapter does with a step reported for one read**
+
+A step that is there for one read and gone the next must make one walk and not block the next call. The adapter does that already (it sends an event for a new key, and forgets the key when the step is gone); this test keeps it so.
+
+In `plugins/office/client/world/adapter.test.ts`, replace
+
+```text
+  it("names each kind of work as the scene knows it", () => {
+```
+
+with
+
+```text
+  it("walks once for a step that is reported for one read, and again for the next", () => {
+    const running = [agent("1", { status: "running" })];
+    const searched = people(running, { "1": step("web", "w1") });
+
+    expect(worldEvents(null, searched)).toEqual([{ sess: "1", type: "web" }]);
+    // The read after it has no step: no news, and nothing held against the next call.
+    const told = rememberPeople(searched);
+    expect(worldEvents(told, people(running))).toEqual([]);
+    const moved = rememberPeople(people(running), told);
+    expect(worldEvents(moved, people(running, { "1": step("web", "w2") }))).toEqual([
+      { sess: "1", type: "web" },
+    ]);
+  });
+
+  it("names each kind of work as the scene knows it", () => {
+```
+
+Run: `npx vitest run plugins/office/client/world/adapter.test.ts --bail=1`
+Expected: PASS, 33 tests, with no change to `adapter.ts`.
+
+- [ ] **Step 6: Say it where the step is described**
+
+In `plugins/office/shared/contracts.ts`, replace
+
+```text
+  /** The step of each running agent whose newest timeline item is a tool call. */
+```
+
+with
+
+```text
+  /** The step of each running agent: the tool call it is at, or made since the read before. */
+```
+
+In `plugins/office/client/model.ts`, replace
+
+```text
+  /** The tool call a running agent is at, when its newest timeline item is one. */
+```
+
+with
+
+```text
+  /** The tool call a running agent is at, or made since the host's read before; null at none. */
+```
+
+In `docs/plugins.md`, in the paragraph that starts "On the 3D floor an agent is a person at a desk", replace
+
+```text
+cancelled or never seen to end does nothing. The reads are 5 s apart, so a tool call that
+starts and ends between two of them is never shown. With a host reading, the server room's chip,
+```
+
+with
+
+```text
+cancelled or never seen to end does nothing. The reads are 5 s apart. A tool call that starts and
+ends between two of them, as a web search often does, is the step of the read after it, for that
+one read, so its person still walks there. With a host reading, the server room's chip,
+```
+
+- [ ] **Step 7: Check and commit**
+
+```bash
+cd /workspace/QFlavours/paseo
+npm run typecheck --workspace=@getpaseo/builtin-plugins
+npm run lint -- plugins/office/server/activity.ts plugins/office/server/activity.test.ts plugins/office/client/world/adapter.test.ts plugins/office/shared/contracts.ts plugins/office/client/model.ts
+npm run format:files -- plugins/office/server/activity.ts plugins/office/server/activity.test.ts plugins/office/client/world/adapter.test.ts plugins/office/shared/contracts.ts plugins/office/client/model.ts docs/plugins.md
+git add plugins/office/server/activity.ts plugins/office/server/activity.test.ts plugins/office/client/world/adapter.test.ts plugins/office/shared/contracts.ts plugins/office/client/model.ts docs/plugins.md
+git commit -m "fix(office): a tool call that ended between two reads is still the agent's step"
+```
+
+Expected: typecheck and lint print no error; the formatter changes nothing; the commit succeeds.
+
+---
+
 ### Task 7: Look at it in a browser, and write down what was seen
 
 **Files:**
@@ -2847,7 +4368,7 @@ git commit -m "feat(office): the 2D rocket flies for a deploy that succeeded, no
 
 **Interfaces:**
 
-- Consumes: everything above, built. From Task 5: `leisureNow(id, kind)`. From the scene: `PaseoOfficeWorld` (`start`, `setSessions`, `event`, `meet`).
+- Consumes: everything above, built. From Task 5: `leisureNow(id, kind)`. From Task 6c: `WorldSession.waitingOn` and the `subwait` event. From the scene: `PaseoOfficeWorld` (`start`, `setSessions`, `event`, `meet`).
 
 The check uses two static pages and no app: the daemon on port 6767 is not touched and no agent is created. A static page shows the scene and the plugin's own 2D component only, not the app around them. The test browser (Paseo's browser tools) runs in another container, draws WebGL with software at about two frames a second, and reaches this machine at the first address of `hostname -i`.
 
@@ -2890,6 +4411,9 @@ window.T = {
   /** A prompt for the agent, and the end of its turn. */
   work(id) { set(id, 'work'); world.event({ sess: id, type: 'prompt' }); },
   rest(id) { set(id, 'rest'); world.event({ sess: id, type: 'stop' }); },
+  /** `n` sub-agents of the agent are at work and its own turn has ended; then the last of them ended. */
+  wait(id, n = 1) { const p = people.find((x) => x.id === id); p.status = 'work'; p.waitingOn = n; world.setSessions(people.map((x) => ({ ...x }))); world.event({ sess: id, type: 'subwait' }); },
+  done(id) { delete people.find((x) => x.id === id).waitingOn; set(id, 'rest'); world.event({ sess: id, type: 'stop' }); },
   /** What the adapter sends: T.event('a2', 'push'), T.event('a2', 'deploy'), T.event('a2', 'fail', 'deploy'). */
   event: (id, type, of) => world.event({ sess: id, type, of }),
   /** A click on the bell, on 'billiards', 'gametv', 'karaoke'. */
@@ -2939,22 +4463,32 @@ const nothing = () => undefined;
 
 function Page() {
   // window.officeWork(["a2"]) puts those agents to work; everyone else rests.
+  // window.officeLeads(["a1"]) gives each of those a sub-agent at work, while the lead's own turn has ended.
   const [working, setWorking] = useState([]);
+  const [leads, setLeads] = useState([]);
   const [meeting, setMeeting] = useState(false);
   window.officeWork = setWorking;
+  window.officeLeads = setLeads;
   window.officeMeeting = setMeeting;
+  const agentOf = (id, title, status, parentAgentId, second) => ({
+    id,
+    title,
+    provider: "claude",
+    model: null,
+    status,
+    workspaceId: "w1",
+    parentAgentId,
+    permissions: [],
+    createdAt: `2026-11-16T00:00:${second}Z`,
+  });
   const model = buildOfficeModel({
-    agents: NAMES.map((name, index) => ({
-      id: `a${index + 1}`,
-      title: name,
-      provider: "claude",
-      model: null,
-      status: working.includes(`a${index + 1}`) ? "running" : "idle",
-      workspaceId: "w1",
-      parentAgentId: null,
-      permissions: [],
-      createdAt: `2026-11-16T00:00:0${index}Z`,
-    })),
+    agents: [
+      ...NAMES.map((name, index) => {
+        const id = `a${index + 1}`;
+        return agentOf(id, name, working.includes(id) ? "running" : "idle", null, `0${index}`);
+      }),
+      ...leads.map((id, index) => agentOf(`${id}-sub`, `Sub of ${id}`, "running", id, `1${index}`)),
+    ],
     workspaces: [{ id: "w1", name: "shop-api", projectName: "shop" }],
     activity: {},
     doing: {},
@@ -3058,7 +4592,11 @@ Open `http://ADDRESS:8791/3d.html?at=10:00` (`browser_new_tab`). Every call belo
    Expected: false; the bubbles have "The deploy failed" and a6 is `sweat`. The same call again within two minutes: "Not again! The deploy failed" and a6 is `slam`.
 10. `() => { T.event('a6', 'deploy'); return T.games(); }`
     Expected: `rocket` is true and `deploys` is 1. A few seconds later a6 is `server celebrate`. Screenshot with the rocket in the air if the frame rate allows.
-11. `() => T.errors` and `browser_logs`.
+11. `() => { T.wait('a3', 2); return T.who(); }`, then `() => ({ who: T.who(), bubbles: T.bubbles() })` a few seconds later, and again over a minute at `T.speed(10)`.
+    Expected: a3 is `work`; if it was at an activity it turns back (`chore:back`), and then it is `work desk think` with "Waiting on 2 sub-agents" in the bubbles. It stays at its desk for the whole minute: not asleep, not in the lounge, not among a game's players (`T.go('a1', 'pool')` never answers a3). Then `() => { T.done('a3'); return T.who(); }`: a3 is `rest`, walks off as at a turn's end (to the director, then its coffee), and is asleep at its desk later.
+12. `() => { T.work('a5'); T.event('a5', 'web'); return T.who(); }`, then `() => ({ who: T.who(), bubbles: T.bubbles() })` about ten seconds later.
+    Expected: a5 walks to the globe and stands there (`globe`, near 7.1, -6.2 or 7.6, -5.3) under "Search the web". This is what the scene does with the step the host now reports for a search that ended between two reads; the host's side is covered by the unit tests only.
+13. `() => T.errors` and `browser_logs`.
     Expected: no error.
 
 - [ ] **Step 4: The 3D scene at 22:00, and the one-room floor**
@@ -3079,6 +4617,9 @@ Expected: the other four agents are in the lounge, and the first four are at the
 
 `() => window.officeWork(['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'])`, then a screenshot; then `() => { window.officeWork([]); window.officeMeeting(true); }` and a screenshot.
 Expected: first everyone at the desk with the screen on; then everyone at the whiteboard: a stand-up comes before the coffee after a turn and before the lounge.
+
+Open `…/2d.html?at=10:00` again and call `() => window.officeLeads(['a2', 'a4'])` (Brook and Dee, who are in the lounge at that time); screenshot after about ten seconds.
+Expected: ten desks, two of them the sub-agents' ("Sub of a2", "Sub of a4") with the screen on. Brook and Dee walk back and sit at their desks with the screen on and the sub-agent icon over it; they are not in the lounge, and stay at their desks through `…/2d.html?at=10:03` with the same call. `() => window.officeLeads([])`: the two sub-agents are gone, and Brook and Dee take the coffee of a turn that ended.
 
 Open `…/2d.html?at=22:00`.
 Expected: everyone at the desk, screens off.
@@ -3124,6 +4665,11 @@ with
   unit tests only.
 - The walk home at night: the pages' agents carry no time of their last activity, so nobody had
   rested 30 minutes.
+- An agent that waits on real sub-agents: the pages set the wait by hand. The rule, read from the
+  agents' parents, is covered by the unit tests; that the directory leaves background agents out
+  before the client was not looked at.
+- A real web search between two reads: the page sent the step's event by hand, and the host's
+  side is covered by the unit tests only.
 - The installed app on a phone.
 
 ## Not built
