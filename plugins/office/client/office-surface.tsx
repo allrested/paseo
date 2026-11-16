@@ -658,6 +658,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           actions={boardActions}
           styles={styles}
           deviceProblem={viewChoice.unsaved ? UNSAVED_VIEW : null}
+          scheduleError={null}
         >
           <ViewSwitch
             options={viewChoice.options}

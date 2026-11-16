@@ -1,0 +1,191 @@
+/**
+ * @vitest-environment jsdom
+ */
+// The header's host settings, mounted. The settings hook and the text field are the host's, so
+// stand-ins record what the header saved.
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import type { PluginTheme } from "@getpaseo/plugin";
+import type { SettingsState } from "@getpaseo/plugin/client";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { officeHostSettings } from "../shared/settings.js";
+import { HostSwitches } from "./host-switches.js";
+import { useOfficeStyles } from "./styles.js";
+import type { BoardActions } from "./use-board-actions.js";
+
+type HostSettings = SettingsState<typeof officeHostSettings.schema>;
+type HostValues = Extract<HostSettings, { status: "ready" }>["values"];
+
+interface Saved {
+  values: HostValues;
+  revision: string;
+}
+
+let saved: Saved[];
+let saveError: string | null;
+/** Set to keep each save waiting for the host's answer. */
+let answer: Promise<boolean> | null;
+let stored: HostValues;
+
+vi.mock("@getpaseo/plugin/client", () => ({
+  useSettings: (): HostSettings => ({
+    status: "ready",
+    revision: "r1",
+    values: stored,
+    saving: false,
+    saveError,
+    save: async (values: HostValues, revision: string) => {
+      saved.push({ values, revision });
+      return answer ?? true;
+    },
+    reset: async () => true,
+    reload: async () => undefined,
+  }),
+}));
+
+vi.mock("@getpaseo/plugin/client/ui", async () => {
+  const { TextInput } = await import("react-native");
+  return { TextInput };
+});
+
+vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+
+const THEME = { colors: new Proxy({}, { get: () => "#808080" }) } as unknown as PluginTheme;
+const ACTIONS = {
+  setWakesPaused: async () => undefined,
+} as unknown as BoardActions;
+const WAKE = { paused: false, queued: {} };
+
+function Harness({ scheduleError }: { scheduleError: string | null }) {
+  const styles = useOfficeStyles(THEME, false, false);
+  return (
+    <HostSwitches
+      wake={WAKE}
+      actions={ACTIONS}
+      styles={styles}
+      deviceProblem={null}
+      scheduleError={scheduleError}
+    />
+  );
+}
+
+let container: HTMLElement;
+let root: Root;
+
+beforeEach(() => {
+  saved = [];
+  saveError = null;
+  answer = null;
+  stored = { agentTools: false, notesFolder: "", notesTimeZone: "Asia/Riyadh" };
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+const mount = (scheduleError: string | null = null) =>
+  act(async () => root.render(<Harness scheduleError={scheduleError} />));
+
+function field(label: string): HTMLInputElement {
+  const found = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+  if (!found) throw new Error(`No field is labelled "${label}"`);
+  return found;
+}
+
+async function type(label: string, text: string): Promise<void> {
+  const input = field(label);
+  await act(async () => {
+    input.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function leave(label: string): Promise<void> {
+  await act(async () => field(label).blur());
+}
+
+async function submit(label: string): Promise<void> {
+  await act(async () => {
+    field(label).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+}
+
+test("the notes folder saves once it loses focus, trimmed, and keeps the other settings", async () => {
+  await mount();
+  await type("Notes folder", " /workspace/");
+  await type("Notes folder", " /workspace/notes ");
+  expect(saved).toEqual([]);
+
+  await leave("Notes folder");
+  expect(saved).toEqual([
+    {
+      values: { agentTools: false, notesFolder: "/workspace/notes", notesTimeZone: "Asia/Riyadh" },
+      revision: "r1",
+    },
+  ]);
+});
+
+test("a submitted time zone saves once, though the submit also takes the focus away", async () => {
+  let reply: (saved: boolean) => void = () => undefined;
+  answer = new Promise((resolve) => {
+    reply = resolve;
+  });
+  await mount();
+  await type("Time zone", "Europe/Berlin");
+  await submit("Time zone");
+  // The field loses its focus while the host has not answered yet.
+  await leave("Time zone");
+  expect(saved.map((save) => save.values.notesTimeZone)).toEqual(["Europe/Berlin"]);
+  expect(field("Time zone").value).toBe("Europe/Berlin");
+  await act(async () => reply(true));
+});
+
+test("a field left as it was saves nothing", async () => {
+  await mount();
+  await type("Time zone", " Asia/Riyadh ");
+  await leave("Time zone");
+  expect(saved).toEqual([]);
+});
+
+test("the switch keeps the notes settings when it saves", async () => {
+  await mount();
+  await act(async () =>
+    container.querySelector<HTMLElement>('[aria-label="Agent tools"]')?.click(),
+  );
+  expect(saved.map((save) => save.values)).toEqual([
+    { agentTools: true, notesFolder: "", notesTimeZone: "Asia/Riyadh" },
+  ]);
+});
+
+/** The text of the field's block: its label, the field, its hint and its failure. */
+const fieldBlock = (label: string) => field(label).parentElement?.textContent ?? "";
+const alerts = () =>
+  [...container.querySelectorAll('[role="alert"]')].map((alert) => alert.textContent);
+
+test("the schedule's failure shows under the Time zone field", async () => {
+  await mount("Invalid cron time zone: Mars/Base");
+  expect(fieldBlock("Time zone")).toBe(
+    "Time zone" +
+      "For the 8:00 run. Empty uses this host's." +
+      "Unable to schedule the stand-up notes: Invalid cron time zone: Mars/Base",
+  );
+  expect(alerts()).toHaveLength(1);
+});
+
+test("a refused save shows under the field it was for", async () => {
+  await mount();
+  await type("Notes folder", "/notes");
+  await leave("Notes folder");
+  // The hook reports the refusal on its next render.
+  saveError = "Settings changed on another client. Reload before saving again.";
+  await mount();
+  expect(alerts()).toEqual([
+    "Unable to save the Notes folder setting: Settings changed on another client. Reload before saving again.",
+  ]);
+  expect(fieldBlock("Notes folder")).toContain("Unable to save the Notes folder setting");
+});
