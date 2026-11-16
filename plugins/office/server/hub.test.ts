@@ -634,3 +634,78 @@ test("the hub knows a workspace's script while a directory is open", async () =>
   expect(harness.hub.script("w1", "dev")).toBeNull();
   expect(harness.hub.workspaceIds()).toEqual([]);
 });
+
+test("sub-agents are named after their parent, and a new number is written once", async () => {
+  const writes: { agentId: string; patch: Record<string, number> }[] = [];
+  const parent = { ...agent("p", "idle"), title: "Mjd" };
+  const numbered = { ...agent("c1", "running"), parentAgentId: "p", number: 1 };
+  const fresh = {
+    ...agent("c2", "running"),
+    parentAgentId: "p",
+    createdAt: "2026-11-11T08:01:00.000Z",
+  };
+  const harness = startHarness(
+    { agents: [parent, numbered, fresh], workspaces: [] },
+    {
+      setAgentMetadata: async (agentId, patch) => {
+        writes.push({ agentId, patch });
+      },
+    },
+  );
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  const first = subscriber.events[0];
+  expect(first?.type).toBe("snapshot");
+  const agents = first?.type === "snapshot" ? first.state.agents : [];
+  expect(agents.find((one) => one.id === "c1")?.name).toBe("Mjd-1");
+  expect(agents.find((one) => one.id === "c2")?.name).toBeUndefined();
+  expect(writes).toEqual([
+    { agentId: "c2", patch: { "office.subagent.number": 2 } },
+    { agentId: "p", patch: { "office.subagent.next": 3 } },
+  ]);
+
+  // The directory reports the same view again before the write comes back: nothing is sent twice.
+  harness.directory.emit({ agents: [parent, numbered, fresh], workspaces: [] });
+  await settle();
+  expect(writes).toHaveLength(2);
+
+  // The write came back: c2 has its name.
+  harness.directory.emit({
+    agents: [{ ...parent, next: 3 }, numbered, { ...fresh, number: 2 }],
+    workspaces: [],
+  });
+  harness.clock.advance(DIRECTORY_FLUSH_MS);
+  await settle();
+  const update = subscriber.events.findLast((event) => event.type === "agents");
+  expect(
+    update?.type === "agents" ? update.agents.find((one) => one.id === "c2")?.name : null,
+  ).toBe("Mjd-2");
+  expect(writes).toHaveLength(2);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("a number write that fails is tried again on the next change", async () => {
+  let fail = true;
+  const writes: string[] = [];
+  const parent = { ...agent("p", "idle"), title: "Mjd" };
+  const fresh = { ...agent("c", "running"), parentAgentId: "p" };
+  const harness = startHarness(
+    { agents: [parent, fresh], workspaces: [] },
+    {
+      setAgentMetadata: async (agentId) => {
+        writes.push(agentId);
+        if (fail) throw new Error("daemon away");
+      },
+    },
+  );
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(writes).toEqual(["c", "p"]);
+  fail = false;
+  harness.directory.emit({ agents: [parent, fresh], workspaces: [] });
+  await settle();
+  expect(writes).toEqual(["c", "p", "c", "p"]);
+  subscriber.controller.abort();
+  await subscriber.done;
+});

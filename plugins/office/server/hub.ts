@@ -11,6 +11,7 @@ import type { ActivityLines, ActivitySteps } from "./activity.js";
 import { settleResets } from "./directory.js";
 import { errorMessage } from "./errors.js";
 import type { Timers } from "./timers.js";
+import { officeNames, planNumbers } from "./subagent-names.js";
 
 /** Directory updates come in bursts while agents stream; one event per window is enough. */
 export const DIRECTORY_FLUSH_MS = 300;
@@ -42,6 +43,8 @@ export interface HubPorts {
   ): () => void;
   timers: Timers;
   log(message: string): void;
+  /** Stores data on an agent; the office keeps its sub-agent numbers there. */
+  setAgentMetadata?(agentId: string, patch: Record<string, number>): Promise<void>;
 }
 
 export interface Hub {
@@ -134,11 +137,40 @@ export function createHub(ports: HubPorts): Hub {
     }
   }
 
+  // Number writes sent and not failed, by agent: the directory reports them back later.
+  const numbersSent = new Map<string, string>();
+
+  function writeNumbers(agents: readonly OfficeAgent[]): void {
+    const write = ports.setAgentMetadata;
+    if (write === undefined) return;
+    for (const { agentId, patch } of planNumbers(agents)) {
+      const key = JSON.stringify(patch);
+      if (numbersSent.get(agentId) === key) continue;
+      numbersSent.set(agentId, key);
+      write(agentId, patch).catch((error: unknown) => {
+        if (numbersSent.get(agentId) === key) numbersSent.delete(agentId);
+        ports.log(`[office] subagent number failed: ${errorMessage(error)}`);
+      });
+    }
+  }
+
+  function named(agents: readonly OfficeAgent[]): OfficeAgent[] {
+    const names = officeNames(agents);
+    return agents.map((agent) => {
+      const name = names.get(agent.id);
+      return name === undefined ? agent : { ...agent, name };
+    });
+  }
+
   function onDirectory(next: DirectoryView): void {
     reported = next;
+    writeNumbers(next.agents);
     const settled = settleResets(next.agents, resets);
     resets = settled.resets;
-    view = resets.size === 0 ? next : { agents: settled.agents, workspaces: next.workspaces };
+    view = {
+      agents: named(resets.size === 0 ? next.agents : settled.agents),
+      workspaces: next.workspaces,
+    };
     // Until the start finished, the first snapshot carries the view.
     if (stopDirectory === null || cancelFlush !== null) return;
     cancelFlush = ports.timers.setTimeout(() => {
