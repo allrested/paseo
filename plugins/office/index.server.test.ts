@@ -619,7 +619,7 @@ test("the 8:00 run starts the writer with the run's Paseo API", async () => {
 });
 
 test("a writer whose turn fails or is stopped is left, and its reason kept", async () => {
-  const { recorded, writers, notesStore, context, stop } = setup(async () => NOTES);
+  const { recorded, writers, notesStore, statuses, context, stop } = setup(async () => NOTES);
   const write = recorded.handlers.get("office.notes.write.request");
   const turnEnded = recorded.hooks.get("agent.turn.after");
   await write?.({}, context);
@@ -633,6 +633,8 @@ test("a writer whose turn fails or is stopped is left, and its reason kept", asy
   );
   expect(notesStore.kept).toMatchObject({ failedAgentId: "writer-1", problem: "Rate limited" });
 
+  // A failed turn leaves the agent idle, so a new writer may start.
+  statuses.set("writer-1", "idle");
   await write?.({}, context);
   await turnEnded?.(
     {
@@ -644,6 +646,39 @@ test("a writer whose turn fails or is stopped is left, and its reason kept", asy
   );
   expect(notesStore.kept).toMatchObject({ failedAgentId: "writer-2", problem: "interrupted" });
   expect(writers.archived).toEqual([]);
+  await stop();
+});
+
+test("a writer closed by a graceful restart stays the office's: resumed it blocks the bell, and its end is recorded", async () => {
+  const { recorded, writers, notesStore, statuses, context, clock, stop } = setup(
+    async () => NOTES,
+  );
+  const write = recorded.handlers.get("office.notes.write.request");
+  await write?.({}, context);
+  // The daemon closes every agent as it shuts down.
+  statuses.set("writer-1", "closed");
+  await recorded.hooks.get("agent.close.after")?.({ agent: hookAgent("writer-1") }, context);
+  expect(notesStore.kept).toMatchObject({
+    writerId: null,
+    failedAgentId: "writer-1",
+    problem: "it was closed before it finished",
+  });
+
+  // Started again, the daemon resumes the writer's turn.
+  statuses.set("writer-1", "running");
+  expect(await write?.({}, context)).toEqual({ started: false });
+  expect(writers.created).toHaveLength(1);
+  await recorded.hooks.get("agent.turn.after")?.(
+    { agent: hookAgent("writer-1"), turnId: "t2", outcome: { kind: "completed" } },
+    context,
+  );
+  expect(writers.archived).toEqual(["writer-1"]);
+  expect(notesStore.kept).toEqual({
+    writerId: null,
+    writtenAt: clock.now(),
+    failedAgentId: null,
+    problem: null,
+  });
   await stop();
 });
 

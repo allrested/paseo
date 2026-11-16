@@ -297,7 +297,7 @@ export function createOfficePlugin(
     server.addHook("agent.close.after", async ({ agent }) => {
       try {
         office.agentGone(agent.id);
-        await writer.agentGone(agent.id);
+        await writer.agentClosed(agent.id);
       } catch (error) {
         log(`[office] agent.close.after failed: ${errorMessage(error)}`);
       }
@@ -305,7 +305,7 @@ export function createOfficePlugin(
     server.addHook("agent.archive.after", async ({ agent }) => {
       try {
         office.agentGone(agent.id);
-        await writer.agentGone(agent.id);
+        await writer.agentArchived(agent.id);
       } catch (error) {
         log(`[office] agent.archive.after failed: ${errorMessage(error)}`);
       }
