@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { Platform, type TextStyle, type ViewStyle } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { HostTone } from "./machine-text.js";
-import type { AttentionReason, DotTone } from "./model.js";
+import type { HostTone } from "../shared/machine-text.js";
+import type { AttentionReason, DotTone } from "../shared/model.js";
 
 /** A log is read in a fixed-width face, as in the terminal it comes from. */
 const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });

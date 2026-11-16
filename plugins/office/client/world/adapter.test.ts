@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityStep, OfficeAgent, OfficeSnapshot } from "../../shared/contracts.js";
-import { buildOfficeModel } from "../model.js";
+import { buildOfficeModel } from "../../shared/model.js";
 import {
   PLAN_DESKS,
   type WorldMemory,

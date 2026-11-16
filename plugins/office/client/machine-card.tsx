@@ -13,7 +13,7 @@ import {
   memoryTone,
   readAtText,
   type HostTone,
-} from "./machine-text.js";
+} from "../shared/machine-text.js";
 import type { OfficeStyles } from "./styles.js";
 
 interface MeterProps {

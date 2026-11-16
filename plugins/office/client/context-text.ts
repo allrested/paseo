@@ -1,6 +1,6 @@
 import type { JanitorAction, OfficeAgent } from "../shared/contracts.js";
-import type { HostNote, HostTone } from "./machine-text.js";
-import { agentTitle, waitingOnText } from "./model.js";
+import type { HostNote, HostTone } from "../shared/machine-text.js";
+import { agentTitle, waitingOnText } from "../shared/model.js";
 
 /** From this share of its window a context is nearly full: the desk's red flag in both offices. */
 export const NEARLY_FULL = 85;

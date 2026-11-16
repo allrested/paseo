@@ -37,7 +37,7 @@ const OURS = {
   'places.window.today': { one: '{n} web search since the office opened', other: '{n} web searches since the office opened' },
   'places.deploy.sub': 'A commit makes the printer print. A deploy that succeeds launches the rocket.',
   'paseo.deploy.failed': 'The deploy failed',
-  // (the same words as the whiteboard's row: client/model.ts waitingOnText)
+  // (the same words as the whiteboard's row: shared/model.ts waitingOnText)
   'paseo.subwait': { one: 'Waiting on {n} sub-agent', other: 'Waiting on {n} sub-agents' },
   'places.deploy.today': { one: '{n} deploy since the office opened', other: '{n} deploys since the office opened' },
   'places.live.deployToday': '{n} so far',

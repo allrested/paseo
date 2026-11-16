@@ -1,5 +1,5 @@
 import { stateLabel } from "./agent-card.js";
-import { agentTitle, dotTone, type DotTone, type OfficeRoom } from "./model.js";
+import { agentTitle, dotTone, type DotTone, type OfficeRoom } from "../shared/model.js";
 
 /** The choice that wakes no agent. */
 export const NOBODY = "";

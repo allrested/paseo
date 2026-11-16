@@ -5,7 +5,7 @@ import {
   waitingOnText,
   type OfficeModel,
   type OfficeRow,
-} from "../model.js";
+} from "../../shared/model.js";
 import type {
   ActivityKind,
   ActivityStep,
@@ -13,7 +13,7 @@ import type {
   OfficeAgent,
   TestResult,
 } from "../../shared/contracts.js";
-import { machineTitle, memoryPercent, memoryTone } from "../machine-text.js";
+import { machineTitle, memoryPercent, memoryTone } from "../../shared/machine-text.js";
 import { relativeLuminance } from "../luminance.js";
 import type {
   WorldBoardRow,

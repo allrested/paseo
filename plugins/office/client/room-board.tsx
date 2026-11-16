@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import type { Post } from "../shared/contracts.js";
 import { ActionButton } from "./action-button.js";
 import { boardPreview, postMeta } from "./board-text.js";
-import type { OfficeRoom } from "./model.js";
+import type { OfficeRoom } from "../shared/model.js";
 import type { OfficeStyles } from "./styles.js";
 
 export interface PostRowProps {

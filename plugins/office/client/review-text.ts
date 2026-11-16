@@ -7,9 +7,9 @@ import {
   type AskAgent,
   type Asked,
 } from "./ask-text.js";
-import type { HostNote } from "./machine-text.js";
-import { agentTitle, type OfficeModel, type OfficeRoom } from "./model.js";
-import { pullRequestLinkText, teamName } from "./standup-text.js";
+import type { HostNote } from "../shared/machine-text.js";
+import { agentTitle, type OfficeModel, type OfficeRoom } from "../shared/model.js";
+import { pullRequestLinkText, teamName } from "../shared/standup-text.js";
 
 /** Where a pull request stands with its review. The order is the queue's. */
 export type ReviewStand = "review" | "changes" | "approved" | "draft";

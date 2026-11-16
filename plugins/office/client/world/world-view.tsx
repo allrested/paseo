@@ -12,7 +12,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { worldRpc, type Machine } from "../../shared/contracts.js";
 import type { FocusRequest } from "../focus-request.js";
-import type { OfficeModel } from "../model.js";
+import type { OfficeModel } from "../../shared/model.js";
 import type { OfficeStyles } from "../styles.js";
 import {
   PLAN_DESKS,
