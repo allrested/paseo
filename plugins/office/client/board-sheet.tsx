@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
-import {
-  LOBBY,
-  POST_TEXT_MAX,
-  type OfficeAgent,
-  type Post,
-  type PostKind,
-} from "../shared/contracts.js";
+import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/ui";
+import { POST_TEXT_MAX, type Post, type PostKind } from "../shared/contracts.js";
 import { ActionButton } from "./action-button.js";
 import { textAfterSend } from "./agent-card.js";
+import { AgentPicker } from "./agent-picker.js";
+import { NOBODY, choiceLabel, closeStep, keptChoice } from "./agent-picker-text.js";
 import { orderBoardPosts } from "./board-text.js";
-import { agentTitle, type OfficeRoom } from "./model.js";
+import type { OfficeRoom } from "./model.js";
 import { PostRow } from "./room-board.js";
 import { listenForSpace } from "./web-env.web.js";
 import type { OfficeStyles } from "./styles.js";
@@ -94,25 +90,81 @@ function PostWithActions({ post, name, actions, styles }: PostActionsProps) {
   );
 }
 
-const NOBODY = "";
 const KINDS: readonly { kind: PostKind; label: string; hint: string }[] = [
   { kind: "task", label: "Task", hint: "What needs doing" },
   { kind: "note", label: "Note", hint: "What the room should know" },
 ];
 
-interface SheetBodyProps {
-  room: OfficeRoom;
-  agents: readonly OfficeAgent[];
-  name(author: string): string;
-  actions: BoardActions;
-  wakesPaused: boolean;
+interface ChoiceFieldProps {
+  /** What the row chooses. */
+  label: string;
+  /** The choice now. */
+  value: string;
+  onOpen(): void;
   styles: OfficeStyles;
 }
 
-function SheetBody({ room, agents, name, actions, wakesPaused, styles }: SheetBodyProps) {
+/** A form's row that opens a page: what it chooses, the choice, and a chevron. */
+function ChoiceField({ label, value, onOpen, styles }: ChoiceFieldProps) {
+  const [hovered, setHovered] = useState(false);
+  const hoverIn = useCallback(() => setHovered(true), []);
+  const hoverOut = useCallback(() => setHovered(false), []);
+  const [pressed, setPressed] = useState(false);
+  const pressIn = useCallback(() => setPressed(true), []);
+  const pressOut = useCallback(() => setPressed(false), []);
+  const lit = pressed || hovered;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+      onPress={onOpen}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      onHoverIn={hoverIn}
+      onHoverOut={hoverOut}
+      style={styles.pickerField}
+    >
+      {lit ? <View style={styles.pressedFill} /> : null}
+      <View style={styles.pickerFieldBody}>
+        <Text style={styles.rowMeta} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={styles.sheetText} numberOfLines={1}>
+          {value}
+        </Text>
+      </View>
+      <Icon name="ChevronRight" size={16} color={styles.iconColor} />
+    </Pressable>
+  );
+}
+
+interface SheetBodyProps {
+  room: OfficeRoom;
+  rooms: readonly OfficeRoom[];
+  name(author: string): string;
+  actions: BoardActions;
+  wakesPaused: boolean;
+  /** The page that chooses the agent shows, not the form. */
+  picking: boolean;
+  onPicking(picking: boolean): void;
+  styles: OfficeStyles;
+}
+
+function SheetBody({
+  room,
+  rooms,
+  name,
+  actions,
+  wakesPaused,
+  picking,
+  onPicking,
+  styles,
+}: SheetBodyProps) {
   const [kind, setKind] = useState<PostKind>("task");
   const [text, setText] = useState("");
-  const [to, setTo] = useState(NOBODY);
+  const [picked, setPicked] = useState(NOBODY);
+  // An agent that left the office cannot be woken: the choice is nobody again.
+  const to = keptChoice(picked, rooms);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -124,12 +176,6 @@ function SheetBody({ room, agents, name, actions, wakesPaused, styles }: SheetBo
     (value: string) => setKind(value === "note" ? "note" : "task"),
     [],
   );
-  // The room's own agents first: they are the usual addressees.
-  const people = useMemo(() => {
-    const own = agents.filter((agent) => (agent.workspaceId ?? LOBBY) === room.id);
-    const others = agents.filter((agent) => (agent.workspaceId ?? LOBBY) !== room.id);
-    return [...own, ...others];
-  }, [agents, room.id]);
   const posts = useMemo(() => orderBoardPosts(room.posts), [room.posts]);
   const submit = useCallback(async () => {
     const sent = text.trim();
@@ -137,9 +183,31 @@ function SheetBody({ room, agents, name, actions, wakesPaused, styles }: SheetBo
     if (!mounted.current) return;
     // Cleared only if the box still holds what was posted, so later typing stays.
     setText((current) => textAfterSend(current, sent));
-    setTo(NOBODY);
+    setPicked(NOBODY);
   }, [actions, room.id, kind, text, to]);
+  const openPage = useCallback(() => onPicking(true), [onPicking]);
+  const back = useCallback(() => onPicking(false), [onPicking]);
+  const choose = useCallback(
+    (value: string) => {
+      setPicked(value);
+      onPicking(false);
+    },
+    [onPicking],
+  );
   const chosen = KINDS.find((option) => option.kind === kind) ?? KINDS[0];
+  // The form's state is kept here while the page shows, so the text typed is there on return.
+  if (picking) {
+    return (
+      <AgentPicker
+        rooms={rooms}
+        roomId={room.id}
+        value={to}
+        onChoose={choose}
+        onBack={back}
+        styles={styles}
+      />
+    );
+  }
   return (
     <View style={styles.sheet}>
       <View style={styles.sheetField}>
@@ -167,35 +235,12 @@ function SheetBody({ room, agents, name, actions, wakesPaused, styles }: SheetBo
         />
       </View>
       <View style={styles.sheetField}>
-        <Text style={styles.sheetLabel}>Wake an agent with it</Text>
-        {/* One row that scrolls sideways, as the strip does: with many agents a wrapped list
-            would push Post off the screen. The room's own agents come first. */}
-        <View accessibilityRole="radiogroup" accessibilityLabel="Wake an agent with it">
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipScroll}
-            contentContainerStyle={styles.chipRow}
-          >
-            <Chip
-              label="Nobody"
-              value={NOBODY}
-              selected={to === NOBODY}
-              onSelect={setTo}
-              styles={styles}
-            />
-            {people.map((agent) => (
-              <Chip
-                key={agent.id}
-                label={agentTitle(agent)}
-                value={agent.id}
-                selected={to === agent.id}
-                onSelect={setTo}
-                styles={styles}
-              />
-            ))}
-          </ScrollView>
-        </View>
+        <ChoiceField
+          label="Wake an agent with it"
+          value={choiceLabel(to, rooms)}
+          onOpen={openPage}
+          styles={styles}
+        />
         {to !== NOBODY && wakesPaused ? (
           <Text style={styles.muted}>
             Wake agents is off. The agent gets this post when you turn it on.
@@ -232,11 +277,14 @@ function SheetBody({ room, agents, name, actions, wakesPaused, styles }: SheetBo
 
 export interface BoardSheetProps {
   room: OfficeRoom | null;
-  agents: readonly OfficeAgent[];
+  /** Every room of the office: the agents a post can wake, and where each one sits. */
+  rooms: readonly OfficeRoom[];
   name(author: string): string;
   actions: BoardActions;
   /** "Wake agents" is off: a post that names an agent waits. */
   wakesPaused: boolean;
+  /** The phone's layout: its sheet is swiped away, so a close from the page closes the sheet. */
+  compact: boolean;
   styles: OfficeStyles;
   onClose(): void;
 }
@@ -244,31 +292,42 @@ export interface BoardSheetProps {
 /** Post a task or note, optionally waking an agent; mark a task done or delete a post. */
 export function BoardSheet({
   room,
-  agents,
+  rooms,
   name,
   actions,
   wakesPaused,
+  compact,
   styles,
   onClose,
 }: BoardSheetProps) {
+  const [picking, setPicking] = useState(false);
+  // Another room's sheet, and a sheet opened again, start on the form.
+  const roomId = room?.id ?? null;
+  useEffect(() => {
+    setPicking(false);
+  }, [roomId]);
   const change = useCallback(
     (open: boolean) => {
-      if (!open) onClose();
+      if (open) return;
+      if (closeStep(picking, compact) === "back") setPicking(false);
+      else onClose();
     },
-    [onClose],
+    [compact, onClose, picking],
   );
-  const title = room ? `${room.name} board` : "Board";
+  const board = room ? `${room.name} board` : "Board";
   return (
-    <Modal title={title} open={room !== null} onOpenChange={change}>
+    <Modal title={picking ? "Wake an agent" : board} open={room !== null} onOpenChange={change}>
       <Modal.Content>
         {room ? (
           <SheetBody
             key={room.id}
             room={room}
-            agents={agents}
+            rooms={rooms}
             name={name}
             actions={actions}
             wakesPaused={wakesPaused}
+            picking={picking}
+            onPicking={setPicking}
             styles={styles}
           />
         ) : null}
