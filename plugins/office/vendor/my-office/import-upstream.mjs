@@ -47,6 +47,7 @@ const OWN = new Set([
   "office/paseo-style.js",
   "office/paseo-modules.js",
   "office/paseo-sign.js",
+  "office/paseo-leisure-plan.js",
 ]);
 const denied = (rel) => DENY.some((re) => re.test(rel));
 const srcOf = (rel) => path.join(FROM, "src", rel);
