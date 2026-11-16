@@ -172,7 +172,9 @@ push` of a branch, `make build`, a tool named `get_deploy_status`); a deploy's s
   pages with made-up agents. A real deploy's end, read by the host 5 s apart, is covered by the
   unit tests only.
 - The walk home at night: the pages' agents carry no time of their last activity, so nobody had
-  rested 30 minutes.
+  rested 30 minutes. It rarely triggers in the app either, a limit from before this branch:
+  `WorldSession` carries no time of the last turn, and `setSessions` replaces the session object
+  the scene's `lastAt` lives on.
 - An agent that waits on real sub-agents: the pages set the wait by hand. The rule, read from the
   agents' parents, is covered by the unit tests; that the directory leaves background agents out
   before the client was not looked at.
@@ -180,12 +182,19 @@ push` of a branch, `make build`, a tool named `get_deploy_status`); a deploy's s
   side is covered by the unit tests only.
 - The installed app on a phone.
 - The rocket in the air and the foosball table in a still: the launch was seen as the flag, the
-  "Deploying a new version" line and the celebration at the console, and foosball as its players'
+  "Shipped a new version" line and the celebration at the console, and foosball as its players'
   lines, but no screenshot caught the rocket or the players at the table.
 - The agents' return to their desks after the bell: two agents stopped at a coffee and a sofa
   stood still when the bell rang, and the gathering ended, but they were next seen in the
-  restroom, not at their desks. They had walked there by their own schedule or had been left to
-  it; the page did not tell which.
+  restroom, not at their desks. The stopped agents do walk back to their desks (`errandBack` to
+  the home spot); upstream's `goHomeAndRest` then rolls its 40% restroom visit, as after any
+  meeting or turn.
+- A forced karaoke start that named a singer but started no song. Each game's `who()` takes
+  `free(w) || asleep(w)`, and `free` rejects only a priority `want`, so an agent that just ended
+  its turn (its report to the director queued) is taken, and the game's own `called()` ends it on
+  the next frame. It is upstream's and harmless: the due agent is asked again the next second.
+- Neither a test nor browser evidence: work calling an agent out of the restroom, the 2D rocket
+  for a successful deploy, the bell during a game, an agent leaving mid-activity.
 
 ## Not built
 
