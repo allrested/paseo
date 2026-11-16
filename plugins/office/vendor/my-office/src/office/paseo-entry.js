@@ -291,7 +291,8 @@ const api = {
    * status: 'work' | 'wait' | 'rest', agent, lastPrompt, doneAt, last, stuck, subs, usage: { ctx, ctxMax } }.
    * The first list is seated at once; later a newcomer walks in from the lift and someone who is
    * gone walks out. `usage` is the context window in tokens: the paper on the desk and in its bin.
-   * `doneAt` is when someone resting came to rest (ms); the last event the scene saw of a person stays.
+   * `doneAt` is when someone resting came to rest (ms). The last event the scene saw of a person stays, and its time
+   * unless they are stopped on an error: such a person stays at the desk at night, the red tag in sight.
    */
   setSessions(list) {
     if (!started) return;
@@ -299,7 +300,7 @@ const api = {
     for (const id of [...sessions.keys()]) if (!ids.has(id)) live.removeSession(id);
     for (const s of list) {
       const was = sessions.get(s.id);   // (record() keeps the last event on the session object this one replaces)
-      if (was) { s.last ??= was.last; s.lastAt ??= was.lastAt; }
+      if (was) { s.last ??= was.last; if (!s.stuck) s.lastAt ??= was.lastAt; }   // (stopped on an error: no time, so no walk home at night)
       live.upsertSession(s, seated);
     }
     seated = true;
