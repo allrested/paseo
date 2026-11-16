@@ -34,8 +34,9 @@ const WORK: Readonly<Record<ActivityKind, { place: PlaceKind | null; icon: IconK
   test: { place: "racks", icon: "test" },
   plan: { place: "board", icon: "plan" },
   subagent: { place: "board", icon: "subagent" },
-  push: { place: "pad", icon: "ship" },
-  deploy: { place: "pad", icon: "ship" },
+  // The pad is for a deploy that succeeded (standingOf): a push is shipped from the desk.
+  push: { place: null, icon: "ship" },
+  deploy: { place: "racks", icon: "ship" },
 };
 
 /** Where a resting person spends a turn of the lively floor: the places the lounge draws. */
@@ -63,8 +64,12 @@ export function standingOf(
     return { place: rest, icon: null, screen: "off" };
   }
   if (step === undefined) return { place: null, icon: null, screen: "code" };
+  // A deploy that succeeded stands at the pad, where its rocket flies.
+  if (step.kind === "deploy" && step.result === "passed") {
+    return { place: "pad", icon: "ship", screen: "code" };
+  }
   const work = WORK[step.kind];
-  // A test run that ended shows how, where it ran.
+  // A test run or a deploy that ended shows how, where it ran.
   return { place: work.place, icon: step.result ?? work.icon, screen: "code" };
 }
 
