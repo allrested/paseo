@@ -105,6 +105,8 @@ function makeTeamChipsButtons() {
 /**
  * Paseo's own: a label over the meeting room's screen opens Paseo's stand-up notes, as a team's chip opens its board.
  * Upstream's slide on the screen stays as it is drawn. Only the company floor has the screen.
+ * The label stands on the screen's top edge: at the screen's middle it sat under the meeting room's chip, which shows
+ * on top of it while the room is pointed at or its card is open.
  */
 function makeNotesLabel() {
   const label = el('div', 'team-tag');
@@ -113,7 +115,8 @@ function makeNotesLabel() {
   label.addEventListener('click', open);
   asButton(label, open);
   const o = new CSS2DObject(label);
-  o.position.set(0.2, 1.75, -7.95);
+  o.position.set(0.2, 2.525, -7.95);
+  o.center.set(0.5, 1);
   scene.add(o);
 }
 /** The server room's chip, the racks, the wall screen and the dev boxes open Paseo's panel: no reading, no panel. */
