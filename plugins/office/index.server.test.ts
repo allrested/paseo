@@ -556,6 +556,7 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "office.janitor.request",
     "office.script.log.request",
     "office.skills.request",
+    "office.notes.read.request",
     "office.post.request",
     "office.update.request",
     "office.delete.request",
