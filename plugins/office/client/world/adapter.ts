@@ -174,8 +174,8 @@ function endOf(run: Run, result: TestResult): StepEvent {
 interface Told {
   status: WorldSession["status"];
   stuck: boolean;
-  /** At work only because it waited on sub-agents: its own turn had ended. */
-  busy: boolean;
+  /** How many sub-agents it waited on, when at work only for that: its own turn had ended. */
+  waitingOn: number | undefined;
   /** The key of the step the person was sent to; null when at none. */
   step: string | null;
   /** That step is a test run or a deploy, and the scene has not been told how it ended. */
@@ -201,7 +201,7 @@ function turnEvent(session: WorldSession, was: Told | undefined): WorldEventType
   if (was === undefined) return null;
   if (session.stuck && !was.stuck) return "fail";
   const runs = session.status === "work" && session.waitingOn === undefined;
-  if (runs && (was.status === "rest" || was.busy)) return "prompt";
+  if (runs && (was.status === "rest" || was.waitingOn !== undefined)) return "prompt";
   return was.status !== "rest" && session.status === "rest" && !session.stuck ? "stop" : null;
 }
 
@@ -269,7 +269,7 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
     const was = before?.get(session.id);
     const turn = turnEvent(session, was);
     if (turn !== null) events.push({ sess: session.id, type: turn });
-    if (session.waitingOn !== undefined && was?.busy !== true) {
+    if (session.waitingOn !== undefined && session.waitingOn !== was?.waitingOn) {
       events.push({ sess: session.id, type: "subwait" });
     }
     const full = fullness(session);
@@ -279,7 +279,7 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
     memory.set(session.id, {
       status: session.status,
       stuck: session.stuck,
-      busy: session.waitingOn !== undefined,
+      waitingOn: session.waitingOn,
       step: steps.step,
       running: steps.running,
       full,

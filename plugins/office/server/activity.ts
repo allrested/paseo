@@ -145,6 +145,7 @@ const ENDS: ReadonlySet<ActivityKind> = new Set(["test", "deploy"]);
 
 /** How a call ended: by its exit code when the host has one, else by the call's status. */
 function resultOf(item: ActivityItem): TestResult | null {
+  if (item.status === "canceled") return null;
   const exitCode = field(item.detail, "exitCode");
   if (item.status === "failed" || (typeof exitCode === "number" && exitCode !== 0)) return "failed";
   return item.status === "completed" ? "passed" : null;
