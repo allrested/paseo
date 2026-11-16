@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -223,6 +223,36 @@ test("only a directory is a folder", async () => {
     expect(await ports.isDirectory(home)).toBe(true);
     expect(await ports.isDirectory(join(home, "file.md"))).toBe(false);
     expect(await ports.isDirectory(join(home, "missing"))).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("an entry is in the notes when its header starts a line of its month's file directly in the folder", async () => {
+  const home = await mkdtemp(join(tmpdir(), "office-notes-entry-"));
+  try {
+    await mkdir(join(home, "sub"));
+    await writeFile(
+      join(home, "daily-standup-202611.md"),
+      "# Notes\n\n## Contents\n\n- [18 November 2026](#18-november-2026)\n\n---\n\n## 17 November 2026\n\nB\n",
+      "utf8",
+    );
+    await writeFile(join(home, "sub", "daily-standup-202610.md"), "## 01 October 2026\n", "utf8");
+    const ports = liveNotesPorts(notesHolder([], [], []), NO_HUB);
+    const entry = (month: string, header: string) => ({ folder: home, month, header });
+    expect(await ports.hasEntry(entry("202611", "17 November 2026"))).toBe(true);
+    // Named only in the Contents list.
+    expect(await ports.hasEntry(entry("202611", "18 November 2026"))).toBe(false);
+    // A month with no file, and a file in a subfolder.
+    expect(await ports.hasEntry(entry("202612", "01 December 2026"))).toBe(false);
+    expect(await ports.hasEntry(entry("202610", "01 October 2026"))).toBe(false);
+    await expect(
+      ports.hasEntry({
+        folder: join(home, "missing"),
+        month: "202611",
+        header: "17 November 2026",
+      }),
+    ).rejects.toThrow("ENOENT");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -13,11 +13,15 @@ import {
   type NotesWriter,
   type NotesWriterState,
   type StoredNotes,
+  type WriterEntry,
   type WriterStart,
 } from "./notes-writer.js";
 
 /** 08:00 on Tuesday 17 November 2026 in Riyadh. */
 const NOW = Date.parse("2026-11-17T05:00:00.000Z");
+/** The entry a writer started at NOW in /n is told to write. */
+const TODAY: WriterEntry = { folder: "/n", month: "202611", header: "17 November 2026" };
+const NOT_WRITTEN = "it ended without writing today's entry";
 
 const SNAPSHOT: OfficeSnapshot = {
   agents: [
@@ -52,7 +56,15 @@ interface FakePorts extends NotesPorts {
   failStart: Error | null;
   /** Runs inside a start before the id comes back, as a hook can. */
   duringStart: ((agentId: string) => Promise<void>) | null;
+  /** The entries in the notes, by `entryKey`. */
+  entries: Set<string>;
+  /** Every entry looked for, in order. */
+  checked: WriterEntry[];
+  /** Runs inside a look for an entry before it answers, as a bell or a hook can. */
+  duringCheck: (() => Promise<void>) | null;
 }
+
+const entryKey = ({ folder, month, header }: WriterEntry) => `${folder} ${month} ${header}`;
 
 function fakePorts(): FakePorts {
   const ports: FakePorts = {
@@ -67,6 +79,9 @@ function fakePorts(): FakePorts {
     lastId: "",
     failStart: null,
     duringStart: null,
+    entries: new Set(),
+    checked: [],
+    duringCheck: null,
     hostTimeZone: "Asia/Riyadh",
     settings: async () => ({ ...ports.values }),
     snapshot: async () => SNAPSHOT,
@@ -85,6 +100,11 @@ function fakePorts(): FakePorts {
       ports.aliveIds.delete(agentId);
     },
     alive: async (agentId) => ports.aliveIds.has(agentId),
+    async hasEntry(entry) {
+      ports.checked.push(entry);
+      await ports.duringCheck?.();
+      return ports.entries.has(entryKey(entry));
+    },
     load: async () => ports.stored,
     save: async (state) => {
       ports.stored = state;
@@ -106,6 +126,11 @@ beforeEach(() => {
 function writer(values: Partial<NotesSettings>): NotesWriter {
   Object.assign(ports.values, values);
   return createNotesWriter(ports);
+}
+
+/** The writer leaves its entry in the notes. */
+function wrote(entry: WriterEntry = TODAY): void {
+  ports.entries.add(entryKey(entry));
 }
 
 test("no folder: nothing starts", async () => {
@@ -151,6 +176,7 @@ test("the writer is told the day in the notes time zone, else the host's, and ge
   expect(ports.started[0].prompt).toContain(
     standupReport(SNAPSHOT, Date.parse("2026-11-30T22:30:00.000Z")),
   );
+  wrote({ folder: "/n", month: "202612", header: "01 December 2026" });
   await w.turnEnded(ports.lastId, false, null);
 
   ports.values.notesTimeZone = " UTC ";
@@ -159,9 +185,13 @@ test("the writer is told the day in the notes time zone, else the host's, and ge
   expect(ports.started[1].prompt).toContain("daily-standup-202611.md");
 });
 
-test("a writer that ends well is recorded and archived", async () => {
+test("a writer that ends well with its entry in the notes is recorded and archived", async () => {
   await w.start();
+  // The writer is kept with the entry it is told to write.
+  expect(ports.stored).toMatchObject({ writerId: ports.lastId, entry: TODAY });
+  wrote();
   await w.turnEnded(ports.lastId, false, null);
+  expect(ports.checked).toEqual([TODAY]);
   expect(w.state()).toMatchObject({ writing: false, writtenAt: NOW, problem: null });
   expect(ports.archived).toEqual([ports.lastId]);
   expect(ports.stored).toEqual({
@@ -170,6 +200,67 @@ test("a writer that ends well is recorded and archived", async () => {
     failedAgentId: null,
     problem: null,
   });
+});
+
+test("a writer that ends well without its entry in the notes is stopped with the reason, and left", async () => {
+  await w.start();
+  // Another day's entry is not today's.
+  wrote({ ...TODAY, header: "16 November 2026" });
+  await w.turnEnded(ports.lastId, false, null);
+  expect(w.state()).toMatchObject({
+    writing: false,
+    writtenAt: null,
+    failedAgentId: ports.lastId,
+    problem: NOT_WRITTEN,
+  });
+  expect(ports.archived).toEqual([]);
+  expect(ports.stored).toMatchObject({ failedAgentId: ports.lastId, entry: TODAY });
+});
+
+test("notes that cannot be read count as no entry, and why is logged", async () => {
+  ports.hasEntry = async () => {
+    throw new Error("EACCES: permission denied, scandir '/n'");
+  };
+  await w.start();
+  await w.turnEnded(ports.lastId, false, null);
+  expect(w.state()).toMatchObject({
+    writtenAt: null,
+    failedAgentId: ports.lastId,
+    problem: NOT_WRITTEN,
+  });
+  expect(ports.archived).toEqual([]);
+  expect(ports.logs).toEqual([
+    "[office] notes entry check failed: EACCES: permission denied, scandir '/n'",
+  ]);
+});
+
+test("the entry looked for is the one the writer was started for, after a restart and a change of settings", async () => {
+  await w.start();
+  const writerId = ports.lastId;
+  ports.values = { notesFolder: "/m", notesTimeZone: "UTC" };
+  ports.now = () => NOW + 24 * 60 * 60 * 1000;
+  const again = createNotesWriter(ports);
+  wrote();
+  await again.turnEnded(writerId, false, null);
+  expect(ports.checked).toEqual([TODAY]);
+  expect(ports.archived).toEqual([writerId]);
+});
+
+test("a bell rung while the entry is looked for keeps its new writer", async () => {
+  await w.start();
+  const first = ports.lastId;
+  wrote();
+  // The first writer's turn has ended, so it no longer counts as at work.
+  ports.duringCheck = async () => {
+    ports.duringCheck = null;
+    ports.aliveIds.delete(first);
+    expect(await w.start()).toEqual({ started: true });
+  };
+  await w.turnEnded(first, false, null);
+  expect(w.state()).toMatchObject({ writing: true, writtenAt: null });
+  expect(ports.stored).toMatchObject({ writerId: ports.lastId, entry: TODAY });
+  expect(ports.lastId).not.toBe(first);
+  expect(ports.archived).toEqual([]);
 });
 
 test("a writer that stops on an error is left, and named", async () => {
@@ -218,6 +309,7 @@ test("a writer that cannot start leaves nothing running and says why", async () 
 });
 
 test("a writer whose turn ends before its start returns is still recorded and archived", async () => {
+  wrote();
   ports.duringStart = (agentId) => w.turnEnded(agentId, false, null);
   expect(await w.start()).toEqual({ started: true });
   expect(w.state()).toMatchObject({ writing: false, writtenAt: NOW });
@@ -225,6 +317,7 @@ test("a writer whose turn ends before its start returns is still recorded and ar
 });
 
 test("a writer that ended before its start returned and cannot be archived still counts as started", async () => {
+  wrote();
   ports.duringStart = (agentId) => w.turnEnded(agentId, false, null);
   ports.archive = async () => {
     throw new Error("archive refused");
@@ -235,12 +328,25 @@ test("a writer that ended before its start returned and cannot be archived still
 });
 
 test("after a restart a writer still running blocks a new one, and its end archives it", async () => {
+  // Kept by an older office, without its entry: the folder set now and today's are looked for.
   ports.stored = { writerId: "w1", writtenAt: null, failedAgentId: null, problem: null };
   ports.aliveIds = new Set(["w1"]);
   const again = createNotesWriter(ports);
   expect((await again.start()).started).toBe(false);
+  wrote();
   await again.turnEnded("w1", false, null);
+  expect(ports.checked).toEqual([TODAY]);
   expect(ports.archived).toEqual(["w1"]);
+});
+
+test("a writer kept without its entry, and no folder set any more, has not written it", async () => {
+  ports.stored = { writerId: "w1", writtenAt: null, failedAgentId: null, problem: null };
+  ports.values.notesFolder = "";
+  const again = createNotesWriter(ports);
+  await again.turnEnded("w1", false, null);
+  expect(ports.checked).toEqual([]);
+  expect(again.state()).toMatchObject({ failedAgentId: "w1", problem: NOT_WRITTEN });
+  expect(ports.archived).toEqual([]);
 });
 
 test("a stored writer that is gone is cleared on load", async () => {
@@ -267,7 +373,7 @@ test("a writer archived by someone else is forgotten, and frees the bell", async
 
 const CLOSED = "it was closed before it finished";
 
-test("a graceful restart: the writer closed at shutdown and resumed after it blocks a new one, and its end is recorded", async () => {
+test("a graceful restart: the writer closed at shutdown and resumed after it blocks a new one, and its end with the entry is recorded", async () => {
   await w.start();
   const writerId = ports.lastId;
   // The daemon closes every agent as it shuts down; the office still names the writer.
@@ -282,6 +388,7 @@ test("a graceful restart: the writer closed at shutdown and resumed after it blo
   expect(ports.stored).toEqual(kept);
   expect(ports.started).toHaveLength(1);
 
+  wrote();
   await again.turnEnded(writerId, false, null);
   expect(again.state()).toMatchObject({
     writing: false,
@@ -306,7 +413,7 @@ test("a graceful restart without resume: the closed writer is named until a new 
   expect(ports.archived).toEqual([]);
 });
 
-test("a stopped turn leaves the writer named; prompted again it blocks a new one, and its good end is recorded", async () => {
+test("a stopped turn leaves the writer named; prompted again it blocks a new one, and only a good end with the entry is recorded", async () => {
   await w.start();
   const writerId = ports.lastId;
   await w.turnEnded(writerId, true, "interrupted");
@@ -322,6 +429,17 @@ test("a stopped turn leaves the writer named; prompted again it blocks a new one
   expect(await again.start()).toEqual({ started: false });
   expect(ports.stored).toEqual(kept);
 
+  // The owner asks what went wrong; the answer writes nothing.
+  await again.turnEnded(writerId, false, null);
+  expect(again.state()).toMatchObject({
+    writtenAt: null,
+    failedAgentId: writerId,
+    problem: NOT_WRITTEN,
+  });
+  expect(ports.archived).toEqual([]);
+
+  // The owner asks it to write the entry, and it does.
+  wrote();
   await again.turnEnded(writerId, false, null);
   expect(again.state()).toMatchObject({ writtenAt: NOW, failedAgentId: null, problem: null });
   expect(ports.archived).toEqual([writerId]);
@@ -361,6 +479,7 @@ test("a folder cleared in the settings shows without a start", async () => {
 test("every change is pushed", async () => {
   await w.start();
   expect(ports.changes.at(-1)).toMatchObject({ writing: true });
+  wrote();
   await w.turnEnded(ports.lastId, false, null);
   expect(ports.changes.at(-1)).toMatchObject({ writing: false, writtenAt: NOW });
 });
@@ -376,6 +495,7 @@ test("the store keeps the state in its file, and reads a missing or broken file 
       writtenAt: NOW,
       failedAgentId: null,
       problem: null,
+      entry: TODAY,
     };
 
     expect(await store.load()).toBeNull();
@@ -383,6 +503,11 @@ test("the store keeps the state in its file, and reads a missing or broken file 
     expect(await store.load()).toEqual(kept);
     // Written in place by a rename: no temporary file is left beside it.
     expect(await readdir(dirname(file))).toEqual(["notes-writer.json"]);
+
+    // A file from before the entry was kept still reads.
+    const older = { writerId: "w1", writtenAt: NOW, failedAgentId: null, problem: null };
+    await writeFile(file, JSON.stringify(older), "utf8");
+    expect(await store.load()).toEqual(older);
 
     await writeFile(file, "{ not json", "utf8");
     expect(await store.load()).toBeNull();

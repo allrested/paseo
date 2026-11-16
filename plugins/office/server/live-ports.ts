@@ -3,6 +3,7 @@ import { ACTIVITY_TAIL_LIMIT, startActivityPoller } from "./activity.js";
 import type { Hub, HubPorts } from "./hub.js";
 import type { JanitorPorts } from "./janitor.js";
 import { wakeTargetOf } from "./mention-queue.js";
+import { entryWritten, nodeNotesFs } from "./notes-files.js";
 import type { NotesPorts } from "./notes-writer.js";
 import type { OfficeAgentPorts } from "./office.js";
 import { openPaseoDirectory } from "./paseo-directory.js";
@@ -156,7 +157,7 @@ async function defaultAgentConfig(paseo: Paseo, cwd: string): Promise<AgentConfi
 export function liveNotesPorts(
   holder: PaseoHolder,
   hub: Pick<Hub, "read">,
-): Pick<NotesPorts, "snapshot" | "isDirectory" | "startAgent" | "archive" | "alive"> {
+): Pick<NotesPorts, "snapshot" | "isDirectory" | "startAgent" | "archive" | "alive" | "hasEntry"> {
   return {
     snapshot: () => hub.read(),
     isDirectory: (path) =>
@@ -179,5 +180,6 @@ export function liveNotesPorts(
       if (result === null || result.agent.archivedAt) return false;
       return result.agent.status === "running" || result.agent.status === "initializing";
     },
+    hasEntry: ({ folder, ...day }) => entryWritten(folder, day, nodeNotesFs),
   };
 }
