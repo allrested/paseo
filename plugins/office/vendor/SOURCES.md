@@ -55,7 +55,9 @@ with `// PASEO: stand-in`. Most export what is asked of them and do nothing. The
 Paseo's own files sit beside upstream's and are named for it: `paseo-entry.js` (the bundle's
 entry: builds the page, starts the modules in upstream's order, sets `PaseoOfficeWorld`),
 `paseo-host.js` (what the stand-ins read and call), `paseo-style.js` (the page's stylesheet, in
-Paseo's design language), and `paseo-modules.js` (generated: the kept modules in start-up order).
+Paseo's design language), `paseo-modules.js` (generated: the kept modules in start-up order), and
+`paseo-sign.js` (the picture on the lobby's sign and the reception's plaque, with the host's
+brand; the entry puts it on the material upstream's floor made).
 
 The library's place card is not shown: `paseo-entry.js` gives the place an `open`, so its chip
 and the bookshelf open Paseo's Library card.

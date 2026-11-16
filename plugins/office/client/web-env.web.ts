@@ -1,6 +1,8 @@
 // Web only. Every function asks for a document before it uses one, and none touches the DOM at
 // module top level, because esbuild bundles this file for every platform.
 
+import { parseBrand, type OfficeBrand } from "./brand.js";
+
 export function hasWebGL2(): boolean {
   if (typeof document === "undefined") return false;
   try {
@@ -30,4 +32,10 @@ export function listenForSpace(elementId: string, onSpace: () => void): () => vo
   };
   element.addEventListener("keydown", onKeyDown);
   return () => element.removeEventListener("keydown", onKeyDown);
+}
+
+/** The host's brand, as the daemon wrote it into this page; null on a page without one. */
+export function readBrand(): OfficeBrand | null {
+  if (typeof document === "undefined") return null;
+  return parseBrand(Reflect.get(window, "__PASEO_BRAND__"), document.baseURI);
 }
