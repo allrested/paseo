@@ -294,7 +294,7 @@ export function LibraryCard({
               </Text>
             ) : null}
           </View>
-          {teams.length === 0 ? null : (
+          {teams.length === 0 && skills === null ? null : (
             <View style={styles.standupTeams}>
               {teams.map((team, index) => (
                 <Fragment key={team.roomId}>
@@ -311,7 +311,7 @@ export function LibraryCard({
               ))}
               {skills === null ? null : (
                 <>
-                  <View style={styles.rowDivider} />
+                  {teams.length === 0 ? null : <View style={styles.rowDivider} />}
                   <HostSkills skills={skills.host} styles={styles} />
                 </>
               )}

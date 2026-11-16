@@ -432,6 +432,7 @@ interface SurfaceBodyProps {
   onOpenBoard(roomId: string): void;
   machine: Machine | null;
   onOpenMachine(): void;
+  onOpenLibrary(): void;
   janitor: HostNote | null;
   onOpenJanitor(): void;
   /** The stand-up is open. */
@@ -456,6 +457,7 @@ function SurfaceBody({
   onOpenBoard,
   machine,
   onOpenMachine,
+  onOpenLibrary,
   janitor,
   onOpenJanitor,
   meeting,
@@ -493,6 +495,7 @@ function SurfaceBody({
         onSelectBoard={onOpenBoard}
         machine={machine}
         onOpenMachine={onOpenMachine}
+        onOpenLibrary={onOpenLibrary}
         meeting={meeting}
         onProblem={onSceneProblem}
       />
@@ -689,6 +692,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onOpenBoard={board.open}
         machine={machine}
         onOpenMachine={openMachine}
+        onOpenLibrary={library.show}
         janitor={janitorEntry?.note ?? null}
         onOpenJanitor={openJanitor}
         meeting={standup.open}
