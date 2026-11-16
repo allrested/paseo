@@ -265,6 +265,34 @@ describe("moveAgent", () => {
       expect(left?.labels[MOVED_TO_AGENT_ID_LABEL]).toBe(sourceId);
     });
 
+    it("carries the moved agent's plugin metadata back to the original", async () => {
+      const sourceId = await createRanClaudeAgent();
+      const daemon = requireCtx().daemon.daemon;
+      await daemon.agentManager.setMetadata(sourceId, {
+        "office.subagent.next": 3,
+        "other.key": true,
+      });
+      const moved = await moveAgent(deps(), {
+        agentId: sourceId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      await daemon.agentManager.setMetadata(moved.agentId, {
+        "office.subagent.next": 4,
+        "other.key": null,
+      });
+
+      await moveAgentBack(deps(), { agentId: moved.agentId, continueWork: false });
+
+      expect(daemon.agentManager.getAgent(sourceId)?.metadata).toEqual({
+        "office.subagent.next": 4,
+      });
+      await daemon.agentManager.flush();
+      expect((await daemon.agentStorage.get(sourceId))?.metadata).toEqual({
+        "office.subagent.next": 4,
+      });
+    });
+
     it("clears the limit on the agent it moves back to", async () => {
       const aId = await createRanClaudeAgent();
       await hitLimit(aId);
@@ -1195,6 +1223,34 @@ describe("moveAgent", () => {
           }),
         },
       });
+    });
+
+    it("puts the original's own plugin metadata back", async () => {
+      const aId = await createRanClaudeAgent();
+      const daemon = requireCtx().daemon.daemon;
+      await daemon.agentManager.setMetadata(aId, { "office.subagent.next": 3 });
+      const b = await moveAgent(deps(), {
+        agentId: aId,
+        target: { provider: "codex" },
+        continueWork: false,
+      });
+      const c = await moveAgent(deps(), {
+        agentId: b.agentId,
+        target: { provider: "claude" },
+        continueWork: false,
+      });
+      await daemon.agentManager.setMetadata(c.agentId, {
+        "office.subagent.next": 4,
+        "added.key": 1,
+      });
+      // A (claude) takes C's metadata, then fails when asked to continue.
+      failClaudeTurns = true;
+
+      await expect(
+        moveAgentBack(deps(), { agentId: c.agentId, toAgentId: aId, continueWork: true }),
+      ).rejects.toMatchObject({ code: "failed" });
+
+      expect((await daemon.agentStorage.get(aId))?.metadata).toEqual({ "office.subagent.next": 3 });
     });
 
     it("re-links the original to the agent it moved to, not to the agent being left", async () => {
