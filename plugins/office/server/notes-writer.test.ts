@@ -192,11 +192,14 @@ test("a failed turn without a message is said to have stopped on an error", asyn
 test("a new start clears an older failure, and a good end clears it too", async () => {
   await w.start();
   await w.turnEnded(ports.lastId, true, "Rate limited");
+  // A failed turn leaves the agent idle: no longer at its turn.
+  ports.aliveIds.delete(ports.lastId);
   await w.start();
   expect(w.state()).toMatchObject({ writing: true, failedAgentId: null, problem: null });
 
   ports.directories = new Set();
   await w.turnEnded(ports.lastId, true, "Rate limited");
+  ports.aliveIds.delete(ports.lastId);
   await w.start();
   expect(w.state()).toMatchObject({
     failedAgentId: null,
@@ -252,13 +255,83 @@ test("a turn of another agent changes nothing", async () => {
   expect(w.state().writing).toBe(true);
 });
 
-test("a writer archived or closed by someone else is no longer writing", async () => {
+test("a writer archived by someone else is forgotten, and frees the bell", async () => {
   await w.start();
-  await w.agentGone("someone-else");
+  await w.agentArchived("someone-else");
+  await w.agentClosed("someone-else");
   expect(w.state().writing).toBe(true);
-  await w.agentGone(ports.lastId);
-  expect(w.state()).toMatchObject({ writing: false, writtenAt: null });
+  await w.agentArchived(ports.lastId);
+  expect(w.state()).toMatchObject({ writing: false, writtenAt: null, failedAgentId: null });
   expect((await w.start()).started).toBe(true);
+});
+
+const CLOSED = "it was closed before it finished";
+
+test("a graceful restart: the writer closed at shutdown and resumed after it blocks a new one, and its end is recorded", async () => {
+  await w.start();
+  const writerId = ports.lastId;
+  // The daemon closes every agent as it shuts down; the office still names the writer.
+  await w.agentClosed(writerId);
+  expect(w.state()).toMatchObject({ writing: false, failedAgentId: writerId, problem: CLOSED });
+  expect(ports.stored).toMatchObject({ writerId: null, failedAgentId: writerId, problem: CLOSED });
+
+  // The daemon starts again and resumes the writer's turn.
+  const kept = ports.stored;
+  const again = createNotesWriter(ports);
+  expect(await again.start()).toEqual({ started: false });
+  expect(ports.stored).toEqual(kept);
+  expect(ports.started).toHaveLength(1);
+
+  await again.turnEnded(writerId, false, null);
+  expect(again.state()).toMatchObject({
+    writing: false,
+    writtenAt: NOW,
+    failedAgentId: null,
+    problem: null,
+  });
+  expect(ports.archived).toEqual([writerId]);
+});
+
+test("a graceful restart without resume: the closed writer is named until a new start replaces it", async () => {
+  await w.start();
+  const writerId = ports.lastId;
+  await w.agentClosed(writerId);
+  ports.aliveIds.delete(writerId);
+
+  const again = createNotesWriter(ports);
+  await settle();
+  expect(again.state()).toMatchObject({ failedAgentId: writerId, problem: CLOSED });
+  expect(await again.start()).toEqual({ started: true });
+  expect(again.state()).toMatchObject({ writing: true, failedAgentId: null, problem: null });
+  expect(ports.archived).toEqual([]);
+});
+
+test("a stopped turn leaves the writer named; prompted again it blocks a new one, and its good end is recorded", async () => {
+  await w.start();
+  const writerId = ports.lastId;
+  await w.turnEnded(writerId, true, "interrupted");
+  expect(w.state()).toMatchObject({
+    writing: false,
+    failedAgentId: writerId,
+    problem: "interrupted",
+  });
+
+  // At its turn again (resumed by the daemon, or prompted by the owner), across a restart.
+  const kept = ports.stored;
+  const again = createNotesWriter(ports);
+  expect(await again.start()).toEqual({ started: false });
+  expect(ports.stored).toEqual(kept);
+
+  await again.turnEnded(writerId, false, null);
+  expect(again.state()).toMatchObject({ writtenAt: NOW, failedAgentId: null, problem: null });
+  expect(ports.archived).toEqual([writerId]);
+});
+
+test("a writer that stopped and is archived is forgotten with its reason", async () => {
+  await w.start();
+  await w.turnEnded(ports.lastId, true, "Rate limited");
+  await w.agentArchived(ports.lastId);
+  expect(w.state()).toMatchObject({ writing: false, failedAgentId: null, problem: null });
 });
 
 test("before any start the state is what was kept, and whether a folder is set", async () => {
