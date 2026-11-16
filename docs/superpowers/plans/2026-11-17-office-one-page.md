@@ -111,6 +111,7 @@ Decided in this plan, where the spec left it open:
 - Create: `packages/app/src/plugins/beside/beside-area.tsx` (`BesideFrame`, the wide panel and the compact sheet)
 - Create: `packages/app/src/plugins/beside/beside-header.tsx`
 - Create: `packages/app/src/plugins/beside/beside-layout.ts` (pure width clamp)
+- Modify: `packages/app/src/components/explorer-sidebar-layout.ts` (export `MIN_WORKSPACE_BODY_WIDTH`, today a private `360`)
 - Modify: `packages/app/src/plugins/surface-screen.tsx` (`SurfaceRenderer`)
 - Modify: `packages/app/src/plugins/workspace-panels/panel.tsx` (`PluginPanelBody`)
 - Test: `packages/app/src/plugins/beside/beside-layout.test.ts`, `packages/app/src/plugins/beside/beside-area.mounted.test.tsx`
