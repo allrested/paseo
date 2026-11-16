@@ -59,27 +59,27 @@ places it. Each later one gets its own spec.
 
 ### Decisions
 
-| Question                     | Decision                                                                                                                                                                                                                                                   |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The name                     | "Library" on the strip's entry and as the card's title.                                                                                                                                                                                                    |
-| The strip's note             | "N at a skill" while agents are at one, else "Teach a skill".                                                                                                                                                                                              |
-| The code's names             | They follow the label, as the glossary asks. No file, export or field keeps "gym" or "train". The request's text and its mark on the board do not change, so requests already posted are still found.                                                      |
-| The library in 3D            | Its chip and the bookshelf open the Library card. Upstream's card for the room has the same title and lists what was read since the office opened; it is not shown any more.                                                                               |
-| When the library opens it    | Always while the office is live, also without a team: the card then lists the host's skills. The strip's entry keeps its rule and shows only with a team.                                                                                                  |
-| The picker's place           | A page of the board's sheet. The form has one row, "Wake an agent with it", with the choice and a chevron; it opens the page.                                                                                                                              |
-| Why not the kit's `Combobox` | It draws as a composer control, and its contract is a composer item or a New workspace item.                                                                                                                                                               |
-| The page                     | Titled "Wake an agent". A Back button, then "Nobody", then "This room", then "Other rooms". A row has the state's dot, the agent's title, and under it the room and the state in the agent card's words: Idle, Running, Starting, Needs permission, Error. |
-| Search                       | A field over the list when the office has more than eight agents. It matches the title and the room's name, without case. Nothing found: "No agent matches."                                                                                               |
-| Choosing                     | A press on a row chooses it and returns to the form. Back and Escape return without a change. What was typed in the form is kept.                                                                                                                          |
-| A chosen agent that leaves   | The choice is "Nobody" again.                                                                                                                                                                                                                              |
-| A close from the page        | A wide sheet is closed by Escape, its close button or a press beside it: from the page these go back to the form. A phone's sheet is already swiped away when it says so, and closes.                                                                      |
-| Other chips                  | The kind of post keeps its two chips. The Library and Review cards keep theirs: they list one team's idle agents.                                                                                                                                          |
-| The sign's words             | The brand's name. Without a brand, "Paseo".                                                                                                                                                                                                                |
-| The sign's mark              | The brand's logo, fitted into the mark's square. Without one, or when it does not load, upstream's building mark.                                                                                                                                          |
-| Where the brand comes from   | What the daemon writes into the web page from `PASEO_BRAND_NAME` and `PASEO_BRAND_LOGO` (`window.__PASEO_BRAND__`), read by the plugin's web module with the app's own checks. The desktop app has no brand, so its sign says "Paseo".                     |
-| A long name                  | The type shrinks until the name fits the sign's width. At the smallest size it is cut with an ellipsis.                                                                                                                                                    |
-| The sign's colours           | Upstream's board and type. The brand's colour is not used: the page does not carry it.                                                                                                                                                                     |
-| Upstream's files             | None is changed. The entry redraws the texture of `PRO_FX.logoM` after the floor is built, so the plaque changes with the sign, and sets `PLACES.library.open` as it sets the whiteboard's.                                                                |
+| Question                     | Decision                                                                                                                                                                                                                                                                                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The name                     | "Library" on the strip's entry and as the card's title.                                                                                                                                                                                                                                        |
+| The strip's note             | "N at a skill" while agents are at one, else "Teach a skill".                                                                                                                                                                                                                                  |
+| The code's names             | They follow the label, as the glossary asks. No file, export or field keeps "gym" or "train". The request's text and its mark on the board do not change, so requests already posted are still found.                                                                                          |
+| The library in 3D            | Its chip and the bookshelf open the Library card. Upstream's card for the room has the same title and lists what was read since the office opened; it is not shown any more.                                                                                                                   |
+| When the library opens it    | Always while the office is live, also without a team: the card then lists the host's skills. The strip's entry keeps its rule and shows only with a team.                                                                                                                                      |
+| The picker's place           | A page of the board's sheet. The form has one row, "Wake an agent with it", with the choice and a chevron; it opens the page.                                                                                                                                                                  |
+| Why not the kit's `Combobox` | It draws as a composer control, and its contract is a composer item or a New workspace item.                                                                                                                                                                                                   |
+| The page                     | Titled "Wake an agent". A Back button, then "Nobody", then "This room", then "Other rooms". A row has the state's dot, the agent's title, and under it the room and the state in the agent card's words: Idle, Running, Starting, Needs permission, Error.                                     |
+| Search                       | A field over the list when the office has more than eight agents. It matches the title and the room's name, without case. Nothing found: "No agent matches."                                                                                                                                   |
+| Choosing                     | A press on a row chooses it and returns to the form. Back and Escape return without a change. What was typed in the form is kept.                                                                                                                                                              |
+| A chosen agent that leaves   | The choice is "Nobody" again.                                                                                                                                                                                                                                                                  |
+| A close from the page        | Only the web's wide dialog stays open when it says it is closed (Escape, its close button, a press beside it): from the page that goes back to the form. A phone's sheet is swiped away and a tablet's is dismissed by Android's Back before they say so: from the page that closes the sheet. |
+| Other chips                  | The kind of post keeps its two chips. The Library and Review cards keep theirs: they list one team's idle agents.                                                                                                                                                                              |
+| The sign's words             | The brand's name. Without a brand, "Paseo".                                                                                                                                                                                                                                                    |
+| The sign's mark              | The brand's logo, fitted into the mark's square. Without one, or when it does not load, upstream's building mark.                                                                                                                                                                              |
+| Where the brand comes from   | What the daemon writes into the web page from `PASEO_BRAND_NAME` and `PASEO_BRAND_LOGO` (`window.__PASEO_BRAND__`), read by the plugin's web module with the app's own checks. The desktop app has no brand, so its sign says "Paseo".                                                         |
+| A long name                  | The type shrinks until the name fits the sign's width. At the smallest size it is cut with an ellipsis.                                                                                                                                                                                        |
+| The sign's colours           | Upstream's board and type. The brand's colour is not used: the page does not carry it.                                                                                                                                                                                                         |
+| Upstream's files             | None is changed. The entry redraws the texture of `PRO_FX.logoM` after the floor is built, so the plaque changes with the sign, and sets `PLACES.library.open` as it sets the whiteboard's.                                                                                                    |
 
 ### Components
 
@@ -114,11 +114,13 @@ places it. Each later one gets its own spec.
 - The cozy floor has no lobby and no sign. The office runs the company floor.
 - A brand on the desktop app and the phone: the app has none there.
 - A tap on the library in the 2D office. The strip's entry is the way in.
+- A way back to the form on a phone or a tablet: there a close from the page closes the sheet, and
+  what was typed goes with it, as with any close of the sheet.
 
 ### Testing
 
 Unit: the picker's order, groups, second line and search; the choice falling back when its agent
-leaves; `readBrand` against the shapes the daemon writes and against bad ones; `worldBrand`; the
+leaves; `parseBrand` against the shapes the daemon writes and against bad ones; `worldBrand`; the
 strip's note; the renamed text module's cases, unchanged.
 
 Build: `server/world-script.test.ts` bundles the entry.
@@ -134,15 +136,16 @@ name, and with no brand.
 
 ### Not verified
 
-Nothing was seen in the app itself. The live check of the whole app was not done. The workspace
-scripts (`daemon`, `app`) could not be started: the daemon on port 6767 has no workspace for this
-checkout, and registering one would change that daemon's state.
+The app itself was not run. The workspace scripts (`daemon`, `app`) could not be started: the
+daemon on port 6767 has no workspace for this checkout, and registering one would change that
+daemon's state.
 
 The scene's own script was looked at alone instead. It was bundled with the options the app uses
 (IIFE, es2020, minified), served as a static page from the build container, and opened in Paseo's
 browser at 1280 x 800. The resize call timed out; `innerWidth` and `innerHeight` then read
-1280 x 800. The canvas was 640 x 400 drawn into 1280 x 800. Software WebGL is what this
-deployment's browser is known to do; this run did not measure it.
+1280 x 800. The canvas was 640 x 400 drawn into 1280 x 800. Whether the browser drew with
+software WebGL or a graphics card was not measured, so the scene was not seen on a known graphics
+card.
 
 No page error came up: the page's own `error` listener was empty on every page, and no `problem`
 call was made. The browser's log was read only for the last page, and its console was empty.
@@ -174,6 +177,38 @@ What did not come out as the check was written:
   Its text was seen only in the picture the scene draws for it, shown on its own.
 - The long name was 38 characters, not 40.
 
+The board's sheet was then looked at alone, the same way. A static page bundled the plugin's
+real `BoardSheet`, `AgentPicker` and `useOfficeStyles` with esbuild, `react-native` aliased to
+`react-native-web`, over rooms from `buildOfficeModel` with made-up agents (3, 9 and 30: idle,
+running, starting, needing permission, stopped on an error; in two workspaces and the lobby). The
+host's kit was a stand-in: the sheet a plain card with a title bar and a close button,
+`Modal.Content` a react-native-web `ScrollView`, the chevron a text glyph. The colours were the
+app's light and dark plugin themes. The page was served from the build container and opened in
+Paseo's browser at 1280 x 800 and 390 x 844. It shows the plugin's own components and styles in a
+real browser. It does not show the host's sheet, Escape on it, the strip, or the office around
+it. The browser's console had only React's DevTools notice.
+
+What the static page showed:
+
+- 1280 px, light, 3 agents: the form's row has its label, "Nobody" and the chevron. On the page
+  every title starts at x = 430, "Nobody" too; a build of the code before this fix put "Nobody"
+  at 422. Rows are 64 px tall on the pointer layout. The chosen row has a 1 px outline in the
+  muted foreground on the second surface.
+- By keyboard: Tab reached the form's row, drawn with the browser's focus ring. Enter opened the
+  page with focus on the chosen row. The arrow keys did not move between rows; Tab did. Space
+  chose a row, and focus was back on the form's row. Enter on a row, Enter on Back, and the
+  stand-in's close button each returned focus to the form's row too.
+- 9 agents: the search field had focus. "landing" kept the agents whose title or room has it; a
+  word that matches nothing showed "No agent matches."
+- 30 agents: the page scrolled inside the card (661 px shown of 2319). Nothing was wider than the
+  card or the window.
+- Dark, 9 agents: titles 16.6:1 against the card and second lines 7.0:1. On the chosen row, the
+  title 13.9:1 and the second line 5.8:1 against its fill; its outline 5.8:1 against the fill and
+  7.0:1 against the card.
+- 390 px, compact and touch layout, 9 agents: the form's row and every row of the page fit the
+  width (17 to 358 px of 390), nothing scrolls sideways, and rows are 64 px tall. A long title
+  ends in an ellipsis. The text typed in the form was there after Back.
+
 Not seen, in the app:
 
 - The Library sheet opening from the chip and from the shelf, its title "Library", and "On this
@@ -187,8 +222,12 @@ Not seen, in the app:
 - The whiteboard's "Lobby board" sheet, the "Wake an agent with it" row, the "Wake an agent" page,
   and Escape going back and then closing, including that the sheet stays open without a flicker on
   the wide layout.
-- Escape on the host's sheet.
-- The board's sheet at 390 px: width, rows of at least 44 px, the typed text kept after Back.
-- A real graphics card: the test browser draws with software.
-- The picker's page with real agents: its rows with 3, 9 and 30 agents are a mounted test.
+- The host's sheet around the board's, and Escape on it: the static page's sheet was a stand-in.
+- The picker by keyboard in the app.
+- Light and dark in the app: the static page used the app's colours, not the app.
+- The logo at the daemon's real address (`/_brand/logo?v=…`) drawn inside the app's frame.
+- A tablet: the rule that a close from the page closes a tablet's sheet was read in the host's
+  code (`adaptive-modal-sheet.tsx`, `isolated-bottom-sheet-modal/visibility-tracker.ts`), not run
+  on a device.
 - The installed app on a phone.
+- Real agents: the picker's rows were made up, in a mounted test and in the static page.
