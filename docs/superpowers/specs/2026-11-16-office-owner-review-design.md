@@ -1,6 +1,6 @@
 # The office after the owner's review: design
 
-Date: 2026-11-16. Status: sub-project 1 is built; the others are not.
+Date: 2026-11-16. Status: sub-projects 1 and 2 are built; the others are not.
 It follows [the office as my-office's 3D floor](2026-11-16-office-my-office-port-design.md), whose
 nine sub-projects are built.
 
