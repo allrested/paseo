@@ -17,16 +17,25 @@ export interface NotesSettings {
 }
 
 /**
- * When the stand-up notes are written: null while no folder is set. A folder or a time zone of
- * only spaces counts as empty, and an empty time zone is the host's. A folder that is not an
- * absolute path throws, since the writer starts in it.
+ * The notes folder: null while none is set, and a folder of only spaces counts as none. A folder
+ * that is not an absolute path throws, since the writer starts in it.
  */
-export function notesCadence(values: NotesSettings, hostTimeZone: string): ScheduleCadence | null {
+export function notesFolder(values: NotesSettings): string | null {
   const folder = values.notesFolder.trim();
   if (folder === "") return null;
   if (!isAbsolute(folder)) throw new Error(`The notes folder must be an absolute path: ${folder}`);
-  const timezone = values.notesTimeZone.trim() || hostTimeZone;
-  return { type: "cron", expression: NOTES_CRON, timezone };
+  return folder;
+}
+
+/** The zone of the 8:00 run and of the entry's day: the settings', or the host's when empty. */
+export function notesTimeZone(values: NotesSettings, hostTimeZone: string): string {
+  return values.notesTimeZone.trim() || hostTimeZone;
+}
+
+/** When the stand-up notes are written: null while no folder is set. */
+export function notesCadence(values: NotesSettings, hostTimeZone: string): ScheduleCadence | null {
+  if (notesFolder(values) === null) return null;
+  return { type: "cron", expression: NOTES_CRON, timezone: notesTimeZone(values, hostTimeZone) };
 }
 
 /**

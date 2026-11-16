@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   boardsFile,
   hostSkillFolders,
+  notesWriterFile,
   officeDir,
   paseoHome,
   workspaceSkillFolders,
@@ -19,6 +20,7 @@ test("keeps the office's files under PASEO_HOME/office", () => {
   const env = { PASEO_HOME: "/srv/paseo" };
   expect(officeDir(env, HOME)).toBe("/srv/paseo/office");
   expect(boardsFile(env, HOME)).toBe("/srv/paseo/office/boards.json");
+  expect(notesWriterFile(env, HOME)).toBe("/srv/paseo/office/notes-writer.json");
 });
 
 test("reads the host's skills from the Claude config folder and Paseo's two other homes", () => {
