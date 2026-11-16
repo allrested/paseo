@@ -1,3 +1,4 @@
+import type { OfficeBrand } from "../brand.js";
 import { agentTitle, attentionReason, type OfficeModel, type OfficeRow } from "../model.js";
 import type {
   ActivityKind,
@@ -10,6 +11,7 @@ import { machineTitle, memoryPercent, memoryTone } from "../machine-text.js";
 import { relativeLuminance } from "../luminance.js";
 import type {
   WorldBoardRow,
+  WorldBrand,
   WorldColors,
   WorldEvent,
   WorldEventType,
@@ -311,4 +313,12 @@ export function boardRoom(model: OfficeModel, choice: BoardChoice): string | nul
 /** A dark theme draws the office by night. */
 export function isDarkTheme(colors: Pick<WorldColors, "surface0">): boolean {
   return relativeLuminance(colors.surface0) < 0.4;
+}
+
+/** The name on the lobby's sign of a host without a brand: the product's. */
+const PRODUCT_NAME = "Paseo";
+
+/** What the lobby's sign shows: the host's brand, or the product's name over the scene's mark. */
+export function worldBrand(brand: OfficeBrand | null): WorldBrand {
+  return { name: brand?.name ?? PRODUCT_NAME, logoUrl: brand?.logoUrl ?? null };
 }

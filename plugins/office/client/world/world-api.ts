@@ -88,10 +88,19 @@ export interface WorldMachine {
 
 export type WorldColors = PluginTheme["colors"];
 
+/** What the lobby's sign and the reception's plaque show. */
+export interface WorldBrand {
+  name: string;
+  /** The logo's address in full; null draws the scene's own mark. */
+  logoUrl: string | null;
+}
+
 export interface WorldStartOptions {
   plan: "pro" | "cozy";
   dark: boolean;
   colors: WorldColors;
+  /** The lobby's sign. Absent: the scene's own. */
+  brand?: WorldBrand;
   onSelect(agentId: string | null): void;
   /** A team's chip was chosen, or the whiteboard (null). */
   onBoard(project: string | null): void;

@@ -21,6 +21,7 @@ import {
   isDarkTheme,
   teamOfRoom,
   worldBoardRows,
+  worldBrand,
   worldChanges,
   worldMachine,
   worldPeople,
@@ -28,6 +29,7 @@ import {
   type WorldPlan,
 } from "./adapter.js";
 import type { WorldApi } from "./world-api.js";
+import { readBrand } from "../web-env.web.js";
 import { focusApp, openWorldFrame } from "./world-frame.web.js";
 import { messageOf, sharedWorldLoader } from "./world-loader.js";
 
@@ -173,6 +175,8 @@ export function WorldView({
           plan: PLAN,
           dark: isDarkTheme(colors),
           colors,
+          // Read when the office starts: a page's brand does not change while the page lives.
+          brand: worldBrand(readBrand()),
           // What these open is Paseo's (a card, a sheet): the keyboard goes with it.
           onSelect: (agentId) => {
             focusApp();
