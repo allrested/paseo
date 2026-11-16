@@ -6,15 +6,15 @@ import { ActionButton, failureText } from "./action-button.js";
 import { textAfterSend } from "./agent-card.js";
 import { Chip } from "./board-sheet.js";
 import {
-  GYM_HELP,
-  gymSummary,
+  LIBRARY_HELP,
+  librarySummary,
   HOST_SKILLS_SHOWN,
   skillWhere,
   TOPIC_MAX,
-  trainHint,
-  type GymAsked,
-  type GymTeam,
-} from "./gym-text.js";
+  askHint,
+  type LibraryAsked,
+  type LibraryTeam,
+} from "./library-text.js";
 import type { OfficeStyles } from "./styles.js";
 
 interface SkillRowProps {
@@ -33,7 +33,7 @@ function SkillRow({ skill, styles }: SkillRowProps) {
 }
 
 interface AskedProps {
-  asked: GymAsked;
+  asked: LibraryAsked;
   onOpenBoard(): void;
   styles: OfficeStyles;
 }
@@ -68,9 +68,9 @@ function Asked({ asked, onOpenBoard, styles }: AskedProps) {
 }
 
 interface TeachProps {
-  team: GymTeam;
+  team: LibraryTeam;
   wakesPaused: boolean;
-  teach(team: GymTeam, agentId: string, topic: string): Promise<void>;
+  teach(team: LibraryTeam, agentId: string, topic: string): Promise<void>;
   styles: OfficeStyles;
 }
 
@@ -88,7 +88,7 @@ function Teach({ team, wakesPaused, teach, styles }: TeachProps) {
   const [failure, setFailure] = useState<string | null>(null);
   // The agent picked may have gone to work since: then the newest idle one writes it.
   const chosen =
-    team.trainers.find((trainer) => trainer.agentId === picked) ?? team.trainers[0] ?? null;
+    team.writers.find((writer) => writer.agentId === picked) ?? team.writers[0] ?? null;
   const label = chosen === null ? "Ask" : `Ask ${chosen.title} to write it`;
   const ask = useCallback(async () => {
     if (chosen === null) return;
@@ -101,7 +101,7 @@ function Teach({ team, wakesPaused, teach, styles }: TeachProps) {
       if (mounted.current) setFailure(failureText(label, caught));
     }
   }, [chosen, topic, teach, team, label]);
-  const hint = trainHint(team, chosen?.title ?? null, wakesPaused);
+  const hint = askHint(team, chosen?.title ?? null, wakesPaused);
   if (chosen === null) return <Text style={styles.muted}>{hint}</Text>;
   return (
     <View style={styles.sheetField}>
@@ -117,7 +117,7 @@ function Teach({ team, wakesPaused, teach, styles }: TeachProps) {
         multiline
         style={styles.input}
       />
-      {team.trainers.length > 1 ? (
+      {team.writers.length > 1 ? (
         <View accessibilityRole="radiogroup" accessibilityLabel="Who writes it">
           <ScrollView
             horizontal
@@ -125,12 +125,12 @@ function Teach({ team, wakesPaused, teach, styles }: TeachProps) {
             style={styles.chipScroll}
             contentContainerStyle={styles.chipRow}
           >
-            {team.trainers.map((trainer) => (
+            {team.writers.map((writer) => (
               <Chip
-                key={trainer.agentId}
-                label={trainer.title}
-                value={trainer.agentId}
-                selected={trainer.agentId === chosen.agentId}
+                key={writer.agentId}
+                label={writer.title}
+                value={writer.agentId}
+                selected={writer.agentId === chosen.agentId}
                 onSelect={setPicked}
                 styles={styles}
               />
@@ -158,16 +158,16 @@ function Teach({ team, wakesPaused, teach, styles }: TeachProps) {
 }
 
 interface TeamProps {
-  team: GymTeam;
+  team: LibraryTeam;
   /** The skills were read at least once; "failed" when the first reading failed. */
   read: boolean | "failed";
   wakesPaused: boolean;
-  teach(team: GymTeam, agentId: string, topic: string): Promise<void>;
+  teach(team: LibraryTeam, agentId: string, topic: string): Promise<void>;
   onOpenBoard(roomId: string): void;
   styles: OfficeStyles;
 }
 
-function teamSkillsLine(team: GymTeam, read: boolean | "failed"): string | null {
+function teamSkillsLine(team: LibraryTeam, read: boolean | "failed"): string | null {
   if (read === "failed") return "Not read.";
   if (!read) return "Reading...";
   if (team.skills === null) return "The host has no folder for this workspace.";
@@ -182,8 +182,8 @@ function Team({ team, read, wakesPaused, teach, onOpenBoard, styles }: TeamProps
       <Text accessibilityRole="header" style={styles.standupHeading}>
         {team.name}
       </Text>
-      {team.training.length === 0 ? null : (
-        <Text style={styles.rowMeta}>At a skill now: {team.training.join(", ")}</Text>
+      {team.atSkill.length === 0 ? null : (
+        <Text style={styles.rowMeta}>At a skill now: {team.atSkill.join(", ")}</Text>
       )}
       <View style={styles.qaGroup}>
         <Text style={styles.sheetLabel}>Skills</Text>
@@ -231,14 +231,14 @@ function HostSkills({ skills, styles }: HostSkillsProps) {
   );
 }
 
-export interface GymCardProps {
-  teams: readonly GymTeam[];
+export interface LibraryCardProps {
+  teams: readonly LibraryTeam[];
   skills: SkillsResult | null;
   /** Why the last reading failed; null when it did not. */
   readFailure: string | null;
   open: boolean;
   read(): Promise<void>;
-  teach(team: GymTeam, agentId: string, topic: string): Promise<void>;
+  teach(team: LibraryTeam, agentId: string, topic: string): Promise<void>;
   /** "Wake agents" is off: a request would wait, so nobody is asked. */
   wakesPaused: boolean;
   onOpenBoard(roomId: string): void;
@@ -247,10 +247,10 @@ export interface GymCardProps {
 }
 
 /**
- * The gym: the skills the teams' workspaces and the host have, who is at one now, and a request
+ * The library: the skills the teams' workspaces and the host have, who is at one now, and a request
  * to an idle agent to write a new one from its work.
  */
-export function GymCard({
+export function LibraryCard({
   teams,
   skills,
   readFailure,
@@ -261,7 +261,7 @@ export function GymCard({
   onOpenBoard,
   styles,
   onClose,
-}: GymCardProps) {
+}: LibraryCardProps) {
   const change = useCallback(
     (next: boolean) => {
       if (!next) onClose();
@@ -269,12 +269,12 @@ export function GymCard({
     [onClose],
   );
   return (
-    <Modal title="Gym" open={open} onOpenChange={change}>
+    <Modal title="Library" open={open} onOpenChange={change}>
       <Modal.Content>
         <View style={styles.sheet}>
           <View style={styles.sheetActions}>
-            <Text style={styles.muted}>{gymSummary(teams, skills, readFailure !== null)}</Text>
-            <Text style={styles.rowMeta}>{GYM_HELP}</Text>
+            <Text style={styles.muted}>{librarySummary(teams, skills, readFailure !== null)}</Text>
+            <Text style={styles.rowMeta}>{LIBRARY_HELP}</Text>
             <View style={styles.actions}>
               <ActionButton
                 label="Read again"

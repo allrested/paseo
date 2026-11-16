@@ -3,12 +3,12 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { skillsRpc, type SkillsResult } from "../shared/contracts.js";
 import { failureText } from "./action-button.js";
 import type { StripCard } from "./attention-strip.js";
-import { gymNote, gymTeams, skillAsk, type GymTeam } from "./gym-text.js";
+import { libraryNote, libraryTeams, skillAsk, type LibraryTeam } from "./library-text.js";
 import type { OfficeModel } from "./model.js";
 import type { BoardActions } from "./use-board-actions.js";
 
-export interface Gym {
-  teams: readonly GymTeam[];
+export interface Library {
+  teams: readonly LibraryTeam[];
   /** The last reading of the skills; null before the first. */
   skills: SkillsResult | null;
   /** Why the last reading failed; null when it did not. */
@@ -19,21 +19,21 @@ export interface Gym {
   /** Reads the skills again; a failure is kept in `readFailure`. */
   read(): Promise<void>;
   /** Posts the request for a skill on the team's board, naming the agent. */
-  teach(team: GymTeam, agentId: string, topic: string): Promise<void>;
+  teach(team: LibraryTeam, agentId: string, topic: string): Promise<void>;
   /** Leaves the card for the room's board, which has the answer in full. */
   openBoard(roomId: string): void;
   close(): void;
 }
 
-export interface GymInput {
+export interface LibraryInput {
   model: OfficeModel;
   post: BoardActions["post"];
   live: boolean;
   showBoard(roomId: string): void;
 }
 
-/** The gym: the skills, who trains, the card's place in the strip, and the request for a skill. */
-export function useGym({ model, post, live, showBoard }: GymInput): Gym {
+/** The library: the skills, who is at a skill, the card's place in the strip, and the request for a skill. */
+export function useLibrary({ model, post, live, showBoard }: LibraryInput): Library {
   const call = useRpc(skillsRpc);
   const [opened, setOpened] = useState(false);
   const [skills, setSkills] = useState<SkillsResult | null>(null);
@@ -53,13 +53,13 @@ export function useGym({ model, post, live, showBoard }: GymInput): Gym {
   useEffect(() => {
     if (open) void read();
   }, [open, read]);
-  const teams = useMemo(() => gymTeams(model, skills), [model, skills]);
+  const teams = useMemo(() => libraryTeams(model, skills), [model, skills]);
   const entry = useMemo((): StripCard | null => {
-    const note = gymNote(teams);
-    return note === null ? null : { title: "Gym", note, onOpen };
+    const note = libraryNote(teams);
+    return note === null ? null : { title: "Library", note, onOpen };
   }, [teams, onOpen]);
   const teach = useCallback(
-    async (team: GymTeam, agentId: string, topic: string) => {
+    async (team: LibraryTeam, agentId: string, topic: string) => {
       const provider = model.agents.get(agentId)?.provider ?? "";
       await post({
         board: team.roomId,

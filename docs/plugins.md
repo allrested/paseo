@@ -743,9 +743,9 @@ newest 40 lines that have something on them, each cut at 400 characters
 check's own log stays on the forge: no SDK call fetches it. Design:
 [QA](superpowers/specs/2026-11-16-office-qa-design.md).
 
-The Gym entry is in the strip while the office has a team. The library is the gym: an agent whose
-step opens a skill (Claude Code's `Skill` tool), reads or writes a `SKILL.md`, or runs a command
-that names one goes there, and the step's kind is `skill`. The card lists each workspace's skills
+The Library entry is in the strip while the office has a team. An agent whose step opens a skill
+(Claude Code's `Skill` tool), reads or writes a `SKILL.md`, or runs a command that names one goes
+to the library, and the step's kind is `skill`. The card lists each workspace's skills
 from its `.claude/skills`, `.agents/skills` and `.codex/skills`, and the host's from the Claude
 config folder's `skills/`, `~/.agents/skills` and `~/.codex/skills`, the folders Paseo installs
 its own skills to. They are read through `office.skills.request` each time the card opens; the
@@ -754,7 +754,8 @@ no path (`plugins/office/server/skills.ts`). "Teach a skill" posts a note to an 
 team, as a review request does: its first line starts with `Skill request:` and names what the
 skill teaches, and the agent writes the skill into the workspace, where it is in the changes to
 review. The office installs and removes no skill: that is the `default-skills` built-in's Skills
-screen. Design: [the gym](superpowers/specs/2026-11-16-office-gym-design.md).
+screen. Design: [the gym](superpowers/specs/2026-11-16-office-gym-design.md), named Library by
+[the owner's review](superpowers/specs/2026-11-16-office-owner-review-design.md).
 
 The `design` built-in keeps a workspace's design files on the host's own FigCraft server (deploy
 it with [docker.md](docker.md#figcraft-design-mode)). It is off until `FIGCRAFT_URL` names that
