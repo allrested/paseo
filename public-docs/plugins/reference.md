@@ -515,17 +515,18 @@ has a 20-second deadline.
 
 Built-in session routes:
 
-| Source                 | Session                                       | Login store                                                                                    |
-| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Claude                 | `claude`                                      | `CLAUDE_CONFIG_DIR`, or the default; on macOS, the directory's Keychain entry takes precedence |
-| Claude                 | `pi`, `omp` with `anthropic/…` model          | That harness's Anthropic login store                                                           |
-| Codex                  | `codex`                                       | `CODEX_HOME/auth.json`, or the default                                                         |
-| Codex                  | `pi`, `opencode`, `omp` with `openai/…` model | That harness's OpenAI login store                                                              |
-| Cursor                 | `cursor`                                      | cursor-agent's `auth.json` for that session's `XDG_CONFIG_HOME`, `APPDATA`, or home directory  |
-| Muse                   | `muse`                                        | That session's own Muse launch/config                                                          |
-| Kiro CLI               | `kiro`                                        | That session's `~/.local/share/kiro-cli/data.sqlite3`                                          |
-| BDDevLab               | Any, with `bddevlab/…` model                  | `BDDEVLAB_API_KEY` in the daemon environment                                                   |
-| Other built-in sources | Any                                           | No session discovery                                                                           |
+| Source                 | Session                                                     | Login store                                                                                    |
+| ---------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Claude                 | `claude`                                                    | `CLAUDE_CONFIG_DIR`, or the default; on macOS, the directory's Keychain entry takes precedence |
+| Claude                 | `pi`, `omp` with `anthropic/…` model                        | That harness's Anthropic login store                                                           |
+| Codex                  | `codex`                                                     | `CODEX_HOME/auth.json`, or the default                                                         |
+| Codex                  | `pi`, `opencode`, `omp` with `openai/…` model               | That harness's OpenAI login store                                                              |
+| Cursor                 | `cursor`                                                    | cursor-agent's `auth.json` for that session's `XDG_CONFIG_HOME`, `APPDATA`, or home directory  |
+| Muse                   | `muse`                                                      | That session's own Muse launch/config                                                          |
+| Kiro CLI               | `kiro`                                                      | That session's `~/.local/share/kiro-cli/data.sqlite3`                                          |
+| BDDevLab               | Any, with `bddevlab/…` model                                | `BDDEVLAB_API_KEY` in the daemon environment                                                   |
+| BDDevLab               | `claude`, launched with `ANTHROPIC_BASE_URL` at the gateway | The token in the matching provider entry's `env` in `$PASEO_HOME/config.json`                  |
+| Other built-in sources | Any                                                         | No session discovery                                                                           |
 
 Claude excludes Bedrock, Vertex, and foreign `ANTHROPIC_BASE_URL` sessions. Codex excludes sessions
 with `OPENAI_BASE_URL` set. Cursor excludes sessions that authenticate with `CURSOR_API_KEY` or
