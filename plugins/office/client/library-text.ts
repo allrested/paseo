@@ -21,19 +21,19 @@ const ANSWER_MAX = 600;
 export const HOST_SKILLS_SHOWN = 6;
 
 /** The newest request for a skill, what it asked for, and the note that answered it. */
-export interface GymAsked extends Asked {
+export interface LibraryAsked extends Asked {
   topic: string;
 }
 
-export interface GymTeam {
+export interface LibraryTeam {
   /** The team's room: its workspace's id. */
   roomId: string;
   name: string;
   /** The team's agents at a skill now, by name. */
-  training: string[];
+  atSkill: string[];
   /** Who can be asked to write a skill: the idle agents, the newest first. */
-  trainers: AskAgent[];
-  asked: GymAsked | null;
+  writers: AskAgent[];
+  asked: LibraryAsked | null;
   /** The workspace's skills; null before the first reading and for a workspace with no folder. */
   skills: readonly SkillInfo[] | null;
 }
@@ -66,7 +66,10 @@ function isSkillRequest(post: Post): boolean {
   return isUserRequest(post) && post.text.startsWith(SKILL_MARK);
 }
 
-function gymAskedOf(room: OfficeRoom, agents: ReadonlyMap<string, OfficeAgent>): GymAsked | null {
+function libraryAskedOf(
+  room: OfficeRoom,
+  agents: ReadonlyMap<string, OfficeAgent>,
+): LibraryAsked | null {
   const found = latestRequest(room.posts, isSkillRequest);
   if (found === null) return null;
   const answer = askedOf(found, agents, ANSWER_MAX);
@@ -81,36 +84,36 @@ function gymAskedOf(room: OfficeRoom, agents: ReadonlyMap<string, OfficeAgent>):
 }
 
 /** Every workspace's team: its skills, who is at a skill now, and who can be asked for one. */
-export function gymTeams(
+export function libraryTeams(
   model: Pick<OfficeModel, "rooms" | "agents">,
   skills: SkillsResult | null,
-): GymTeam[] {
-  const teams: GymTeam[] = [];
+): LibraryTeam[] {
+  const teams: LibraryTeam[] = [];
   for (const room of model.rooms) {
     if (room.workspace === null) continue;
     teams.push({
       roomId: room.id,
       name: teamName({ name: room.name, project: room.subtitle }),
-      training: room.rows
+      atSkill: room.rows
         .filter((row) => row.step?.kind === "skill")
         .map((row) => agentTitle(row.agent)),
-      trainers: idleAgents(room).map((agent) => ({ agentId: agent.id, title: agentTitle(agent) })),
-      asked: gymAskedOf(room, model.agents),
+      writers: idleAgents(room).map((agent) => ({ agentId: agent.id, title: agentTitle(agent) })),
+      asked: libraryAskedOf(room, model.agents),
       skills: skills?.workspaces[room.id] ?? null,
     });
   }
   return teams;
 }
 
-function training(teams: readonly GymTeam[]): string[] {
-  return teams.flatMap((team) => team.training);
+function atSkill(teams: readonly LibraryTeam[]): string[] {
+  return teams.flatMap((team) => team.atSkill);
 }
 
-/** The gym in a few words, for the strip; null in an office without a team. */
-export function gymNote(teams: readonly GymTeam[]): HostNote | null {
+/** The library in a few words, for the strip; null in an office without a team. */
+export function libraryNote(teams: readonly LibraryTeam[]): HostNote | null {
   if (teams.length === 0) return null;
-  const at = training(teams).length;
-  return { text: at > 0 ? `${at} training` : "Teach a skill", tone: "muted" };
+  const at = atSkill(teams).length;
+  return { text: at > 0 ? `${at} at a skill` : "Teach a skill", tone: "muted" };
 }
 
 function count(n: number, one: string, many: string): string {
@@ -118,8 +121,8 @@ function count(n: number, one: string, many: string): string {
 }
 
 /** The card's first line: how many skills there are, and who is at one now. */
-export function gymSummary(
-  teams: readonly GymTeam[],
+export function librarySummary(
+  teams: readonly LibraryTeam[],
   skills: SkillsResult | null,
   failed = false,
 ): string {
@@ -131,7 +134,7 @@ export function gymSummary(
     skills.host.length === 0 && inTeams === 0
       ? "No skills on this host or in the teams' workspaces."
       : `${count(skills.host.length, "skill", "skills")} on this host, ${inTeams} in the teams' workspaces.`;
-  const at = training(teams);
+  const at = atSkill(teams);
   if (at.length === 0) return listed;
   return at.length === 1
     ? `${listed} ${at[0]} is at a skill now.`
@@ -139,7 +142,7 @@ export function gymSummary(
 }
 
 /** What the card says under its first line: what teaching a skill does. */
-export const GYM_HELP =
+export const LIBRARY_HELP =
   "Name what a skill should teach and an idle agent of the team writes it from its work in the workspace, as a folder with a SKILL.md. It is in the workspace's changes, to review before it is merged.";
 
 /** The folders a skill is in: "In .claude and .agents". */
@@ -150,12 +153,12 @@ export function skillWhere(skill: Pick<SkillInfo, "folders">): string {
 }
 
 /** The line under the button: who is asked, or why nobody can be. */
-export function trainHint(
-  team: Pick<GymTeam, "trainers">,
+export function askHint(
+  team: Pick<LibraryTeam, "writers">,
   chosen: string | null,
   wakesPaused: boolean,
 ): string {
-  if (team.trainers.length === 0 || chosen === null) {
+  if (team.writers.length === 0 || chosen === null) {
     return "No agent of this team is idle, so nobody can be asked.";
   }
   if (wakesPaused) return "Wake agents is off, so a request would wait. Turn it on to ask.";
