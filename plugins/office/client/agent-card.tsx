@@ -6,7 +6,7 @@ import type { AgentStatus, OfficeAgent } from "../shared/contracts.js";
 import { ActionButton, failureText } from "./action-button.js";
 import { reasonLabel } from "./attention-strip.js";
 import { contextLine } from "./context-text.js";
-import { agentMeta, agentTitle, answerableInOffice, attentionReason } from "./model.js";
+import { agentMeta, agentTask, agentTitle, answerableInOffice, attentionReason } from "./model.js";
 import { PermissionActions } from "./permission-actions.js";
 import type { OfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";
@@ -115,9 +115,11 @@ function AgentCardBody({
   // One accent button per sheet (docs/design.md section 3): while Approve is on it, Send is plain.
   const approving = agent.permissions.some((permission) => answerableInOffice(permission.kind));
   const context = contextLine(agent);
+  const task = agentTask(agent);
   return (
     <View style={styles.sheet}>
       <View style={styles.sheetStatus}>
+        {task ? <Text style={styles.sheetText}>{task}</Text> : null}
         <Text style={styles.muted}>
           {agentMeta(agent)} · {stateLabel(agent)}
         </Text>
