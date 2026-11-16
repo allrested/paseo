@@ -157,8 +157,8 @@ const api = {
    * Builds the office. `options`: plan ('pro' | 'cozy'), dark, colors (the app theme), and what
    * the scene tells Paseo: onSelect(id | null), onBoard(project | null) (a team's chip, or the
    * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
-   * (the server racks) and onToast(text). Throws when the world cannot be built (no WebGL, a
-   * module failed).
+   * (the server racks), onLibrary() (the library's chip and the bookshelf) and onToast(text).
+   * Throws when the world cannot be built (no WebGL, a module failed).
    */
   start(options = {}) {
     if (started) return;
@@ -170,6 +170,7 @@ const api = {
     onMachine = typeof options.onMachine === 'function' ? options.onMachine : null;
     host.machine = null;
     host.toast = (text) => options.onToast?.(text);
+    host.library = typeof options.onLibrary === 'function' ? () => options.onLibrary() : null;
     host.limits = () => limits;
     host.boardRows = () => boardRows;
     problem = (message) => options.onProblem?.(message);
@@ -198,6 +199,9 @@ const api = {
     });
     // (a place with an `open` has no card of upstream's: the whiteboard's chip opens Paseo's board)
     if (PLACES?.board) PLACES.board.open = () => host.board();
+    // (the library's chip and the bookshelf open Paseo's Library card, which has the skills; upstream's card there
+    // lists what was read since the office opened)
+    if (PLACES?.library && host.library) PLACES.library.open = () => host.library();
     // (upstream marks the lounge with its sparkle; the cup that marks who rests there says what the place is for)
     for (const place of Object.values(PLACES || {})) if (place.icon === 'sparkle') place.el?.querySelector('.z-ico')?.replaceChildren(icon('coffee'));
     showMachine(false);
