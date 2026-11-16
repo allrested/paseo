@@ -5,8 +5,10 @@ import type {
   PluginSessionOpenRequest,
   PluginSettingsState,
 } from "@getpaseo/plugin/server";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { expect, test } from "vitest";
+import { join } from "node:path";
+import { afterAll, expect, test } from "vitest";
 import { createOfficePlugin } from "./index.server.js";
 import { EMPTY_BOARDS, type BoardStore } from "./server/board-store.js";
 import { createFakeClock, settle } from "./server/fake-clock.js";
@@ -579,22 +581,32 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
   expect(clock.pending()).toBe(0);
 });
 
+const NOTES_FOLDER = await mkdtemp(join(tmpdir(), "office-notes-"));
+afterAll(() => rm(NOTES_FOLDER, { recursive: true, force: true }));
+
 /** Host settings with the notes folder set to a directory that exists. */
 const NOTES: SettingsState = {
   status: "ready",
   revision: "notes",
-  values: { agentTools: true, notesFolder: tmpdir(), notesTimeZone: "" },
+  values: { agentTools: true, notesFolder: NOTES_FOLDER, notesTimeZone: "" },
 };
 
-test("the bell's request starts one writer in the notes folder, and its good end archives it", async () => {
+/** The writer leaves the day's entry in the notes: the fake clock's day in Asia/Riyadh. */
+function writeEntry(): Promise<void> {
+  const text = "# Notes\n\n---\n\n## 11 November 2026\n\nB\n";
+  return writeFile(join(NOTES_FOLDER, "daily-standup-202611.md"), text, "utf8");
+}
+
+test("the bell's request starts one writer in the notes folder, and its good end with the entry archives it", async () => {
   const { recorded, writers, notesStore, context, clock, stop } = setup(async () => NOTES);
   const write = recorded.handlers.get("office.notes.write.request");
   expect(await write?.({}, context)).toEqual({ started: true });
   expect(await write?.({}, context)).toEqual({ started: false });
-  expect(writers.created).toEqual([`${tmpdir()} claude/opus Stand-up notes`]);
+  expect(writers.created).toEqual([`${NOTES_FOLDER} claude/opus Stand-up notes`]);
   expect(writers.prompts[0]).toContain("daily-standup-202611.md");
   expect(notesStore.kept?.writerId).toBe("writer-1");
 
+  await writeEntry();
   await recorded.hooks.get("agent.turn.after")?.(
     { agent: hookAgent("writer-1"), turnId: "t1", outcome: { kind: "completed" } },
     context,
@@ -650,7 +662,7 @@ test("a writer whose turn fails or is stopped is left, and its reason kept", asy
   await stop();
 });
 
-test("a writer closed by a graceful restart stays the office's: resumed it blocks the bell, and its end is recorded", async () => {
+test("a writer closed by a graceful restart stays the office's: resumed it blocks the bell, and its end with the entry is recorded", async () => {
   const { recorded, writers, notesStore, statuses, context, clock, stop } = setup(
     async () => NOTES,
   );
@@ -669,6 +681,7 @@ test("a writer closed by a graceful restart stays the office's: resumed it block
   statuses.set("writer-1", "running");
   expect(await write?.({}, context)).toEqual({ started: false });
   expect(writers.created).toHaveLength(1);
+  await writeEntry();
   await recorded.hooks.get("agent.turn.after")?.(
     { agent: hookAgent("writer-1"), turnId: "t2", outcome: { kind: "completed" } },
     context,

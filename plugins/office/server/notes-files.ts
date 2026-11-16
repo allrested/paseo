@@ -6,7 +6,7 @@ import type { PluginSettingsState } from "@getpaseo/plugin/server";
 import type { z } from "zod";
 import type { notesReadRpc } from "../shared/contracts.js";
 import type { officeHostSettings } from "../shared/settings.js";
-import { notesDay, notesFileName } from "./notes-prompt.js";
+import { notesDay, notesFileName, type NotesDay } from "./notes-prompt.js";
 
 /** A month's notes, `daily-standup-YYYYMM.md`; no other name is read. */
 const NOTES_FILE = /^daily-standup-(\d{6})\.md$/;
@@ -51,6 +51,15 @@ export async function readNotes(folder: string, month: string, fs: NotesFs): Pro
     previous: months.findLast((other) => other < month) ?? null,
     next: months.find((other) => other > month) ?? null,
   };
+}
+
+/**
+ * Whether the day's entry is in `folder`: its `## DD Month YYYY` header starts a line of the
+ * month's file. Read as the notes card reads, so only the file directly in the folder counts.
+ */
+export async function entryWritten(folder: string, day: NotesDay, fs: NotesFs): Promise<boolean> {
+  const { text } = await readNotes(folder, day.month, fs);
+  return text !== null && text.split("\n").some((line) => line.startsWith(`## ${day.header}`));
 }
 
 export interface NotesFilesPorts {
