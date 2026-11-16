@@ -26,13 +26,13 @@ import { HostSwitches } from "./host-switches.js";
 import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
-import { hostNote, type HostNote } from "./machine-text.js";
+import { hostNote, type HostNote } from "../shared/machine-text.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
   type OfficeModel,
   type OfficeRoom,
-} from "./model.js";
+} from "../shared/model.js";
 import type { FocusRequest } from "./focus-request.js";
 import { PixelOffice } from "./pixel/pixel-office.js";
 import { StructureView } from "./structure-view.js";

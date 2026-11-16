@@ -6,7 +6,7 @@ import {
   type Machine,
   type MachineEvent,
 } from "../shared/contracts.js";
-import { cleanupFailure } from "./machine-text.js";
+import { cleanupFailure } from "../shared/machine-text.js";
 
 const NO_INPUT = {};
 

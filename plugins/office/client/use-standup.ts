@@ -1,7 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import type { StripCard } from "./attention-strip.js";
-import type { OfficeModel } from "./model.js";
-import { STANDUP_ASK, standupNote, standupTeams, type StandupTeam } from "./standup-text.js";
+import type { OfficeModel } from "../shared/model.js";
+import {
+  STANDUP_ASK,
+  standupNote,
+  standupTeams,
+  type StandupTeam,
+} from "../shared/standup-text.js";
 import type { BoardActions } from "./use-board-actions.js";
 
 export interface Standup {

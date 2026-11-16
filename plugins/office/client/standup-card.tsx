@@ -11,7 +11,7 @@ import {
   standupText,
   teamName,
   type StandupTeam,
-} from "./standup-text.js";
+} from "../shared/standup-text.js";
 import type { OfficeStyles } from "./styles.js";
 
 interface TeamProps {

@@ -4,7 +4,7 @@ import { skillsRpc, type SkillsResult } from "../shared/contracts.js";
 import { failureText } from "./action-button.js";
 import type { StripCard } from "./attention-strip.js";
 import { libraryNote, libraryTeams, skillAsk, type LibraryTeam } from "./library-text.js";
-import type { OfficeModel } from "./model.js";
+import type { OfficeModel } from "../shared/model.js";
 import type { BoardActions } from "./use-board-actions.js";
 
 export interface Library {

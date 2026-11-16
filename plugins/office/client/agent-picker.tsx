@@ -3,7 +3,7 @@ import { Platform, Pressable, Text, View } from "react-native";
 import { TextInput } from "@getpaseo/plugin/client/ui";
 import { ActionButton } from "./action-button.js";
 import { NOBODY, pickerGroups, showsSearch } from "./agent-picker-text.js";
-import type { DotTone, OfficeRoom } from "./model.js";
+import type { DotTone, OfficeRoom } from "../shared/model.js";
 import type { OfficeStyles } from "./styles.js";
 import { focusById, listenForSpace } from "./web-env.web.js";
 

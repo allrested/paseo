@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { Machine, MachineAgent } from "../shared/contracts.js";
+import type { Machine, MachineAgent } from "./contracts.js";
 import {
   agentLine,
   agentRowLabel,

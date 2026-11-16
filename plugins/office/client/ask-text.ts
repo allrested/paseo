@@ -1,6 +1,6 @@
 import type { OfficeAgent, Post } from "../shared/contracts.js";
 import { USER_AUTHOR } from "../shared/names.js";
-import { agentTitle, type OfficeRoom } from "./model.js";
+import { agentTitle, type OfficeRoom } from "../shared/model.js";
 
 // The office asks an agent for something with a note on a board that names it: a review, a
 // skill. Nothing is stored beside the board, so the request and its answer are found again here.

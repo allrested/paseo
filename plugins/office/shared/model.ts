@@ -4,8 +4,8 @@ import type {
   OfficeSnapshot,
   OfficeWorkspace,
   Post,
-} from "../shared/contracts.js";
-import { LOBBY } from "../shared/names.js";
+} from "./contracts.js";
+import { LOBBY } from "./names.js";
 
 export const LOBBY_NAME = "Lobby";
 

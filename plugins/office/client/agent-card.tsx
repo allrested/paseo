@@ -6,7 +6,7 @@ import type { AgentStatus, OfficeAgent } from "../shared/contracts.js";
 import { ActionButton, failureText } from "./action-button.js";
 import { reasonLabel } from "./attention-strip.js";
 import { contextLine } from "./context-text.js";
-import { agentMeta, agentTitle, answerableInOffice, attentionReason } from "./model.js";
+import { agentMeta, agentTitle, answerableInOffice, attentionReason } from "../shared/model.js";
 import { PermissionActions } from "./permission-actions.js";
 import type { OfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";

@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
-import type { HostNote } from "./machine-text.js";
-import type { AttentionEntry, AttentionReason } from "./model.js";
+import type { HostNote } from "../shared/machine-text.js";
+import type { AttentionEntry, AttentionReason } from "../shared/model.js";
 import type { OfficeStyles } from "./styles.js";
 
 export function reasonLabel(reason: AttentionReason): string {

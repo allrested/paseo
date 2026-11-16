@@ -26,8 +26,8 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import type { Machine } from "../../shared/contracts.js";
 import type { FocusRequest } from "../focus-request.js";
-import { hostNote, type HostNote } from "../machine-text.js";
-import type { OfficeModel, OfficeRoom } from "../model.js";
+import { hostNote, type HostNote } from "../../shared/machine-text.js";
+import type { OfficeModel, OfficeRoom } from "../../shared/model.js";
 import {
   boardRoom,
   boardText,
