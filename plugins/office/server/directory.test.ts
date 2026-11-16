@@ -74,6 +74,19 @@ test("projects an agent with its parent and pending permissions", () => {
   );
 });
 
+test("an agent's stored sub-agent number and next are read when they are positive integers", () => {
+  expect(
+    projectAgent(
+      agentInput({ metadata: { "office.subagent.number": 2, "office.subagent.next": 5 } }),
+    ),
+  ).toEqual(officeAgent({ number: 2, next: 5 }));
+  for (const bad of ["2", 0, 1.5, -1, null]) {
+    expect(projectAgent(agentInput({ metadata: { "office.subagent.number": bad } }))).toEqual(
+      officeAgent({}),
+    );
+  }
+});
+
 test("a permission says what is asked: the command, the file, the address or the description", () => {
   const asked = (request: Partial<DirectoryPermissionInput>) =>
     projectAgent(
