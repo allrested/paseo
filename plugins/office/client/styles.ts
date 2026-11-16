@@ -157,6 +157,16 @@ export interface OfficeStyles {
   chipSelected: ViewStyle;
   chipText: TextStyle;
   chipTextSelected: TextStyle;
+  /** A form's row that opens a page: what it chooses, the choice and a chevron. */
+  pickerField: ViewStyle;
+  pickerFieldBody: ViewStyle;
+  /** The rows of a page of choices, and one of them: an agent, or nobody. */
+  pickerRows: ViewStyle;
+  pickerRow: ViewStyle;
+  pickerRowSelected: ViewStyle;
+  /** The page's search field: one line, as tall as a control. */
+  pickerSearch: TextStyle;
+  iconColor: string;
   scene: ViewStyle;
   sceneStatus: TextStyle;
   /** A line over a corner of the 3D office: it lies above the frame and takes no pointer. */
@@ -291,6 +301,20 @@ export function useOfficeStyles(
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface1,
+      // Clips the pressed fill to the rounded corners.
+      overflow: "hidden",
+    };
+    // The outline is there on every row, clear until the row is chosen, so choosing moves nothing.
+    const pickerRow: ViewStyle = {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: DOT_GAP,
+      minHeight: TOUCH_CONTROL,
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: "transparent",
       // Clips the pressed fill to the rounded corners.
       overflow: "hidden",
     };
@@ -572,6 +596,40 @@ export function useOfficeStyles(
       },
       chipText: { ...base, color: colors.foregroundMuted },
       chipTextSelected: { ...base, color: colors.foreground },
+      pickerField: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        minHeight: TOUCH_CONTROL,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+        overflow: "hidden",
+      },
+      pickerFieldBody: { flex: 1, minWidth: 0 },
+      pickerRows: { gap: 4 },
+      pickerRow,
+      // The chosen row differs by more than tone, as the chosen chip does: it has an outline.
+      pickerRowSelected: {
+        ...pickerRow,
+        backgroundColor: colors.surface2,
+        borderColor: colors.foregroundMuted,
+      },
+      pickerSearch: {
+        ...prompt,
+        minHeight: controlHeight,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+        color: colors.foreground,
+      },
+      iconColor: colors.foregroundMuted,
       scene: { flex: 1, minHeight: SCENE_MIN_HEIGHT },
       sceneStatus: { ...column, ...base, color: colors.foregroundMuted, padding: pad },
       sceneNote: {
