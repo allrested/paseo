@@ -43,6 +43,8 @@ describe("the vendored entry", () => {
     const script = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
 
     expect(script).toContain("PaseoOfficeWorld");
+    // The library's chip and the bookshelf tell Paseo, which opens its Library card.
+    expect(script).toContain("onLibrary");
     // The scene with three.js r160; a jump means a module the port leaves out came back in.
     expect(script.length).toBeGreaterThan(600_000);
     expect(script.length).toBeLessThan(1_200_000);

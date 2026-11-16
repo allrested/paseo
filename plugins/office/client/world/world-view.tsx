@@ -48,6 +48,8 @@ export interface WorldViewProps {
   machine: Machine | null;
   /** A tap on the server room: its chip, the racks, the wall screen or a server box. */
   onOpenMachine(): void;
+  /** A tap on the library: its chip or the bookshelf. */
+  onOpenLibrary(): void;
   /** The stand-up is open: the bell on the meeting table rings once. */
   meeting: boolean;
   /** The script could not load, the office could not start, or the WebGL context was lost. */
@@ -79,6 +81,7 @@ export function WorldView({
   onSelectBoard,
   machine,
   onOpenMachine,
+  onOpenLibrary,
   meeting,
   onProblem,
 }: WorldViewProps) {
@@ -98,6 +101,7 @@ export function WorldView({
     onSelectAgent,
     onSelectBoard,
     onOpenMachine,
+    onOpenLibrary,
     onProblem,
   });
   useEffect(() => {
@@ -109,6 +113,7 @@ export function WorldView({
       onSelectAgent,
       onSelectBoard,
       onOpenMachine,
+      onOpenLibrary,
       onProblem,
     };
   }, [
@@ -119,6 +124,7 @@ export function WorldView({
     onSelectAgent,
     onSelectBoard,
     onOpenMachine,
+    onOpenLibrary,
     onProblem,
   ]);
 
@@ -185,6 +191,10 @@ export function WorldView({
           onMachine: () => {
             focusApp();
             latest.current.onOpenMachine();
+          },
+          onLibrary: () => {
+            focusApp();
+            latest.current.onOpenLibrary();
           },
           onProblem: (message) => latest.current.onProblem(message),
         });

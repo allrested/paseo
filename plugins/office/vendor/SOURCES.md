@@ -57,6 +57,9 @@ entry: builds the page, starts the modules in upstream's order, sets `PaseoOffic
 `paseo-host.js` (what the stand-ins read and call), `paseo-style.js` (the page's stylesheet, in
 Paseo's design language), and `paseo-modules.js` (generated: the kept modules in start-up order).
 
+The library's place card is not shown: `paseo-entry.js` gives the place an `open`, so its chip
+and the bookshelf open Paseo's Library card.
+
 ### What the scene is told
 
 Paseo sends the scene who is there and what kind of thing each person does (`client/world/

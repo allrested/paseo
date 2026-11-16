@@ -16,6 +16,8 @@ export interface Library {
   /** The strip's card; null in an office without a team. */
   entry: StripCard | null;
   open: boolean;
+  /** Opens the card: the strip's entry does, and the library on the 3D floor. */
+  show(): void;
   /** Reads the skills again; a failure is kept in `readFailure`. */
   read(): Promise<void>;
   /** Posts the request for a skill on the team's board, naming the agent. */
@@ -38,7 +40,7 @@ export function useLibrary({ model, post, live, showBoard }: LibraryInput): Libr
   const [opened, setOpened] = useState(false);
   const [skills, setSkills] = useState<SkillsResult | null>(null);
   const [readFailure, setReadFailure] = useState<string | null>(null);
-  const onOpen = useCallback(() => setOpened(true), []);
+  const show = useCallback(() => setOpened(true), []);
   const close = useCallback(() => setOpened(false), []);
   const read = useCallback(async () => {
     setReadFailure(null);
@@ -56,8 +58,8 @@ export function useLibrary({ model, post, live, showBoard }: LibraryInput): Libr
   const teams = useMemo(() => libraryTeams(model, skills), [model, skills]);
   const entry = useMemo((): StripCard | null => {
     const note = libraryNote(teams);
-    return note === null ? null : { title: "Library", note, onOpen };
-  }, [teams, onOpen]);
+    return note === null ? null : { title: "Library", note, onOpen: show };
+  }, [teams, show]);
   const teach = useCallback(
     async (team: LibraryTeam, agentId: string, topic: string) => {
       const provider = model.agents.get(agentId)?.provider ?? "";
@@ -77,5 +79,5 @@ export function useLibrary({ model, post, live, showBoard }: LibraryInput): Libr
     },
     [showBoard],
   );
-  return { teams, skills, readFailure, entry, open, read, teach, openBoard, close };
+  return { teams, skills, readFailure, entry, open, show, read, teach, openBoard, close };
 }
