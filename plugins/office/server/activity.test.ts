@@ -102,6 +102,21 @@ test("a tool the host has no kind for is placed by its name", () => {
   expect(kindOf(undefined, { name: "Bash" })).toBe("tool");
 });
 
+test("opening a skill, reading or writing a SKILL.md, or a command that names one is a skill", () => {
+  expect(
+    kindOf({ type: "plain_text", label: "brainstorming", icon: "sparkles" }, { name: "Skill" }),
+  ).toBe("skill");
+  expect(kindOf({ type: "read", filePath: "/home/me/.claude/skills/release/SKILL.md" })).toBe(
+    "skill",
+  );
+  expect(kindOf({ type: "write", filePath: ".claude/skills/release/SKILL.md" })).toBe("skill");
+  expect(kindOf({ type: "edit", filePath: "SKILL.md" })).toBe("skill");
+  expect(kindOf({ type: "shell", command: "cat ~/.agents/skills/release/SKILL.md" })).toBe("skill");
+  // (a file that only ends like one, and a test run that mentions one, are not)
+  expect(kindOf({ type: "read", filePath: "docs/MY-SKILL.md" })).toBe("read");
+  expect(kindOf({ type: "shell", command: "npx vitest run skills/SKILL.md.test.ts" })).toBe("test");
+});
+
 test("only the newest item counts, and only when it is a tool call", () => {
   expect(describeStep([call({ type: "read", filePath: "a" }), { type: "assistant_message" }])).toBe(
     null,

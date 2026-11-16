@@ -61,6 +61,8 @@ export interface Hub {
    * and while no office is open, when there is no directory.
    */
   script(workspaceId: string, name: string): WorkspaceScript | null;
+  /** The ids of the workspaces the directory last reported; none while no office is open. */
+  workspaceIds(): string[];
   stop(): Promise<void>;
 }
 
@@ -305,6 +307,9 @@ export function createHub(ports: HubPorts): Hub {
     script(workspaceId, name) {
       const workspace = reported.workspaces.find((candidate) => candidate.id === workspaceId);
       return workspace?.scripts?.find((candidate) => candidate.name === name) ?? null;
+    },
+    workspaceIds() {
+      return reported.workspaces.map((workspace) => workspace.id);
     },
     contextReset(agentId) {
       const before = reported.agents.find((agent) => agent.id === agentId)?.context?.usedTokens;

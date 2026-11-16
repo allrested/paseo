@@ -126,6 +126,7 @@ export function worldBoardRows(
 const STEP_EVENT: Readonly<Record<ActivityKind, WorldEventType>> = {
   read: "read",
   search: "grep",
+  skill: "skill",
   edit: "edit",
   write: "write",
   command: "bash",

@@ -26,7 +26,7 @@ interface ChipProps {
 }
 
 /** One choice of a set: a radio drawn as a chip. */
-function Chip({ label, value, selected, onSelect, styles }: ChipProps) {
+export function Chip({ label, value, selected, onSelect, styles }: ChipProps) {
   const press = useCallback(() => onSelect(value), [onSelect, value]);
   // Enter presses any Pressable; Space, the key that picks a radio, only a button.
   const id = useId();

@@ -13,6 +13,7 @@ export const USER_AUTHOR = "user";
 export const ACTIVITY_KINDS = [
   "read",
   "search",
+  "skill",
   "edit",
   "write",
   "command",

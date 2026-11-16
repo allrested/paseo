@@ -1,5 +1,12 @@
 import type { OfficeAgent, Post, WorkspacePullRequest } from "../shared/contracts.js";
-import { USER_AUTHOR } from "../shared/names.js";
+import {
+  askedOf as answerOf,
+  idleAgents,
+  isUserRequest,
+  latestRequest,
+  type AskAgent,
+  type Asked,
+} from "./ask-text.js";
 import type { HostNote } from "./machine-text.js";
 import { agentTitle, type OfficeModel, type OfficeRoom } from "./model.js";
 import { pullRequestLinkText, teamName } from "./standup-text.js";
@@ -27,18 +34,10 @@ const REVIEW_MAX = 600;
 /** How a request for a review starts on the board: the office finds its own requests by it. */
 export const REVIEW_MARK = "Review request: ";
 
-export interface ReviewAgent {
-  agentId: string;
-  title: string;
-}
+export type ReviewAgent = AskAgent;
 
 /** The newest request for a review of a pull request, and the note that answered it. */
-export interface ReviewAsked extends ReviewAgent {
-  /** The asked agent's first note after the request; null while there is none. */
-  text: string | null;
-  /** The note was cut: the board has the rest. */
-  cut: boolean;
-}
+export type ReviewAsked = Asked;
 
 export interface ReviewRow {
   /** The pull request's room: its workspace's id. */
@@ -87,7 +86,7 @@ export function reviewAsk(request: WorkspacePullRequest): string {
 }
 
 function isRequestFor(post: Post, url: string): boolean {
-  if (post.kind !== "note" || post.author !== USER_AUTHOR || post.to === undefined) return false;
+  if (!isUserRequest(post)) return false;
   const [first, second] = post.text.split("\n");
   return first !== undefined && first.startsWith(REVIEW_MARK) && second === url;
 }
@@ -97,36 +96,16 @@ function askedOf(
   url: string,
   agents: ReadonlyMap<string, OfficeAgent>,
 ): ReviewAsked | null {
-  const request = room.posts
-    .filter((post) => isRequestFor(post, url))
-    .reduce<Post | null>((latest, post) => (latest && latest.seq > post.seq ? latest : post), null);
-  if (request === null || request.to === undefined) return null;
-  const agent = agents.get(request.to);
-  const answer = room.posts
-    .filter((post) => post.kind === "note" && post.author === request.to && post.seq > request.seq)
-    .reduce<Post | null>((first, post) => (first && first.seq < post.seq ? first : post), null);
-  const text = answer?.text.trim() ?? null;
-  const cut = text !== null && text.length > REVIEW_MAX;
-  return {
-    agentId: request.to,
-    title: agent ? agentTitle(agent) : "An agent that left",
-    text: text !== null && cut ? `${text.slice(0, REVIEW_MAX - 1)}…` : text,
-    cut,
-  };
+  const found = latestRequest(room.posts, (post) => isRequestFor(post, url));
+  return found === null ? null : answerOf(found, agents, REVIEW_MAX);
 }
 
 function reviewerOf(room: OfficeRoom, asked: ReviewAsked | null): ReviewAgent | null {
   const present = new Set(room.rows.map((row) => row.agent.id));
   // A request without an answer is still with its agent, as long as that agent is here.
   if (asked !== null && asked.text === null && present.has(asked.agentId)) return null;
-  const idle = room.rows
-    .map((row) => row.agent)
-    .filter((agent) => agent.status === "idle" && agent.permissions.length === 0);
-  const newest = idle.reduce<OfficeAgent | null>(
-    (latest, agent) => (latest && latest.createdAt >= agent.createdAt ? latest : agent),
-    null,
-  );
-  return newest === null ? null : { agentId: newest.id, title: agentTitle(newest) };
+  const [newest] = idleAgents(room);
+  return newest === undefined ? null : { agentId: newest.id, title: agentTitle(newest) };
 }
 
 /** The branch and where it goes: "fix into main". Null without a branch. */

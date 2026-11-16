@@ -638,8 +638,8 @@ removing the frame ends it. Keys pressed inside a frame do not reach the app's s
 press on the scene, and anything the scene opens in the app (the agent card, a board), gives
 keyboard focus back to the app's window. The floor has 12 desks. With more agents, the ones that
 need the user and the ones at work sit first, and a line over the scene says how many are only in
-the list. A step sends its person to that work's place: the library for a read or a search, the
-desk for an edit, the server room for a command, the test board for a test run. A commit prints a
+the list. A step sends its person to that work's place: the library for a read, a search or a
+skill, the desk for an edit, the server room for a command, the test board for a test run. A commit prints a
 page, and a push or a deploy launches the rocket. The reads are 5 s apart, so a tool call that
 starts and ends between two of them is never shown. With a host reading, the server room's chip,
 its racks and the wall screen open the Host card, the wall screen shows memory and CPU, an agent
@@ -665,7 +665,7 @@ pixels, 2 on a phone and up to 4 on a wide surface; the room is as wide as the s
 down, never sideways. It has 40 desks: more would make a phone lay out thousands more views, and
 the line under the room says how many agents are only in the list.
 
-The places are the 3D floor's: the library for a read or a search, the racks for a command or a
+The places are the 3D floor's: the library for a read, a search or a skill, the racks for a command or a
 test run, the whiteboard for a plan or a subagent, the pad for a push or a deploy, which launches
 the rocket, and the desk for everything else. Whoever needs you stays at the desk, where a tap
 opens the card. Where a person stands follows from the agent's state alone
@@ -742,6 +742,19 @@ newest 40 lines that have something on them, each cut at 400 characters
 (`plugins/office/server/script-log.ts`). Nothing of a log is kept, and no agent tool reads one. A
 check's own log stays on the forge: no SDK call fetches it. Design:
 [QA](superpowers/specs/2026-11-16-office-qa-design.md).
+
+The Gym entry is in the strip while the office has a team. The library is the gym: an agent whose
+step opens a skill (Claude Code's `Skill` tool), reads or writes a `SKILL.md`, or runs a command
+that names one goes there, and the step's kind is `skill`. The card lists each workspace's skills
+from its `.claude/skills`, `.agents/skills` and `.codex/skills`, and the host's from the Claude
+config folder's `skills/`, `~/.agents/skills` and `~/.codex/skills`, the folders Paseo installs
+its own skills to. They are read through `office.skills.request` each time the card opens; the
+server reads only those folders and finds a workspace's folder through the SDK, so a client sends
+no path (`plugins/office/server/skills.ts`). "Teach a skill" posts a note to an idle agent of the
+team, as a review request does: its first line starts with `Skill request:` and names what the
+skill teaches, and the agent writes the skill into the workspace, where it is in the changes to
+review. The office installs and removes no skill: that is the `default-skills` built-in's Skills
+screen. Design: [the gym](superpowers/specs/2026-11-16-office-gym-design.md).
 
 The `design` built-in keeps a workspace's design files on the host's own FigCraft server (deploy
 it with [docker.md](docker.md#figcraft-design-mode)). It is off until `FIGCRAFT_URL` names that

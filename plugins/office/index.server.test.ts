@@ -150,6 +150,7 @@ function setup(read: () => Promise<SettingsState>) {
       stop: (pid) => void stopped.push(pid),
       sleep: async () => undefined,
     },
+    skillFolders: [{ label: ".claude", path: "/nonexistent-skills" }],
   });
   async function open(
     overrides: Partial<PluginSessionOpenRequest> = {},
@@ -342,7 +343,18 @@ test("a script's log is refused while no office is open, when the host has no di
   await stop();
 });
 
-test("the entry serves the office state, the 3D page script, the machine, the janitor, a script's log and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the skills are read from the host's folders, and no workspace's while no office is open", async () => {
+  const { recorded, context, stop } = setup(async () => ON);
+  const skills = recorded.handlers.get("office.skills.request");
+  expect(await skills?.({}, context)).toEqual({
+    host: [],
+    workspaces: {},
+    readAt: "2026-11-11T09:00:00.000Z",
+  });
+  await stop();
+});
+
+test("the entry serves the office state, the 3D page script, the machine, the janitor, a script's log, the skills and the four board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
@@ -352,6 +364,7 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "office.machine.cleanup.request",
     "office.janitor.request",
     "office.script.log.request",
+    "office.skills.request",
     "office.post.request",
     "office.update.request",
     "office.delete.request",
