@@ -11,6 +11,7 @@ import {
   liveHubPorts,
   liveJanitorPorts,
   liveScriptLogPorts,
+  liveSkillsPorts,
 } from "./server/live-ports.js";
 import { cleanUpAgent } from "./server/machine/cleanup.js";
 import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.js";
@@ -18,8 +19,9 @@ import { createMachineReader } from "./server/machine/machine.js";
 import { createMachineWatch } from "./server/machine/watch.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
-import { boardsFile } from "./server/paths.js";
+import { boardsFile, hostSkillFolders, type SkillFolder } from "./server/paths.js";
 import { readScriptLog } from "./server/script-log.js";
+import { readSkills } from "./server/skills.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
   cleanupRpc,
@@ -30,6 +32,7 @@ import {
   postRpc,
   scriptLogRpc,
   setWakesPausedRpc,
+  skillsRpc,
   updateRpc,
   worldRpc,
 } from "./shared/contracts.js";
@@ -51,6 +54,8 @@ export interface OfficePluginDeps {
   world: WorldScript | null;
   /** Where the host's processes are read, and how one is asked to end. */
   machine: MachineHost;
+  /** The host's skills folders the gym lists. */
+  skillFolders: readonly SkillFolder[];
 }
 
 export interface MachineHost {
@@ -101,6 +106,7 @@ export function createOfficePlugin(
 
   const janitorPorts = liveJanitorPorts(holder);
   const logPorts = liveScriptLogPorts(holder, hub, () => deps.clock.now());
+  const skillsPorts = liveSkillsPorts(holder, hub, deps.skillFolders, () => deps.clock.now(), log);
 
   const settings = server.registerSettings(officeHostSettings);
 
@@ -153,6 +159,10 @@ export function createOfficePlugin(
   server.handle(scriptLogRpc, (input, context) => {
     holder.remember(context.paseo);
     return guarded("script log", () => readScriptLog(logPorts, input.workspaceId, input.script));
+  });
+  server.handle(skillsRpc, (_input, context) => {
+    holder.remember(context.paseo);
+    return guarded("skills", () => readSkills(skillsPorts));
   });
   server.handle(postRpc, (input, context) => {
     holder.remember(context.paseo);
@@ -260,5 +270,6 @@ export default function contribute(
       stop: (pid) => void process.kill(pid, "SIGTERM"),
       sleep: (ms) => delay(ms, undefined, { ref: false }),
     },
+    skillFolders: hostSkillFolders(process.env, homedir()),
   });
 }

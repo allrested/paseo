@@ -42,6 +42,8 @@ describe("standingOf", () => {
     const at = (kind: ActivityStep["kind"]) => standingOf(session("a"), step(kind), false, false);
     expect(at("read")).toEqual({ place: "library", icon: "read", screen: "code" });
     expect(at("search")).toEqual({ place: "library", icon: "search", screen: "code" });
+    // (the library is the gym: a skill is opened there, with the book that reading has)
+    expect(at("skill")).toEqual({ place: "library", icon: "read", screen: "code" });
     expect(at("command")).toEqual({ place: "racks", icon: "command", screen: "code" });
     expect(at("test")).toEqual({ place: "racks", icon: "test", screen: "code" });
     expect(at("plan")).toEqual({ place: "board", icon: "plan", screen: "code" });

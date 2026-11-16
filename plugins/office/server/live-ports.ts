@@ -5,7 +5,9 @@ import { wakeTargetOf } from "./mention-queue.js";
 import type { OfficeAgentPorts } from "./office.js";
 import { openPaseoDirectory } from "./paseo-directory.js";
 import type { PaseoHolder } from "./paseo-holder.js";
+import type { SkillFolder } from "./paths.js";
 import type { ScriptLogPorts } from "./script-log.js";
+import { nodeSkillFiles, type SkillsPorts } from "./skills.js";
 import type { Timers } from "./timers.js";
 
 /** Hub ports on the daemon's own API. The holder is set before the first attach. */
@@ -81,6 +83,27 @@ export function liveJanitorPorts(holder: PaseoHolder): JanitorPorts {
       return commands.map((command) => command.name);
     },
     send: (agentId, text) => ref(agentId).send(text),
+  };
+}
+
+/** Skill ports on the daemon's own disk and API; the holder is set by the handler that uses them. */
+export function liveSkillsPorts(
+  holder: PaseoHolder,
+  hub: Pick<Hub, "workspaceIds">,
+  hostFolders: readonly SkillFolder[],
+  now: () => number,
+  log: (message: string) => void,
+): SkillsPorts {
+  return {
+    files: nodeSkillFiles,
+    hostFolders,
+    workspaceIds: () => hub.workspaceIds(),
+    async workspaceFolder(workspaceId) {
+      const snapshot = await holder.require().workspaces.ref(workspaceId).refresh();
+      return snapshot?.workspaceDirectory ?? snapshot?.projectRootPath ?? null;
+    },
+    now,
+    log,
   };
 }
 

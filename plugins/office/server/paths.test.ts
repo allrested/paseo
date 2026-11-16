@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { boardsFile, officeDir, paseoHome } from "./paths.js";
+import {
+  boardsFile,
+  hostSkillFolders,
+  officeDir,
+  paseoHome,
+  workspaceSkillFolders,
+} from "./paths.js";
 
 const HOME = "/home/u";
 
@@ -13,4 +19,24 @@ test("keeps the office's files under PASEO_HOME/office", () => {
   const env = { PASEO_HOME: "/srv/paseo" };
   expect(officeDir(env, HOME)).toBe("/srv/paseo/office");
   expect(boardsFile(env, HOME)).toBe("/srv/paseo/office/boards.json");
+});
+
+test("reads the host's skills from the Claude config folder and Paseo's two other homes", () => {
+  expect(hostSkillFolders({}, HOME)).toEqual([
+    { label: ".claude", path: "/home/u/.claude/skills" },
+    { label: ".agents", path: "/home/u/.agents/skills" },
+    { label: ".codex", path: "/home/u/.codex/skills" },
+  ]);
+  expect(hostSkillFolders({ CLAUDE_CONFIG_DIR: "~/work-claude" }, HOME)[0]).toEqual({
+    label: ".claude",
+    path: "/home/u/work-claude/skills",
+  });
+});
+
+test("reads a workspace's skills from the same three folders inside it", () => {
+  expect(workspaceSkillFolders("/repo")).toEqual([
+    { label: ".claude", path: "/repo/.claude/skills" },
+    { label: ".agents", path: "/repo/.agents/skills" },
+    { label: ".codex", path: "/repo/.codex/skills" },
+  ]);
 });

@@ -210,6 +210,13 @@ describe("what changed, as things the people do", () => {
     expect(worldEvents(null, at(2000))).toEqual([]);
   });
 
+  it("sends an agent at a skill to upstream's skill action, at the library", () => {
+    const running = [agent("1", { status: "running" })];
+    expect(worldEvents(null, people(running, { "1": step("skill") }))).toEqual([
+      { sess: "1", type: "skill" },
+    ]);
+  });
+
   it("sends a working agent to the place of each new tool call", () => {
     const running = [agent("1", { status: "running" })];
     const reading = people(running, { "1": step("read") });
