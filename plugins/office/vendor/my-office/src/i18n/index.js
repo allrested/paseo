@@ -43,6 +43,12 @@ const OURS = {
   'props.gametv.hint': 'Call two free people over for a match',
   'props.karaoke.hint': 'Send someone free in to sing a song',
   'props.karaoke.idle': 'The box is free',
+  // the lively floor (paseo-leisure.js): what someone says on the way to a rest of their own
+  'paseo.leisure.nap': 'Quick nap',
+  'paseo.leisure.fish': 'Feeding the fish',
+  'paseo.leisure.arcade': 'One round at the arcade',
+  'paseo.leisure.cup': 'Making a coffee',
+  'paseo.leisure.wc': 'Back in a minute',
 };
 const get = (key) => { if (key in OURS) return OURS[key]; let o = en; for (const k of key.split('.')) { if (o == null || typeof o !== 'object') return undefined; o = o[k]; } return o; };
 const EMOJI = /\s*(?![©®™])\p{Extended_Pictographic}[\uFE0F\u200D\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}]*/gu;

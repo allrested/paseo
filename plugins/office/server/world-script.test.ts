@@ -47,6 +47,10 @@ describe("the vendored entry", () => {
     expect(script).toContain("onLibrary");
     // A deploy that failed has its own line in the bubble.
     expect(script).toContain("paseo.deploy.failed");
+    // The lively floor: what someone says on the way to the fish, and Paseo's schedule itself
+    // (the station of someone it stopped for the bell).
+    expect(script).toContain("Feeding the fish");
+    expect(script).toContain('.station="leisure"');
     // Upstream's four games are in: pool, the TV matches, foosball and karaoke.
     for (const line of ["billiards", "tv", "foos", "karaoke"]) {
       expect(script).toContain(`people.${line}.invite`);

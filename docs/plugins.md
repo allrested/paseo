@@ -652,7 +652,14 @@ room under a red light. The paper on a desk and in its bin is the agent's contex
 it from 85%. When a context falls to less than half of what it was, by a compaction or a new
 conversation, the person carries the paper to the shredder. Opening the stand-up rings the bell
 on the meeting table: everyone the scene counts as free walks there and says what they are on.
-Designs:
+From 08:00 to 21:00 by the device's clock an agent at rest does not stay asleep at its desk: after
+30 to 90 seconds there it gets up for a game of pool, foosball or the games TV with another
+resting agent, for karaoke, a nap on the sofa, the fish, the arcade, a cup in the dining room or
+the restroom, never the same thing twice running, and work calls it back at once. After two hours
+of rest the gaps are 10 to 20 minutes. The games are upstream's, and Paseo's schedule
+(`vendor/my-office/src/office/paseo-leisure.js`) only starts them; it starts nothing at night,
+during a gathering or with reduced motion. Designs:
+[the lively floor](superpowers/specs/2026-11-16-office-lively-floor-design.md),
 [the floor](superpowers/specs/2026-11-16-office-my-office-port-design.md),
 [the places](superpowers/specs/2026-11-16-office-activity-places-design.md),
 [the host](superpowers/specs/2026-11-16-office-server-care-design.md),

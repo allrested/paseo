@@ -19,9 +19,12 @@ import { TYPE_ICON, icon } from './ui/icons.js';
 import { closeSession, openSession } from './ui/session-drawer.js';
 import { setMacSnap } from './ui/mac-drawer.js';
 import { PLACES } from './interact/place-chips.js';
+import { PROPS } from './interact/props.js';
 import { closePlace } from './interact/place-cards.js';
 import { OFFICE_MARK, PRO_FX } from './world/pro/pieces.js';
 import { SIGN, drawSign } from './paseo-sign.js';
+import { ringWithEveryone, updateLeisure } from './paseo-leisure.js';
+import { everyFrame } from './life/nap.js';
 import { dropSub, sessions, spawnSub, subAct, subs, workers } from './people/workers.js';
 import { director } from './people/director.js';
 import { STATIONS } from './people/navigation.js';
@@ -242,6 +245,10 @@ const api = {
     if (PLACES?.library && host.library) PLACES.library.open = () => host.library();
     // (upstream marks the lounge with its sparkle; the cup that marks who rests there says what the place is for)
     for (const place of Object.values(PLACES || {})) if (place.icon === 'sparkle') place.el?.querySelector('.z-ico')?.replaceChildren(icon('coffee'));
+    // (the bell on the meeting table: whoever is at a solo activity stops for it, as for the stand-up card's bell)
+    const bell = PROPS.get('bell');
+    if (bell) { const ring = bell.act; bell.act = () => ringWithEveryone(ring); }
+    everyFrame(updateLeisure);
     showMachine(false);
     showBrand(options.brand);
     // (the tag over the boxes left behind opens the panel; upstream listens for its click already)
@@ -311,14 +318,15 @@ const api = {
   },
   /**
    * A stand-up: upstream's meeting bell, with a stand-up's opening line. Everyone free walks to the meeting table and
-   * says what they are on. Upstream says in a toast when nobody is free; Paseo's stand-up card is open then and says
-   * who is at work, so that toast is not passed on.
+   * says what they are on; whoever is at a solo activity of the lively floor stops for it, and a game is played out.
+   * Upstream says in a toast when nobody is free; Paseo's stand-up card is open then and says who is at work, so that
+   * toast is not passed on.
    */
   meet() {
     if (!started || stopped) return;
     const toast = host.toast;
     host.toast = () => {};
-    try { ringBell(tr('people.meet.standup')); } finally { host.toast = toast; }
+    try { ringWithEveryone(() => ringBell(tr('people.meet.standup'))); } finally { host.toast = toast; }
   },
   /** Usage windows of the accounts in use: [{ key, pct, resetsAt }]. */
   setLimits(list) { limits = Array.isArray(list) ? list : []; },
