@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { UsageInput } from "../shared/input.js";
 import { z } from "zod";
 import {
@@ -12,6 +15,7 @@ import {
 
 const BDDEVLAB_USAGE_URL = "https://api.bddevlab.online/api/usage/token/";
 const BDDEVLAB_API_KEY = "BDDEVLAB_API_KEY";
+const BDDEVLAB_HOST = "api.bddevlab.online";
 
 /**
  * The gateway denominates everything in internal quota units and its own dashboard
@@ -42,22 +46,115 @@ function toCredits(quota: number | undefined): number | null {
   return typeof quota === "number" ? quota / QUOTA_PER_CREDIT : null;
 }
 
+type Env = Record<string, string | undefined>;
+
+/** A provider entry whose `env` points Claude Code at the gateway: its id and its token. */
+interface GatewayEntry {
+  id: string;
+  token: string;
+}
+
+const ProviderEntriesSchema = z.object({
+  agents: z
+    .object({
+      providers: z.record(
+        z.string(),
+        z.object({ env: z.record(z.string(), z.string()).optional() }).passthrough(),
+      ),
+    })
+    .partial()
+    .optional(),
+});
+
+function isGateway(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    return new URL(baseUrl).host === BDDEVLAB_HOST;
+  } catch {
+    return false;
+  }
+}
+
+function tokenOf(env: Env): string | undefined {
+  return env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || undefined;
+}
+
+/** `$PASEO_HOME/config.json`; `PASEO_HOME` defaults to `~/.paseo`, and `~` expands. */
+function configPath(env: Env): string {
+  const home = env.PASEO_HOME?.trim() || "~/.paseo";
+  const expanded = home === "~" ? homedir() : home.replace(/^~(?=\/)/, homedir());
+  return join(resolve(expanded), "config.json");
+}
+
 /**
- * The agent's provider is the CLI running it, which is not always who bills the tokens: an
- * agent on `opencode` with model `bddevlab/claude-opus-5` spends a BDDevLab balance. Model ids
- * carry the gateway as the segment before the slash, so a session on any CLI matches by model.
+ * The host config's provider entries that send Claude Code to the gateway with a token of their
+ * own. A host without the file, or one the schema does not read, has none.
  */
-export async function discover(scope: UsageScope): Promise<UsageAccount[]> {
-  if (scope.kind === "session" && !scope.model?.startsWith("bddevlab/")) return [];
-  if (!process.env[BDDEVLAB_API_KEY]) return [];
-  return [{ key: "default", input: { store: "env", locator: BDDEVLAB_API_KEY } }];
+async function gatewayEntries(env: Env): Promise<GatewayEntry[]> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(configPath(env), "utf8"));
+  } catch {
+    return [];
+  }
+  const parsed = ProviderEntriesSchema.safeParse(raw);
+  if (!parsed.success) return [];
+  const entries: GatewayEntry[] = [];
+  for (const [id, entry] of Object.entries(parsed.data.agents?.providers ?? {})) {
+    const token = entry.env && tokenOf(entry.env);
+    if (entry.env && token && isGateway(entry.env.ANTHROPIC_BASE_URL)) entries.push({ id, token });
+  }
+  return entries;
+}
+
+function entryAccount(entry: GatewayEntry): UsageAccount {
+  return {
+    key: `provider:${entry.id}`,
+    label: entry.id,
+    input: { store: "provider", locator: entry.id },
+  };
+}
+
+const DAEMON_ACCOUNT: UsageAccount = {
+  key: "default",
+  input: { store: "env", locator: BDDEVLAB_API_KEY },
+};
+
+/**
+ * Two ways to spend a BDDevLab balance. An agent on `opencode` with model `bddevlab/claude-opus-5`
+ * bills the daemon's `BDDEVLAB_API_KEY`: the model id carries the gateway as the segment before
+ * the slash. A Claude Code profile whose entry sets `ANTHROPIC_BASE_URL` to the gateway bills that
+ * entry's own token, and its model ids have no prefix, so the session is matched by the endpoint
+ * and token it was launched with. The input names the entry, never the token.
+ */
+export async function discover(
+  scope: UsageScope,
+  daemonEnv: Env = process.env,
+): Promise<UsageAccount[]> {
+  const hasKey = Boolean(daemonEnv[BDDEVLAB_API_KEY]);
+  if (scope.kind === "global") {
+    const entries = (await gatewayEntries(daemonEnv)).map(entryAccount);
+    return hasKey ? [DAEMON_ACCOUNT, ...entries] : entries;
+  }
+  if (scope.model?.startsWith("bddevlab/")) return hasKey ? [DAEMON_ACCOUNT] : [];
+  if (!isGateway(scope.env.ANTHROPIC_BASE_URL)) return [];
+  const token = tokenOf(scope.env);
+  if (!token) return [];
+  const entry = (await gatewayEntries(daemonEnv)).find((candidate) => candidate.token === token);
+  return entry ? [entryAccount(entry)] : [];
+}
+
+async function tokenFor(input: UsageInput, daemonEnv: Env): Promise<string | undefined> {
+  if (input.store === "env") return daemonEnv[input.locator];
+  return (await gatewayEntries(daemonEnv)).find((entry) => entry.id === input.locator)?.token;
 }
 
 export async function fetchUsage(
   input: UsageInput,
   fetchApi: typeof fetch = fetch,
+  daemonEnv: Env = process.env,
 ): Promise<UsageReport> {
-  const token = process.env[input.locator];
+  const token = await tokenFor(input, daemonEnv);
   if (!token) throw new Error("BDDevLab login store no longer exists");
 
   const res = await fetchApi(BDDEVLAB_USAGE_URL, {

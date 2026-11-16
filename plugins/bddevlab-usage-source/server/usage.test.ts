@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discover, fetchUsage } from "./usage.js";
 
@@ -93,25 +96,142 @@ describe("bddevlab usage source", () => {
     ).toEqual({ status: "unavailable", problem: { kind: "rejected", status: 401 } });
   });
 
+  const noHome = () => ({ ...process.env, PASEO_HOME: join(tmpdir(), "bddevlab-usage-no-home") });
+
   it("discovers nothing without BDDEVLAB_API_KEY", async () => {
-    expect(await discover({ kind: "global" })).toEqual([]);
+    expect(await discover({ kind: "global" }, noHome())).toEqual([]);
   });
 
   it("follows sessions whose model is billed through the gateway, whatever CLI runs them", async () => {
     process.env.BDDEVLAB_API_KEY = "bd_test_token";
     const account = { key: "default", input };
-    expect(await discover({ kind: "global" })).toEqual([account]);
+    expect(await discover({ kind: "global" }, noHome())).toEqual([account]);
     expect(
-      await discover({
-        kind: "session",
-        provider: "opencode",
-        model: "bddevlab/claude-opus-5",
-        env: {},
-      }),
+      await discover(
+        {
+          kind: "session",
+          provider: "opencode",
+          model: "bddevlab/claude-opus-5",
+          env: {},
+        },
+        noHome(),
+      ),
     ).toEqual([account]);
     expect(
-      await discover({ kind: "session", provider: "opencode", model: "claude-opus-5", env: {} }),
+      await discover(
+        { kind: "session", provider: "opencode", model: "claude-opus-5", env: {} },
+        noHome(),
+      ),
     ).toEqual([]);
-    expect(await discover({ kind: "session", provider: "claude", env: {} })).toEqual([]);
+    expect(await discover({ kind: "session", provider: "claude", env: {} }, noHome())).toEqual([]);
+  });
+});
+
+describe("a provider entry that points Claude Code at the gateway", () => {
+  let home: string;
+  let original: string | undefined;
+  beforeEach(async () => {
+    original = process.env.BDDEVLAB_API_KEY;
+    delete process.env.BDDEVLAB_API_KEY;
+    home = await mkdtemp(join(tmpdir(), "bddevlab-usage-"));
+    await writeFile(
+      join(home, "config.json"),
+      JSON.stringify({
+        agents: {
+          providers: {
+            "claude-api": {
+              extends: "claude",
+              env: {
+                ANTHROPIC_BASE_URL: "https://api.bddevlab.online/",
+                ANTHROPIC_AUTH_TOKEN: "bd_profile_token",
+              },
+            },
+            zai: {
+              extends: "claude",
+              env: {
+                ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic",
+                ANTHROPIC_AUTH_TOKEN: "z",
+              },
+            },
+          },
+        },
+      }),
+    );
+  });
+  afterEach(async () => {
+    if (original === undefined) delete process.env.BDDEVLAB_API_KEY;
+    else process.env.BDDEVLAB_API_KEY = original;
+    await rm(home, { recursive: true, force: true });
+  });
+
+  const env = () => ({ PASEO_HOME: home });
+  const profile = {
+    key: "provider:claude-api",
+    label: "claude-api",
+    input: { store: "provider" as const, locator: "claude-api" },
+  };
+
+  it("is an account of the host", async () => {
+    expect(await discover({ kind: "global" }, env())).toEqual([profile]);
+  });
+
+  it("is the account of a session launched with its endpoint and token", async () => {
+    const launch = {
+      ANTHROPIC_BASE_URL: "https://api.bddevlab.online",
+      ANTHROPIC_AUTH_TOKEN: "bd_profile_token",
+    };
+    expect(
+      await discover(
+        { kind: "session", provider: "claude", model: "claude-fable-5.1[1m]", env: launch },
+        env(),
+      ),
+    ).toEqual([profile]);
+    // Another endpoint, or a token no entry carries, is not this account.
+    expect(
+      await discover(
+        {
+          kind: "session",
+          provider: "claude",
+          env: { ...launch, ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic" },
+        },
+        env(),
+      ),
+    ).toEqual([]);
+    expect(
+      await discover(
+        { kind: "session", provider: "claude", env: { ...launch, ANTHROPIC_AUTH_TOKEN: "other" } },
+        env(),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reads the token from the entry when it fetches", async () => {
+    const fetchApi = vi.fn(async () =>
+      jsonResponse({
+        data: { name: "plan", total_granted: 100_000, total_used: 0, total_available: 100_000 },
+      }),
+    );
+    const report = await fetchUsage(profile.input, fetchApi as unknown as typeof fetch, env());
+    expect(report).toMatchObject({ status: "available", planLabel: "plan" });
+    expect(fetchApi).toHaveBeenCalledWith(
+      USAGE_URL,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer bd_profile_token" }),
+      }),
+    );
+  });
+
+  it("says so when the entry is gone", async () => {
+    await expect(
+      fetchUsage(
+        { store: "provider", locator: "removed" },
+        (async () => jsonResponse({})) as unknown as typeof fetch,
+        env(),
+      ),
+    ).rejects.toThrow("BDDevLab login store no longer exists");
+  });
+
+  it("finds nothing without a host config", async () => {
+    expect(await discover({ kind: "global" }, { PASEO_HOME: join(home, "missing") })).toEqual([]);
   });
 });

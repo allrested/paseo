@@ -8,7 +8,7 @@ export default function contribute(server: PluginServerContext) {
     label: "BDDevLab",
     input: inputSchema,
     discover: (scope) => discover(scope),
-    fetch: fetchUsage,
+    fetch: (input) => fetchUsage(inputSchema.parse(input)),
   });
   return () => {};
 }
