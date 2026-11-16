@@ -47,6 +47,7 @@ const OWN = new Set([
   "office/paseo-style.js",
   "office/paseo-modules.js",
   "office/paseo-sign.js",
+  "office/paseo-focus.js",
   "office/paseo-leisure-plan.js",
   "office/paseo-leisure.js",
 ]);
