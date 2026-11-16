@@ -1,6 +1,6 @@
 # The office after the owner's review: design
 
-Date: 2026-11-16. Status: the split and sub-project 1 are approved by the owner; nothing is built.
+Date: 2026-11-16. Status: sub-project 1 is built; the others are not.
 It follows [the office as my-office's 3D floor](2026-11-16-office-my-office-port-design.md), whose
 nine sub-projects are built.
 
@@ -131,3 +131,25 @@ the library's chip and the bookshelf in 3D; the board's sheet with 3, 9 and 30 a
 and 1280 px, light and dark, by pointer and by keyboard, with wakes off; a post that names the
 chosen agent as it leaves the page; the sign with a name, with a name and a logo, with a long
 name, and with no brand.
+
+### Not verified
+
+The live check in a browser was not done. The workspace scripts (`daemon`, `app`) could not be
+started: the daemon on port 6767 has no workspace for this checkout, and registering one would
+change that daemon's state. None of the following was seen:
+
+- The sign over the lift and the reception's plaque with a brand and with none, in a browser, and
+  a brand's logo that does not load (the dev app serves no `/_brand/` picture). The drawing is
+  tested on a recorded context.
+- The strip with no Library entry, and no entry named Gym.
+- The library's chip and the bookshelf opening the Library card in 3D, by pointer and by Tab and
+  Enter.
+- The whiteboard's "Lobby board" sheet, the "Wake an agent with it" row, the "Wake an agent" page,
+  and Escape going back and then closing, including that the sheet stays open without a flicker on
+  the wide layout.
+- The sign's name legible and not cut on the sign over the lift.
+- The page's console in a browser: no page error was checked.
+- The board's sheet at 390 px: width, rows of at least 44 px, the typed text kept after Back.
+- A real graphics card: the test browser draws with software.
+- The picker's page with real agents: its rows with 3, 9 and 30 agents are a mounted test.
+- The installed app on a phone.
