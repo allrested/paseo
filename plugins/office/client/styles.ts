@@ -82,6 +82,8 @@ export interface OfficeStyles {
   standupHeading: TextStyle;
   standupBlocker: TextStyle;
   standupPeople: ViewStyle;
+  /** The month's notes: the rest of the card's height, scrolled on its own. */
+  notesScroll: ViewStyle;
   reviewRow: ViewStyle;
   qaTeam: ViewStyle;
   qaGroup: ViewStyle;
@@ -472,6 +474,7 @@ export function useOfficeStyles(
       standupHeading: { ...base, color: colors.foreground, fontWeight: "500" },
       standupBlocker: { ...base, color: colors.statusWarning },
       standupPeople: { gap: 6 },
+      notesScroll: { flex: 1, minHeight: 0 },
       reviewRow: { gap: 8 },
       qaTeam: { gap: 12 },
       qaGroup: { gap: 10 },

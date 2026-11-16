@@ -15,6 +15,8 @@ export interface Standup {
   entry: StripCard | null;
   /** The card is open, and so the floor is at its stand-up. */
   open: boolean;
+  /** The clock the stand-up reads: when its card opened, and the office's first draw before. */
+  at: number;
   /** Posts the request for an update on a team's board, naming one agent. */
   ask(roomId: string, agentId: string): Promise<void>;
   close(): void;
@@ -40,5 +42,5 @@ export function useStandup(model: OfficeModel, post: BoardActions["post"], live:
       post({ board: roomId, kind: "note", text: STANDUP_ASK, to: agentId }),
     [post],
   );
-  return { teams, entry, open: openedAt !== null && live, ask, close };
+  return { teams, entry, open: openedAt !== null && live, at: openedAt ?? mountedAt, ask, close };
 }
