@@ -127,6 +127,31 @@ test("the workspaces are summed and ranked by time, then turns, then name", () =
   expect(total).toEqual({ turns: 11, failed: 2, workMs: 85 * MINUTE });
 });
 
+test("the summary is made on Hermes, which has no Array.prototype.toSorted", () => {
+  // The app runs plugin code on Hermes (React Native 0.86 pins hermes-v0.17.0 and
+  // hermes-v250829098.0.17): it has toReversed, toSpliced and findLast, not toSorted.
+  const prototype = Array.prototype as { toSorted?: unknown };
+  const toSorted = prototype.toSorted;
+  delete prototype.toSorted;
+  try {
+    const { workspaces } = summarize(
+      {
+        hours: [
+          hour("2026-11-15T08", { workspaceId: "w2", workMs: 5 * MINUTE }),
+          hour("2026-11-15T09", { workMs: 30 * MINUTE }),
+        ],
+        workspaces: WORKSPACES,
+      },
+      7,
+      NOW,
+      JAKARTA,
+    );
+    expect(workspaces.map((workspace) => workspace.id)).toEqual(["w1", "w2"]);
+  } finally {
+    prototype.toSorted = toSorted;
+  }
+});
+
 test("the device's own zone puts a moment in a day and finds the day's start", () => {
   const start = LOCAL.dayStart(NOW, 0);
   expect(LOCAL.dayOf(start)).toBe(LOCAL.dayOf(NOW));
