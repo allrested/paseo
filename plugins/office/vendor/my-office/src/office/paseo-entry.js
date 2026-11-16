@@ -172,6 +172,7 @@ function onEvent(e) {
   const s = sessions.get(e.sess), w = workers.get(e.sess);
   if (e.type === 'stop' || e.type === 'commit') printPage();   // every finished turn and every commit prints a page
   if (e.type === 'test' || e.type === 'testok' || e.type === 'testfail') onTest(e);
+  if (e.type === 'deploy' && w) w.cheeredAt = null;   // (upstream's applaud cheers someone once per 600 s: a deploy is cheered also right after a push)
   if (e.type === 'push' || e.type === 'deploy') applaud(e.sess);
   if (e.type === 'deploy') launchRocket();   // (a deploy that succeeded; a push is applauded and no more)
   if (e.type === 'stop' && s) onTurnDone(s);
