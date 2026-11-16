@@ -6,8 +6,8 @@ export interface Point {
   y: number;
 }
 
-/** Where a person goes to work away from the desk. */
-export type PlaceKind = "library" | "board" | "racks" | "coffee" | "pad";
+/** Where a person goes away from the desk: to work, or for a rest in the lounge. */
+export type PlaceKind = "library" | "board" | "racks" | "coffee" | "pad" | "sofa" | "plant";
 
 export interface PlanTeam {
   id: string;
@@ -239,6 +239,10 @@ export function planFloor(teams: readonly PlanTeam[], widthPx: number): FloorPla
       racks: { y: wallY, xs: racks.map((rack) => rack.x + 1) },
       coffee: { y: loungeSpotY, xs: coffeeSpots },
       pad: { y: loungeSpotY, xs: padSpots },
+      // On the sofa's two cushions, the feet on its front edge; a room without a sofa has none.
+      sofa: sofa === null ? { y: 0, xs: [] } : { y: sofa.y - 4, xs: [sofa.x + 3, sofa.x + 15] },
+      // In front of the plant, looking at it.
+      plant: { y: loungeSpotY, xs: [plant.x - 1] },
     },
   };
 }

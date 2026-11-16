@@ -681,9 +681,12 @@ test run, the whiteboard for a plan or a subagent, the pad for a push or a deplo
 the rocket, and the desk for everything else. Whoever needs you stays at the desk, where a tap
 opens the card. Where a person stands follows from the agent's state alone
 (`client/pixel/actors.ts`), so an office opened in the middle of a turn shows everyone in place.
-Two things are remembered: the coffee break, 30 seconds away from the desk after a turn ends,
-and the desks the janitor is due at. While the stand-up is open, whoever rests stands at the
-whiteboard. A
+Three things are remembered: the coffee break, 30 seconds away from the desk after a turn ends,
+since when each agent rests, and the desks the janitor is due at. While the stand-up is open,
+whoever rests stands at the whiteboard. From 08:00 to 21:00 by the device's clock whoever rests
+takes turns of three minutes in the lounge, on the sofa, at the coffee machine or at the plant,
+and at the desk between them; an agent that has rested two hours goes one turn in six. The turn
+follows from the agent's id and the time (`restWishes`), so every device shows the same floor. A
 desk opens its agent's card, a team's plate and the whiteboard open a board, and the racks open
 the Host card. With a host reading, a bubble beside the racks says that something was left
 running or that memory is high, and an agent with a port open has a small server on its desk. A
@@ -692,8 +695,9 @@ screen reader, and it says what its agent is at. The tray on a desk holds the ag
 paper, with a flag in it from 85%. A janitor stands by a cart in the lounge, and the two open the
 Janitor card. When a context empties, the janitor walks to that desk and sweeps, and the tray is
 empty once that is done. With reduced motion nobody walks, nobody takes a break or goes to the
-stand-up, and the janitor stays at the cart. Designs:
+stand-up or the lounge, and the janitor stays at the cart. Designs:
 [the 2D floor](superpowers/specs/2026-11-16-office-pixel-office-design.md),
+[the lively floor](superpowers/specs/2026-11-16-office-lively-floor-design.md),
 [the janitor](superpowers/specs/2026-11-16-office-janitor-design.md),
 [the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
 
