@@ -58,7 +58,21 @@ const DEPLOY = [
   /\bterraspace\s+up\b/,
   /\bdocker\s+push\b/,
   /\bgh\s+release\s+create\b/,
+  // `make deploy`, `just deploy`, and their `deploy-…` targets.
+  /\b(?:make|just)\b[^\n;|&]*?\sdeploy(?:-[\w-]*)?(?=$|[\s;|&)])/,
+  // A Dokploy redeploy: its API's method is in the address the command calls.
+  /\b(?:compose|application)\.(?:deploy|redeploy)\b/,
+  // A run of a workflow named for a deploy or a release: the name is the first argument.
+  /\bgh\s+workflow\s+run\s+(?:"[^"\n]*(?:deploy|release)|'[^'\n]*(?:deploy|release)|[^\s"';|&]*(?:deploy|release))/i,
 ];
+// A script whose file name starts with `deploy`, where a command starts or after what runs it:
+// `scripts/deploy.sh pos`, `./deploy-prod.mjs`, `node deploy.mjs`. A name without an extension
+// needs a folder before it (`bin/deploy`): the word alone is no deploy.
+const RUNS = String.raw`(?:^|[;&|(]|(?<![\w./-])(?:sudo|env|time|nohup|exec|bash|sh|zsh|node|bun|tsx|python3?|ruby|php)\b(?:\s+-\S+)*)\s*(?:\w+=\S*\s+)*`;
+const DEPLOY_SCRIPT = new RegExp(
+  RUNS +
+    String.raw`(?:(?:\.{0,2}/)?(?:[\w.@-]+/)*deploy[\w-]*\.(?:sh|bash|zsh|mjs|cjs|js|ts|py|rb|php)|(?:\.{1,2}/|[\w.@-]+/)(?:[\w.@-]+/)*deploy[\w-]*)(?=$|[\s;|&)])`,
+);
 // A skill is a folder with this file in it; the file is the skill.
 const SKILL_FILE = /(?:^|[\\/])SKILL\.md$/;
 const SKILL_IN_COMMAND = /(?:^|[\s/'"])SKILL\.md\b/;
@@ -67,12 +81,22 @@ const TEST =
 
 /** What a shell command is for. The command is read here and goes no further. */
 function commandKind(command: string): ActivityKind {
-  if (DEPLOY.some((pattern) => pattern.test(command))) return "deploy";
+  if (DEPLOY.some((pattern) => pattern.test(command)) || DEPLOY_SCRIPT.test(command)) {
+    return "deploy";
+  }
   if (/\bgit\s+push\b/.test(command)) return "push";
   if (/\bgit\s+commit\b/.test(command)) return "commit";
   if (TEST.test(command)) return "test";
   return SKILL_IN_COMMAND.test(command) ? "skill" : "command";
 }
+
+/** A tool's own name: an MCP tool's is the part after its server's (`mcp__server__tool`). */
+function ownName(name: string): string {
+  return name.startsWith("mcp__") ? name.split("__").slice(2).join("__") : name;
+}
+
+// A tool that puts something live says so first: `deploy_service`, `release-app`, `publish`.
+const DEPLOY_TOOL = /^(?:deploy|release|publish|rollout)(?:$|[_-])/i;
 
 /** A tool the host has no kind for, placed by its name. */
 function namedKind(name: unknown): ActivityKind {
@@ -81,6 +105,7 @@ function namedKind(name: unknown): ActivityKind {
   if (/^(?:TodoWrite|todo_write|update_plan)$/.test(name)) return "plan";
   if (/^(?:Task|Agent)$/.test(name)) return "subagent";
   if (/^(?:WebSearch|WebFetch|web_search|web_fetch)$/.test(name)) return "web";
+  if (DEPLOY_TOOL.test(ownName(name))) return "deploy";
   return "tool";
 }
 

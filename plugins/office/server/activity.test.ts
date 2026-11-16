@@ -92,6 +92,66 @@ test("a command is told apart by what it starts: tests, a commit, a push, a depl
   expect(shell("gh release create v2.0.0 --notes-file notes.md")).toBe("deploy");
 });
 
+test("a deploy script, a make or just target, a Dokploy redeploy and a deploy workflow are deploys", () => {
+  const shell = (command: string) => kindOf({ type: "shell", command });
+  // A script whose file name starts with deploy, run.
+  expect(shell("scripts/deploy.sh pos web")).toBe("deploy");
+  expect(shell("./deploy-prod.mjs")).toBe("deploy");
+  expect(shell("cd infra && ./deploy.sh --env prod")).toBe("deploy");
+  expect(shell("bash scripts/deploy.sh")).toBe("deploy");
+  expect(shell("node tools/deploy-web.mjs")).toBe("deploy");
+  expect(shell("npx tsx scripts/deploy.ts")).toBe("deploy");
+  expect(shell("ENV=prod sudo -E ./bin/deploy")).toBe("deploy");
+  // A target.
+  expect(shell("make deploy")).toBe("deploy");
+  expect(shell("make -C infra deploy-prod")).toBe("deploy");
+  expect(shell("just deploy staging")).toBe("deploy");
+  // A Dokploy API's method.
+  expect(
+    shell("curl -sX POST https://dokploy.example.com/api/compose.redeploy -d @body.json"),
+  ).toBe("deploy");
+  expect(shell("curl -X POST $DOKPLOY/api/application.deploy")).toBe("deploy");
+  expect(shell("curl $DOKPLOY/api/trpc/compose.deploy")).toBe("deploy");
+  expect(shell("curl $DOKPLOY/api/application.redeploy")).toBe("deploy");
+  // A workflow run.
+  expect(shell("gh workflow run deploy.yml --ref main")).toBe("deploy");
+  expect(shell('gh workflow run "Release app" -f channel=beta')).toBe("deploy");
+  expect(shell("gh workflow run .github/workflows/Deploy-prod.yml")).toBe("deploy");
+});
+
+test("a command that only names a deploy is not one", () => {
+  const shell = (command: string) => kindOf({ type: "shell", command });
+  expect(shell("git push origin feat/deploy-button")).toBe("push");
+  expect(shell("make build")).toBe("command");
+  expect(shell("make -f deploy.mk build")).toBe("command");
+  expect(shell("make deployment-docs")).toBe("command");
+  expect(shell("cat scripts/deploy.sh")).toBe("command");
+  expect(shell("chmod +x build.sh deploy.sh")).toBe("command");
+  expect(shell("ls deploy/")).toBe("command");
+  expect(shell("deploy/run.sh")).toBe("command");
+  expect(shell("npx vitest run scripts/deploy.test.ts")).toBe("test");
+  expect(shell("curl $DOKPLOY/api/compose.one?composeId=1")).toBe("command");
+  expect(shell("curl $DOKPLOY/api/application.deployments")).toBe("command");
+  expect(shell("gh workflow run ci.yml -f target=release")).toBe("command");
+  expect(shell("gh workflow list")).toBe("command");
+});
+
+test("a tool whose own name starts with deploy, release, publish or rollout is a deploy", () => {
+  const named = (name: string) => kindOf({ type: "unknown" }, { name });
+  expect(named("mcp__flavours-observability__deploy_service")).toBe("deploy");
+  expect(named("deploy")).toBe("deploy");
+  expect(named("Deploy-App")).toBe("deploy");
+  expect(named("mcp__ci__release_create")).toBe("deploy");
+  expect(named("mcp__npm__publish")).toBe("deploy");
+  expect(named("rollout-restart")).toBe("deploy");
+  // The word further in, or as the start of a longer one, is not.
+  expect(named("get_deploy_status")).toBe("tool");
+  expect(named("mcp__deploy__list_services")).toBe("tool");
+  expect(named("deployments_list")).toBe("tool");
+  expect(named("mcp__flavours-observability__service_health")).toBe("tool");
+  expect(named("published_posts")).toBe("tool");
+});
+
 test("a tool the host has no kind for is placed by its name", () => {
   const named = (name: string) => kindOf({ type: "unknown" }, { name });
   expect(named("mcp__paseo__list_agents")).toBe("tool");
