@@ -159,6 +159,10 @@ test("a deploy run as a check or a dry run is a command", () => {
   expect(shell("just -n deploy staging")).toBe("command");
   expect(shell("kubectl apply --dry-run=client -f k8s/")).toBe("command");
   expect(shell("npm publish --dry-run")).toBe("command");
+  expect(shell("make --just-print deploy")).toBe("command");
+  // `sudo -n` asks for no password: the deploy runs.
+  expect(shell("sudo -n scripts/deploy.sh pos")).toBe("deploy");
+  expect(shell("sudo -n make deploy")).toBe("deploy");
   // To kubectl and helm `-n` names a namespace.
   expect(shell("kubectl apply -n prod -f k8s/")).toBe("deploy");
   expect(shell("helm upgrade -n prod api ./chart")).toBe("deploy");
