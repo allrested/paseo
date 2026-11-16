@@ -134,21 +134,49 @@ name, and with no brand.
 
 ### Not verified
 
-The live check in a browser was not done. The workspace scripts (`daemon`, `app`) could not be
+The live check of the whole app was not done. The workspace scripts (`daemon`, `app`) could not be
 started: the daemon on port 6767 has no workspace for this checkout, and registering one would
-change that daemon's state. None of the following was seen:
+change that daemon's state.
 
-- The sign over the lift and the reception's plaque with a brand and with none, in a browser, and
-  a brand's logo that does not load (the dev app serves no `/_brand/` picture). The drawing is
-  tested on a recorded context.
+The scene's own script was looked at alone instead. It was bundled with the options the app uses
+(IIFE, es2020, minified), served as a static page from the build container, and opened in Paseo's
+browser at 1280 x 800 with software WebGL. It started with no page error and no `problem` call
+in every case below. What it showed:
+
+- With a name, the sign's picture reads "Flavours Kitchen" in light type on the dark board after
+  the small building, nothing cut.
+- With a name and a logo, the logo stands where the building was, a round mark, not stretched.
+  A logo whose SVG has a `viewBox` and no `width` or `height` came out the same.
+- A logo that does not load (a 404) leaves the building mark. The page reported no error.
+- A long name (38 characters) is cut with an ellipsis ("Flavours Kitchen Engineerin...") inside
+  the board.
+- With no `brand`, the picture says "My Office".
+- With `onLibrary`, the library's chip called it once by pointer and once by Tab and Enter, and
+  the place card stayed hidden. The chip is a `button` with a 2 px focus ring. The bookshelf
+  prop, activated with `activateProp`, called it a third time, and the card stayed hidden.
+- With no `onLibrary`, a click on the chip opened upstream's card, titled "Library".
+
+What did not come out as the check was written:
+
+- The chip is drawn at opacity 0 with pointer events off until its place is hovered or it has
+  keyboard focus. The click was a real pointer click, but on a chip that I had put in its hover
+  state (the class `zone--hot`) so that the browser tool could find it. A first Shift+Tab did
+  not move focus; Tab from the meeting room's chip reached the library's.
+- The shelf was activated by calling `activateProp`, not by a pointer click on the shelf.
+- From the opening camera the sign over the lift is not readable in a screenshot of the floor.
+  Its text was seen only in the picture the scene draws for it, shown on its own.
+- The long name was 38 characters, not 40.
+- The browser's log was read only for the last page. The page's own `error` listener was empty
+  on every page.
+
+Still not seen:
+
 - The strip with no Library entry, and no entry named Gym.
-- The library's chip and the bookshelf opening the Library card in 3D, by pointer and by Tab and
-  Enter.
 - The whiteboard's "Lobby board" sheet, the "Wake an agent with it" row, the "Wake an agent" page,
   and Escape going back and then closing, including that the sheet stays open without a flicker on
   the wide layout.
-- The sign's name legible and not cut on the sign over the lift.
-- The page's console in a browser: no page error was checked.
+- Escape on the host's sheet.
+- The sign and the plaque as they sit in the scene, with a brand.
 - The board's sheet at 390 px: width, rows of at least 44 px, the typed text kept after Back.
 - A real graphics card: the test browser draws with software.
 - The picker's page with real agents: its rows with 3, 9 and 30 agents are a mounted test.
