@@ -60,6 +60,10 @@
     "office/people/director.js",
     "office/people/errands.js",
     "office/people/gatherings.js",
+    "office/people/foosball.js",
+    "office/people/gaming.js",
+    "office/people/billiards.js",
+    "office/people/karaoke.js",
     "office/life/trophies.js",
     "office/life/quota.js",
     "office/life/tests.js",
@@ -74,6 +78,7 @@
   ],
   "standIns": {
     "i18n/index.js": [
+      "lang",
       "locale",
       "num",
       "t"
@@ -127,10 +132,6 @@
     "office/people/accountant.js": [
       "updateAccountant"
     ],
-    "office/people/billiards.js": [
-      "tableClick",
-      "updateBilliards"
-    ],
     "office/people/comnha.js": [
       "updateMicro"
     ],
@@ -141,13 +142,6 @@
     "office/people/farewell.js": [
       "updateFarewell"
     ],
-    "office/people/foosball.js": [
-      "updateFoosball"
-    ],
-    "office/people/gaming.js": [
-      "tvClick",
-      "updateGaming"
-    ],
     "office/people/guard.js": [
       "updateGuard"
     ],
@@ -156,10 +150,6 @@
     ],
     "office/people/interns.js": [
       "updateInterns"
-    ],
-    "office/people/karaoke.js": [
-      "boothClick",
-      "updateKaraoke"
     ],
     "office/people/outings.js": [
       "updateOutings"
@@ -191,7 +181,8 @@
       "setView"
     ],
     "office/ui/group-chat.js": [
-      "chatLife"
+      "chatLife",
+      "chatSay"
     ],
     "office/ui/lite.js": [
       "lite",
@@ -246,6 +237,7 @@
     "i18n/locales/en/activity.js": "15f6b049c4f1f9b76498c5fd0cf14db9e00e5b208e6896be97964d1a7df3fa90",
     "i18n/locales/en/common.js": "8011d3d9bdcb5fa846bbdf1fd831bac6920522e87c1f63cf4561a72317e1a824",
     "i18n/locales/en/events.js": "6bbfb6c9ae6d8259100b088751622171a1868d3a2f0b791733f8eb70b89dac1f",
+    "i18n/locales/en/fp.js": "6fae360563129cc87e10a38dc7832147f927d404311c7ead749ce5059bfb787d",
     "i18n/locales/en/incident.js": "046b4447c1e5aa3b00363a457993665ecfb302c49bccfa87f2ed801490e8b15e",
     "i18n/locales/en/life.js": "d8692dbea52c932a483361d3b993a744f20a75016d2a3581c81756f2177c2147",
     "i18n/locales/en/people.js": "70ca431415e351f809686a11c14aa1991e2a47894b78d7643a2bb8e56b39c330",
@@ -268,11 +260,16 @@
     "office/life/your-turn.js": "29790f01f10b3fe8be2d86327b0c8d43cf122d1a43651882adbd6c840ae153cc",
     "office/net/live.js": "9c4232ad9a2697245201f2ed88d33b767c475325194819d9f6bc59089c375862",
     "office/people/bedding.js": "1f9abb36b2f9327c33decae42a53f965f3cad15dc1a43e284effdc19887288a3",
+    "office/people/billiards.js": "e36f8a6d21d867b4440298cd7035638af2e7cd372d74651c1eb2b02c3f11b4ce",
     "office/people/breaks.js": "39c8ca718c4976b8674cc8b53bb2fd74d8cf754a811e5055b4bb6ae0435a6b5e",
     "office/people/chibi-rig.js": "091a2963043ee84647a3435682b2abc238afc76817a208af2bb9b3d9d9de80e2",
     "office/people/director.js": "4760331b5d2fb0622e49d5ea45b546c8f76a4a4b999fdad3b9593bde7ac57b8e",
     "office/people/errands.js": "963fc359ce0aeeae2acac35a976b48fdbb31ef287c3328ac5ef09a650c5a2c47",
+    "office/people/foosball.js": "70c15e67ec3fefa12d95565f26820aeb68a8d670762e5754e465cfef32695d12",
+    "office/people/gaming.js": "276840830cd2daecd60f0f501ff3ab4733b373062403ae45dc30bf0437c5cd2b",
     "office/people/gatherings.js": "8f5e0e413ba3f3dfcf6eb2854444066eb1d7153b36fc17897af1f5bfd4d852a5",
+    "office/people/karaoke-songs.js": "a2062d9a2b3d2cb6c615514d651a06c149773627fb116bdf0004504e7343284d",
+    "office/people/karaoke.js": "8529733197fd60796bbe3bf3cdb4ac81f6df20308ff555120cc94bdb67d0b823",
     "office/people/look.js": "1f7bc510fad4eef1eeeae186a5c1e889545aaef640466d4597c9541de3dda655",
     "office/people/navigation.js": "ccc374ba6660b9b14ee1a78e9d053c8671e1b55da13be2e2e8270709da4fe76a",
     "office/people/team-lines.js": "6213942c582c65888a4a5fa124fc771e0966edb6e180664aa95e904463060405",
@@ -313,6 +310,7 @@
     "office/world/props/string-lights.js": "9dc86ced1a82befcec426cbe97ba2b971f27e194f865fc688d023c4bc4178f0b",
     "office/world/props/switches.js": "ee77ee6e754c9ed65135a87e19bf42d309380d46eaaae5d826bc084a7c859763",
     "office/world/props/trinkets.js": "97b3c8b12415be7c1ddf44c0dc3093f2bf7c1abe6490df39557e538a78b63dcc",
+    "office/world/props/tv-games.js": "f04e3f75cdae405bc72727a870930dd39ce265d63aeea491d64a30f9c3666cab",
     "office/world/props/tv.js": "84ce7fc17ef462cd32a138e8d635c63a402d313debad44a333af68bad0a0727b",
     "office/world/props/update.js": "60dfca0d5eb75bf8c26f4f528eb375b3a49bf98793bd5206a88141593b5d451c",
     "office/world/props/vacuum.js": "cb6e3b24bad60fd6d66631f9e935b11dd63f5b1f6ef955742a6724a69d51bd21",

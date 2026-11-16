@@ -49,6 +49,10 @@ import * as peopleTeamLines from './people/team-lines.js';
 import * as peopleDirector from './people/director.js';
 import * as peopleErrands from './people/errands.js';
 import * as peopleGatherings from './people/gatherings.js';
+import * as peopleFoosball from './people/foosball.js';
+import * as peopleGaming from './people/gaming.js';
+import * as peopleBilliards from './people/billiards.js';
+import * as peopleKaraoke from './people/karaoke.js';
 import * as lifeTrophies from './life/trophies.js';
 import * as lifeQuota from './life/quota.js';
 import * as lifeTests from './life/tests.js';
@@ -112,6 +116,10 @@ export const MODULES = [
   ['peopleDirector', peopleDirector],
   ['peopleErrands', peopleErrands],
   ['peopleGatherings', peopleGatherings],
+  ['peopleFoosball', peopleFoosball],
+  ['peopleGaming', peopleGaming],
+  ['peopleBilliards', peopleBilliards],
+  ['peopleKaraoke', peopleKaraoke],
   ['lifeTrophies', lifeTrophies],
   ['lifeQuota', lifeQuota],
   ['lifeTests', lifeTests],

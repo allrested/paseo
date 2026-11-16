@@ -24,14 +24,17 @@ if (!FROM || !THREE) {
   process.exit(2);
 }
 
-/** Not taken: upstream's panels, chat, replay, demo, sounds, the street, and the daily-life scenes. */
+/**
+ * Not taken: upstream's panels, chat, replay, demo, sounds, the street, and the daily-life scenes. The lounge's four
+ * games are taken (people/billiards.js, gaming.js, foosball.js, karaoke.js).
+ */
 const DENY = [
   /^office\/ui\/(?!event-text\.js$|icons\.js$)/,
   /^office\/(demo|replay|audio)\//,
   /^office\/world\/backdrops\//,
   /^office\/world\/pro\/wing\.js$/,
   /^office\/interact\/first-person\.js$/,
-  /^office\/people\/(outings|comnha|comtrua|duty|teatime|accountant|rounds|guard|hr|foosball|gaming|billiards|karaoke|farewell|interns|nhau|photobooth|pickle|staff)\.js$/,
+  /^office\/people\/(outings|comnha|comtrua|duty|teatime|accountant|rounds|guard|hr|farewell|interns|nhau|photobooth|pickle|staff)\.js$/,
   /^office\/life\/(seasons|rain|weather|altar|lift-service|drill|day-swaps|photostrips|post|incidents|nap)\.js$/,
   /^office\/main\.js$/,
   /^i18n\/index\.js$/,
