@@ -1,6 +1,6 @@
 # The office's stand-up notes: design
 
-Date: 2026-11-16. Status: designed, not built. Sub-project 3 of
+Date: 2026-11-16. Status: built. Sub-project 3 of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects.
 
@@ -112,7 +112,7 @@ Points 3 and 4 of the owner's review:
 
 ## Errors
 
-- A schedule that fails to save shows in the office's settings under the folder.
+- A schedule that fails to save shows in the office's settings, under the Time zone field.
 - A writer that cannot start (the folder is gone, no provider) is reported on the Stand-up card's line.
 - A notes file that cannot be read shows the error in the card in place of the notes.
 
@@ -129,3 +129,132 @@ Points 3 and 4 of the owner's review:
 - How the workspace of the notes folder is found or opened through `paseo.workspaces`.
 - How the bell's click reaches the server (an office request, as the board's posts do).
 - How the entry finds the screen's mesh and makes it a click target.
+
+## Verified
+
+No daemon was started for this check: starting one, or registering this checkout's workspace on
+the daemon at port 6767, changes the user's Paseo. The office was looked at on static pages
+instead, in Paseo's browser, the way sub-project 1 was:
+
+- The page mounted the plugin's real `OfficeSurface` (the header, the strip, the cards, the list
+  and the 3D view), bundled with the repo's esbuild, `react-native` aliased to
+  `react-native-web`. A stand-in host answered the plugin kit and logged every call: the
+  settings, the office's snapshot (four made-up agents in two workspaces and the lobby, with a
+  `notes` state chosen per page) and the RPCs.
+- The host's sheet was a plain card with the sizes of `AdaptiveModalSheet`: 520 px wide at most,
+  85% high for a body that scrolls itself. In the compact layout it was a bottom sheet 92% high, a
+  size of the stand-in's own. The host's Markdown was `marked`.
+- The notes reads were answered with what the real `readMonthNotes` returned for a copy of the
+  three notes files under `/tmp`, recorded beforehand: this month in Asia/Riyadh, each month from
+  August to December 2026, this month at 08:00 on 1 December, no folder, and a folder that does
+  not exist.
+- The 3D view ran the scene's entry, bundled with the server's options, in the surface's own
+  frame. A probe module beside it put the camera and the props on the frame's window, to find
+  where the bell is drawn.
+- 1280 x 800 in light and dark, and 390 x 844 in dark (compact and touch), with the app's plugin
+  themes. The console had only React's DevTools notice and the stand-in's log.
+
+The settings:
+
+- "Notes folder", hinted "Where the stand-up notes are written. Empty turns them off.", and
+  "Time zone", hinted "For the 8:00 run. Empty uses this host's."
+- With the daemon's error for a bad zone in the snapshot, "Unable to schedule the stand-up notes:
+  Invalid cron time zone: Mars/Base" shows under the Time zone field.
+- " Asia/Riyadh " typed in the field, then Enter: one save, the zone trimmed.
+
+The Stand-up card, opened from the strip in the list and in 3D:
+
+- The line under the totals read, by state: "Writing today's entry…", "Today's entry written at
+  08:03" ("00:05" for a write five minutes after midnight), "No entry today yet" (none, or the
+  last one yesterday), "The writer stopped: Rate limited", "The writer stopped on an error" (not
+  doubled), "The writer stopped: it was closed before it finished", "The writer could not start:
+  The notes folder /tmp/t10/gone is not a folder" and "The writer could not start: The notes
+  folder must be an absolute path: docs". A write today and a stop after it shows the stop.
+- A stopped writer has "Open the writer" under the line. It closed the card and asked the app to
+  open that agent. The notes card's "Open the writer" does the same.
+- With no folder, and with no `notes` in the snapshot, the line is left out and "Stand-up notes"
+  stays.
+- Opening the card sent no RPC. "Stand-up notes" closed it and opened the notes card, which sent
+  one read. Neither sent a write.
+
+The notes card:
+
+- Opened from the screen's label at 1280 px, light: "November 2026", "Previous month" on, "Next
+  month" off, the writer's line, and the notes scrolled so the newest entry, "16 November 2026",
+  is at the top of the scroll area (scrolled 8814 px, the newest block's offset). Dark at 1280 px
+  and the compact layout at 390 px opened the same way; at 390 px nothing was wider than the
+  screen.
+- "Previous month": October, both buttons on, at "29 October 2026". Again: September, "Previous
+  month" off, at "21 September 2026". Each press read its month once.
+- A new `writtenAt` pushed while it showed September read September again, and the line took the
+  new time. Closed and opened again, it read this month.
+- At 08:00 on 1 December: "December 2026", "No notes for December 2026.", "Previous month" on and
+  "Next month" off. "Previous month" went to November at its newest entry, where "Next month" is
+  off, since December has no file.
+- No folder: "Set a notes folder in the office's settings to see the stand-up notes.", with no
+  month buttons.
+- A folder that does not exist: "Unable to read the stand-up notes: ENOENT: no such file or
+  directory, scandir '/tmp/t10/no-such-folder'" in place of the notes, as an alert, with no month
+  buttons.
+- With one line of text the card stays at the 85% height the host gives a body that scrolls
+  itself (the stand-in copied that size from the host's code).
+
+3D, the company floor:
+
+- At the default view (a 1280 x 599 frame), the label at the screen's middle sat under the
+  "Meeting room" chip. While the meeting table is pointed at, the chip shows, draws on top and
+  covered the label's left 71 of 100 px: a click there lands on the chip, which opens the room's
+  place card. The label now stands on the screen's top edge: label 686 to 786 by 118 to 142 px,
+  chip 642 to 757 by 150 to 176 px. With the chip showing, every point sampled on the label hit
+  the label, and the screen's picture shows under it. At 390 px it clears the chip by 3 px; the
+  Director's name tag overlaps its top left corner by 5 px and draws under it.
+- A click on the label, and Enter on the focused label, each opened the notes card. On the scene
+  alone a click called `onNotes` once, Enter once, and a repeated Enter not again. The label has
+  the `button` role and tab index 0.
+- A click on the bell sent one `office.notes.write.request` and opened nothing, and the free
+  people said "On my way". A second click sent a second request. A click on the meeting table sent
+  nothing and opened the room's place card. `meet()` on the scene alone did not call `onBell`.
+- The whiteboard opened the "Lobby board" sheet and sent nothing.
+- The cozy floor has no label, and neither has the company floor started without `onNotes`.
+
+What did not come out as the check was written:
+
+- The browser tool does not reach into the scene's frame. The label's clicks were a `click()` and
+  a keydown sent in the frame; `elementFromPoint` showed the label is what a pointer hits there.
+  One Enter was the browser tool's key press on the focused label.
+- The bell and the table were clicked with pointer events sent to the canvas. The first made the
+  camera controls capture a pointer the browser did not have, which threw: the surface showed
+  "Unable to show the 3D view" and "Try 3D again". After "Try 3D again" the canvas's pointer
+  capture was stubbed for the sent events. The error comes from a sent event having no pointer
+  behind it.
+- While the meeting room's place card is open, the card covers the label's right part. People's
+  name tags and speech bubbles can sit over the label: their declutter is upstream's, in
+  `place-chips.js`.
+
+## Not verified
+
+Nothing the daemon does was seen, since no daemon ran. Tests cover each:
+
+- The settings stored by the daemon, and the 8:00 schedule the office saves, updates and removes
+  with them: `plugins/office/server/notes-schedule.test.ts`, `plugins/office/index.server.test.ts`,
+  `plugins/office/shared/settings.test.ts`, `plugins/office/client/host-switches.mounted.test.tsx`.
+- The 8:00 run itself calling the office's handler:
+  `packages/server/src/server/schedule/service.test.ts` ("plugin schedules") and
+  `packages/server/src/server/plugins/plugin-schedules.e2e.test.ts`.
+- The bell starting one `Stand-up notes` agent in the notes folder's workspace, a second click
+  starting none, the writer archived at its end and the line's time:
+  `plugins/office/server/notes-writer.test.ts`, `plugins/office/server/live-ports.test.ts`,
+  `plugins/office/index.server.test.ts`.
+- `schedule ls` and the app's schedule screens leaving the office's schedule out:
+  `packages/server/src/server/session/schedule/schedule-session.test.ts`.
+- A restart while a writer runs, and a schedule due while the daemon starts: the restart cases of
+  `notes-writer.test.ts`, `packages/server/src/server/plugins/index.posix.test.ts` and
+  `plugin-schedules.e2e.test.ts`.
+
+Not seen for other reasons:
+
+- The host's sheet around the cards, Escape on it, and the host's Markdown: the page had
+  stand-ins.
+- The 2D office, the app around the office, and the Android app.
+- A real model writing an entry, and an open card reloading when a real writer ends: the reload
+  was seen only from a pushed `writtenAt`.
