@@ -1,6 +1,12 @@
 import type { Post, WorkspacePullRequest, WorkspaceTicket } from "../shared/contracts.js";
 import type { HostNote } from "./machine-text.js";
-import { agentTitle, type OfficeModel, type OfficeRoom, type OfficeRow } from "./model.js";
+import {
+  agentTitle,
+  waitingOnText,
+  type OfficeModel,
+  type OfficeRoom,
+  type OfficeRow,
+} from "./model.js";
 
 /** A note counts as what its agent says at the stand-up for this long. */
 export const SAID_WITHIN_MS = 24 * 60 * 60 * 1000;
@@ -17,7 +23,7 @@ export interface StandupPerson {
   line: string;
   /** Its newest note on the room's board from the last day; null without one. */
   said: string | null;
-  /** A request for an update reaches it now: it is idle. */
+  /** A request for an update reaches it now: it is idle, and waits on no sub-agent. */
   free: boolean;
 }
 
@@ -82,6 +88,7 @@ function personLine(row: OfficeRow): string {
   if (agent.permissions.length > 0) return "Waiting for your answer";
   if (agent.status === "error") return "Stopped on an error";
   if (agent.status === "running") return row.activity ?? "Working";
+  if (row.waitingOn > 0) return waitingOnText(row.waitingOn);
   return agent.status === "initializing" ? "Starting" : "Idle";
 }
 
@@ -156,7 +163,10 @@ export function standupTeams(model: Pick<OfficeModel, "rooms">, now: number): St
           title: agentTitle(row.agent),
           line: personLine(row),
           said: saidBy(row.agent.id, room.posts, now),
-          free: row.agent.status === "idle" && row.agent.permissions.length === 0,
+          free:
+            row.agent.status === "idle" &&
+            row.agent.permissions.length === 0 &&
+            row.waitingOn === 0,
         })),
       };
     });

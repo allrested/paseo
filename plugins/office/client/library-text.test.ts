@@ -77,6 +77,13 @@ test("every workspace is a team with its skills, who is at a skill now and who c
         agent("old", { createdAt: "2026-11-16T00:00:01Z" }),
         agent("new", { createdAt: "2026-11-16T05:00:00Z" }),
         agent("busy", { status: "running" }),
+        // (its own turn has ended, and it waits on the sub-agent it started: not asked)
+        agent("lead", { createdAt: "2026-11-16T06:00:00Z" }),
+        agent("sub", {
+          parentAgentId: "lead",
+          status: "running",
+          createdAt: "2026-11-16T07:00:00Z",
+        }),
         agent("asking", { permissions: [{ id: "q", kind: "tool", title: "Run?" }] }),
         agent("other", { workspaceId: "w2", status: "running" }),
         agent("lobby", { workspaceId: null }),

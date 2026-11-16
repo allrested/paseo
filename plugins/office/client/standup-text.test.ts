@@ -162,6 +162,29 @@ test("the stand-up has a team for every room with an agent, with what each agent
   ]);
 });
 
+test("an agent that waits on sub-agents says so, and is not asked for an update", () => {
+  const model = buildOfficeModel(
+    office(
+      [
+        agent("Lead"),
+        agent("Helper", { parentAgentId: "Lead", status: "running" }),
+        agent("Scout", { parentAgentId: "Lead", status: "initializing" }),
+        agent("Spare"),
+      ],
+      [SHOP],
+    ),
+  );
+
+  const [team] = standupTeams(model, NOW);
+
+  expect(team?.people.map((person) => [person.title, person.line, person.free])).toEqual([
+    ["Lead", "Waiting on 2 sub-agents", false],
+    ["Scout", "Starting", false],
+    ["Helper", "Working", false],
+    ["Spare", "Idle", true],
+  ]);
+});
+
 test("review and conflicts block an open request, and nothing blocks a merged one", () => {
   const blockers = (pullRequest: WorkspacePullRequest) =>
     standupTeams(buildOfficeModel(office([agent("a")], [{ ...SHOP, pullRequest }])), NOW)[0]

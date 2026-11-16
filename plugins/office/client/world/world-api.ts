@@ -20,6 +20,11 @@ export interface WorldSession {
   lastPrompt: string;
   /** A red name tag: the agent ended in an error. */
   stuck: boolean;
+  /**
+   * How many sub-agents the agent waits on, set when its own turn has ended and they are still
+   * at work: `status` is `work` then. Paseo's own; the scene does not read it.
+   */
+  waitingOn?: number;
   subs: never[];
   /**
    * The context window, in tokens: the paper on the desk grows with it, and a flag stands in it
@@ -62,7 +67,9 @@ export type WorldEventType =
   | "testfail"
   | "testend"
   /** The conversation was compacted or started over: the person takes the paper to the shredder. */
-  | "compact";
+  | "compact"
+  /** Paseo's own: the agent's turn has ended and it waits at its desk on its sub-agents. */
+  | "subwait";
 
 export interface WorldBoardRow {
   id: string;

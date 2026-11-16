@@ -632,7 +632,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
       machine === null ? null : { title: "Host", note: hostNote(machine), onOpen: openMachine },
     [machine, openMachine],
   );
-  const contexts = useMemo(() => janitorRows(model.agents.values()), [model.agents]);
+  const contexts = useMemo(
+    () => janitorRows(model.agents.values(), model.waitingOn),
+    [model.agents, model.waitingOn],
+  );
   const janitorEntry = useMemo((): StripCard | null => {
     const note = janitorNote(contexts);
     return note === null ? null : { title: "Janitor", note, onOpen: openJanitor };

@@ -155,6 +155,16 @@ function record(e) {
 
 const clockTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+/**
+ * Paseo's own: someone whose turn has ended waits on the agents they started (the session's `waitingOn` says how many).
+ * To the desk, thinking, with that in the bubble. It is no step and no prompt: nothing goes to the feed or the counts,
+ * and the director carries nothing over.
+ */
+function waitOnSubs(id) {
+  const w = workers.get(id), n = sessions.get(id)?.waitingOn || 1;
+  if (w) w.push({ station: 'desk', anim: 'think', type: 'agent', text: tr('paseo.subwait', { n }), dwell: 2 });
+}
+
 /** Upstream's life/incidents.js onEvent, the part that moves people and furniture. */
 function onEvent(e) {
   record(e);
@@ -294,6 +304,7 @@ const api = {
   event(e) {
     if (!started || !e || !sessions.has(e.sess)) return;
     if (e.type === 'testend') { clearRun(e.sess); return; }
+    if (e.type === 'subwait') { waitOnSubs(e.sess); return; }
     // the test board writes a run's label beside its result: Paseo gives the time it ended
     const ended = e.type === 'testok' || e.type === 'testfail';
     onEvent({ ts: Date.now(), sess: e.sess, type: e.type, label: ended ? clockTime() : '', of: e.of });

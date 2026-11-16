@@ -50,7 +50,7 @@ export type RestPlace = "sofa" | "coffee" | "plant";
  * leaves work for it.
  */
 export function standingOf(
-  session: Pick<WorldSession, "status" | "stuck">,
+  session: Pick<WorldSession, "status" | "stuck" | "waitingOn">,
   step: ActivityStep | undefined,
   onBreak: boolean,
   meeting: boolean,
@@ -63,6 +63,8 @@ export function standingOf(
     if (onBreak || rest === "coffee") return { place: "coffee", icon: "coffee", screen: "off" };
     return { place: rest, icon: null, screen: "off" };
   }
+  // Its own turn has ended and it waits on sub-agents: at the desk, with their icon over it.
+  if (session.waitingOn !== undefined) return { place: null, icon: "subagent", screen: "code" };
   if (step === undefined) return { place: null, icon: null, screen: "code" };
   // A deploy that succeeded stands at the pad, where its rocket flies.
   if (step.kind === "deploy" && step.result === "passed") {

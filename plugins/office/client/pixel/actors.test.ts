@@ -90,6 +90,15 @@ describe("standingOf", () => {
     });
   });
 
+  it("keeps an agent that waits on sub-agents at the desk, screen on, under the sub-agent's icon", () => {
+    const waiting = session("a", { status: "work", waitingOn: 2 });
+    const atDesk = { place: null, icon: "subagent", screen: "code" };
+    expect(standingOf(waiting, undefined, false, false)).toEqual(atDesk);
+    // Neither a stand-up nor a turn in the lounge takes it from there.
+    expect(standingOf(waiting, undefined, false, true, "sofa")).toEqual(atDesk);
+    expect(standingOf(waiting, undefined, true, false)).toEqual(atDesk);
+  });
+
   it("keeps whoever needs the user at the desk, an error before a question", () => {
     const reading = step("read");
     expect(standingOf(session("a", { status: "wait" }), reading, false, false)).toEqual({
@@ -371,6 +380,20 @@ describe("the lively floor", () => {
     ).toBeNull();
   });
 
+  it("leaves an agent that waits on sub-agents out of the lounge", () => {
+    for (let turn = 0; turn < 4; turn += 1) {
+      const leisure = floor(at(10) + turn * TURN_MS);
+      const people = {
+        ...resting(ids),
+        sessions: ids.map((id) => session(id, { status: "work", waitingOn: 1 })),
+      };
+      const cast = castOf(people, NO_BREAKS, false, leisure);
+      expect(cast.every((member) => member.standing.place === null)).toBe(true);
+      expect(cast.every((member) => member.standing.icon === "subagent")).toBe(true);
+      expect(restsAfter(NO_RESTS, people.sessions, leisure.now)).toBe(NO_RESTS);
+    }
+  });
+
   it("keeps everyone at the desk with motion reduced", () => {
     const cast = castOf(resting(ids), NO_BREAKS, false, null);
     expect(cast.every((member) => member.standing.place === null)).toBe(true);
@@ -384,6 +407,7 @@ describe("the janitor's round", () => {
   const told = (full: number | null) => ({
     status: "rest" as const,
     stuck: false,
+    busy: false,
     step: null,
     running: null,
     full,

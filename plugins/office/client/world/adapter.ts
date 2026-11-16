@@ -1,5 +1,11 @@
 import type { OfficeBrand } from "../brand.js";
-import { agentTitle, attentionReason, type OfficeModel, type OfficeRow } from "../model.js";
+import {
+  agentTitle,
+  attentionReason,
+  waitingOnText,
+  type OfficeModel,
+  type OfficeRow,
+} from "../model.js";
 import type {
   ActivityKind,
   ActivityStep,
@@ -31,9 +37,10 @@ export interface WorldPeople {
   steps: ReadonlyMap<string, ActivityStep>;
 }
 
-function statusOf(agent: OfficeAgent): WorldSession["status"] {
+/** An agent that waits on sub-agents is at work: it keeps its desk, and no game picks it. */
+function statusOf(agent: OfficeAgent, waitingOn: number): WorldSession["status"] {
   if (agent.permissions.length > 0) return "wait";
-  if (agent.status === "running" || agent.status === "initializing") return "work";
+  if (agent.status === "running" || agent.status === "initializing" || waitingOn > 0) return "work";
   return "rest";
 }
 
@@ -59,10 +66,11 @@ function toSession(row: OfficeRow, team: string): WorldSession {
     title,
     dir: team,
     git: { repo: team },
-    status: statusOf(agent),
+    status: statusOf(agent, row.waitingOn),
     agent: markOf(agent.provider),
     lastPrompt: "",
     stuck: attentionReason(agent) === "error",
+    ...(row.waitingOn > 0 ? { waitingOn: row.waitingOn } : {}),
     subs: [],
     ...(agent.context === undefined
       ? {}
@@ -102,6 +110,7 @@ function boardState(session: WorldSession): WorldBoardRow["state"] {
 export function boardText(session: WorldSession, activity: string | null): string {
   if (session.stuck) return "Stopped on an error";
   if (session.status === "wait") return "Waiting for your answer";
+  if (session.waitingOn !== undefined) return waitingOnText(session.waitingOn);
   if (session.status === "work") return activity ?? "Working";
   return "Resting";
 }
@@ -165,6 +174,8 @@ function endOf(run: Run, result: TestResult): StepEvent {
 interface Told {
   status: WorldSession["status"];
   stuck: boolean;
+  /** At work only because it waited on sub-agents: its own turn had ended. */
+  busy: boolean;
   /** The key of the step the person was sent to; null when at none. */
   step: string | null;
   /** That step is a test run or a deploy, and the scene has not been told how it ended. */
@@ -180,11 +191,17 @@ export interface WorldChanges {
   memory: WorldMemory;
 }
 
-/** A turn that starts, one that ends, a new error; none for someone seen for the first time. */
+/**
+ * A turn that starts, one that ends, a new error; none for someone seen for the first time. An
+ * agent that turns busy because a sub-agent started gets no prompt: nobody sent it one. Its own
+ * turn starts when it runs again, from a rest or from that wait, and ends when it rests, which
+ * for a waiting agent is when its last sub-agent ended.
+ */
 function turnEvent(session: WorldSession, was: Told | undefined): WorldEventType | null {
   if (was === undefined) return null;
   if (session.stuck && !was.stuck) return "fail";
-  if (was.status === "rest" && session.status === "work") return "prompt";
+  const runs = session.status === "work" && session.waitingOn === undefined;
+  if (runs && (was.status === "rest" || was.busy)) return "prompt";
   return was.status !== "rest" && session.status === "rest" && !session.stuck ? "stop" : null;
 }
 
@@ -235,7 +252,9 @@ function stepEvents(
 /**
  * What changed since the scene was last told, as things its people do. A turn that starts is a
  * prompt carried to the desk, one that ends is reported and followed by a rest, an error is a
- * failure. A new tool call of an agent at work sends the person to that work's place, and that
+ * failure. An agent whose turn has ended while agents it started are still at work is sent to
+ * wait at its desk, once, and its turn is reported when the last of them ends. A new tool call
+ * of an agent at work sends the person to that work's place, and that
  * is said at once, so an office just opened shows what everyone is at. A call seen while its
  * agent waits for the user is told once the agent works again: the approval is often for it.
  * A test run is told twice, when it starts and when it ends. A deploy too: it starts as a
@@ -250,6 +269,9 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
     const was = before?.get(session.id);
     const turn = turnEvent(session, was);
     if (turn !== null) events.push({ sess: session.id, type: turn });
+    if (session.waitingOn !== undefined && was?.busy !== true) {
+      events.push({ sess: session.id, type: "subwait" });
+    }
     const full = fullness(session);
     if (tidied(was?.full ?? null, full)) events.push({ sess: session.id, type: "compact" });
     const steps = stepEvents(session, people.steps.get(session.id), was);
@@ -257,6 +279,7 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
     memory.set(session.id, {
       status: session.status,
       stuck: session.stuck,
+      busy: session.waitingOn !== undefined,
       step: steps.step,
       running: steps.running,
       full,

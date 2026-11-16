@@ -587,6 +587,14 @@ The server keeps one directory from subscribed `agents.list` and `workspaces.lis
 first 200 of each) and streams a compact projection over the `office.state` subscription; the
 directory and the 5 s "doing now" reads run only while an office surface is open.
 
+An agent whose own turn has ended is not idle while an agent it started, or one those started,
+runs, starts or waits for you: it waits on them (`waitingOnOf` in
+`plugins/office/client/model.ts`, the one place the rule is worked out). On both floors it stays
+at its desk, at work; the whiteboard and the stand-up say "Waiting on N sub-agents"; and the
+stand-up, the Library and Review cards and the janitor leave it alone. Only agents the office
+shows count. The rule is the client's: the office's server still takes such an agent for idle, so
+a mention on a board wakes it.
+
 The office also watches the host. While an office surface is open, the `office.machine`
 subscription sends a reading every 10 s: memory (the daemon's cgroup when it has a cap, else the
 host), CPU, and for each agent the memory, the process count and the TCP ports of the processes

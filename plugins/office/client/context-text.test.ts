@@ -96,6 +96,17 @@ test("the janitor's rows: the fullest first, the unreported last, and who can be
   ]);
 });
 
+test("the janitor leaves an agent that waits on sub-agents alone", () => {
+  const rows = janitorRows(
+    [agent("lead", at(150_000)), agent("spare", at(100_000))],
+    new Map([["lead", 2]]),
+  );
+  expect(rows.map((row) => [row.agentId, row.state, row.tidy])).toEqual([
+    ["lead", "Waiting on 2 sub-agents", false],
+    ["spare", "Idle", true],
+  ]);
+});
+
 test("the janitor's note counts the nearly full, else names the fullest", () => {
   const rows = (...agents: OfficeAgent[]) => janitorRows(agents);
   expect(janitorNote(rows())).toBeNull();
