@@ -121,6 +121,18 @@ test("a permission says what is asked: the command, the file, the address or the
   expect(long).toBe(`${"x".repeat(299)}…`);
 });
 
+test("an idle agent carries when the host last changed it, and a busy one carries nothing", () => {
+  const at = "2026-11-17T18:00:00.000Z";
+  expect(projectAgent(agentInput({ updatedAt: at }))?.idleSince).toBe(at);
+  // A running agent's time moves with each step of its turn: every step would be an update.
+  expect(projectAgent(agentInput({ status: "running", updatedAt: at }))).not.toHaveProperty(
+    "idleSince",
+  );
+  expect(projectAgent(agentInput({ status: "error", updatedAt: at }))).not.toHaveProperty(
+    "idleSince",
+  );
+});
+
 test("an agent without a workspace sits in the lobby", () => {
   expect(projectAgent(agentInput({ workspaceId: undefined }))).toEqual(
     officeAgent({ workspaceId: null }),

@@ -53,6 +53,8 @@ export interface DirectoryAgentInput {
   status: string;
   workspaceId?: string;
   createdAt: string;
+  /** When anything about the agent last changed on the host. */
+  updatedAt?: string;
   labels?: Readonly<Record<string, string>>;
   pendingPermissions: readonly DirectoryPermissionInput[];
   archivedAt?: string | null;
@@ -236,6 +238,7 @@ export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
     ...(context === undefined ? {} : { context }),
     ...(number === undefined ? {} : { number }),
     ...(next === undefined ? {} : { next }),
+    ...(status.data === "idle" && agent.updatedAt ? { idleSince: agent.updatedAt } : {}),
   };
 }
 

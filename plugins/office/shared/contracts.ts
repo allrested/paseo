@@ -54,6 +54,11 @@ export const OfficeAgentSchema = z.object({
   next: z.number().int().positive().optional(),
   /** The office's name for a numbered sub-agent: `<parent's name>-<number>`. */
   name: z.string().optional(),
+  /**
+   * For an idle agent: when anything about it last changed on the host, its turn's end at the
+   * earliest. Absent for any other status: a running agent's time moves with every step.
+   */
+  idleSince: z.string().optional(),
 });
 export type OfficeAgent = z.output<typeof OfficeAgentSchema>;
 
