@@ -95,15 +95,16 @@ Points 1 and 2 of the owner's review:
 
 ### The 2D office
 
-| Question         | Decision                                                                                                                                                                                                             |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Daytime          | The same 08:00 to 21:00, by the device's clock.                                                                                                                                                                      |
-| The places       | The places the 2D floor already draws: the sofa (a nap), the coffee corner, a plant. Between them the desk with the screen off. No new art: each place uses a pose the 2D office has.                                |
-| The schedule     | Worked out from the agent's id and the time, so every device shows the same floor and a test can check the rule. A turn of about 3 minutes; no two agents on one spot; no agent in the same place two turns running. |
-| A long idle      | After two hours of resting an agent mostly stays at its desk. The 2D office keeps when each agent came to rest, as it keeps the coffee breaks.                                                                       |
-| What comes first | A coffee break after a turn, a stand-up at the whiteboard, and every place an agent at work goes to (library, server room, desk).                                                                                    |
-| Reduced motion   | Nobody walks, as for the stand-up.                                                                                                                                                                                   |
-| Night            | Everyone resting stays at the desk.                                                                                                                                                                                  |
+| Question         | Decision                                                                                                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Daytime          | The same 08:00 to 21:00, by the device's clock.                                                                                                                                                                            |
+| The places       | The places the 2D floor already draws: the sofa (a nap), the coffee corner, a plant. Between them the desk with the screen off. No new art: each place uses a pose the 2D office has.                                      |
+| The schedule     | Worked out from the agent's id and the time, so every device shows the same floor and a test can check the rule. A turn of about 3 minutes; no two agents on one spot; no agent in the same place two turns running.       |
+| A long idle      | After two hours of resting an agent mostly stays at its desk. The 2D office keeps when each agent came to rest, as it keeps the coffee breaks.                                                                             |
+| What comes first | A coffee break after a turn, a stand-up at the whiteboard, and every place an agent at work goes to (library, server room, desk).                                                                                          |
+| Reduced motion   | Nobody walks, as for the stand-up.                                                                                                                                                                                         |
+| Night            | Everyone resting stays at the desk.                                                                                                                                                                                        |
+| The rocket       | As in 3D. An agent stands at the pad, where the 2D rocket flies, only when its deploy succeeded. A running deploy works at the racks, a failed one stays there with the failure icon, and a push is shipped from the desk. |
 
 ## Components
 
