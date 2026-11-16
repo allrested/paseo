@@ -164,6 +164,7 @@ export interface OfficeStyles {
   pickerRows: ViewStyle;
   pickerRow: ViewStyle;
   pickerRowSelected: ViewStyle;
+  pickerLead: ViewStyle;
   /** The page's search field: one line, as tall as a control. */
   pickerSearch: TextStyle;
   iconColor: string;
@@ -618,6 +619,8 @@ export function useOfficeStyles(
         backgroundColor: colors.surface2,
         borderColor: colors.foregroundMuted,
       },
+      // As wide as the dot even without one, so "Nobody" starts on the agents' rail.
+      pickerLead: { width: DOT, height: 20, justifyContent: "center" },
       pickerSearch: {
         ...prompt,
         minHeight: controlHeight,

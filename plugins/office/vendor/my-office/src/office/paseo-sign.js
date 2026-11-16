@@ -25,9 +25,10 @@ export function fitName(measure, name, maxWidth) {
   for (let size = TYPE_MAX; size >= TYPE_MIN; size -= TYPE_STEP) {
     if (measure(name, size) <= maxWidth) return { size, text: name };
   }
-  let text = name;
-  while (text.length > 1 && measure(`${text}…`, TYPE_MIN) > maxWidth) text = text.slice(0, -1);
-  return { size: TYPE_MIN, text: `${text.trimEnd()}…` };
+  // Cut by code point: a UTF-16 unit at a time can leave half of an emoji, a broken glyph.
+  const chars = Array.from(name);
+  while (chars.length > 1 && measure(`${chars.join('')}…`, TYPE_MIN) > maxWidth) chars.pop();
+  return { size: TYPE_MIN, text: `${chars.join('').trimEnd()}…` };
 }
 
 /**

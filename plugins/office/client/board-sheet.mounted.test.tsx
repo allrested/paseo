@@ -90,10 +90,17 @@ const onClose = () => {
 interface HarnessProps {
   rooms: OfficeRoom[];
   compact?: boolean;
+  /** The host's sheet has left by the time it reports a close: a phone's, or any on native. */
+  sheetLeavesFirst?: boolean;
   wakesPaused?: boolean;
 }
 
-function Harness({ rooms, compact = false, wakesPaused = false }: HarnessProps) {
+function Harness({
+  rooms,
+  compact = false,
+  sheetLeavesFirst = false,
+  wakesPaused = false,
+}: HarnessProps) {
   const styles = useOfficeStyles(THEME, compact, false);
   return (
     <BoardSheet
@@ -102,7 +109,7 @@ function Harness({ rooms, compact = false, wakesPaused = false }: HarnessProps) 
       name={nameOf}
       actions={ACTIONS}
       wakesPaused={wakesPaused}
-      compact={compact}
+      sheetLeavesFirst={sheetLeavesFirst}
       styles={styles}
       onClose={onClose}
     />
@@ -180,6 +187,19 @@ test("the form's row opens the page, which has the room's agents first", async (
   expect(container.querySelector('[aria-label="Search agents"]')).toBeNull();
 });
 
+test("the row that is nobody keeps a slot as wide as an agent's dot, so the titles line up", async () => {
+  await mount({ rooms: officeRooms([agent("1")]) });
+  await press("Wake an agent with it: Nobody");
+
+  // react-native-web writes these styles inline in jsdom; a real browser measured the rail.
+  const lead = (label: string) => byLabel(label).firstElementChild as HTMLElement;
+  const nobody = lead("Nobody: The post wakes no agent");
+  const dot = lead("Agent 1: shop-api · Idle").firstElementChild as HTMLElement;
+  expect(nobody.childElementCount).toBe(0);
+  expect(getComputedStyle(nobody).width).not.toBe("");
+  expect(getComputedStyle(nobody).width).toBe(getComputedStyle(dot).width);
+});
+
 test("a chosen agent is on the form with the text kept, and the post names it", async () => {
   await mount({ rooms: officeRooms([agent("1"), agent("2", { title: "Builder" })]) });
   await type("Task text", "Ship it");
@@ -240,6 +260,30 @@ test("from nine agents a search keeps the ones whose title or room has the words
   expect(container.textContent).toContain("No agent matches.");
 });
 
+test("focus goes to the chosen row when the page opens, and back to the form's row after", async () => {
+  await mount({ rooms: officeRooms([agent("1"), agent("2", { title: "Builder" }), agent("3")]) });
+
+  await press("Wake an agent with it: Nobody");
+  expect(document.activeElement).toBe(byLabel("Nobody: The post wakes no agent"));
+
+  await press("Builder: shop-api · Idle");
+  expect(document.activeElement).toBe(byLabel("Wake an agent with it: Builder"));
+
+  await press("Wake an agent with it: Builder");
+  expect(document.activeElement).toBe(byLabel("Builder: shop-api · Idle"));
+
+  await press("Back");
+  expect(document.activeElement).toBe(byLabel("Wake an agent with it: Builder"));
+});
+
+test("with nine agents the search field takes the focus", async () => {
+  await mount({
+    rooms: officeRooms(Array.from({ length: 9 }, (_, index) => agent(String(index + 1)))),
+  });
+  await press("Wake an agent with it: Nobody");
+  expect(document.activeElement).toBe(byLabel("Search agents"));
+});
+
 test("thirty agents are all on the page", async () => {
   const thirty = Array.from({ length: 30 }, (_, index) => agent(String(index + 1)));
   await mount({ rooms: officeRooms(thirty) });
@@ -247,7 +291,7 @@ test("thirty agents are all on the page", async () => {
   expect(radios()).toHaveLength(31);
 });
 
-test("a close from the page goes back on a wide sheet and closes a phone's", async () => {
+test("a close from the page goes back while the sheet stays, and closes one that has left", async () => {
   const rooms = officeRooms([agent("1")]);
   await mount({ rooms });
   await press("Wake an agent with it: Nobody");
@@ -255,13 +299,23 @@ test("a close from the page goes back on a wide sheet and closes a phone's", asy
   await act(async () => dismiss());
   expect(title()).toBe("shop-api board");
   expect(closed).toBe(0);
+  expect(document.activeElement).toBe(byLabel("Wake an agent with it: Nobody"));
   await act(async () => dismiss());
   expect(closed).toBe(1);
 
-  await mount({ rooms, compact: true });
+  // A phone's sheet, swiped away.
+  await mount({ rooms, compact: true, sheetLeavesFirst: true });
   await press("Wake an agent with it: Nobody");
   await act(async () => dismiss());
   expect(closed).toBe(2);
+
+  // A tablet's sheet, which Android's Back dismisses before it reports. The host took the closed
+  // sheet away, so it opens again on the form.
+  await mount({ rooms: [] });
+  await mount({ rooms, compact: false, sheetLeavesFirst: true });
+  await press("Wake an agent with it: Nobody");
+  await act(async () => dismiss());
+  expect(closed).toBe(3);
 });
 
 test("a chosen agent that leaves the office is nobody again", async () => {

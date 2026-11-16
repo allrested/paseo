@@ -34,6 +34,12 @@ export function listenForSpace(elementId: string, onSpace: () => void): () => vo
   return () => element.removeEventListener("keydown", onKeyDown);
 }
 
+/** Moves the keyboard's focus to the element with this id. Without a document (native) nothing moves. */
+export function focusById(elementId: string): void {
+  const element = typeof document === "undefined" ? null : document.getElementById(elementId);
+  element?.focus();
+}
+
 /** The host's brand, as the daemon wrote it into this page; null on a page without one. */
 export function readBrand(): OfficeBrand | null {
   if (typeof document === "undefined") return null;

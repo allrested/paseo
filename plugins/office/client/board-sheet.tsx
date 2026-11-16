@@ -9,7 +9,7 @@ import { NOBODY, choiceLabel, closeStep, keptChoice } from "./agent-picker-text.
 import { orderBoardPosts } from "./board-text.js";
 import type { OfficeRoom } from "./model.js";
 import { PostRow } from "./room-board.js";
-import { listenForSpace } from "./web-env.web.js";
+import { focusById, listenForSpace } from "./web-env.web.js";
 import type { OfficeStyles } from "./styles.js";
 import type { BoardActions } from "./use-board-actions.js";
 
@@ -96,6 +96,7 @@ const KINDS: readonly { kind: PostKind; label: string; hint: string }[] = [
 ];
 
 interface ChoiceFieldProps {
+  id: string;
   /** What the row chooses. */
   label: string;
   /** The choice now. */
@@ -105,7 +106,7 @@ interface ChoiceFieldProps {
 }
 
 /** A form's row that opens a page: what it chooses, the choice, and a chevron. */
-function ChoiceField({ label, value, onOpen, styles }: ChoiceFieldProps) {
+function ChoiceField({ id, label, value, onOpen, styles }: ChoiceFieldProps) {
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
@@ -115,6 +116,7 @@ function ChoiceField({ label, value, onOpen, styles }: ChoiceFieldProps) {
   const lit = pressed || hovered;
   return (
     <Pressable
+      id={id}
       accessibilityRole="button"
       accessibilityLabel={`${label}: ${value}`}
       onPress={onOpen}
@@ -185,6 +187,13 @@ function SheetBody({
     setText((current) => textAfterSend(current, sent));
     setPicked(NOBODY);
   }, [actions, room.id, kind, text, to]);
+  // Back from the page, the pressed row is gone: the focus returns to the row that opened it.
+  const fieldId = useId();
+  const wasPicking = useRef(false);
+  useEffect(() => {
+    if (picking) wasPicking.current = true;
+    else if (wasPicking.current) focusById(fieldId);
+  }, [picking, fieldId]);
   const openPage = useCallback(() => onPicking(true), [onPicking]);
   const back = useCallback(() => onPicking(false), [onPicking]);
   const choose = useCallback(
@@ -236,6 +245,7 @@ function SheetBody({
       </View>
       <View style={styles.sheetField}>
         <ChoiceField
+          id={fieldId}
           label="Wake an agent with it"
           value={choiceLabel(to, rooms)}
           onOpen={openPage}
@@ -283,8 +293,11 @@ export interface BoardSheetProps {
   actions: BoardActions;
   /** "Wake agents" is off: a post that names an agent waits. */
   wakesPaused: boolean;
-  /** The phone's layout: its sheet is swiped away, so a close from the page closes the sheet. */
-  compact: boolean;
+  /**
+   * The host's sheet has already left when it reports a close (a phone's, swiped away, or a
+   * tablet's, dismissed by Back), so a close from the page closes the sheet.
+   */
+  sheetLeavesFirst: boolean;
   styles: OfficeStyles;
   onClose(): void;
 }
@@ -296,7 +309,7 @@ export function BoardSheet({
   name,
   actions,
   wakesPaused,
-  compact,
+  sheetLeavesFirst,
   styles,
   onClose,
 }: BoardSheetProps) {
@@ -309,10 +322,10 @@ export function BoardSheet({
   const change = useCallback(
     (open: boolean) => {
       if (open) return;
-      if (closeStep(picking, compact) === "back") setPicking(false);
+      if (closeStep(picking, sheetLeavesFirst) === "back") setPicking(false);
       else onClose();
     },
-    [compact, onClose, picking],
+    [sheetLeavesFirst, onClose, picking],
   );
   const board = room ? `${room.name} board` : "Board";
   return (

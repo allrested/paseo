@@ -6,6 +6,7 @@ import {
   closeStep,
   keptChoice,
   pickerGroups,
+  sheetLeavesFirstOn,
   showsSearch,
 } from "./agent-picker-text.js";
 import { buildOfficeModel, type OfficeRoom } from "./model.js";
@@ -118,9 +119,17 @@ test("a chosen agent that left, or closed, is nobody again", () => {
   expect(choiceLabel("gone", all)).toBe("Nobody");
 });
 
-test("a close goes back from the page of a wide sheet, and closes anywhere else", () => {
+test("a close goes back from the page when the sheet stays, and closes when it has left", () => {
   expect(closeStep(true, false)).toBe("back");
   expect(closeStep(true, true)).toBe("close");
   expect(closeStep(false, false)).toBe("close");
   expect(closeStep(false, true)).toBe("close");
+});
+
+test("only the web's wide dialog stays when it reports a close", () => {
+  expect(sheetLeavesFirstOn(false, "web")).toBe(false);
+  expect(sheetLeavesFirstOn(true, "web")).toBe(true);
+  expect(sheetLeavesFirstOn(true, "ios")).toBe(true);
+  expect(sheetLeavesFirstOn(false, "android")).toBe(true);
+  expect(sheetLeavesFirstOn(false, "ios")).toBe(true);
 });
