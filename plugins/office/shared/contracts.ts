@@ -318,6 +318,29 @@ export const skillsRpc = defineRpc({
   output: SkillsResultSchema,
 });
 
+/**
+ * A month of the stand-up notes, `YYYYMM`, read from the notes folder; this month in the notes
+ * time zone when none is asked for. Only six digits are taken, so a month cannot name a path.
+ */
+export const notesReadRpc = defineRpc({
+  name: "office.notes.read.request",
+  input: z.object({
+    month: z
+      .string()
+      .regex(/^\d{6}$/)
+      .optional(),
+  }),
+  output: z.object({
+    folderSet: z.boolean(),
+    month: z.string(),
+    /** The file's text; null when the month has no file. */
+    text: z.string().nullable(),
+    /** The nearest earlier and later months that have a file; null where none. */
+    previous: z.string().nullable(),
+    next: z.string().nullable(),
+  }),
+});
+
 /** A snapshot, then changes. */
 export const officeStateSubscription = defineSubscription({
   name: "office.state",
