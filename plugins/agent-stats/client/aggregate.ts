@@ -96,7 +96,8 @@ export function summarize(
   }
   return {
     days: [...days.values()],
-    workspaces: [...workspaces.values()].toSorted(
+    // A fresh array, sorted in place: Hermes, which runs this in the app, has no toSorted.
+    workspaces: [...workspaces.values()].sort(
       (a, b) => b.workMs - a.workMs || b.turns - a.turns || a.name.localeCompare(b.name),
     ),
     total,
