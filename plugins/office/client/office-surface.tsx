@@ -38,12 +38,12 @@ import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
-import { GymCard } from "./gym-card.js";
+import { LibraryCard } from "./library-card.js";
 import { QaCard } from "./qa-card.js";
 import { ReviewCard } from "./review-card.js";
 import { StandupCard } from "./standup-card.js";
 import { useJanitor } from "./use-janitor.js";
-import { useGym } from "./use-gym.js";
+import { useLibrary } from "./use-library.js";
 import { useQa } from "./use-qa.js";
 import { useReviews } from "./use-reviews.js";
 import { useScriptLog } from "./use-script-log.js";
@@ -594,7 +594,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     showWorkspace,
     showBoard: board.open,
   });
-  const gym = useGym({ model, post: boardActions.post, live, showBoard: board.open });
+  const library = useLibrary({ model, post: boardActions.post, live, showBoard: board.open });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sceneProblem, setSceneProblem] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
@@ -637,10 +637,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   // The strip's cards, each only while it has something to say.
   const cards = useMemo(
     () =>
-      [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry, gym.entry].filter(
+      [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry, library.entry].filter(
         (card) => card !== null,
       ),
-    [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry, gym.entry],
+    [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry, library.entry],
   );
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
@@ -741,17 +741,17 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         styles={styles}
         onClose={qa.close}
       />
-      <GymCard
-        teams={gym.teams}
-        skills={gym.skills}
-        readFailure={gym.readFailure}
-        open={gym.open}
-        read={gym.read}
-        teach={gym.teach}
+      <LibraryCard
+        teams={library.teams}
+        skills={library.skills}
+        readFailure={library.readFailure}
+        open={library.open}
+        read={library.read}
+        teach={library.teach}
         wakesPaused={office.state.wake.paused}
-        onOpenBoard={gym.openBoard}
+        onOpenBoard={library.openBoard}
         styles={styles}
-        onClose={gym.close}
+        onClose={library.close}
       />
       <BoardSheet
         room={board.room}
