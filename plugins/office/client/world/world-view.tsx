@@ -13,6 +13,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { worldRpc, type Machine } from "../../shared/contracts.js";
 import type { FocusRequest } from "../focus-request.js";
 import type { OfficeModel } from "../model.js";
+import { NO_RESTS, restsAfter, type Rests } from "../pixel/actors.js";
 import type { OfficeStyles } from "../styles.js";
 import {
   PLAN_DESKS,
@@ -25,6 +26,7 @@ import {
   worldChanges,
   worldMachine,
   worldPeople,
+  withRestTimes,
   type WorldMemory,
   type WorldPlan,
 } from "./adapter.js";
@@ -92,6 +94,8 @@ export function WorldView({
   const fetchWorld = useRpc(worldRpc);
   const world = useRef<WorldApi | null>(null);
   const memory = useRef<WorldMemory | null>(null);
+  // Since when each person rests: the scene sends home whoever rested 30 minutes after 21:00.
+  const rests = useRef<Rests>(NO_RESTS);
   const [sized, setSized] = useState(false);
   const [started, setStarted] = useState(false);
   // What the frame's callbacks and its start read: always the last render's.
@@ -232,7 +236,8 @@ export function WorldView({
   useEffect(() => {
     const api = world.current;
     if (api === null) return;
-    api.setSessions(people.sessions);
+    rests.current = restsAfter(rests.current, people.sessions, Date.now());
+    api.setSessions(withRestTimes(people.sessions, rests.current));
     api.setBoardRows(worldBoardRows(model, people.sessions));
     const changes = worldChanges(memory.current, people);
     for (const event of changes.events) api.event(event);

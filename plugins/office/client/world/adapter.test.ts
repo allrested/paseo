@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityStep, OfficeAgent, OfficeSnapshot } from "../../shared/contracts.js";
 import { buildOfficeModel } from "../model.js";
+import { NO_RESTS, restsAfter } from "../pixel/actors.js";
 import {
   PLAN_DESKS,
   type WorldMemory,
@@ -14,6 +15,7 @@ import {
   worldChanges,
   worldMachine,
   worldPeople,
+  withRestTimes,
 } from "./adapter.js";
 
 function agent(id: string, patch: Partial<OfficeAgent> = {}): OfficeAgent {
@@ -151,6 +153,25 @@ describe("the office's agents as the scene's people", () => {
 
     expect(sessions[0]?.usage).toEqual({ ctx: 164_000, ctxMax: 200_000 });
     expect(sessions[1]).not.toHaveProperty("usage");
+  });
+
+  it("gives a resting person the time it came to rest, kept while it rests", () => {
+    const seat = (agents: OfficeAgent[]) =>
+      worldPeople(buildOfficeModel(office(agents)), PLAN_DESKS.pro).sessions;
+    const first = seat([agent("1"), agent("2", { status: "running" })]);
+    const rests = restsAfter(NO_RESTS, first, 1_000);
+
+    const shown = withRestTimes(first, rests);
+    expect(shown[0]?.doneAt).toBe(1_000);
+    expect(shown[1]).not.toHaveProperty("doneAt");
+
+    // Agent 2 rests from 5 s on; agent 1 still from 1 s.
+    const second = seat([agent("1"), agent("2")]);
+    const later = withRestTimes(second, restsAfter(rests, second, 5_000));
+    expect(later.map((session) => [session.id, session.doneAt])).toEqual([
+      ["1", 1_000],
+      ["2", 5_000],
+    ]);
   });
 
   it("names a room's team, and nothing for a room that is gone", () => {

@@ -288,15 +288,20 @@ const api = {
   },
   /**
    * Everyone in the office now, in upstream's session shape: { id, name, title, dir, git: { repo },
-   * status: 'work' | 'wait' | 'rest', agent, lastPrompt, last, stuck, subs, usage: { ctx, ctxMax } }.
+   * status: 'work' | 'wait' | 'rest', agent, lastPrompt, doneAt, last, stuck, subs, usage: { ctx, ctxMax } }.
    * The first list is seated at once; later a newcomer walks in from the lift and someone who is
    * gone walks out. `usage` is the context window in tokens: the paper on the desk and in its bin.
+   * `doneAt` is when someone resting came to rest (ms); the last event the scene saw of a person stays.
    */
   setSessions(list) {
     if (!started) return;
     const ids = new Set(list.map((s) => s.id));
     for (const id of [...sessions.keys()]) if (!ids.has(id)) live.removeSession(id);
-    for (const s of list) live.upsertSession(s, seated);
+    for (const s of list) {
+      const was = sessions.get(s.id);   // (record() keeps the last event on the session object this one replaces)
+      if (was) { s.last ??= was.last; s.lastAt ??= was.lastAt; }
+      live.upsertSession(s, seated);
+    }
     seated = true;
     state.connectedOnce = true;
     state.boardDirty = true;
