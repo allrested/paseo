@@ -139,13 +139,27 @@ const STEP_EVENT: Readonly<Record<ActivityKind, WorldEventType>> = {
   test: "test",
   commit: "commit",
   push: "push",
-  deploy: "deploy",
+  // A deploy that starts is a command at the server room's console; `endOf` tells its end.
+  deploy: "bash",
 };
 
-const RESULT_EVENT: Readonly<Record<TestResult, WorldEventType>> = {
-  passed: "testok",
-  failed: "testfail",
-};
+/** A step whose end is told as well as its start. */
+type Run = "test" | "deploy";
+
+function runOf(kind: ActivityKind): Run | null {
+  return kind === "test" || kind === "deploy" ? kind : null;
+}
+
+type StepEvent = Pick<WorldEvent, "type" | "of">;
+
+/**
+ * How a run that ended is told. A test run's result goes on the test board. A deploy that
+ * succeeded launches the rocket, and one that failed is a failure.
+ */
+function endOf(run: Run, result: TestResult): StepEvent {
+  if (run === "test") return { type: result === "passed" ? "testok" : "testfail" };
+  return result === "passed" ? { type: "deploy" } : { type: "fail", of: "deploy" };
+}
 
 /** What the scene was last told about a person. */
 interface Told {
@@ -153,8 +167,8 @@ interface Told {
   stuck: boolean;
   /** The key of the step the person was sent to; null when at none. */
   step: string | null;
-  /** That step is a test run, and the scene has not been told how it ended. */
-  testing: boolean;
+  /** That step is a test run or a deploy, and the scene has not been told how it ended. */
+  running: Run | null;
   /** How full the context was, 0 to 1; null when unknown. */
   full: number | null;
 }
@@ -189,27 +203,33 @@ function stepEvents(
   session: WorldSession,
   step: ActivityStep | undefined,
   was: Told | undefined,
-): { events: WorldEventType[]; step: string | null; testing: boolean } {
-  const events: WorldEventType[] = [];
+): { events: StepEvent[]; step: string | null; running: Run | null } {
+  const events: StepEvent[] = [];
   let told = was?.step ?? null;
-  let testing = was?.testing ?? false;
-  if (testing && step?.key !== told) {
-    // The run's end was never seen: its lamp on the test board goes out.
-    events.push("testend");
-    testing = false;
+  let running = was?.running ?? null;
+  if (running !== null && step?.key !== told) {
+    // The run's end was never seen: a test run's lamp on the test board goes out, and a deploy
+    // ends without a word.
+    if (running === "test") events.push({ type: "testend" });
+    running = null;
   }
-  if (step === undefined) return { events, step: null, testing };
-  if (testing) {
+  if (step === undefined) return { events, step: null, running };
+  if (running !== null) {
     if (step.result !== undefined) {
-      events.push(RESULT_EVENT[step.result]);
-      testing = false;
+      events.push(endOf(running, step.result));
+      running = null;
     }
   } else if (session.status === "work" && step.key !== told) {
     told = step.key;
-    testing = step.kind === "test" && step.result === undefined;
-    events.push(step.result === undefined ? STEP_EVENT[step.kind] : RESULT_EVENT[step.result]);
+    const run = runOf(step.kind);
+    if (run !== null && step.result !== undefined) {
+      events.push(endOf(run, step.result));
+    } else {
+      running = run;
+      events.push({ type: STEP_EVENT[step.kind] });
+    }
   }
-  return { events, step: told, testing };
+  return { events, step: told, running };
 }
 
 /**
@@ -218,8 +238,10 @@ function stepEvents(
  * failure. A new tool call of an agent at work sends the person to that work's place, and that
  * is said at once, so an office just opened shows what everyone is at. A call seen while its
  * agent waits for the user is told once the agent works again: the approval is often for it.
- * A test run is told twice, when it starts and when it ends. A context that empties, by a
- * compaction or by a new conversation, is paper carried to the shredder.
+ * A test run is told twice, when it starts and when it ends. A deploy too: it starts as a
+ * command at the console, and ends as the rocket's launch or as a failure; one cancelled or never
+ * seen to end is not told. A context that empties, by a compaction or by a new conversation, is
+ * paper carried to the shredder.
  */
 export function worldChanges(before: WorldMemory | null, people: WorldPeople): WorldChanges {
   const events: WorldEvent[] = [];
@@ -231,12 +253,12 @@ export function worldChanges(before: WorldMemory | null, people: WorldPeople): W
     const full = fullness(session);
     if (tidied(was?.full ?? null, full)) events.push({ sess: session.id, type: "compact" });
     const steps = stepEvents(session, people.steps.get(session.id), was);
-    for (const type of steps.events) events.push({ sess: session.id, type });
+    for (const event of steps.events) events.push({ sess: session.id, ...event });
     memory.set(session.id, {
       status: session.status,
       stuck: session.stuck,
       step: steps.step,
-      testing: steps.testing,
+      running: steps.running,
       full,
     });
   }

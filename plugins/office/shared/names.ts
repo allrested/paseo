@@ -28,7 +28,7 @@ export const ACTIVITY_KINDS = [
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
-/** How a test run ended. */
+/** How a test run or a deploy ended. */
 export const TEST_RESULTS = ["passed", "failed"] as const;
 export type TestResult = (typeof TEST_RESULTS)[number];
 
@@ -36,6 +36,6 @@ export type TestResult = (typeof TEST_RESULTS)[number];
 export interface ActivityStep {
   kind: ActivityKind;
   key: string;
-  /** Set on a test run once it has ended. */
+  /** Set on a test run or a deploy once it has ended. */
   result?: TestResult;
 }

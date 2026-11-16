@@ -140,7 +140,10 @@ function toolKind(item: ActivityItem): ActivityKind {
   return (typeof type === "string" ? DETAIL_KINDS[type] : undefined) ?? namedKind(item.name);
 }
 
-/** How a command ended: by its exit code when the host has one, else by the call's status. */
+/** The kinds of work whose end is told: a test run's on the test board, a deploy's by the rocket. */
+const ENDS: ReadonlySet<ActivityKind> = new Set(["test", "deploy"]);
+
+/** How a call ended: by its exit code when the host has one, else by the call's status. */
 function resultOf(item: ActivityItem): TestResult | null {
   const exitCode = field(item.detail, "exitCode");
   if (item.status === "failed" || (typeof exitCode === "number" && exitCode !== 0)) return "failed";
@@ -150,7 +153,7 @@ function resultOf(item: ActivityItem): TestResult | null {
 function stepOf(item: ActivityItem): ActivityStep {
   const kind = toolKind(item);
   const key = typeof item.callId === "string" && item.callId !== "" ? item.callId : kind;
-  const result = kind === "test" ? resultOf(item) : null;
+  const result = ENDS.has(kind) ? resultOf(item) : null;
   return result === null ? { kind, key } : { kind, key, result };
 }
 
@@ -158,7 +161,7 @@ function stepOf(item: ActivityItem): ActivityStep {
  * The newest item as a step, when it is a tool call. An agent that writes, thinks or reads its
  * prompt is at no step. The key is the call's id, so two calls of one tool are two steps; a
  * provider that numbers no calls gives the kind, and then only a change of kind is a new step.
- * A test run that has ended says how.
+ * A test run or a deploy that has ended says how.
  */
 export function describeStep(items: readonly ActivityItem[]): ActivityStep | null {
   for (const item of items.toReversed()) {
@@ -175,16 +178,22 @@ export function describeStep(items: readonly ActivityItem[]): ActivityStep | nul
 }
 
 /**
- * The step to report after `before`. An agent has often moved on by the read after its tests
- * ended, so a test run last seen running is looked up again, and its end is reported for one read
- * before whatever came after it. A cancelled run, and one that left the tail, end without a word.
+ * The step to report after `before`. An agent has often moved on by the read after its tests or
+ * its deploy ended, so one last seen running is looked up again, and its end is reported for one
+ * read before whatever came after it. A cancelled one, and one that left the tail, end without a
+ * word.
  */
 export function nextStep(
   before: ActivityStep | undefined,
   items: readonly ActivityItem[],
 ): ActivityStep | null {
   const step = describeStep(items);
-  if (before?.kind !== "test" || before.result !== undefined || step?.key === before.key) {
+  if (
+    before === undefined ||
+    !ENDS.has(before.kind) ||
+    before.result !== undefined ||
+    step?.key === before.key
+  ) {
     return step;
   }
   const run = items.find((item) => item.type === "tool_call" && item.callId === before.key);

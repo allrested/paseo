@@ -34,7 +34,8 @@ const OURS = {
   'places.library.today': { one: '{n} read since the office opened', other: '{n} reads since the office opened' },
   'places.window.empty': 'Nobody has searched the web since the office opened.',
   'places.window.today': { one: '{n} web search since the office opened', other: '{n} web searches since the office opened' },
-  'places.deploy.sub': 'A commit makes the printer print. A push or a deploy launches the rocket.',
+  'places.deploy.sub': 'A commit makes the printer print. A deploy that succeeds launches the rocket.',
+  'paseo.deploy.failed': 'The deploy failed',
   'places.deploy.today': { one: '{n} deploy since the office opened', other: '{n} deploys since the office opened' },
   'places.live.deployToday': '{n} so far',
 };

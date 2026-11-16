@@ -575,10 +575,12 @@ lists that workspace's room first. Each workspace is a room, and the lobby holds
 workspace. A row shows the agent's state, provider and model, and for a running agent a "doing
 now" line taken from the newest timeline item's kind, never its text. When that item is a tool
 call, the same read gives the agent's step: the kind of work (a read, a search, an edit, a
-command, a test run, a commit, a push, a deploy), the call's id, and for a test run how it ended.
-The host decides the kind, from the tool call's normalised detail and for a shell call from its
-command (`plugins/office/server/activity.ts`); the command, a file name or a query never leave
-it. Tapping a row opens a card
+command, a test run, a commit, a push, a deploy), the call's id, and for a test run or a deploy
+how it ended. The host decides the kind, from the tool call's normalised detail and for a shell
+call from its command (`plugins/office/server/activity.ts`); the command, a file name or a query
+never leave it. A deploy is a tool named for one (`deploy_service`), a deploy script or a
+`make`/`just` target, a Dokploy redeploy, a run of a deploy or release workflow, a push of a
+version tag, or a hosting tool's own command. Tapping a row opens a card
 that opens the session, sends a prompt, answers a tool, mode or other permission (a plan or a
 question says to answer it in the session), or stops the running turn with the SDK's `cancel()`.
 The server keeps one directory from subscribed `agents.list` and `workspaces.list` calls (the
@@ -640,7 +642,9 @@ keyboard focus back to the app's window. The floor has 12 desks. With more agent
 need the user and the ones at work sit first, and a line over the scene says how many are only in
 the list. A step sends its person to that work's place: the library for a read, a search or a
 skill, the desk for an edit, the server room for a command, the test board for a test run. A commit prints a
-page, and a push or a deploy launches the rocket. The reads are 5 s apart, so a tool call that
+page, and the desks near a push applaud. A deploy is a command at the server room's console until
+it ends: one that succeeds launches the rocket, one that fails gets the failure's sweat, and one
+cancelled or never seen to end does nothing. The reads are 5 s apart, so a tool call that
 starts and ends between two of them is never shown. With a host reading, the server room's chip,
 its racks and the wall screen open the Host card, the wall screen shows memory and CPU, an agent
 with a port open has a small server on its desk, and what was left running stands in the server

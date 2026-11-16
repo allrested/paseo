@@ -158,7 +158,8 @@ function onEvent(e) {
   const s = sessions.get(e.sess), w = workers.get(e.sess);
   if (e.type === 'stop' || e.type === 'commit') printPage();   // every finished turn and every commit prints a page
   if (e.type === 'test' || e.type === 'testok' || e.type === 'testfail') onTest(e);
-  if (e.type === 'push' || e.type === 'deploy') { applaud(e.sess); launchRocket(); }
+  if (e.type === 'push' || e.type === 'deploy') applaud(e.sess);
+  if (e.type === 'deploy') launchRocket();   // (a deploy that succeeded; a push is applauded and no more)
   if (e.type === 'stop' && s) onTurnDone(s);
   if (!w || !s) return;
   if (e.type === 'substart') { spawnSub(w, e.agent, e.label); return; }
@@ -171,10 +172,11 @@ function onEvent(e) {
     return;
   }
   if (e.type === 'start' || e.type === 'end') return;
-  let a = { ...(ACT[e.type] || ACT.other), type: ACT[e.type] ? e.type : 'other', text: bubbleText(e), e };
+  const said = e.type === 'fail' && e.of === 'deploy' ? tr('paseo.deploy.failed') : bubbleText(e);
+  let a = { ...(ACT[e.type] || ACT.other), type: ACT[e.type] ? e.type : 'other', text: said, e };
   if (e.type === 'fail') {   // a second failure within two minutes: frustration, a fist on the desk
     w.fails = (w.fails || []).filter((t) => state.sim - t < 120); w.fails.push(state.sim);
-    if (w.fails.length >= 2 && !reduceMotion) { a = { ...a, anim: 'slam', text: tr('incident.againFail', { text: bubbleText(e) }), dwell: 2.2 }; w.slamUntil = state.sim + 2.2; }
+    if (w.fails.length >= 2 && !reduceMotion) { a = { ...a, anim: 'slam', text: tr('incident.againFail', { text: said }), dwell: 2.2 }; w.slamUntil = state.sim + 2.2; }
   }
   if (e.type === 'prompt') a.after = () => { state.boardPulse = { id: e.sess, until: state.sim + 2.6 }; state.boardDirty = true; };
   if (director && e.type === 'prompt') director.deliver(e.sess, e.label || '');
@@ -278,13 +280,16 @@ const api = {
     state.connectedOnce = true;
     state.boardDirty = true;
   },
-  /** Something a session did: { sess, type }, `type` a key of upstream's ACT table. No text comes with it. */
+  /**
+   * Something a session did: { sess, type }, `type` a key of upstream's ACT table. No text comes with it. A `deploy` is
+   * a deploy that succeeded; a `fail` with `of: 'deploy'` is one that failed.
+   */
   event(e) {
     if (!started || !e || !sessions.has(e.sess)) return;
     if (e.type === 'testend') { clearRun(e.sess); return; }
     // the test board writes a run's label beside its result: Paseo gives the time it ended
     const ended = e.type === 'testok' || e.type === 'testfail';
-    onEvent({ ts: Date.now(), sess: e.sess, type: e.type, label: ended ? clockTime() : '' });
+    onEvent({ ts: Date.now(), sess: e.sess, type: e.type, label: ended ? clockTime() : '', of: e.of });
   },
   /** Paseo chose someone (its card opened) or nobody (it closed): mark them, tell nobody back. */
   select(id) { if (!started) return; if (id && sessions.has(id)) openSession(id, { tell: false }); else closeSession({ tell: false }); },
