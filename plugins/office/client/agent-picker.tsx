@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { TextInput } from "@getpaseo/plugin/client/ui";
 import { ActionButton } from "./action-button.js";
 import { NOBODY, pickerGroups, showsSearch } from "./agent-picker-text.js";
 import type { DotTone, OfficeRoom } from "./model.js";
 import type { OfficeStyles } from "./styles.js";
-import { listenForSpace } from "./web-env.web.js";
+import { focusById, listenForSpace } from "./web-env.web.js";
 
 interface RowProps {
   value: string;
@@ -14,16 +14,22 @@ interface RowProps {
   /** Null for the row that is nobody: it has no state to show. */
   tone: DotTone | null;
   selected: boolean;
+  /** The page opened on this row: it takes the keyboard's focus. */
+  takesFocus: boolean;
   onChoose(value: string): void;
   styles: OfficeStyles;
 }
 
 /** One choice of the page: a radio drawn as a row. */
-function Row({ value, title, detail, tone, selected, onChoose, styles }: RowProps) {
+function Row({ value, title, detail, tone, selected, takesFocus, onChoose, styles }: RowProps) {
   const press = useCallback(() => onChoose(value), [onChoose, value]);
   // Enter presses any Pressable; Space, the key that picks a radio, only a button.
   const id = useId();
   useEffect(() => listenForSpace(id, press), [id, press]);
+  // The form's row that opened the page is gone: without this the focus falls to the page's body.
+  useEffect(() => {
+    if (takesFocus) focusById(id);
+  }, [id, takesFocus]);
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
@@ -45,8 +51,10 @@ function Row({ value, title, detail, tone, selected, onChoose, styles }: RowProp
       style={selected ? styles.pickerRowSelected : styles.pickerRow}
     >
       {lit ? <View style={styles.pressedFill} /> : null}
-      {/* The slot stays for nobody too, so every title starts on one rail. */}
-      <View style={styles.lead}>{tone === null ? null : <View style={styles.dot[tone]} />}</View>
+      {/* The slot keeps the dot's width for nobody too, so every title starts on one rail. */}
+      <View style={styles.pickerLead}>
+        {tone === null ? null : <View style={styles.dot[tone]} />}
+      </View>
       <View style={styles.rowBody}>
         <Text style={styles.sheetText} numberOfLines={1}>
           {title}
@@ -92,7 +100,8 @@ export function AgentPicker({ rooms, roomId, value, onChoose, onBack, styles }: 
           onChangeText={setQuery}
           placeholder="Search by agent or room"
           placeholderTextColor={styles.placeholderColor}
-          autoFocus
+          // On native the keyboard would rise over the list; the host autofocuses on web only too.
+          autoFocus={Platform.OS === "web"}
           style={styles.pickerSearch}
         />
       ) : null}
@@ -108,6 +117,7 @@ export function AgentPicker({ rooms, roomId, value, onChoose, onBack, styles }: 
             detail="The post wakes no agent"
             tone={null}
             selected={value === NOBODY}
+            takesFocus={!searchable && value === NOBODY}
             onChoose={onChoose}
             styles={styles}
           />
@@ -124,6 +134,7 @@ export function AgentPicker({ rooms, roomId, value, onChoose, onBack, styles }: 
                   detail={row.detail}
                   tone={row.tone}
                   selected={value === row.agentId}
+                  takesFocus={!searchable && value === row.agentId}
                   onChoose={onChoose}
                   styles={styles}
                 />

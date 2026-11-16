@@ -73,10 +73,17 @@ export function choiceLabel(to: string, rooms: readonly OfficeRoom[]): string {
 }
 
 /**
- * What a close of the sheet does. A wide sheet is closed by Escape, its close button or a press
- * beside it: from the page these go back to the form. A phone's sheet is already swiped away when
- * it says so, and closes.
+ * What a close of the sheet does. The host draws its sheet three ways. On the web's wide layout it
+ * is a dialog that stays open until told: Escape, its close button and a press beside it only ask,
+ * so from the page a close goes back to the form. A phone's sheet is swiped away before it says
+ * so, and a tablet's is dismissed by Android's Back before it says so: there the sheet has already
+ * left, and the close closes.
  */
-export function closeStep(picking: boolean, compact: boolean): "back" | "close" {
-  return picking && !compact ? "back" : "close";
+export function closeStep(picking: boolean, sheetLeavesFirst: boolean): "back" | "close" {
+  return picking && !sheetLeavesFirst ? "back" : "close";
+}
+
+/** The host's sheet has already left when it reports a close: everywhere but the web's wide dialog. */
+export function sheetLeavesFirstOn(compact: boolean, platform: "ios" | "android" | "web"): boolean {
+  return compact || platform !== "web";
 }
