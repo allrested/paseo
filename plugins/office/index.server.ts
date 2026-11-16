@@ -17,6 +17,7 @@ import { cleanUpAgent } from "./server/machine/cleanup.js";
 import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.js";
 import { createMachineReader } from "./server/machine/machine.js";
 import { createMachineWatch } from "./server/machine/watch.js";
+import { nodeNotesFs, readMonthNotes } from "./server/notes-files.js";
 import { createNotesSchedule } from "./server/notes-schedule.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
@@ -29,6 +30,7 @@ import {
   deleteRpc,
   janitorRpc,
   machineSubscription,
+  notesReadRpc,
   officeStateSubscription,
   postRpc,
   scriptLogRpc,
@@ -182,6 +184,14 @@ export function createOfficePlugin(
     holder.remember(context.paseo);
     return guarded("skills", () => readSkills(skillsPorts));
   });
+  server.handle(notesReadRpc, (input) =>
+    guarded("notes read", () =>
+      readMonthNotes(
+        { settings, hostTimeZone: deps.hostTimeZone, now: () => deps.clock.now(), fs: nodeNotesFs },
+        input.month,
+      ),
+    ),
+  );
   server.handle(postRpc, (input, context) => {
     holder.remember(context.paseo);
     return guarded("post", () => office.post(input));
