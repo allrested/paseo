@@ -54,12 +54,21 @@ describe("standingOf", () => {
     expect(at("test")).toEqual({ place: "racks", icon: "test", screen: "code" });
     expect(at("plan")).toEqual({ place: "board", icon: "plan", screen: "code" });
     expect(at("subagent")).toEqual({ place: "board", icon: "subagent", screen: "code" });
-    expect(at("push")).toEqual({ place: "pad", icon: "ship", screen: "code" });
-    expect(at("deploy")).toEqual({ place: "pad", icon: "ship", screen: "code" });
+    // A push no longer flies the rocket: the agent pushes from the desk.
+    expect(at("push")).toEqual({ place: null, icon: "ship", screen: "code" });
+    // A deploy that runs works at the racks; the rocket waits for its success.
+    expect(at("deploy")).toEqual({ place: "racks", icon: "ship", screen: "code" });
     for (const kind of ["edit", "write", "commit", "web", "tool"] as const) {
       expect(at(kind).place).toBeNull();
       expect(at(kind).icon).not.toBeNull();
     }
+  });
+
+  it("flies the rocket only for a deploy that succeeded", () => {
+    const ended = (result: "passed" | "failed") =>
+      standingOf(session("a"), { ...step("deploy"), result }, false, false);
+    expect(ended("passed")).toEqual({ place: "pad", icon: "ship", screen: "code" });
+    expect(ended("failed")).toEqual({ place: "racks", icon: "failed", screen: "code" });
   });
 
   it("shows how a test run ended, at the racks", () => {

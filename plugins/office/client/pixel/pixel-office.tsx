@@ -1019,7 +1019,7 @@ interface RocketProps {
   still: boolean;
 }
 
-/** The rocket on its pad. It flies when somebody pushes or deploys, and is back for the next. */
+/** The rocket on its pad. It flies when a deploy succeeds, and is back for the next. */
 const Rocket = memo(function Rocket({ at, launch, art, scale, still }: RocketProps) {
   const lift = useRef(new Animated.Value(0)).current;
   const [flying, setFlying] = useState(false);
