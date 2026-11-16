@@ -671,6 +671,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
             entries={model.attention}
             cards={cards}
             styles={styles}
+            wrap={!layout.compact}
             onSelect={selectFromStrip}
           />
         ) : null}

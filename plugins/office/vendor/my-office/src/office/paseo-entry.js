@@ -23,6 +23,7 @@ import { PROPS } from './interact/props.js';
 import { closePlace } from './interact/place-cards.js';
 import { OFFICE_MARK, PRO_FX } from './world/pro/pieces.js';
 import { SIGN, drawSign } from './paseo-sign.js';
+import { followHostFocus } from './paseo-focus.js';
 import { ringWithEveryone, updateLeisure } from './paseo-leisure.js';
 import { everyFrame } from './life/nap.js';
 import { dropSub, sessions, spawnSub, subAct, subs, workers } from './people/workers.js';
@@ -226,6 +227,8 @@ const api = {
     host.boardRows = () => boardRows;
     problem = (message) => options.onProblem?.(message);
     buildPage();
+    // (the frame counts as focused while Paseo's page is: upstream's loop draws full rate then, see paseo-focus.js)
+    followHostFocus(document, window.parent);
     applyColors(options.colors || {}, host.night);
     // what upstream's first message from its server sets
     state.stats = {}; state.todos = []; state.feed = []; state.limits = null; state.world = true;
