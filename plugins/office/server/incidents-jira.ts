@@ -88,7 +88,9 @@ export function createJiraReader(
     const myself = await getJson({ tracker, url: `${api}/myself`, schema: MyselfSchema });
     // Without a zone from Jira, UTC: the instance's own zone is not known here.
     const time = jqlTime(since, myself.timeZone ?? "UTC");
-    const jql = `project in (${projects.join(", ")}) AND issuetype = Bug AND created >= "${time}" ORDER BY created ASC`;
+    // Quoted, since a key such as USER or IN is a word JQL reserves. A key holds no `"`.
+    const keys = projects.map((key) => `"${key}"`).join(", ");
+    const jql = `project in (${keys}) AND issuetype = Bug AND created >= "${time}" ORDER BY created ASC`;
     const found: FoundIssue[] = [];
     let pageToken: string | null = null;
     do {

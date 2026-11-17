@@ -83,10 +83,16 @@ test("builds the JQL with the keys, Bug and the time in the user's zone", async 
     "/rest/api/3/search/jql",
   ]);
   expect(Object.fromEntries(server.requests[1].query)).toEqual({
-    jql: 'project in (FPOS, QA) AND issuetype = Bug AND created >= "2026-11-17 08:00" ORDER BY created ASC',
+    jql: 'project in ("FPOS", "QA") AND issuetype = Bug AND created >= "2026-11-17 08:00" ORDER BY created ASC',
     fields: "summary,created",
     maxResults: "100",
   });
+});
+
+test("a key JQL reserves, such as USER, is quoted", async () => {
+  const server = await standIn(jira("UTC", [{ issues: [], isLast: true }]));
+  await createJiraReader(env(server.base), ["USER", "IN"]).read(0);
+  expect(server.requests[1].query.get("jql")).toMatch(/^project in \("USER", "IN"\) AND /);
 });
 
 test("a user without a zone is read in UTC; a zone this host does not know is a problem", async () => {
