@@ -1,10 +1,11 @@
 # Sessions and Activity beside the office's floor: design
 
-Date: 2026-11-17. Status: approved, not built. Piece 3 of sub-project 7 ("Upstream's controls") of
-[the office after the owner's review](2026-11-16-office-owner-review-design.md). The owner's answers
-on how sub-project 7 splits are in [piece 1's design](2026-11-17-office-list-mode-design.md#the-owners-answers).
-It builds on [the office as one page](2026-11-17-office-one-page-design.md) (sub-project 4), whose
-side area shows it.
+Date: 2026-11-17. Status: built, with two known defects. Piece 3 of sub-project 7 ("Upstream's
+controls") of [the office after the owner's review](2026-11-16-office-owner-review-design.md). The
+owner's answers on how sub-project 7 splits are in
+[piece 1's design](2026-11-17-office-list-mode-design.md#the-owners-answers). It builds on
+[the office as one page](2026-11-17-office-one-page-design.md) (sub-project 4), whose side area
+shows it.
 
 ## Request
 
@@ -83,22 +84,22 @@ same events.
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The top    | The tabs and the search of piece 1 (`client/list-text.ts`: All, Needs you, Working, Resting with counts; "Search agents"). One list, not rooms.                                                                            |
 | A row      | The dot, the title, the room's name under it, and the "doing now" line for a running agent, else the state's word. Needs you first, then Working, then Resting; newest change first within each. My call: upstream's rail. |
-| Sub-agents | Indented under their parent, as the List view.                                                                                                                                                                             |
-| Empty      | "No agents yet." with no agents; "No agent matches." with a filter.                                                                                                                                                        |
+| Sub-agents | Indented under their parent, as the List view, also when the parent sits in another room.                                                                                                                                  |
+| Empty      | "Loading..." before the first state arrives; then "No agents yet." with no agents; "No agent matches." with a filter.                                                                                                      |
 
 ### Activity
 
-| Question           | Decision                                                                                                                                                                                                                                                                                 |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Its events         | Derived by `client/activity-feed.ts` from each new office state: a new step key (the step's kind: read, edit, command, test, deploy…), started working, finished (running to idle), needs permission, stopped on an error, a sub-agent started. Words in `client/activity-feed-text.ts`. |
-| What it keeps      | The newest 300 events in a module-level store, from when the office's state first loaded in this app run. Cleared on a reload of the app. Not saved.                                                                                                                                     |
-| Who keeps it       | The derivation runs in the surface's `use-office` and in the panels' own, into one store, deduplicated by agent and key. So the feed fills while either the office or the panel is open.                                                                                                 |
-| The top            | A "Live" tag while the office's stream runs. All and Needs you tabs, Needs you with its count. Five kind chips as upstream: Commands, Edits, Reads, Web, Agents; any number on, none means all.                                                                                          |
-| Grouping           | Upstream's: consecutive events of one agent within four minutes share a card (dot, title, "Working" while it runs, the first event's time, up to four lines, "+N more"). Needs permission and stopped on an error stand alone.                                                           |
-| A card's press     | Selects the agent, as a Sessions row. An alert card has "Open session".                                                                                                                                                                                                                  |
-| Empty              | "Nothing yet since the office opened."                                                                                                                                                                                                                                                   |
-| Today's numbers    | Not shown. My call: upstream's are the day's, and the feed starts when the office opened.                                                                                                                                                                                                |
-| What it never says | A file's name, a command or a prompt: the office receives none (`shared/names.ts`).                                                                                                                                                                                                      |
+| Question           | Decision                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Its events         | Derived by `client/activity-feed.ts` from each new office state: a new step key (the step's kind: read, edit, command, test, deploy…), started working, finished (running to idle), needs permission, stopped on an error, a sub-agent started. Words in `client/activity-feed-text.ts`.                                                                    |
+| What it keeps      | The newest 300 events in a module-level store, from when the office's state first loaded in this app run. Cleared on a reload of the app. Not saved.                                                                                                                                                                                                        |
+| Who keeps it       | The derivation runs in the surface's `use-office` and in the panels' own, into one store, deduplicated by agent and key. A status line (started, finished, error) of one agent within 2 s of the same one is the same event, since the two subscriptions stamp it a few milliseconds apart. So the feed fills while either the office or the panel is open. |
+| The top            | A "Live" tag while the office's stream runs. All and Needs you tabs, Needs you with its count. Five kind chips as upstream: Commands, Edits, Reads, Web, Agents; any number on, none means all.                                                                                                                                                             |
+| Grouping           | Upstream's: consecutive events of one agent within four minutes share a card (dot, title, "Working" while it runs, the time of its newest event (its top line), up to four lines, "+N more"). Needs permission and stopped on an error stand alone.                                                                                                         |
+| A card's press     | Selects the agent, as a Sessions row. An alert card has "Open session".                                                                                                                                                                                                                                                                                     |
+| Empty              | "Nothing yet since the office opened."                                                                                                                                                                                                                                                                                                                      |
+| Today's numbers    | Not shown. My call: upstream's are the day's, and the feed starts when the office opened.                                                                                                                                                                                                                                                                   |
+| What it never says | A file's name, a command or a prompt: the office receives none (`shared/names.ts`).                                                                                                                                                                                                                                                                         |
 
 ### Layouts
 
@@ -121,9 +122,9 @@ same events.
 
 ## Dependencies
 
-- Built from `main`, which has sub-project 4's `showBeside`.
-- Uses piece 1's `client/list-text.ts` for the tabs and the search. Piece 1's plan writes that
-  module first; this piece's Sessions panel starts after it is merged in.
+- The side area (sub-project 4's `showBeside`) is on `main`, and this branch was built from it.
+- Piece 1's `client/list-text.ts` was merged in from `main` before the Sessions panel was built; its
+  tabs and search are that module's.
 
 ## Errors
 
@@ -153,5 +154,50 @@ without the side area.
 ## Left to the builder
 
 - Whether the screen shown in the area and the surface share the client module's state in the
-  app. If they do not, the channel goes through a small app-side broadcast instead, and the
-  builder says so before building on it.
+  app. They do: the plugin's client is one bundle, evaluated once per installation, and in the
+  look a row press in the area opened the agent's card on the floor beside it, on the office
+  screen and on the office panel, and on each of the three views. No app-side broadcast was needed.
+
+## Known defects
+
+- **A row on the full route can open the office's card instead of the workspace.** The area's
+  "Open Sessions" pushes the screen's route over the office screen, which stays mounted under it
+  and stays registered in `office-link`. A row press on that route then opens the agent's card
+  from the hidden office, over the Sessions screen, rather than the agent's workspace. A cold load
+  of the route has no surface and opens the workspace, as designed. Activity's route goes through
+  the same link (no card was there to press). A fix needs the link to know when its surface is
+  not the focused screen.
+- **At 390 px, a header button pressed right after the area's sheet closes does nothing.** Pressed
+  1.5 s after Close it did nothing three times out of three; a second press opened the sheet, and a
+  press 5 s after Close always did. The browser tab throttled timers to about 1 s, so the window
+  is likely shorter in a foreground tab. The race is in the side area's sheet (sub-project 4); the
+  office's press only calls `showBeside`.
+
+## Not verified
+
+The look ran on 2026-11-17 in the Paseo browser (Chromium) against a dev daemon of this branch on
+its own port, with a copy of the host's agents and no agent prompted, and Expo web, at 1280 and
+390 px, light and dark. Presses were DOM events sent from the page, not a mouse. Seen: both header
+buttons on the office screen and the office panel; both panels beside the floor at 1280 px and as
+the area's sheet at 390 px; a Sessions row press opening the agent's card on the floor in List, 2D
+and 3D, including after switching views with the panel open; "Open Sessions" and "Open Activity"
+opening their routes; and on a cold-loaded Sessions route a row press opening the agent's
+workspace. Not seen, or seen only in part:
+
+- The feed with events. Every agent was resting, so Activity showed the Live tag and "Nothing yet
+  since the office opened." throughout. A card, its press, grouping, the chips and Needs you were
+  not seen. `activity-panel.mounted.test.tsx` covers cards, the press, the filters and Live;
+  `activity-feed.test.ts` covers the events, the 2 s merge, the cap and grouping.
+- "Open session" replacing the panel. Only an alert card has it, and no agent was made to raise
+  one. `activity-panel.mounted.test.tsx` covers it calling the surface's `openSession`.
+- Working and Needs you rows, and the doing-now line. `sessions-panel.mounted.test.tsx` and
+  `sessions-text.test.ts` cover them. Sub-agents were seen indented under their parent.
+- The camera flying to the agent in 3D. The card opened; the camera's move was not judged.
+- "Loading...": the first state arrived before the page was read. `sessions-panel.mounted.test.tsx`
+  covers it.
+- The buttons without a side area. `office-surface-panels.mounted.test.tsx` covers it.
+- The office screen at 1280 px in dark and the office panel at 390 px in dark.
+- Native layouts and Android Back.
+- Once at 390 px, after a reload, a row press left no card, and presses on the floor showed none
+  either until the next reload. Three tries after that, one of them pressing while the sheet still
+  rose, opened the card each time.
