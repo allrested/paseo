@@ -758,10 +758,11 @@ per month. Nothing runs until you set "Notes folder", an absolute path, in the o
 `schedule ls` or `list_schedules`. Each run, and each click on the 3D floor's bell, starts an agent
 titled "Stand-up notes" in the notes folder's workspace, unattended: the first enabled, ready
 provider in the daemon's order, with that provider's default model, in its mode that edits files
-without asking (Claude's "Accept File Edits") or else its default mode. Under a mode that still asks
-before an edit, the writer waits on a permission until someone answers it. The writer
-follows the stand-up rules of the folder's `CLAUDE.md` and gets the stand-up report as text. One
-writer runs at a time, and the office keeps it in `$PASEO_HOME/office/notes-writer.json`, so a
+without asking (Claude's "Accept File Edits") or else its default mode. That mode covers file edits;
+whether the writer's shell commands, such as `git log`, ask first is up to the provider's own
+settings, for Claude its permission rules. Whatever asks, the writer waits on the permission until
+someone answers it. The writer follows the stand-up rules of the folder's `CLAUDE.md` and gets the
+stand-up report as text. One writer runs at a time, and the office keeps it in `$PASEO_HOME/office/notes-writer.json`, so a
 restart does not start a second. An entry counts as written only when its `## DD Month YYYY` header
 starts a line of the month's file after the writer's turn; the office then records the time and
 archives the writer. A writer that fails, is stopped or closed, or ends without the entry is left
