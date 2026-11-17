@@ -1,57 +1,12 @@
 import { createServer, type Server } from "node:http";
-import type { PluginSchedule, PluginScheduleInput, PluginSchedules } from "@getpaseo/plugin/server";
 import { afterEach, expect, test } from "vitest";
+import { fakeSchedules } from "./fake-schedules.js";
 import {
   createIncidentsSchedule,
   INCIDENTS_SCHEDULE,
   type IncidentsSettings,
   incidentsReaders,
 } from "./incidents-schedule.js";
-
-type ScheduleCall = { upsert: PluginScheduleInput } | { remove: string };
-
-interface FakeSchedules extends PluginSchedules {
-  calls: ScheduleCall[];
-  /** Makes each upsert reject with this error while set. */
-  failure: Error | null;
-  /** Holds the next upsert until the returned function is called. */
-  holdNextUpsert(): () => void;
-}
-
-/** The daemon's store of the office's schedules, by name. */
-function fakeSchedules(kept: PluginSchedule[] = []): FakeSchedules {
-  const stored = new Map(kept.map((schedule) => [schedule.name, schedule]));
-  let gate: Promise<void> | null = null;
-  const fake: FakeSchedules = {
-    calls: [],
-    failure: null,
-    holdNextUpsert() {
-      let release: () => void = () => undefined;
-      gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      return release;
-    },
-    async upsert(input) {
-      const held = gate;
-      gate = null;
-      if (held) await held;
-      if (fake.failure) throw fake.failure;
-      fake.calls.push({ upsert: input });
-      const id = `id-${input.name}`;
-      stored.set(input.name, { ...input, id, nextRunAt: null });
-      return { id, nextRunAt: null };
-    },
-    async remove(name) {
-      fake.calls.push({ remove: name });
-      return stored.delete(name);
-    },
-    async list() {
-      return [...stored.values()];
-    },
-  };
-  return fake;
-}
 
 const EVERY_5_MINUTES = { type: "every", everyMs: 300_000 } as const;
 const SAVED = {
@@ -63,15 +18,24 @@ const SAVED = {
 
 test("kept every 5 minutes while on, removed when off, left alone when unchanged", async () => {
   // As the daemon kept it across a restart.
-  const fake = fakeSchedules([{ ...SAVED, id: "s1", nextRunAt: null }]);
+  const fake = fakeSchedules([
+    {
+      id: "s1",
+      name: "incidents",
+      handler: "incidents",
+      cadence: EVERY_5_MINUTES,
+      nextRunAt: null,
+    },
+  ]);
   const schedule = createIncidentsSchedule({ schedules: fake, log: () => undefined });
   await schedule.sync(true);
-  expect(fake.calls).toEqual([]);
+  expect(fake.upserted).toEqual([]);
 
   await schedule.sync(false);
+  expect(fake.removed).toEqual(["incidents"]);
   await schedule.sync(true);
   await schedule.sync(true);
-  expect(fake.calls).toEqual([{ remove: "incidents" }, { upsert: SAVED }]);
+  expect(fake.upserted).toEqual([SAVED]);
   expect(INCIDENTS_SCHEDULE).toBe("incidents");
 });
 
@@ -82,15 +46,15 @@ test("a save that rejects is kept as the error and cleared by the next sync", as
     schedules: fake,
     log: (message) => logs.push(message),
   });
-  fake.failure = new Error("Plugin schedules are unavailable");
+  fake.upsertRejects(new Error("Plugin schedules are unavailable"));
   await schedule.sync(true);
   expect(schedule.error()).toBe("Plugin schedules are unavailable");
   expect(logs).toEqual(["[office] incidents schedule failed: Plugin schedules are unavailable"]);
 
-  fake.failure = null;
+  fake.upsertRejects(null);
   await schedule.sync(true);
   expect(schedule.error()).toBeNull();
-  expect(fake.calls).toEqual([{ upsert: SAVED }]);
+  expect(fake.upserted).toEqual([SAVED]);
 });
 
 test("changes are synced one at a time, so a slow save cannot land after a later one", async () => {
@@ -101,7 +65,9 @@ test("changes are synced one at a time, so a slow save cannot land after a later
   const off = schedule.sync(false);
   release();
   await Promise.all([on, off]);
-  expect(fake.calls).toEqual([{ upsert: SAVED }, { remove: "incidents" }]);
+  expect(fake.upserted).toEqual([SAVED]);
+  expect(fake.removed).toEqual(["incidents"]);
+  // The removal came last.
   expect(await fake.list()).toEqual([]);
 });
 

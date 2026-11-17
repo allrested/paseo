@@ -1,65 +1,11 @@
-import type { PluginSchedule, PluginScheduleInput, PluginSchedules } from "@getpaseo/plugin/server";
 import { expect, test } from "vitest";
+import { fakeSchedules } from "./fake-schedules.js";
 import {
   createNotesSchedule,
   NOTES_SCHEDULE,
   notesCadence,
   syncNotesSchedule,
 } from "./notes-schedule.js";
-
-interface FakeSchedules extends PluginSchedules {
-  upserted: PluginScheduleInput[];
-  removed: string[];
-  /** Makes each later upsert reject with this error; null lets them through again. */
-  upsertRejects(error: Error | null): void;
-  /** Holds the next upsert until the returned function is called. */
-  holdNextUpsert(): () => void;
-}
-
-/** The daemon's store of the office's schedules, by name. */
-function fakeSchedules(kept: PluginSchedule[] = []): FakeSchedules {
-  const stored = new Map(kept.map((schedule) => [schedule.name, schedule]));
-  const upserted: PluginScheduleInput[] = [];
-  const removed: string[] = [];
-  let refusal: Error | null = null;
-  let gate: Promise<void> | null = null;
-  return {
-    upserted,
-    removed,
-    upsertRejects(error) {
-      refusal = error;
-    },
-    holdNextUpsert() {
-      let release: () => void = () => undefined;
-      gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      return release;
-    },
-    async upsert(input) {
-      const held = gate;
-      gate = null;
-      if (held) await held;
-      if (refusal) throw refusal;
-      upserted.push(input);
-      stored.set(input.name, {
-        id: `id-${input.name}`,
-        name: input.name,
-        handler: input.handler,
-        cadence: input.cadence,
-        nextRunAt: "2026-11-18T05:00:00.000Z",
-      });
-      return { id: `id-${input.name}`, nextRunAt: "2026-11-18T05:00:00.000Z" };
-    },
-    async remove(name) {
-      removed.push(name);
-      return stored.delete(name);
-    },
-    async list() {
-      return [...stored.values()];
-    },
-  };
-}
 
 const RIYADH_EIGHT = { type: "cron", expression: "0 8 * * 0-4", timezone: "Asia/Riyadh" } as const;
 

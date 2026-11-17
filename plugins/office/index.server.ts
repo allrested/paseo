@@ -219,6 +219,9 @@ export function createOfficePlugin(
       .catch((error: unknown) => log(`[office] notes state failed: ${errorMessage(error)}`));
     const trackersOn = Object.keys(incidentsReaders(state.values, deps.env)).length > 0;
     await incidentsSchedule.sync(trackersOn);
+    // With every tracker off no run comes again. One run with no reader drops the problems and
+    // closes what is a day old.
+    if (!trackersOn) await incidents.check();
     pushIncidents();
   }
   const stopFollowingSettings = settings.subscribe(followSettings);

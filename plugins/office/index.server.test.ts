@@ -797,6 +797,8 @@ interface JiraStandIn {
   base: string;
   /** The JQL of each search. */
   searches: string[];
+  /** While set, every request is refused with HTTP 401. */
+  refusing: boolean;
 }
 
 /** A local server standing in for Jira, with one bug made at 08:58 UTC on the fake clock's day. */
@@ -804,6 +806,11 @@ async function jiraStandIn(): Promise<JiraStandIn> {
   const searches: string[] = [];
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (standIn.refusing) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ errorMessages: ["Unauthorized"] }));
+      return;
+    }
     res.writeHead(200, { "content-type": "application/json" });
     if (url.pathname === "/rest/api/3/myself") {
       res.end(JSON.stringify({ timeZone: "UTC" }));
@@ -818,7 +825,8 @@ async function jiraStandIn(): Promise<JiraStandIn> {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("expected a TCP address");
-  return { base: `http://127.0.0.1:${address.port}`, searches };
+  const standIn = { base: `http://127.0.0.1:${address.port}`, searches, refusing: false };
+  return standIn;
 }
 
 /** The three Jira variables, with placeholder values: no test holds a real token. */
@@ -916,6 +924,45 @@ test("an open office gets the incidents state with which trackers' variables are
     "upsert incidents every 300000",
     "remove incidents",
   ]);
+
+  leaving.abort();
+  await done;
+  await stop();
+});
+
+test("a tracker's problem goes once no tracker is on", async () => {
+  const jira = await jiraStandIn();
+  jira.refusing = true;
+  // What the daemon reads back is what was saved last.
+  let saved = JIRA_ON;
+  const { recorded, context, stop } = setup(async () => saved, { env: jiraVariables(jira.base) });
+  await settle();
+  const events: { type: string; state?: { incidents?: unknown } }[] = [];
+  const leaving = new AbortController();
+  const done = recorded.handlers.get("office.state")?.({}, {
+    ...context,
+    signal: leaving.signal,
+    push: async (event: { type: string }) => void events.push(event),
+  } as never);
+  await settle();
+  const run = recorded.scheduleRuns.get("incidents");
+  await run?.({ paseo: context.paseo, scheduleId: "s2", runId: "r2" }, undefined as never);
+  await settle();
+  expect(events.at(-1)?.state?.incidents).toMatchObject({
+    problems: { jira: "Jira refused the token: check ATLASSIAN_API_TOKEN" },
+  });
+
+  // The last project removed: no run comes again to clear the problem.
+  saved = ON;
+  await Promise.all([...recorded.listeners].map((listener) => listener(saved)));
+  await settle();
+  expect(events.at(-1)?.state?.incidents).toEqual({
+    open: [],
+    problems: {},
+    jiraReady: true,
+    sentryReady: false,
+    scheduleError: null,
+  });
 
   leaving.abort();
   await done;
