@@ -23,6 +23,7 @@ import { DiffDocumentWorkspaceCacheProvider } from "@/git/diff-document/workspac
 import { ForgeShorthandProvider } from "@/git/forge-shorthand";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { usePaneFocusIfAny } from "@/panels/pane-context";
 import { getPanelRegistration, type PanelIconProps } from "@/panels/panel-registry";
 import { ensurePanelsRegistered } from "@/panels/register-panels";
 import type { ResolvedBesideTarget } from "@/plugins/host-navigation-model";
@@ -172,6 +173,9 @@ function AgentBesidePane({ serverId, agentId, workspace, tabId, close }: AgentBe
   const isCompact = useIsCompactFormFactor();
   const client = useHostRuntimeClient(serverId);
   const toast = useToast();
+  // Beside a workspace panel the area is part of that panel's pane: it has the keyboard only while
+  // that pane does. The plugin's own screen is in no pane.
+  const isWorkspaceFocused = usePaneFocusIfAny()?.isInteractive ?? true;
 
   // Links leave for the agent's workspace with what they open.
   const openInWorkspace = useStableEvent((target: WorkspaceTabTarget) => {
@@ -225,10 +229,10 @@ function AgentBesidePane({ serverId, agentId, workspace, tabId, close }: AgentBe
       workspaceKey,
       serverId,
       workspaceId,
-      isWorkspaceFocused: true,
+      isWorkspaceFocused,
       buildContent: buildSheetContent,
     }),
-    [buildSheetContent, serverId, workspaceId, workspaceKey],
+    [buildSheetContent, isWorkspaceFocused, serverId, workspaceId, workspaceKey],
   );
 
   // Paths in the agent's messages, as its workspace opens them (workspace-screen.tsx's Markdown
@@ -279,7 +283,7 @@ function AgentBesidePane({ serverId, agentId, workspace, tabId, close }: AgentBe
             <View ref={paneRef} style={styles.pane}>
               <WorkspacePaneContent
                 content={content}
-                isWorkspaceFocused
+                isWorkspaceFocused={isWorkspaceFocused}
                 isPaneFocused={isPaneFocused}
               />
             </View>
@@ -296,8 +300,9 @@ const FRAME_SELECTOR = '[data-testid="beside-frame"]';
 /**
  * Whether the pane has the keyboard, so the app's pane shortcuts reach it and not the plugin's
  * content. On a wide web layout that is from a press or a focus inside the pane until one elsewhere
- * in the frame; the area's own menus and sheets open outside the frame and leave it as it is. The
- * compact sheet covers the plugin's content, and native has no keyboard focus to follow.
+ * in the frame, or until an iframe in the frame takes the focus; the area's own menus and sheets
+ * open outside the frame and leave it as it is. The compact sheet covers the plugin's content, and
+ * native has no keyboard focus to follow.
  */
 function useHasKeyboard(paneRef: RefObject<View | null>): boolean {
   const isCompact = useIsCompactFormFactor();
@@ -312,11 +317,25 @@ function useHasKeyboard(paneRef: RefObject<View | null>): boolean {
     const follow = (event: Event) => {
       setPressedInside(event.target instanceof Node && pane.contains(event.target));
     };
+    // A press inside an iframe, such as the office's scene, reaches no listener in this document,
+    // and browsers differ on firing focusin at the iframe element. The window's blur always fires;
+    // some browsers make the iframe the active element only after it.
+    let blurCheck: ReturnType<typeof setTimeout> | undefined;
+    const followWindowBlur = () => {
+      clearTimeout(blurCheck);
+      blurCheck = setTimeout(() => {
+        const focused = document.activeElement;
+        if (focused && frame.contains(focused) && !pane.contains(focused)) setPressedInside(false);
+      }, 0);
+    };
     frame.addEventListener("pointerdown", follow, true);
     frame.addEventListener("focusin", follow, true);
+    window.addEventListener("blur", followWindowBlur);
     return () => {
       frame.removeEventListener("pointerdown", follow, true);
       frame.removeEventListener("focusin", follow, true);
+      window.removeEventListener("blur", followWindowBlur);
+      clearTimeout(blurCheck);
     };
   }, [followsPresses, paneRef]);
   return followsPresses ? pressedInside : true;
