@@ -4,14 +4,21 @@ import type {
   PluginServerContext,
   PluginSessionOpenRequest,
   PluginSettingsState,
+  ScheduleCadence,
 } from "@getpaseo/plugin/server";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, afterEach, expect, test } from "vitest";
 import { createOfficePlugin } from "./index.server.js";
 import { EMPTY_BOARDS, type BoardStore } from "./server/board-store.js";
 import { createFakeClock, settle } from "./server/fake-clock.js";
+import {
+  EMPTY_INCIDENTS,
+  type IncidentsData,
+  type IncidentsStore,
+} from "./server/incidents-store.js";
 import type { NotesStore, StoredNotes } from "./server/notes-writer.js";
 import type { officeHostSettings } from "./shared/settings.js";
 
@@ -25,7 +32,10 @@ interface Recorded {
   reads: number;
   /** Who follows the settings: the daemon calls each after a save. */
   listeners: Set<SettingsListener>;
-  /** The office's calls on its schedules, as "upsert <name> <expression> <zone>" or "remove <name>". */
+  /**
+   * The office's calls on its schedules, as "upsert <name> <expression> <zone>",
+   * "upsert <name> every <ms>" or "remove <name>".
+   */
   schedules: string[];
   /** When set, a schedule's save rejects with it. */
   scheduleFailure: Error | null;
@@ -40,17 +50,28 @@ interface Sent {
 }
 
 const NO_NOTES = { notesFolder: "", notesTimeZone: "" };
+const NO_TRACKERS = {
+  jiraProjects: "",
+  sentryOrg: "",
+  sentryProjects: "",
+  sentryUrl: "https://sentry.io",
+};
 const ON: SettingsState = {
   status: "ready",
   revision: "1",
-  values: { agentTools: true, ...NO_NOTES },
+  values: { agentTools: true, ...NO_NOTES, ...NO_TRACKERS },
 };
 const OFF: SettingsState = {
   status: "ready",
   revision: "2",
-  values: { agentTools: false, ...NO_NOTES },
+  values: { agentTools: false, ...NO_NOTES, ...NO_TRACKERS },
 };
 const OWN_TOOL = { name: "other_tool", description: "Another plugin's tool", inputSchema: {} };
+
+function cadenceText(cadence: ScheduleCadence): string {
+  if (cadence.type === "every") return `every ${cadence.everyMs}`;
+  return `${cadence.expression} ${cadence.timezone}`;
+}
 
 /** The parts of the daemon's plugin API that the office calls. */
 function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): PluginServerContext {
@@ -77,14 +98,8 @@ function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): Plu
       };
     },
     schedules: {
-      upsert: async ({
-        name,
-        cadence,
-      }: {
-        name: string;
-        cadence: { expression: string; timezone: string };
-      }) => {
-        recorded.schedules.push(`upsert ${name} ${cadence.expression} ${cadence.timezone}`);
+      upsert: async ({ name, cadence }: { name: string; cadence: ScheduleCadence }) => {
+        recorded.schedules.push(`upsert ${name} ${cadenceText(cadence)}`);
         if (recorded.scheduleFailure) throw recorded.scheduleFailure;
         return { id: "s1", nextRunAt: null };
       },
@@ -212,6 +227,18 @@ function memoryNotesStore(): NotesStore & { kept: StoredNotes | null } {
   return store;
 }
 
+function memoryIncidentsStore(): IncidentsStore & { kept: IncidentsData } {
+  // Copied on each load and save, as the file is.
+  const store = {
+    kept: structuredClone(EMPTY_INCIDENTS),
+    load: async () => structuredClone(store.kept),
+    save: async (data: IncidentsData) => {
+      store.kept = structuredClone(data);
+    },
+  };
+  return store;
+}
+
 function memoryStore(): BoardStore {
   let current = EMPTY_BOARDS;
   return {
@@ -254,7 +281,8 @@ function hookAgent(id: string): PluginHookAgent {
   };
 }
 
-function setup(read: () => Promise<SettingsState>) {
+/** `env` is the daemon's environment the trackers' variables are read from; empty by default. */
+function setup(read: () => Promise<SettingsState>, options: { env?: NodeJS.ProcessEnv } = {}) {
   const recorded: Recorded = {
     hooks: new Map(),
     handlers: new Map(),
@@ -270,11 +298,14 @@ function setup(read: () => Promise<SettingsState>) {
   const stopped: number[] = [];
   const writers: Writers = { created: [], prompts: [], archived: [] };
   const notesStore = memoryNotesStore();
+  const incidentsStore = memoryIncidentsStore();
   const clock = createFakeClock(Date.parse("2026-11-11T09:00:00.000Z"));
   const context = fakeContext(statuses, sent, writers);
   const stop = createOfficePlugin(fakeServer(recorded, read), {
     store: memoryStore(),
     notesStore,
+    incidentsStore,
+    env: options.env ?? {},
     clock,
     log: (message) => logs.push(message),
     world: null,
@@ -302,6 +333,7 @@ function setup(read: () => Promise<SettingsState>) {
     stopped,
     writers,
     notesStore,
+    incidentsStore,
     clock,
     context,
     stop,
@@ -377,11 +409,12 @@ test("the notes schedule follows the host settings from load and on each save, u
   const notes = (notesFolder: string, notesTimeZone: string): SettingsState => ({
     status: "ready",
     revision: notesFolder + notesTimeZone,
-    values: { agentTools: true, notesFolder, notesTimeZone },
+    values: { agentTools: true, notesFolder, notesTimeZone, ...NO_TRACKERS },
   });
   const { recorded, stop } = setup(async () => notes("/notes", ""));
+  const notesCalls = () => recorded.schedules.filter((call) => call.includes(" standup-notes"));
   await settle();
-  expect(recorded.schedules).toEqual(["upsert standup-notes 0 8 * * 0-4 Asia/Riyadh"]);
+  expect(notesCalls()).toEqual(["upsert standup-notes 0 8 * * 0-4 Asia/Riyadh"]);
 
   const follow = (state: SettingsState) =>
     Promise.all([...recorded.listeners].map((listener) => listener(state)));
@@ -390,7 +423,7 @@ test("the notes schedule follows the host settings from load and on each save, u
   await follow({ status: "invalid", revision: "x", error: "Expected string" });
   await follow(notes("", "Europe/Berlin"));
   await settle();
-  expect(recorded.schedules).toEqual([
+  expect(notesCalls()).toEqual([
     "upsert standup-notes 0 8 * * 0-4 Asia/Riyadh",
     "upsert standup-notes 0 8 * * 0-4 Europe/Berlin",
     "remove standup-notes",
@@ -564,8 +597,9 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "office.delete.request",
     "office.set_wakes_paused.request",
     "office.notes.write.request",
+    "office.incidents.dismiss.request",
   ]);
-  expect([...recorded.scheduleRuns.keys()]).toEqual(["standup-notes"]);
+  expect([...recorded.scheduleRuns.keys()]).toEqual(["standup-notes", "incidents"]);
   expect([...recorded.hooks.keys()]).toEqual([
     "agent.open.before",
     "agent.turn.after",
@@ -588,7 +622,7 @@ afterAll(() => rm(NOTES_FOLDER, { recursive: true, force: true }));
 const NOTES: SettingsState = {
   status: "ready",
   revision: "notes",
-  values: { agentTools: true, notesFolder: NOTES_FOLDER, notesTimeZone: "" },
+  values: { agentTools: true, notesFolder: NOTES_FOLDER, notesTimeZone: "", ...NO_TRACKERS },
 };
 
 /** The writer leaves the day's entry in the notes: the fake clock's day in Asia/Riyadh. */
@@ -740,6 +774,148 @@ test("an open office gets the notes state in its snapshot, and a schedule that f
   expect(events.at(-1)?.state?.notes).toMatchObject({
     scheduleError: "Invalid cron time zone: Mars/Base",
   });
+
+  leaving.abort();
+  await done;
+  await stop();
+});
+
+const servers: Server[] = [];
+
+afterEach(async () => {
+  const closing = servers.splice(0).map(
+    (server) =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  );
+  await Promise.all(closing);
+});
+
+interface JiraStandIn {
+  base: string;
+  /** The JQL of each search. */
+  searches: string[];
+}
+
+/** A local server standing in for Jira, with one bug made at 08:58 UTC on the fake clock's day. */
+async function jiraStandIn(): Promise<JiraStandIn> {
+  const searches: string[] = [];
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    res.writeHead(200, { "content-type": "application/json" });
+    if (url.pathname === "/rest/api/3/myself") {
+      res.end(JSON.stringify({ timeZone: "UTC" }));
+      return;
+    }
+    searches.push(url.searchParams.get("jql") ?? "");
+    const created = "2026-11-11T08:58:00.000+0000";
+    const bug = { key: "OPS-7", fields: { summary: "Checkout fails on a split bill", created } };
+    res.end(JSON.stringify({ issues: [bug] }));
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("expected a TCP address");
+  return { base: `http://127.0.0.1:${address.port}`, searches };
+}
+
+/** The three Jira variables, with placeholder values: no test holds a real token. */
+function jiraVariables(base: string): NodeJS.ProcessEnv {
+  return {
+    ATLASSIAN_BASE_URL: base,
+    ATLASSIAN_EMAIL: "office@example.test",
+    ATLASSIAN_API_TOKEN: "placeholder-jira-token",
+  };
+}
+
+/** Host settings that check Jira's OPS project for new bugs. */
+const JIRA_ON: SettingsState = {
+  status: "ready",
+  revision: "jira",
+  values: { agentTools: true, ...NO_NOTES, ...NO_TRACKERS, jiraProjects: "OPS" },
+};
+
+test("a due incidents run calls the check; dismiss answers its count", async () => {
+  const jira = await jiraStandIn();
+  const { recorded, incidentsStore, context, clock, stop } = setup(async () => JIRA_ON, {
+    env: jiraVariables(jira.base),
+  });
+  await settle();
+  // Checked 5 minutes ago, so the bug made since is news.
+  incidentsStore.kept = {
+    version: 1,
+    trackers: { jira: { checkedAt: clock.now() - 300_000, seen: {} } },
+    open: [],
+  };
+  const run = recorded.scheduleRuns.get("incidents");
+  // A schedule handler receives the run's context alone.
+  await run?.({ paseo: context.paseo, scheduleId: "s2", runId: "r2" }, undefined as never);
+  expect(jira.searches).toEqual([
+    'project in ("OPS") AND issuetype = Bug AND created >= "2026-11-11 08:45" ORDER BY created ASC',
+  ]);
+  expect(incidentsStore.kept.open).toEqual([
+    {
+      id: "jira:OPS-7",
+      source: "jira",
+      key: "OPS-7",
+      title: "Checkout fails on a split bill",
+      url: `${jira.base}/browse/OPS-7`,
+      createdAt: Date.parse("2026-11-11T08:58:00.000Z"),
+      foundAt: clock.now(),
+    },
+  ]);
+
+  const dismiss = recorded.handlers.get("office.incidents.dismiss.request");
+  expect(await dismiss?.({}, context)).toEqual({ dismissed: 1 });
+  expect(await dismiss?.({ ids: ["jira:OPS-7"] }, context)).toEqual({ dismissed: 0 });
+  expect(incidentsStore.kept.open).toEqual([]);
+  await stop();
+});
+
+test("an open office gets the incidents state with which trackers' variables are set, and a schedule that fails after a save", async () => {
+  const { recorded, context, stop } = setup(async () => JIRA_ON, {
+    env: jiraVariables("https://jira.example.test"),
+  });
+  const incidentsCalls = () => recorded.schedules.filter((call) => call.includes(" incidents"));
+  const follow = (state: SettingsState) =>
+    Promise.all([...recorded.listeners].map((listener) => listener(state)));
+  await settle();
+  const events: { type: string; state?: { incidents?: unknown } }[] = [];
+  const leaving = new AbortController();
+  const done = recorded.handlers.get("office.state")?.({}, {
+    ...context,
+    signal: leaving.signal,
+    push: async (event: { type: string }) => void events.push(event),
+  } as never);
+  await settle();
+  expect(events.at(-1)?.state?.incidents).toEqual({
+    open: [],
+    problems: {},
+    jiraReady: true,
+    sentryReady: false,
+    scheduleError: null,
+  });
+  expect(incidentsCalls()).toEqual(["upsert incidents every 300000"]);
+
+  recorded.scheduleFailure = new Error("Plugin schedules are unavailable");
+  await follow({ ...JIRA_ON, revision: "again" });
+  await settle();
+  expect(events.at(-1)?.state?.incidents).toMatchObject({
+    scheduleError: "Plugin schedules are unavailable",
+  });
+
+  // No project left: the schedule goes, and the error with it.
+  recorded.scheduleFailure = null;
+  await follow(ON);
+  await settle();
+  expect(events.at(-1)?.state?.incidents).toMatchObject({ scheduleError: null });
+  expect(incidentsCalls()).toEqual([
+    "upsert incidents every 300000",
+    "upsert incidents every 300000",
+    "remove incidents",
+  ]);
 
   leaving.abort();
   await done;

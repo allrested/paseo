@@ -328,6 +328,54 @@ test("the notes reach subscribers in a snapshot, and the same notes again send n
   await subscriber.done;
 });
 
+const INCIDENTS = {
+  open: [
+    {
+      id: "jira:OPS-7",
+      source: "jira" as const,
+      key: "OPS-7",
+      title: "Checkout fails on a split bill",
+      url: "https://jira.example.test/browse/OPS-7",
+      createdAt: 1,
+      foundAt: 2,
+    },
+  ],
+  problems: {},
+  jiraReady: true,
+  sentryReady: false,
+  scheduleError: null,
+};
+
+test("setIncidents broadcasts a snapshot carrying incidents; the same state sends nothing", async () => {
+  const harness = startHarness({ agents: [], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(subscriber.events).toHaveLength(1);
+  harness.hub.setIncidents(INCIDENTS);
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "snapshot",
+    state: {
+      agents: [],
+      workspaces: [],
+      activity: {},
+      doing: {},
+      boards: {},
+      wake: EMPTY_WAKE,
+      incidents: INCIDENTS,
+    },
+  });
+  harness.hub.setIncidents({ ...INCIDENTS, open: [...INCIDENTS.open] });
+  expect(subscriber.events).toHaveLength(2);
+  harness.hub.setIncidents({ ...INCIDENTS, problems: { jira: "Jira answered 503" } });
+  expect(subscriber.events).toHaveLength(3);
+  expect(subscriber.events.at(-1)).toMatchObject({
+    type: "snapshot",
+    state: { incidents: { problems: { jira: "Jira answered 503" } } },
+  });
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
 test("with no office open, a read opens the directory for itself and closes it", async () => {
   const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
   harness.hub.setBoard("lobby", [note("p1")]);
