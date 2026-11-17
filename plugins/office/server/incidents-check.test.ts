@@ -16,6 +16,7 @@ import { EMPTY_INCIDENTS, type IncidentsData, type IncidentsStore } from "./inci
 /** 08:00 on Tuesday 17 November 2026 in Riyadh. */
 const NOW = Date.parse("2026-11-17T05:00:00.000Z");
 const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
 const REFUSED = "Jira refused the token: check ATLASSIAN_API_TOKEN";
 
 interface FakeReader extends TrackerReader {
@@ -399,6 +400,33 @@ test("an incident 24 h old is dropped; seen keys 2 days old are dropped", async 
   h.clock.advance(SEEN_FOR_MS - OPEN_FOR_MS - 5 * MINUTE);
   await h.check.check();
   expect(h.store.kept.trackers.jira?.seen).toEqual({ "FPOS-3": foundAt });
+});
+
+test("reads that fail for 3 days, then succeed, do not open the key seen in the margin", async () => {
+  const h = await checkedOnce();
+  h.jira.issues.push(bug("FPOS-3", NOW + 2 * MINUTE));
+  await h.check.check();
+  h.clock.advance(15 * MINUTE);
+  // Made two minutes before the last good check: the next read still returns it.
+  h.jira.issues.push(bug("FPOS-4", NOW + 18 * MINUTE));
+  await h.check.check();
+  const checkedAt = NOW + 20 * MINUTE;
+  h.jira.failure = new TrackerProblem(REFUSED);
+  h.clock.advance(5 * MINUTE);
+  await h.check.check();
+  h.clock.advance(3 * DAY);
+  await h.check.check();
+
+  // FPOS-1 and FPOS-3 were seen before the window and are two days old: they go.
+  expect(h.store.kept.trackers.jira).toEqual({ checkedAt, seen: { "FPOS-4": checkedAt } });
+
+  h.jira.failure = null;
+  h.clock.advance(5 * MINUTE);
+  await h.check.check();
+
+  expect(h.jira.reads.at(-1)).toBe(checkedAt - WINDOW_MARGIN_MS);
+  expect(h.store.kept.open).toEqual([]);
+  expect(h.changes.at(-1)).toEqual({ open: [], problems: {} });
 });
 
 test("a tracker turned off keeps its mark, and its incidents stay until they close", async () => {
