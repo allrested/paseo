@@ -177,6 +177,18 @@ test("the tabs show their counts, and a tab leaves out rooms with no match", asy
   expect(lines()).toEqual([...BAR, ...LOBBY_CARD]);
 });
 
+test("Space on a focused tab selects it and filters the cards", async () => {
+  await mount(OFFICE);
+  const needsYou = labelled("Needs you (1)");
+  needsYou.focus();
+
+  expect(await key(needsYou, " ")).toBe(false);
+
+  expect(labelled("Needs you (1)").getAttribute("aria-selected")).toBe("true");
+  expect(labelled("All (3)").getAttribute("aria-selected")).toBe("false");
+  expect(lines()).toEqual([...BAR, ...LOBBY_CARD]);
+});
+
 test("a search keeps a matching sub-agent at the top level when its parent does not match", async () => {
   const child = row(
     { id: "a4", name: "Ali-1", title: "Fix the tests", status: "idle", parentAgentId: "a1" },
@@ -247,4 +259,13 @@ test("a row shows its context, time and cost, and says them in its label", async
     "No posts",
     "Open board",
   ]);
+});
+
+test("a running row with no prompt time shows no time and starts no clock", async () => {
+  await mount([shop([row({ id: "a1", title: "Ali", status: "running" })])]);
+  expect(labelled("Ali: Running").getAttribute("role")).toBe("button");
+  expect(vi.getTimerCount()).toBe(0);
+
+  await mount([shop([ALI])]);
+  expect(vi.getTimerCount()).toBe(1);
 });

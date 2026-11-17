@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -34,22 +34,22 @@ import { PermissionActions } from "./permission-actions.js";
 import { RoomBoard } from "./room-board.js";
 import type { OfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";
-import { listenForSlash } from "./web-env.web.js";
+import { listenForSlash, listenForSpace } from "./web-env.web.js";
 
 const SEARCH_ID = "office-list-search";
 const SECOND = 1000;
 const MINUTE = 60_000;
 
 /**
- * How often the shown rows' times change: every second while a turn's clock runs, every minute
- * while only resting agents show how long they have rested, never when no row shows a time.
+ * How often the shown rows' times change: every second while a prompted turn's clock runs, every
+ * minute while only resting agents show how long they have rested, never when no row shows a time.
  */
 function clockInterval(rooms: readonly OfficeRoom[]): number | null {
   let interval: number | null = null;
   for (const room of rooms) {
     for (const { agent } of room.rows) {
       if (attentionReason(agent) !== null) continue;
-      if (agent.status === "running") return SECOND;
+      if (agent.status === "running" && agent.promptedAt !== undefined) return SECOND;
       if (agent.status === "idle") interval = MINUTE;
     }
   }
@@ -270,6 +270,9 @@ interface TabProps {
 /** One of the bar's tabs, drawn as the view switch's pills, with its count beside its label. */
 function Tab({ tab, label, count, selected, onChoose, styles }: TabProps) {
   const press = useCallback(() => onChoose(tab), [onChoose, tab]);
+  // Enter presses any Pressable; Space, the key that picks a tab, only a button.
+  const id = useId();
+  useEffect(() => listenForSpace(id, press), [id, press]);
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
@@ -281,6 +284,7 @@ function Tab({ tab, label, count, selected, onChoose, styles }: TabProps) {
   else if (hovered || pressed) fill = styles.segmentHoverFill;
   return (
     <Pressable
+      id={id}
       accessibilityRole="tab"
       accessibilityLabel={`${label} (${count})`}
       aria-selected={selected}
