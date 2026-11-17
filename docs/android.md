@@ -10,7 +10,7 @@ Controlled by `APP_VARIANT` in `packages/app/app.config.js` (vanilla Expo, no cu
 | `development` | Paseo Debug | `sh.paseo.debug` |
 | `fork`        | Paseo Fork  | `sh.paseo.fork`  |
 
-`fork` is the allrested fork's own app: it installs beside the store app, pairs on its own and has no Firebase file, so push notifications do not work in it. `npm run build:apk:fork` builds it (see "The fork's app").
+`fork` is the allrested fork's own app: it installs beside the store app, pairs on its own and has no Firebase file, so push notifications do not work in it. `npm run build:apk:fork` builds it (see [The fork's app](#the-forks-app)).
 
 EAS profiles: `development`, `production`, and `production-apk` in `packages/app/eas.json`.
 
@@ -160,6 +160,73 @@ PASEO_PROFILE_BUILD=1 npm run android:production
 
 Those markers emit only while a system trace records `sh.paseo` (`perfetto -a sh.paseo ...`);
 they do not produce Downloads files.
+
+## The fork's app
+
+The allrested fork ships the [`fork` variant](#app-variants) as an arm64 APK, signed with the
+fork's own key, on prereleases of `allrested/paseo`.
+
+### The key
+
+`~/.paseo-fork/release.keystore` holds the key and `~/.paseo-fork/release.password` its password
+(both mode 0600, the folder 0700), on the host that made them. Neither is in the repo. Android
+installs an update only over the same key, so back up `~/.paseo-fork/` and never make a second
+key: a lost or replaced key means uninstalling the app from every phone and pairing again. The
+repository secrets below cannot be read back, so they are no backup.
+
+The key was made once, with:
+
+```bash
+mkdir -p ~/.paseo-fork && chmod 700 ~/.paseo-fork
+( umask 077; head -c 24 /dev/urandom | base64 | tr -d '/+=\n' > ~/.paseo-fork/release.password )
+chmod 600 ~/.paseo-fork/release.password
+keytool -genkeypair -keystore ~/.paseo-fork/release.keystore \
+  -storepass:file ~/.paseo-fork/release.password -keypass:file ~/.paseo-fork/release.password \
+  -alias paseo-fork -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=Paseo Fork"
+chmod 600 ~/.paseo-fork/release.keystore
+```
+
+Its certificate's SHA-256 is
+`57:54:F5:87:F6:F4:42:FF:06:3B:09:50:A6:0D:D9:CB:6D:DF:72:0E:C9:F5:C0:62:EF:83:11:18:EB:2D:E4:F4`.
+`apksigner verify --print-certs` prints the same digest, in lower case without colons, for an APK
+signed with it.
+
+### Releasing it
+
+`.github/workflows/fork-android-apk.yml` builds the APK on GitHub Actions when you push a tag
+`fork-android-<version>-<n>`, for example `fork-android-0.16.0-1`. A tag push runs the workflow
+file of the tagged commit, so tag a commit that has it; the fork's `main` does not need it. The run
+fails, and uploads nothing, unless the APK is `sh.paseo.fork` for arm64, signed by `CN=Paseo Fork`,
+aligned for 16 KB pages and carrying ScriptFrame. Then it creates the tag's prerelease if it is
+missing and attaches `paseo-fork-arm64.apk`.
+
+A pushed tag publishes the APK. Push one only after the owner agrees to that upload.
+
+The workflow reads the key from two repository secrets. Set them once from the files; neither
+command prints a value:
+
+```bash
+base64 -w0 ~/.paseo-fork/release.keystore | gh secret set FORK_ANDROID_KEYSTORE --repo allrested/paseo
+gh secret set FORK_ANDROID_KEYSTORE_PASSWORD --repo allrested/paseo < ~/.paseo-fork/release.password
+```
+
+Then tag, push the tag, and follow the run with `gh run watch`:
+
+```bash
+git tag fork-android-0.16.0-1 <commit>
+git push origin fork-android-0.16.0-1
+```
+
+To build an existing tag again with its own workflow file:
+`gh workflow run fork-android-apk.yml --repo allrested/paseo --ref <tag> -f tag=<tag>`.
+
+### A local build
+
+`npm run build:apk:fork` writes `artifacts/paseo-fork-arm64.apk`, signed with the key in
+`~/.paseo-fork/`; without the key it stops before it starts. It needs Android build tools 35.0.0
+(`$ANDROID_HOME/build-tools/35.0.0`), and on Linux an x86_64 host: Google ships the Linux build
+tools, NDK and `hermesc` for x86_64 only, so an arm64 Linux host cannot build it. That is why the
+fork builds on GitHub Actions.
 
 ## Running on an emulator against a worktree daemon
 
