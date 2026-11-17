@@ -51,13 +51,13 @@ Point 13 of the owner's review, the part piece 2 left out:
 
 ### The button
 
-| Question | Decision                                                                                                                                                                                                                                                                                                                |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Where    | The camera bar's end, after Photo mode, in its own group: upstream's `btn-fp`, icon `walk`, `aria-label` and `title` "Walk in", `aria-pressed` while on. Built by the stand-in `camera-bar.js`'s `build()` with the rest of the bar.                                                                                    |
-| Phones   | Shown only when `matchMedia('(pointer: fine)')` matches, and hidden when it stops matching. My call: upstream's walk needs keys; on touch it would only look around.                                                                                                                                                    |
-| Views    | A view press, Photo mode and the List (the office's view switch) leave walk-in first, as upstream.                                                                                                                                                                                                                      |
-| Zoom     | While walking, zoom in and out change `fpCam.fov` within 40 to 90 by 8, as upstream; the percent shows the field of view's zoom over 70.                                                                                                                                                                                |
-| Narrow   | From 720 px down Walk in drops its name and the pressed view its wider padding: upstream's 720 px rule, without its hiding of the views' names, which stay out down to 521 px as piece 2 has them. From 520 px down the buttons are 30 px wide and the groups 4 px apart, so the whole bar fits at 390 px with a mouse. |
+| Question | Decision                                                                                                                                                                                                                                                                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where    | The camera bar's end, after Photo mode, in its own group: upstream's `btn-fp`, icon `walk`, `aria-label` and `title` "Walk in", `aria-pressed` while on. Built by the stand-in `camera-bar.js`'s `build()` with the rest of the bar.                                                                                                                           |
+| Phones   | Shown only when `matchMedia('(pointer: fine)')` matches, and hidden when it stops matching. My call: upstream's walk needs keys; on touch it would only look around.                                                                                                                                                                                           |
+| Views    | A view press, Photo mode and the List (the office's view switch) leave walk-in first, as upstream.                                                                                                                                                                                                                                                             |
+| Zoom     | While walking, zoom in and out change `fpCam.fov` within 40 to 90 by 8, as upstream; the percent shows the field of view's zoom over 70.                                                                                                                                                                                                                       |
+| Narrow   | From 720 px down Walk in and the views show no names, and the pressed view loses its wider padding: upstream's 720 px rule, so a view under the mouse or the keyboard's focus does not slide its name out and push Walk in past the edge. From 520 px down the buttons are 30 px wide and the groups 4 px apart, so the whole bar fits at 390 px with a mouse. |
 
 ### Walking
 
@@ -210,20 +210,16 @@ scene bundled afresh:
   real hover showed the counter's tip ("Dining room"). Out of the walk, a click on Ada still chose
   her. That click was not made in the app.
 - At 390 px with a mouse, Walk in ran past the bar's end and was cut at the frame's edge (the button
-  at 385 to 423 px), and at 530 px, with the names out, it reached 552 px. With the narrow rules
-  (The button, Narrow), measured with a mouse away from the bar, Overview and then Meeting room
-  pressed, the last control ends at 376 px at 390 (also while walking), 411 at 460, 503 and 518 at
-  530, 538 and 553 at 600, 598 and 613 at 720, and 910 and 925 at 1280. All nine controls show, and
+  at 385 to 423 px), and at 530 px, with the names out, it reached 552 px. With the narrow rules (The
+  button, Narrow), measured with a mouse away from the bar, the last control ends at 376 px at 390
+  (also while walking), 411 at 460, 469 at 530, 506 at 600 and 564 at 720, whichever view is pressed,
+  and at 910 and 925 px at 1280 with Overview and Meeting room pressed. At 530 and 600 px, with the
+  mouse on a view's button or a view focused with Tab, the name stays hidden and Walk in ends at 471
+  and 506 px at most; at 1280 px a hovered view's name still slides out. All nine controls show, and
   the page never scrolls sideways.
 
 What did not come out as written:
 
-- With the mouse on a view's button between 521 and 720 px, the view's name slides out and the bar
-  grows; while the mouse is on it the bar holds its right edge. At 530 px it can grow no further, so
-  Walk in runs past the right edge (to 572 px, the page 572 px wide). At 600 px the bar runs past the
-  left edge instead, from -42 px. At 720 px it stays inside. Upstream's 720 px rule also hides the
-  views' names, so its bar does not grow there. At 521 px with Meeting room pressed, Walk in ends at
-  517 px, past the bar's own edge but inside the frame.
 - At 390 px the help line is a column 203 px wide and 296 px tall over the view: `left: 50%` with a
   transform caps its width at half the frame. Upstream's rule is the same.
 
