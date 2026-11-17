@@ -17,7 +17,12 @@ export function applyOfficeEvent(state: OfficeSnapshot, event: OfficeEvent): Off
     case "workspaces":
       return { ...state, workspaces: event.workspaces };
     case "activity":
-      return { ...state, activity: event.activity, doing: event.doing ?? {} };
+      return {
+        ...state,
+        activity: event.activity,
+        doing: event.doing ?? {},
+        checklists: event.checklists ?? {},
+      };
     case "board":
       return { ...state, boards: { ...state.boards, [event.board]: event.posts } };
     case "board-removed":
