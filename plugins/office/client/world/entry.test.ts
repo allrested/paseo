@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   built: false,
   /** Whether it was when the first of the scene's modules started (ui/photo.js wires it then). */
   builtBeforeModules: null as boolean | null,
+  closePlace: vi.fn(),
 }));
 
 vi.mock("../../vendor/my-office/src/office/paseo-modules.js", () => ({
@@ -68,7 +69,9 @@ vi.mock("../../vendor/my-office/src/office/ui/session-drawer.js", () => ({
 }));
 vi.mock("../../vendor/my-office/src/office/interact/place-chips.js", () => ({ PLACES: {} }));
 vi.mock("../../vendor/my-office/src/office/interact/props.js", () => ({ PROPS: new Map() }));
-vi.mock("../../vendor/my-office/src/office/interact/place-cards.js", () => ({ closePlace() {} }));
+vi.mock("../../vendor/my-office/src/office/interact/place-cards.js", () => ({
+  closePlace: h.closePlace,
+}));
 vi.mock("../../vendor/my-office/src/office/world/pro/pieces.js", () => ({
   OFFICE_MARK: "",
   PRO_FX: {},
@@ -327,6 +330,18 @@ test("the camera bar is built before the scene's modules start", () => {
 
 test("the photo's mark carries the brand's name", () => {
   expect(host.brandName).toBe("Acme");
+});
+
+test("Escape in photo mode leaves the place card under it alone", () => {
+  page("plc").hidden = false;
+  document.body.classList.add("is-photo");
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.closePlace).not.toHaveBeenCalled();
+
+  document.body.classList.remove("is-photo");
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.closePlace).toHaveBeenCalledTimes(1);
+  page("plc").hidden = true;
 });
 
 /**
