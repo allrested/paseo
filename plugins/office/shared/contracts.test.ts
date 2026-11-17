@@ -1,9 +1,12 @@
 import { expect, test } from "vitest";
 import {
+  ChecklistStepSchema,
   MachineEventSchema,
   cleanupRpc,
+  clearDoneRpc,
   machineSubscription,
   OfficeEventSchema,
+  OfficeSnapshotSchema,
   PostSchema,
   worldRpc,
   deleteRpc,
@@ -99,4 +102,24 @@ test("the host's readings and the cleanup call are named and bounded", () => {
     cleanupRpc.input.safeParse({ agentIds: Array.from({ length: 51 }, (_v, i) => `a${i}`) })
       .success,
   ).toBe(false);
+});
+
+test("a snapshot and an activity event carry checklists, and parse without them", () => {
+  const steps = { a1: [{ text: "Run typecheck", status: "in_progress" }] };
+  expect(OfficeSnapshotSchema.parse({ ...emptySnapshot(), checklists: steps }).checklists).toEqual(
+    steps,
+  );
+  expect(OfficeSnapshotSchema.parse(emptySnapshot()).checklists).toBeUndefined();
+  expect(
+    OfficeEventSchema.parse({ type: "activity", activity: {}, checklists: steps }),
+  ).toMatchObject({ checklists: steps });
+});
+
+test("a step is pending or in progress, never completed", () => {
+  expect(ChecklistStepSchema.safeParse({ text: "x", status: "completed" }).success).toBe(false);
+});
+
+test("clear done names its RPC and needs a board", () => {
+  expect(clearDoneRpc.name).toBe("office.board.clear_done.request");
+  expect(clearDoneRpc.input.safeParse({ board: "" }).success).toBe(false);
 });
