@@ -11,7 +11,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { View, useWindowDimensions } from "react-native";
+import { Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import {
@@ -20,6 +20,8 @@ import {
   SheetBottomInset,
   SheetDragArea,
   SheetHandle,
+  SheetHeaderView,
+  type SheetHeader,
 } from "@/components/adaptive-modal-sheet";
 import { ResizeHandle } from "@/components/resize-handle";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -31,6 +33,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import type { ResolvedBesideTarget } from "@/plugins/host-navigation-model";
 import { useSheetPaneBridgeAnywhere } from "@/screens/workspace/sheet-pane";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { SurfaceErrorBoundary } from "../surface-error-boundary";
 import { clampBesideWidth } from "./beside-layout";
 import { useBesideStore } from "./store";
 
@@ -103,6 +106,15 @@ interface BesideFrameProps {
 export function BesideFrame({ surfaceKey, children }: BesideFrameProps) {
   const compact = useIsCompactFormFactor();
   const area = useBesideStore((state) => state.areas[surfaceKey]);
+  // The area shares the frame's own width with the content, which a sidebar or the panes of a
+  // split can make narrower than the window. The window stands in until the frame is measured.
+  const { width: windowWidth } = useWindowDimensions();
+  const [frameWidth, setFrameWidth] = useState<number | null>(null);
+  const measureFrame = useCallback((event: LayoutChangeEvent) => {
+    const { width } = event.nativeEvent.layout;
+    // A hidden retained panel lays out at zero; keep the last real width.
+    if (width > 0) setFrameWidth(width);
+  }, []);
   const panelActive = useRetainedPanelActive();
   const routeFocused = useRouteFocused();
   const shown = panelActive && routeFocused;
@@ -136,12 +148,17 @@ export function BesideFrame({ surfaceKey, children }: BesideFrameProps) {
 
   return (
     <ShowBesideContext.Provider value={showBeside}>
-      <View style={styles.frame}>
+      <View style={styles.frame} onLayout={measureFrame} testID="beside-frame">
         {/* One place in the tree on every layout, so the content never remounts. */}
         <View style={styles.content}>{children}</View>
         {compact ? <BesideSheet surfaceKey={surfaceKey} area={area} close={close} /> : null}
         {!compact && area ? (
-          <BesidePanel surfaceKey={surfaceKey} area={area} close={close} />
+          <BesidePanel
+            surfaceKey={surfaceKey}
+            area={area}
+            close={close}
+            frameWidth={frameWidth ?? windowWidth}
+          />
         ) : null}
       </View>
     </ShowBesideContext.Provider>
@@ -156,29 +173,32 @@ interface BesideContentProps {
 
 const RESIZE_GROUP_ID = "beside";
 
-function BesidePanel({ surfaceKey, area, close }: BesideContentProps) {
-  const { width: windowWidth } = useWindowDimensions();
+function BesidePanel({
+  surfaceKey,
+  area,
+  close,
+  frameWidth,
+}: BesideContentProps & { frameWidth: number }) {
   const storedWidth = useBesideStore((state) => state.width);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
-  const width = clampBesideWidth(dragWidth ?? storedWidth, windowWidth);
-  // The handle drags a two-part split of [content, area]. Its sizes are shares of the window's
-  // width, which only carries the drag: they convert straight back to the area's pixels.
-  const sizes = useMemo(() => [1 - width / windowWidth, width / windowWidth], [width, windowWidth]);
+  const width = clampBesideWidth(dragWidth ?? storedWidth, frameWidth);
+  // The handle drags a two-part split of [content, area]: shares of the frame's width, converted
+  // straight back to the area's pixels.
+  const sizes = useMemo(() => [1 - width / frameWidth, width / frameWidth], [width, frameWidth]);
   const previewResize = useCallback(
     (_groupId: string, next: number[]) => {
-      setDragWidth(clampBesideWidth(next[1] * windowWidth, windowWidth));
+      setDragWidth(clampBesideWidth(next[1] * frameWidth, frameWidth));
     },
-    [windowWidth],
+    [frameWidth],
   );
   const commitResize = useCallback(
     (_groupId: string, next: number[]) => {
       setDragWidth(null);
-      useBesideStore.getState().setWidth(clampBesideWidth(next[1] * windowWidth, windowWidth));
+      useBesideStore.getState().setWidth(clampBesideWidth(next[1] * frameWidth, frameWidth));
     },
-    [windowWidth],
+    [frameWidth],
   );
   const panelStyle = useMemo(() => [styles.panel, inlineUnistylesStyle({ width })], [width]);
-  const { Header, Body } = kindOf(area.target);
 
   return (
     <>
@@ -188,15 +208,12 @@ function BesidePanel({ surfaceKey, area, close }: BesideContentProps) {
         groupId={RESIZE_GROUP_ID}
         index={0}
         sizes={sizes}
-        containerSize={windowWidth}
+        containerSize={frameWidth}
         onPreviewResizeSplit={previewResize}
         onResizeSplit={commitResize}
       />
       <View style={panelStyle} testID="beside-panel">
-        <Header target={area.target} close={close} />
-        <View style={styles.body}>
-          <Body key={area.revision} target={area.target} surfaceKey={surfaceKey} close={close} />
-        </View>
+        <BesideAreaContent surfaceKey={surfaceKey} area={area} close={close} inSheet={false} />
       </View>
     </>
   );
@@ -237,23 +254,94 @@ function BesideSheet({
       onDismiss={handleSheetDismiss}
       accessible={false}
     >
-      {held ? <BesideSheetPane surfaceKey={surfaceKey} area={held} close={close} /> : null}
+      {held ? (
+        <View style={styles.sheetPane}>
+          <BesideAreaContent surfaceKey={surfaceKey} area={held} close={close} inSheet />
+        </View>
+      ) : null}
     </IsolatedBottomSheetModal>
   );
 }
 
-function BesideSheetPane({ surfaceKey, area, close }: BesideContentProps) {
-  const { Header, Body } = kindOf(area.target);
+interface AreaSlotProps {
+  inSheet: boolean;
+  children: ReactNode;
+}
+
+/** In the sheet the header drags it: the body scrolls on its own, so content panning is off. */
+function HeaderSlot({ inSheet, children }: AreaSlotProps) {
+  return inSheet ? <SheetDragArea>{children}</SheetDragArea> : children;
+}
+
+/** In the sheet the body owns the screen's bottom inset. */
+function BodySlot({ inSheet, children }: AreaSlotProps) {
+  return inSheet ? (
+    <SheetBottomInset style={styles.body}>{children}</SheetBottomInset>
+  ) : (
+    <View style={styles.body}>{children}</View>
+  );
+}
+
+/**
+ * The target's header over its body, inside one boundary of their own: a target that throws shows
+ * its error in the area under a header that still closes it, and the plugin's content keeps
+ * running. A new target clears it.
+ */
+function BesideAreaContent({
+  surfaceKey,
+  area,
+  close,
+  inSheet,
+}: BesideContentProps & { inSheet: boolean }) {
+  const kind = kindOf(area.target);
+  const { Header, Body } = kind;
+  const renderError = useCallback(
+    (error: string) => <BesideFailure error={error} close={close} inSheet={inSheet} />,
+    [close, inSheet],
+  );
   return (
-    <View style={styles.sheetPane}>
-      {/* The body scrolls on its own, so the header is where the sheet drags from. */}
-      <SheetDragArea>
+    // The plugin surfaces' boundary, keyed to the kind and the area's revision instead of a plugin.
+    <SurfaceErrorBoundary
+      installation={kind}
+      Surface={Body}
+      resetKey={area.revision}
+      renderError={renderError}
+    >
+      <HeaderSlot inSheet={inSheet}>
         <Header target={area.target} close={close} />
-      </SheetDragArea>
-      <SheetBottomInset style={styles.body}>
+      </HeaderSlot>
+      <BodySlot inSheet={inSheet}>
         <Body key={area.revision} target={area.target} surfaceKey={surfaceKey} close={close} />
-      </SheetBottomInset>
-    </View>
+      </BodySlot>
+    </SurfaceErrorBoundary>
+  );
+}
+
+const FAILURE_HEADER: SheetHeader = { title: "Could not show this" };
+
+function BesideFailure({
+  error,
+  close,
+  inSheet,
+}: {
+  error: string;
+  close(): void;
+  inSheet: boolean;
+}) {
+  return (
+    <>
+      <HeaderSlot inSheet={inSheet}>
+        <SheetHeaderView
+          header={FAILURE_HEADER}
+          onClose={close}
+          testID="beside-header"
+          closeTestID="beside-header-close"
+        />
+      </HeaderSlot>
+      <BodySlot inSheet={inSheet}>
+        <Text style={styles.failure}>{error}</Text>
+      </BodySlot>
+    </>
   );
 }
 
@@ -278,5 +366,10 @@ const styles = StyleSheet.create((theme) => ({
   sheetPane: {
     flex: 1,
     minHeight: 0,
+  },
+  // The look of a failed plugin surface (surface-error-boundary.tsx).
+  failure: {
+    color: theme.colors.statusDanger,
+    padding: theme.spacing[4],
   },
 }));

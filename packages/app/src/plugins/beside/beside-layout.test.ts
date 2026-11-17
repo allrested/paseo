@@ -11,8 +11,9 @@ describe("clampBesideWidth", () => {
     expect(clampBesideWidth(100, 1280)).toBe(240);
   });
 
-  it("leaves the plugin's content the workspace body's minimum width", () => {
-    expect(clampBesideWidth(2000, 1280)).toBe(1280 - MIN_WORKSPACE_BODY_WIDTH);
+  it("leaves the plugin's content the workspace body's minimum of the container's width", () => {
+    const containerWidth = 900;
+    expect(clampBesideWidth(2000, containerWidth)).toBe(containerWidth - MIN_WORKSPACE_BODY_WIDTH);
   });
 
   it("keeps a width that fits", () => {

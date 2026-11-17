@@ -36,6 +36,28 @@ vi.hoisted(() => {
       : queries(query);
 });
 
+// React Native Web reports `onLayout` through one ResizeObserver, which jsdom lacks. This one lets a
+// test lay a view out at a width of its choosing.
+const layoutObserver = vi.hoisted(() => {
+  let report: ((entries: { target: Element }[]) => void) | null = null;
+  window.ResizeObserver = class {
+    constructor(callback: (entries: { target: Element }[]) => void) {
+      report = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  return {
+    /** Lays the element out `width` wide; React Native Web measures it on the next tick. */
+    async layOut(element: HTMLElement, width: number) {
+      Object.defineProperty(element, "offsetWidth", { configurable: true, value: width });
+      report?.([{ target: element }]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+  };
+});
+
 const layout = vi.hoisted(() => ({ compact: false }));
 
 vi.mock("@/constants/layout", async (importOriginal) => ({
@@ -99,7 +121,12 @@ type AgentTarget = Extract<ResolvedBesideTarget, { kind: "agent" }>;
 const OPEN_IN_WORKSPACE = { label: "Open in workspace", onPress: vi.fn() };
 let bodyMounts: string[] = [];
 
+/** Agents with these ids make the test kind's header or body throw while rendering. */
+const BROKEN_HEADER = { kind: "agent", agentId: "broken-header", serverId: "host" } as const;
+const BROKEN_BODY = { kind: "agent", agentId: "broken-body", serverId: "host" } as const;
+
 function TestHeader({ target, close }: { target: AgentTarget; close(): void }) {
+  if (target.agentId === BROKEN_HEADER.agentId) throw new Error("The header exploded");
   return (
     <BesideHeader
       icon={null}
@@ -115,6 +142,7 @@ function TestBody({ target }: { target: AgentTarget; surfaceKey: string; close()
   useEffect(() => {
     bodyMounts.push(target.agentId);
   }, [target.agentId]);
+  if (target.agentId === BROKEN_BODY.agentId) throw new Error("The body exploded");
   return <Text testID="beside-test-body">{target.agentId}</Text>;
 }
 
@@ -257,6 +285,29 @@ describe("BesideFrame on wide layouts", () => {
     expect(useBesideStore.getState().width).toBe(1280 - 360);
   });
 
+  it("fits the frame it lays out, so the content keeps its minimum width beside a sidebar", async () => {
+    render(frame());
+    show(AGENT_ONE);
+    const separator = screen
+      .getByTestId("beside-resize-handle")
+      .querySelector<HTMLElement>('[role="separator"]')!;
+    // Until the frame is measured, the window's width stands in for it.
+    drag(separator, 1000, 700);
+    expect(screen.getByTestId("beside-panel").style.width).toBe("620px");
+
+    // A pinned sidebar or a split pane leaves the frame 800 of the window's 1280.
+    await act(() => layoutObserver.layOut(screen.getByTestId("beside-frame"), 800));
+
+    expect(screen.getByTestId("beside-panel").style.width).toBe(`${800 - 360}px`);
+    expect(useBesideStore.getState().width).toBe(620);
+
+    await act(() => layoutObserver.layOut(screen.getByTestId("beside-frame"), 1200));
+    expect(screen.getByTestId("beside-panel").style.width).toBe("620px");
+
+    drag(separator, 700, 0);
+    expect(useBesideStore.getState().width).toBe(1200 - 360);
+  });
+
   it("keeps the body for the same target and remounts it for a new one", () => {
     render(frame());
 
@@ -303,6 +354,59 @@ describe("BesideFrame on compact layouts", () => {
     expect(useBesideStore.getState().areas).toEqual({});
   });
 });
+
+describe.each([
+  ["wide", false, "beside-panel"],
+  ["compact", true, "beside-sheet"],
+] as const)(
+  "BesideFrame when the target fails to render, %s",
+  (_layoutName, compact, areaTestId) => {
+    beforeEach(() => {
+      layout.compact = compact;
+      // The boundary reports what it caught; React reports it too.
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      ["body", BROKEN_BODY, "The body exploded"],
+      ["header", BROKEN_HEADER, "The header exploded"],
+    ] as const)(
+      "shows the error of a failing %s in the area and keeps the content",
+      (_part, target, message) => {
+        render(frame());
+
+        expect(show(target)).toBe(true);
+
+        const area = screen.getByTestId(areaTestId);
+        expect(area.contains(screen.getByText("Could not show this"))).toBe(true);
+        expect(area.contains(screen.getByText(message))).toBe(true);
+        expect(screen.getByTestId("plugin-content").textContent).toBe("The office");
+
+        show(AGENT_ONE);
+
+        expect(screen.queryByText(message)).toBeNull();
+        expect(screen.getByText("Agent one")).toBeTruthy();
+        expect(screen.getByTestId("beside-test-body").textContent).toBe("one");
+      },
+    );
+
+    it("closes from the failure's own header", () => {
+      render(frame());
+      show(BROKEN_HEADER);
+
+      act(() => fireEvent.click(screen.getByLabelText("Close")));
+
+      expect(useBesideStore.getState().areas).toEqual({});
+      expect(screen.queryByTestId(areaTestId)).toBeNull();
+      expect(screen.getByTestId("plugin-content")).toBeTruthy();
+    });
+  },
+);
 
 describe("BesideFrame targets and leaving", () => {
   it("answers false and shows nothing for an unavailable target or an unregistered kind", () => {
