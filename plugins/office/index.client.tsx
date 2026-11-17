@@ -4,6 +4,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { ActivityPanel } from "./client/activity-panel.js";
 import { ACTIVITY_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
 import { OfficeSurface } from "./client/office-surface.js";
+import { SessionsPanel } from "./client/sessions-panel.js";
 
 const SCREEN_ID = "office";
 const PANEL_ID = "office";
@@ -14,12 +15,6 @@ function OfficeItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return <SidebarRow icon={ICON} active={currentScreen?.screenId === SCREEN_ID} onPress={open} />;
 }
 
-// The Sessions panel is built next: the header's button opens it in the side area, and its own
-// route shows it full width.
-function SessionsPanelPlaceholder() {
-  return null;
-}
-
 // A built-in has no row in Settings > Plugins: the sidebar item and the Command Center item are
 // the ways in. Settings > Sidebar can hide the item.
 export default function contribute(client: PluginClientContext) {
@@ -28,7 +23,7 @@ export default function contribute(client: PluginClientContext) {
     client.addScreen({
       id: SESSIONS_SCREEN,
       title: "Sessions",
-      Component: SessionsPanelPlaceholder,
+      Component: SessionsPanel,
     }),
     client.addScreen({
       id: ACTIVITY_SCREEN,

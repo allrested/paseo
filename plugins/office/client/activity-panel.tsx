@@ -51,7 +51,7 @@ interface PillProps<Value extends string> {
 }
 
 /** A tab or a chip: the view switch's pill. */
-function Pill<Value extends string>({
+export function Pill<Value extends string>({
   value,
   label,
   name,
@@ -168,7 +168,7 @@ function CardRow({ card, agent, navigation, styles }: CardRowProps) {
 }
 
 /** The office's own words for a state that cannot load, as its surface shows them. */
-function loadProblem(subscription: OfficeState["subscription"]): string | null {
+export function loadProblem(subscription: OfficeState["subscription"]): string | null {
   if (subscription.status === "error") {
     return problemText("Unable to load the office", subscription.error.message);
   }
