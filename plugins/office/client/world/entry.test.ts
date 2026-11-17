@@ -176,21 +176,29 @@ test("an agent stopped on an error keeps no time of its last event, so it stays 
   expect(h.sessions.get("a")).not.toHaveProperty("lastAt");
 });
 
+interface Prop {
+  act(): void;
+  /** The tooltip's line under the prop's name: interact/props.js's propHint gives it as it is for these props. */
+  hint: string;
+}
+
 /**
- * A page of its own, started with `options` and a reading of the host (the server room is furniture without one).
- * The entry starts once a page. Gives back what a click on a prop does: upstream's `activateProp` calls its `act`.
+ * A page of its own, started with `options`, and its props. The page has a reading of the host, as `openMac()` reaches
+ * Paseo's `onMachine` only then. A click on a prop runs its `act` (upstream's `activateProp`); a test calls it directly,
+ * without the scene's picking. The entry starts once a page.
  */
-async function startPage(options: object): Promise<(propId: string) => void> {
+async function startPage(options: object): Promise<Map<string, Prop>> {
   vi.resetModules();
   // Upstream's racks and wall screen open the machine panel (interact/props.js, prop('racks') and prop('tv')). The
   // stand-in is registered again for each page: resetModules keeps a mock's first module, and with it the first
   // page's host.
   vi.doMock("../../vendor/my-office/src/office/interact/props.js", async () => {
     const { openMac } = await import("../../vendor/my-office/src/office/ui/mac-drawer.js");
+    const { t } = await import("../../vendor/my-office/src/i18n/index.js");
     return {
       PROPS: new Map([
-        ["racks", { id: "racks", act: () => openMac() }],
-        ["tv", { id: "tv", act: () => openMac() }],
+        ["racks", { id: "racks", hint: t("props.racks.hint"), act: () => openMac() }],
+        ["tv", { id: "tv", hint: t("props.tv.hint"), act: () => openMac() }],
       ]),
     };
   });
@@ -201,27 +209,35 @@ async function startPage(options: object): Promise<(propId: string) => void> {
   page.start(options);
   page.setMachine({ mem: null, cpu: { percent: 0 }, devServers: [] });
   const { PROPS } = await import("../../vendor/my-office/src/office/interact/props.js");
-  return (propId) => (PROPS as Map<string, { act(): void }>).get(propId)?.act();
+  return PROPS as Map<string, Prop>;
 }
 
 test("the wall screen asks Paseo for Resources, and the racks still open the Host card", async () => {
   const resources = vi.fn();
   const machine = vi.fn();
-  const activate = await startPage({ onResources: resources, onMachine: machine });
+  const props = await startPage({ onResources: resources, onMachine: machine });
 
-  activate("tv");
+  props.get("tv")?.act();
   expect(resources).toHaveBeenCalledTimes(1);
   expect(machine).not.toHaveBeenCalled();
 
-  activate("racks");
+  props.get("racks")?.act();
   expect(machine).toHaveBeenCalledTimes(1);
   expect(resources).toHaveBeenCalledTimes(1);
 });
 
 test("without Resources the wall screen opens the Host card", async () => {
   const machine = vi.fn();
-  const activate = await startPage({ onMachine: machine });
+  const props = await startPage({ onMachine: machine });
 
-  activate("tv");
+  props.get("tv")?.act();
   expect(machine).toHaveBeenCalledTimes(1);
+});
+
+test("the wall screen's tooltip says what it opens", async () => {
+  const withResources = await startPage({ onResources() {}, onMachine() {} });
+  expect(withResources.get("tv")?.hint).toBe("Open Resources");
+
+  const without = await startPage({ onMachine() {} });
+  expect(without.get("tv")?.hint).toBe("Open the Host panel");
 });
