@@ -20,6 +20,8 @@ export interface WorldFrameInput {
 
 // Standards mode: without the doctype the page's `height: 100%` rules do not hold.
 const PAGE = '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
+/** What a press on leaves the keyboard in the frame for. */
+const FRAME_CONTROLS = 'button, a, input, select, textarea, [role="button"]';
 const FRAME_STYLE =
   "position:absolute;inset:0;width:100%;height:100%;border:0;display:block;background:transparent";
 
@@ -70,7 +72,19 @@ export function openWorldFrame({ container, script, title }: WorldFrameInput): W
         }
         // A press on the scene itself hands the keyboard back; one on a control of the frame
         // (a chip, the place card) leaves it there for that control.
-        doc.addEventListener("pointerup", () => {
+        // Decided by the press's target, not by focus: Safari and Firefox on macOS do not focus a
+        // button on a click, so Walk in would otherwise hand the keys away before the walk starts.
+        doc.addEventListener("pointerup", (event) => {
+          // (the frame's own Element: Paseo's page's does not match the frame's nodes)
+          const realm = doc.defaultView;
+          const target = event.target;
+          if (realm !== null && target instanceof realm.Element && target.closest(FRAME_CONTROLS)) {
+            return;
+          }
+          // Not while walking (first-person.js marks the body `is-fp`): the walk needs the keys, so a
+          // drag to look or a press on the floor keeps them here, and brings them back after E
+          // opened a session beside the floor.
+          if (doc.body.classList.contains("is-fp")) return;
           if (doc.activeElement === null || doc.activeElement === doc.body) focusApp();
         });
         loaded = world;

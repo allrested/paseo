@@ -13,6 +13,9 @@ const h = vi.hoisted(() => ({
   toast: vi.fn(),
   set: vi.fn(),
   copy: vi.fn(),
+  exitFp: vi.fn(),
+  /** The walk's state: a test turns `on` to be walking. */
+  fp: { on: false },
 }));
 
 vi.mock("../../vendor/my-office/src/office/scene/renderer.js", async () => {
@@ -27,6 +30,7 @@ vi.mock("../../vendor/my-office/src/office/scene/renderer.js", async () => {
   return {
     camera,
     controls: { target: new THREE.Vector3(0, 0, 0), minZoom: 0.5, maxZoom: 3.4, update() {} },
+    fpCam: { fov: 70, updateProjectionMatrix() {} },
   };
 });
 vi.mock("../../vendor/my-office/src/office/core/loop.js", () => ({
@@ -36,10 +40,19 @@ vi.mock("../../vendor/my-office/src/office/ui/session-drawer.js", () => ({
   closeSession: h.closeSession,
 }));
 vi.mock("../../vendor/my-office/src/office/paseo-host.js", () => ({ host: { toast: h.toast } }));
+vi.mock("../../vendor/my-office/src/office/interact/first-person.js", () => ({
+  floorBounds: () => ({ x0: -7.85, x1: 15.3, z0: -7.85, z1: 11.3 }),
+  fp: h.fp,
+  exitFp: h.exitFp,
+}));
 
 import { build, goView, setView, setup } from "../../vendor/my-office/src/office/ui/camera-bar.js";
 
-const { camera, controls } = await import("../../vendor/my-office/src/office/scene/renderer.js");
+const { camera, controls, fpCam } =
+  await import("../../vendor/my-office/src/office/scene/renderer.js");
+
+/** The document outlives each test's page: the listeners setup() puts on it are taken off after the test. */
+const onDocument = vi.spyOn(document, "addEventListener");
 
 /** The frame's browser: no ResizeObserver, so the bar's observer is this one, and a test can resize. */
 let resized: (() => void) | null = null;
@@ -71,14 +84,35 @@ function pressed(): (string | undefined)[] {
   );
 }
 
-/** Builds the bar and wires it, as paseo-entry.js does; `fullscreen` is what the frame's browser offers. */
-function open({ fullscreen = true, refuse = false } = {}): void {
+/** The pointer media query: `change(fine)` is the device's pointer changing. */
+function pointer(fine: boolean) {
+  const listeners = new Set<() => void>();
+  const query = {
+    matches: fine,
+    addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+  };
+  vi.stubGlobal("matchMedia", () => query);
+  return {
+    change(next: boolean) {
+      query.matches = next;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+/**
+ * Builds the bar and wires it, as paseo-entry.js does; `fullscreen` is what the frame's browser offers,
+ * `fine` whether its pointer is fine (a mouse). Returns the pointer, to change it.
+ */
+function open({ fullscreen = true, refuse = false, fine = true } = {}) {
   Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: fullscreen });
   document.documentElement.requestFullscreen = refuse
     ? vi.fn(() => Promise.reject(new Error("not allowed")))
     : vi.fn(() => Promise.resolve());
+  const handle = pointer(fine);
   build();
   setup();
+  return handle;
 }
 
 beforeEach(() => {
@@ -97,16 +131,23 @@ beforeEach(() => {
   state.selectedId = null;
   state.zoomGoal = null;
   camera.zoom = 1;
+  h.fp.on = false;
+  h.exitFp.mockReset();
+  fpCam.fov = 70;
   document.body.innerHTML = '<div id="stage-wrap"><div id="stage"></div></div>';
 });
 
 afterEach(() => {
+  for (const [type, listener, options] of onDocument.mock.calls) {
+    document.removeEventListener(type, listener, options);
+  }
+  onDocument.mockClear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   delete (document.documentElement as { requestFullscreen?: unknown }).requestFullscreen;
 });
 
-test("the bar has its eight controls with their labels", () => {
+test("the bar has its nine controls with their labels", () => {
   open();
 
   expect(
@@ -120,6 +161,7 @@ test("the bar has its eight controls with their labels", () => {
     "Zoom in",
     "Full screen",
     "Photo mode",
+    "Walk in",
   ]);
   expect(document.querySelector(".toolbar")?.getAttribute("aria-label")).toBe("View");
 });
@@ -246,6 +288,35 @@ test("every element ui/photo.js wires is built before the modules run", () => {
   }
 });
 
+test("every element first-person.js wires is built before the modules run", () => {
+  // first-person.js's setup reads these ids and holds no guard: a missing one throws before the office draws.
+  build();
+  for (const id of ["btn-fp", "fp-hud", "fp-near", "fp-exit", "fp-joy"]) {
+    expect(document.getElementById(id), id).not.toBeNull();
+  }
+  expect(page("fp-hud").hidden).toBe(true);
+  expect(page("btn-fp").getAttribute("aria-pressed")).toBe("false");
+  expect(page("btn-fp").getAttribute("title")).toBe("Walk in");
+});
+
+test("the overlay's style keeps upstream's light ink and hides the chips while walking", () => {
+  build();
+  const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  expect(css).toMatch(/\.fp-help \{[^}]*color: #8D97AA;/);
+  expect(css).toMatch(/\.is-fp \.zone/);
+  expect(css).toMatch(/\.bil-hud \{/);
+});
+
+test("while the incident banner shows, the walk's help line sits under it above 520 px", () => {
+  // The banner (paseo-style.js `.incident`) is at the stage's top, 12 px down and about 30 px tall;
+  // at 520 px and narrower the help line is at 56 px already.
+  build();
+  const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  expect(css).toMatch(
+    /@media \(min-width: 521px\) \{ #stage-wrap:has\(> #incident:not\(\[hidden\]\)\) \.fp-help \{ top: 52px; \} \}/,
+  );
+});
+
 test("the bar's text stays light on its dark track in either theme", () => {
   // Paseo's page colours its text with the theme's foreground, near-black in the light theme: the
   // bar sets upstream's light ink itself so nothing in it inherits that.
@@ -306,6 +377,46 @@ test("the tools' tooltips are not drawn in a frame too narrow to hold the last o
   );
 });
 
+/** The rules inside the style's `@media (max-width: <px>px)` blocks, in order. */
+function narrow(px: number): string {
+  const css = styles();
+  const head = `@media (max-width: ${px}px) {`;
+  const found: string[] = [];
+  for (let at = css.indexOf(head); at !== -1; at = css.indexOf(head, at + 1)) {
+    let depth = 1;
+    let end = at + head.length;
+    for (; depth > 0 && end < css.length; end += 1) {
+      if (css[end] === "{") depth += 1;
+      if (css[end] === "}") depth -= 1;
+    }
+    found.push(css.slice(at + head.length, end - 1));
+  }
+  return found.join("\n");
+}
+
+test("from 720 px down Walk in and the views keep their names hidden, with upstream's narrower padding", () => {
+  // At 530 px the bar with both names ran past the frame's right edge, and a view's name sliding out on
+  // hover or focus still did (upstream's styles/stage.css, its 720 px rule).
+  build();
+  expect(narrow(720)).toContain(
+    ".tb-fp span:last-child, .seg-btn > span:last-child { display: none !important; }",
+  );
+  expect(narrow(720)).toContain(".tb-fp { padding: 0 11px; }");
+  expect(narrow(720)).toContain(
+    '.seg-btn, .seg-btn:hover, .seg-btn[aria-pressed="true"] { padding: 0 10px; }',
+  );
+});
+
+test("at 520 px and narrower the bar's buttons and groups sit closer, so Walk in still fits at 390 px", () => {
+  // At 390 px with a mouse, Walk in still ran 30 px past the frame's right edge with the 720 px rule alone.
+  build();
+  expect(narrow(520)).toContain(".toolbar { gap: 4px; }");
+  expect(narrow(520)).toContain(
+    '.seg-btn, .seg-btn:hover, .seg-btn:focus-visible, .seg-btn[aria-pressed="true"] { padding: 0 7px; }',
+  );
+  expect(narrow(520)).toContain(".tb-zoom button, .tb-full { width: 30px; }");
+});
+
 test("photo mode's bar keeps upstream's focus ring, its round exit, and drops the hint on a phone", () => {
   build();
   const css = styles();
@@ -316,4 +427,61 @@ test("photo mode's bar keeps upstream's focus ring, its round exit, and drops th
   expect(css).toContain(
     "@media (max-width: 720px) { .photo-hint { display: none; } .pb-sep { display: none; } }",
   );
+});
+
+test("Walk in is shown for a fine pointer and hidden for a coarse one, and follows a change", () => {
+  const fine = open({ fine: false });
+  expect(page("btn-fp").hidden).toBe(true);
+  fine.change(true);
+  expect(page("btn-fp").hidden).toBe(false);
+  fine.change(false);
+  expect(page("btn-fp").hidden).toBe(true);
+});
+
+test("a view press leaves walk-in first", () => {
+  open();
+  h.fp.on = true;
+  click("[data-view=desks]");
+  expect(h.exitFp).toHaveBeenCalledTimes(1);
+});
+
+test("zoom while walking changes the field of view by 8, within 40 and 90", () => {
+  open();
+  h.fp.on = true;
+  click("#zoom-in");
+  expect(fpCam.fov).toBe(62);
+  for (let i = 0; i < 6; i += 1) click("#zoom-in");
+  expect(fpCam.fov).toBe(40);
+  for (let i = 0; i < 8; i += 1) click("#zoom-out");
+  expect(fpCam.fov).toBe(90);
+  expect(state.zoomGoal).toBeNull();
+});
+
+test("the percent while walking is the field of view's zoom over 70", () => {
+  open();
+  h.fp.on = true;
+  vi.advanceTimersByTime(200);
+  expect(page("zoom-val").textContent).toBe("100%");
+  click("#zoom-in");
+  vi.advanceTimersByTime(200);
+  expect(page("zoom-val").textContent).toBe("113%");
+});
+
+test("Escape leaves walk-in, but not while the place card is open", () => {
+  open();
+  document.body.insertAdjacentHTML("beforeend", '<div id="plc"></div>');
+  h.fp.on = true;
+  page("plc").hidden = false;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.exitFp).not.toHaveBeenCalled();
+
+  page("plc").hidden = true;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.exitFp).toHaveBeenCalledTimes(1);
+});
+
+test("Escape does nothing while not walking", () => {
+  open();
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.exitFp).not.toHaveBeenCalled();
 });

@@ -4,7 +4,7 @@
 import * as THREE from '../../../three/three.module.min.js';
 import { state } from '../core/state.js';
 import { V2 } from '../core/env.js';
-import { camera, renderer } from '../scene/renderer.js';
+import { camera, fpCam, renderer } from '../scene/renderer.js';
 import { boardFace } from '../world/furniture/board.js';
 import { director } from '../people/director.js';
 import { toggleSession } from './session-drawer.js';
@@ -12,6 +12,7 @@ import { openMac } from './mac-drawer.js';
 import { activateProp, buildProps, pickPerson, pickProp, setHoverProp } from '../interact/props.js';
 import * as errands from '../people/errands.js';
 import { closePlace, openPlace } from '../interact/place-cards.js';
+import { fp } from '../interact/first-person.js';
 import { host } from '../paseo-host.js';
 
 const BW = 1200, BH = 520;
@@ -84,7 +85,7 @@ export function setup() {
   const aim = (e) => {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
+    ray.setFromCamera(ndc, fp.on ? fpCam : camera);
   };
   renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
   renderer.domElement.addEventListener('pointerup', (e) => {
