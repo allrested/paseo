@@ -723,13 +723,13 @@ export default function contribute(client: PluginClientContext) {
 
 `PluginScreenProps` contains:
 
-| Field        | Meaning                                                                                                                                                                                                                                                                                                                           |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme`      | Typed `PluginTheme` color tokens for the active Paseo theme.                                                                                                                                                                                                                                                                      |
-| `host`       | Selected host `id` and display `label`.                                                                                                                                                                                                                                                                                           |
-| `layout`     | `compact` and the `ios`, `android`, or `web` platform.                                                                                                                                                                                                                                                                            |
-| `params`     | The params the screen was opened with, as string keys and values. `{}` when none.                                                                                                                                                                                                                                                 |
-| `navigation` | Optional client navigation. `openAgent({ agentId, serverId? })` and `openWorkspace({ workspaceId, serverId? })` open targets on `serverId`, or on the selected host when omitted. `openBrowser({ url, workspaceId, serverId? })` is available only on Electron; see [links and browsers](#external-links-and-workspace-browsers). |
+| Field        | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `theme`      | Typed `PluginTheme` color tokens for the active Paseo theme.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `host`       | Selected host `id` and display `label`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `layout`     | `compact` and the `ios`, `android`, or `web` platform.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `params`     | The params the screen was opened with, as string keys and values. `{}` when none.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `navigation` | Optional client navigation. `openAgent({ agentId, serverId? })` and `openWorkspace({ workspaceId, serverId? })` open targets on `serverId`, or on the selected host when omitted. `openBrowser({ url, workspaceId, serverId? })` is available only on Electron; see [links and browsers](#external-links-and-workspace-browsers). `showBeside(target)` shows a session or a screen next to yours; see [show a session or a screen beside yours](#show-a-session-or-a-screen-beside-yours). |
 
 Paseo owns the route, header, close action, host picker, error boundary, and query client. The plugin owns the screen body.
 
@@ -743,6 +743,48 @@ ID instead; the screen still renders.
 Params live in the screen's URL query, so a reload, back and forward, and a link to the screen keep
 them. Any string key works; values must be strings, and anything else throws. Opening the same
 screen with other params shows the new params.
+
+### Show a session or a screen beside yours
+
+`navigation.showBeside(target): boolean` shows an agent's session or a plugin screen in a side
+area next to your screen or panel, so the user stays on your page. Screens, workspace panels and
+agent panels receive it; settings screens, file panels and sidebar items do not. Apps without a
+side area leave it undefined, so check it and fall back. This row opens a session beside your
+screen, or in the agent's workspace:
+
+```tsx
+import type { PluginScreenProps } from "@getpaseo/plugin/client";
+import { Pressable, Text } from "react-native";
+
+type SessionRowProps = Pick<PluginScreenProps, "navigation" | "theme"> & { agentId: string };
+
+export function SessionRow({ agentId, navigation, theme }: SessionRowProps) {
+  if (!navigation) return null;
+  const open = () => {
+    if (navigation.showBeside?.({ kind: "agent", agentId })) return;
+    navigation.openAgent({ agentId });
+  };
+  return (
+    <Pressable accessibilityRole="button" onPress={open}>
+      <Text style={{ color: theme.colors.foreground }}>Open session</Text>
+    </Pressable>
+  );
+}
+```
+
+| Target                                                       | Shows                                                                                                                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `{ kind: "agent", agentId, serverId? }`                      | The agent's full session, as in its workspace. The header has Open in workspace and Close. Opening a file or a tab from it goes to the agent's workspace.          |
+| `{ kind: "screen", pluginId, screenId, params?, serverId? }` | That plugin's screen with its params, `layout.compact: true` and no `showBeside` of its own, calling its own plugin's RPCs. The header has Open {title} and Close. |
+
+`serverId` defaults to your surface's `host.id`. The call returns `true` when it shows the target.
+It returns `false`, and does not throw, when the host does not know the agent, does not have the
+plugin installed, or the plugin has no such screen.
+
+The area shows one target at a time: a new target replaces it, and the same target again leaves it
+as it is. Wide layouts show it as a panel on the right with a drag handle; compact layouts show it
+as a sheet over your content. It closes from its header and when the user leaves your screen or
+panel, and it is not restored on the next visit.
 
 ### Sidebar items
 

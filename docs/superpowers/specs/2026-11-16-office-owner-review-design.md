@@ -1,6 +1,6 @@
 # The office after the owner's review: design
 
-Date: 2026-11-16. Status: sub-projects 1 and 2 are built; sub-project 3 is designed ([its design](2026-11-16-office-standup-notes-design.md)); sub-project 4 is designed ([its design](2026-11-17-office-one-page-design.md)); sub-project 6 is built ([its design](2026-11-16-office-small-fixes-again-design.md)); the others are not.
+Date: 2026-11-16. Status: sub-projects 1 and 2 are built; sub-project 3 is designed ([its design](2026-11-16-office-standup-notes-design.md)); sub-project 4 is built ([its design](2026-11-17-office-one-page-design.md)); sub-project 6 is built ([its design](2026-11-16-office-small-fixes-again-design.md)); the others are not.
 It follows [the office as my-office's 3D floor](2026-11-16-office-my-office-port-design.md), whose
 nine sub-projects are built.
 

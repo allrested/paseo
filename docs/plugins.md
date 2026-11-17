@@ -1203,9 +1203,34 @@ existing agent-context instances, but it cannot create an agent panel without an
 Command Center callbacks use the selected host's existing `PaseoApi` for normal Paseo operations.
 They use typed plugin RPC only for plugin-specific backend work. Surface and panel navigation
 belongs to the app; plugins do not receive Expo Router or workspace-layout store access.
-See the public [navigation fields](../public-docs/plugins/reference.md#screens-and-sidebar-items)
-and [external links and workspace browsers](../public-docs/plugins/reference.md#external-links-and-workspace-browsers)
+See the public [navigation fields](../public-docs/plugins/reference.md#screens-and-sidebar-items),
+[external links and workspace browsers](../public-docs/plugins/reference.md#external-links-and-workspace-browsers)
+and [showBeside](../public-docs/plugins/reference.md#show-a-session-or-a-screen-beside-yours)
 for the author-facing contract.
+
+### The side area
+
+`navigation.showBeside` asks the app to draw a side area beside a plugin screen or workspace panel;
+the plugin never renders it. An agent's pane needs the app's own contexts (composer editing, file
+links, the sheet stack), and one plugin rendering another's screen would run it outside that
+plugin's installation, so the SDK hands out the call and no components
+([design](superpowers/specs/2026-11-17-office-one-page-design.md)).
+
+- `packages/app/src/plugins/beside/` holds it. `BesideFrame` wraps the plugin's content in
+  `surface-screen.tsx` and `workspace-panels/panel.tsx` and owns `showBeside` for that surface,
+  keyed by the screen's host, plugin and screen id, or by the panel's tab.
+- Each target kind registers itself with `registerBesideKind`, and the folder's `index.ts` imports
+  the kind modules. `agent-beside.tsx` imports the panel registry, which imports the panel that
+  imports the barrel, so it calls `ensurePanelsRegistered()` at render time, never at import.
+- The width lives in memory and never touches `explorerWidth`. It clamps against the frame's
+  measured width, not the window's, because the left sidebar or the Explorer can share the window.
+- The area adds no route and is not restored ([expo-router.md](expo-router.md)). Workspace panels
+  stay mounted when their tab is switched away, so the frame closes the area when the tab turns
+  inactive or the route loses focus, not only on unmount.
+- The agent's pane uses host `"main"` in the panel and in the sheet. A `"sheet"` pane hides the
+  composer, Stop and the archived callout, and the area shows the full session.
+- A press inside an iframe, such as the office's 3D scene, reaches no listener in the app's
+  document, so the agent pane gives up the keyboard on the window's blur.
 
 ### Plugin icons
 
