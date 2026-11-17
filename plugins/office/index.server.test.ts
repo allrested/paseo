@@ -21,7 +21,8 @@ import {
   type IncidentsStore,
 } from "./server/incidents-store.js";
 import type { NotesStore, StoredNotes } from "./server/notes-writer.js";
-import { chatRpc } from "./shared/contracts.js";
+import { chatT } from "./shared/chat-words.js";
+import { chatRpc, type ChatChange, type ChatMessage } from "./shared/contracts.js";
 import type { officeHostSettings } from "./shared/settings.js";
 
 type SettingsState = PluginSettingsState<typeof officeHostSettings.schema>;
@@ -121,17 +122,37 @@ function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): Plu
 }
 
 /** A subscribed list as the client gives it: the snapshot at once, then nothing. */
-function emptyList() {
+function listOf(entries: object[]) {
   return {
-    entries: [],
+    entries,
     pageInfo: { hasMore: false, nextCursor: null },
     subscription: {
-      subscribe: (observer: { snapshot(snapshot: { entries: never[] }): void }) => {
-        observer.snapshot({ entries: [] });
+      subscribe: (observer: { snapshot(snapshot: { entries: object[] }): void }) => {
+        observer.snapshot({ entries });
         return () => undefined;
       },
       release: async () => undefined,
     },
+  };
+}
+
+/** What the fake daemon lists and reads: the directory's agents, and each agent's timeline. */
+interface FakeDirectory {
+  agents: object[];
+  timelines: Map<string, { turnId: string; item: object }[]>;
+}
+
+/** An idle agent as the daemon's agent list gives it. */
+function listedAgent(id: string, title: string): object {
+  return {
+    id,
+    title,
+    provider: "claude",
+    model: null,
+    status: "idle",
+    workspaceId: "w1",
+    createdAt: "2026-11-11T08:00:00.000Z",
+    pendingPermissions: [],
   };
 }
 
@@ -147,6 +168,7 @@ function fakeContext(
   statuses: Map<string, string>,
   sent: Sent[],
   writers: Writers,
+  directory: FakeDirectory,
 ): PluginHandlerContext {
   return {
     signal: new AbortController().signal,
@@ -165,7 +187,7 @@ function fakeContext(
         }),
       },
       workspaces: {
-        list: async () => emptyList(),
+        list: async () => listOf([]),
         open: async (cwd: string) => ({
           id: "wks_notes",
           directory: cwd,
@@ -185,8 +207,11 @@ function fakeContext(
         }),
       },
       agents: {
-        list: async () => emptyList(),
+        list: async () => listOf(directory.agents.map((agent) => ({ agent }))),
         ref: (agentId: string) => ({
+          timeline: {
+            refetch: async () => ({ entries: directory.timelines.get(agentId) ?? [] }),
+          },
           refresh: async () => ({
             agent: {
               id: agentId,
@@ -317,11 +342,12 @@ function setup(
   const statuses = new Map<string, string>();
   const stopped: number[] = [];
   const writers: Writers = { created: [], prompts: [], archived: [] };
+  const directory: FakeDirectory = { agents: [], timelines: new Map() };
   const notesStore = memoryNotesStore();
   const incidentsStore = memoryIncidentsStore();
   const chatStore = options.chatStore ?? memoryChatStore();
   const clock = createFakeClock(Date.parse("2026-11-11T09:00:00.000Z"));
-  const context = fakeContext(statuses, sent, writers);
+  const context = fakeContext(statuses, sent, writers, directory);
   const stop = createOfficePlugin(fakeServer(recorded, read), {
     store: memoryStore(),
     notesStore,
@@ -354,6 +380,7 @@ function setup(
     statuses,
     stopped,
     writers,
+    directory,
     notesStore,
     incidentsStore,
     clock,
@@ -641,7 +668,7 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
 
 /** Subscribes to office.state as a page does; `events` records what it is pushed. */
 function openOffice(recorded: Recorded, context: PluginHandlerContext) {
-  const events: { type: string; state?: { chat?: unknown }; change?: unknown }[] = [];
+  const events: { type: string; state?: { chat?: unknown }; change?: ChatChange }[] = [];
   const leaving = new AbortController();
   const done = recorded.handlers.get("office.state")?.({}, {
     ...context,
@@ -689,19 +716,68 @@ test("a chat call with a bad op is refused by the contract", () => {
   expect(chatRpc.input.safeParse({ op: "send", text: "hello" }).success).toBe(true);
 });
 
-test("a turn that ends, and an archive, reach the chat", async () => {
-  const { recorded, context, logs, stop } = setup(async () => ON);
+/** The messages the chat events of `events` added. */
+function chatAdds(events: { type: string; change?: ChatChange }[]): ChatMessage[] {
+  return events.flatMap(({ change }) => (change?.op === "add" ? [change.message] : []));
+}
+
+test("a turn that ends answers the chat message that named its agent, as a reply", async () => {
+  const { recorded, context, directory, sent, logs, stop } = setup(async () => ON);
+  directory.agents.push(listedAgent("a1", "Mjd"));
   await settle();
+  const office = openOffice(recorded, context);
+  await settle();
+
+  const chat = recorded.handlers.get("office.chat.request");
+  expect(await chat?.({ op: "send", text: "@Mjd hi" }, context)).toEqual({ ok: true });
+  await settle();
+  expect(sent).toEqual([
+    {
+      agentId: "a1",
+      text: "Team chat message from you: @Mjd hi",
+      options: { activeTurnBehavior: "steer" },
+    },
+  ]);
+  const mine = chatAdds(office.events).find((message) => message.from === "me");
+
+  directory.timelines.set("a1", [
+    { turnId: "t1", item: { type: "user_message", text: "Team chat message from you: @Mjd hi" } },
+    { turnId: "t1", item: { type: "assistant_message", text: "Hi, on it." } },
+  ]);
   await recorded.hooks.get("agent.turn.after")?.(
     { agent: hookAgent("a1"), turnId: "t1", outcome: { kind: "completed" } },
     context,
   );
+  await settle();
+  expect(chatAdds(office.events)).toContainEqual(
+    expect.objectContaining({
+      from: "a1",
+      name: "Mjd",
+      text: "Hi, on it.",
+      reply: { id: mine?.id, name: "Boss", text: "@Mjd hi" },
+    }),
+  );
+  expect(logs).toEqual([]);
+  await office.leave();
+  await stop();
+});
+
+test("an archived agent of the office leaves the chat", async () => {
+  const { recorded, context, directory, logs, stop } = setup(async () => ON);
+  directory.agents.push(listedAgent("a1", "Mjd"));
+  await settle();
+  const office = openOffice(recorded, context);
+  await settle();
+
   await recorded.hooks.get("agent.archive.after")?.(
     { agent: hookAgent("a1"), archivedAt: "2026-11-11T09:01:00.000Z" },
     context,
   );
-  await settle();
+  expect(chatAdds(office.events)).toEqual([
+    expect.objectContaining({ kind: "sys", text: chatT("chat.sys.left", { name: "Mjd" }) }),
+  ]);
   expect(logs).toEqual([]);
+  await office.leave();
   await stop();
 });
 

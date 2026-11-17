@@ -597,6 +597,24 @@ test("a watcher added while a directory is open gets the current view at once, a
   expect(seen).toEqual([first]);
 });
 
+test("a watcher hears null after a start whose subscriber left before the directory opened", async () => {
+  const first: DirectoryView = { agents: [agent("a", "idle")], workspaces: [] };
+  const harness = startHarness(first);
+  const gate = deferred();
+  harness.directory.openGate = gate.promise;
+  const seen: (DirectoryView | null)[] = [];
+  harness.hub.watch((view) => seen.push(view));
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  subscriber.controller.abort();
+  gate.release();
+  await subscriber.done;
+  await settle();
+  // The leave says null; the stale directory's first report follows it, and its close says null again.
+  expect(seen).toEqual([null, first, null]);
+  expect(harness.directory.stops).toBe(1);
+});
+
 test("a watcher that throws is logged and does not stop the others", async () => {
   const logs: string[] = [];
   const first: DirectoryView = { agents: [agent("a", "idle")], workspaces: [] };
