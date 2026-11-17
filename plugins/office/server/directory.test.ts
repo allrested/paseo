@@ -235,6 +235,26 @@ test("an agent carries the cost its provider reports", () => {
   expect(projectAgent(agentInput({}))).not.toHaveProperty("costUsd");
 });
 
+test("an update without a cost keeps the agent's last cost, and a new cost replaces it", () => {
+  // Mid-turn the host's usage carries the context alone; the cost comes back when the turn ends.
+  const start = agentsFromSnapshot([agentInput({ lastUsage: { totalCostUsd: 0.42 } })]);
+
+  const midTurn = applyAgentUpdate(start, {
+    kind: "upsert",
+    agent: agentInput({ status: "running", lastUsage: { contextWindowUsedTokens: 9000 } }),
+  });
+  expect(midTurn.get("a1")?.costUsd).toBe(0.42);
+
+  const ended = applyAgentUpdate(midTurn, {
+    kind: "upsert",
+    agent: agentInput({ lastUsage: { totalCostUsd: 0.9 } }),
+  });
+  expect(ended.get("a1")?.costUsd).toBe(0.9);
+
+  const newcomer = applyAgentUpdate(start, { kind: "upsert", agent: agentInput({ id: "a2" }) });
+  expect(newcomer.get("a2")).not.toHaveProperty("costUsd");
+});
+
 test("a running agent carries when it was last prompted, an idle one does not", () => {
   const at = "2026-11-17T09:00:00.000Z";
   expect(projectAgent(agentInput({ status: "running", lastUserMessageAt: at }))?.promptedAt).toBe(
