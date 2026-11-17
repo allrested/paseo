@@ -184,6 +184,36 @@ export const NotesStateSchema = z.object({
 });
 export type NotesState = z.output<typeof NotesStateSchema>;
 
+export const INCIDENT_SOURCES = ["jira", "sentry"] as const;
+export type IncidentSource = (typeof INCIDENT_SOURCES)[number];
+
+/** A new bug in Jira or a new issue in Sentry, open until dismissed or a day after it was found. */
+export const IncidentSchema = z.object({
+  id: z.string(),
+  source: z.enum(INCIDENT_SOURCES),
+  key: z.string(),
+  title: z.string(),
+  url: z.string(),
+  /** Epoch ms the tracker says the issue was created. */
+  createdAt: z.number(),
+  /** Epoch ms the office's check found it. */
+  foundAt: z.number(),
+});
+export type Incident = z.output<typeof IncidentSchema>;
+
+/** The open incidents, and what keeps a tracker from being checked. */
+export const IncidentsStateSchema = z.object({
+  open: z.array(IncidentSchema),
+  /** Why a tracker's last check failed; absent once one succeeds. */
+  problems: z.object({ jira: z.string().optional(), sentry: z.string().optional() }),
+  /** The tracker's token variables are set on the host. Never the values. */
+  jiraReady: z.boolean(),
+  sentryReady: z.boolean(),
+  /** Why the check's schedule could not follow the settings; null once it does. */
+  scheduleError: z.string().nullable(),
+});
+export type IncidentsState = z.output<typeof IncidentsStateSchema>;
+
 export const OfficeSnapshotSchema = z.object({
   agents: z.array(OfficeAgentSchema),
   workspaces: z.array(OfficeWorkspaceSchema),
@@ -195,6 +225,8 @@ export const OfficeSnapshotSchema = z.object({
   wake: WakeStateSchema,
   /** Absent until the office's server has read the writer's state. */
   notes: NotesStateSchema.optional(),
+  /** Absent until the office's server has read the incidents. */
+  incidents: IncidentsStateSchema.optional(),
 });
 export type OfficeSnapshot = z.output<typeof OfficeSnapshotSchema>;
 
@@ -415,6 +447,13 @@ export const notesWriteRpc = defineRpc({
   name: "office.notes.write.request",
   input: z.object({}),
   output: z.object({ started: z.boolean() }),
+});
+
+/** Closes the named open incidents, or all of them when none are named. Their keys stay seen. */
+export const incidentsDismissRpc = defineRpc({
+  name: "office.incidents.dismiss.request",
+  input: z.object({ ids: z.array(z.string()).optional() }),
+  output: z.object({ dismissed: z.number().int().nonnegative() }),
 });
 
 /**

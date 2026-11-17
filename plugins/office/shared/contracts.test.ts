@@ -7,7 +7,9 @@ import {
   PostSchema,
   worldRpc,
   deleteRpc,
+  incidentsDismissRpc,
   officeStateSubscription,
+  OfficeSnapshotSchema,
   postRpc,
   setWakesPausedRpc,
   updateRpc,
@@ -32,6 +34,7 @@ test("contract names follow the dotted request convention", () => {
     deleteRpc.name,
     setWakesPausedRpc.name,
     worldRpc.name,
+    incidentsDismissRpc.name,
   ]).toEqual([
     "office.state",
     "office.post.request",
@@ -39,6 +42,7 @@ test("contract names follow the dotted request convention", () => {
     "office.delete.request",
     "office.set_wakes_paused.request",
     "office.world.request",
+    "office.incidents.dismiss.request",
   ]);
 });
 
@@ -99,4 +103,46 @@ test("the host's readings and the cleanup call are named and bounded", () => {
     cleanupRpc.input.safeParse({ agentIds: Array.from({ length: 51 }, (_v, i) => `a${i}`) })
       .success,
   ).toBe(false);
+});
+
+test("a snapshot without incidents parses", () => {
+  const snapshot = emptySnapshot();
+  expect(OfficeSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+});
+
+test("a snapshot carries the open incidents and each tracker's state", () => {
+  const snapshot = {
+    ...emptySnapshot(),
+    incidents: {
+      open: [
+        {
+          id: "jira:FPOS-12",
+          source: "jira",
+          key: "FPOS-12",
+          title: "Checkout fails",
+          url: "https://example.atlassian.net/browse/FPOS-12",
+          createdAt: 1_763_359_200_000,
+          foundAt: 1_763_359_500_000,
+        },
+      ],
+      problems: { sentry: "Sentry refused the token: check SENTRY_AUTH_TOKEN" },
+      jiraReady: true,
+      sentryReady: false,
+      scheduleError: null,
+    },
+  };
+  expect(OfficeSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+  const unknownSource = structuredClone(snapshot);
+  unknownSource.incidents.open[0].source = "linear";
+  expect(OfficeSnapshotSchema.safeParse(unknownSource).success).toBe(false);
+});
+
+test("dismiss takes some ids or none for all, and answers with a count", () => {
+  expect(incidentsDismissRpc.input.parse({})).toEqual({});
+  expect(incidentsDismissRpc.input.parse({ ids: ["jira:FPOS-12"] })).toEqual({
+    ids: ["jira:FPOS-12"],
+  });
+  expect(incidentsDismissRpc.output.safeParse({ dismissed: 2 }).success).toBe(true);
+  expect(incidentsDismissRpc.output.safeParse({ dismissed: -1 }).success).toBe(false);
+  expect(incidentsDismissRpc.output.safeParse({ dismissed: 1.5 }).success).toBe(false);
 });
