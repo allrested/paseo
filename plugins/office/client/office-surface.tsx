@@ -839,6 +839,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
       <BoardSheet
         room={board.room}
         rooms={model.rooms}
+        agentTasks={model.agentTasks}
         name={name}
         actions={boardActions}
         wakesPaused={office.state.wake.paused}
