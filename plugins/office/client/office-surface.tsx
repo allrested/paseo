@@ -15,7 +15,7 @@ import {
   type PluginScreenProps,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
-import { notesReadRpc, type Machine } from "../shared/contracts.js";
+import { notesReadRpc, type IncidentsState, type Machine } from "../shared/contracts.js";
 import {
   OFFICE_VIEWS,
   officeDeviceSettings,
@@ -462,6 +462,9 @@ interface SurfaceBodyProps {
   onOpenJanitor(): void;
   /** The stand-up is open. */
   meeting: boolean;
+  incidents: IncidentsState | undefined;
+  /** The 3D office's incidents banner. */
+  onOpenIncidents(): void;
   onSceneProblem(message: string): void;
 }
 
@@ -487,6 +490,8 @@ function SurfaceBody({
   janitor,
   onOpenJanitor,
   meeting,
+  incidents,
+  onOpenIncidents,
   onSceneProblem,
 }: SurfaceBodyProps) {
   if (office.subscription.status === "error") {
@@ -524,6 +529,8 @@ function SurfaceBody({
         onOpenLibrary={onOpenLibrary}
         onOpenNotes={onOpenNotes}
         meeting={meeting}
+        incidents={incidents}
+        onOpenIncidents={onOpenIncidents}
         onProblem={onSceneProblem}
       />
     );
@@ -790,6 +797,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         janitor={janitorEntry?.note ?? null}
         onOpenJanitor={openJanitor}
         meeting={standup.open}
+        incidents={incidents}
+        onOpenIncidents={openIncidents}
         onSceneProblem={setSceneProblem}
       />
       <AgentCard

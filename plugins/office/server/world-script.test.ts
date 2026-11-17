@@ -75,4 +75,21 @@ describe("the vendored entry", () => {
     expect(script).not.toContain("process.env");
     expect(script).not.toMatch(/\brequire\(/);
   }, 60_000);
+
+  it("the scene's bundle builds with the new modules", async () => {
+    const script = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+
+    // The incidents alarm: Paseo's call and start option, the banner's words, upstream's red stage.
+    expect(script).toContain("setIncidents");
+    expect(script).toContain("onIncidents");
+    expect(script).toContain("Incident: {key} {title}");
+    expect(script).toContain("incident.more");
+    expect(script).toContain("is-incident");
+    // Upstream's red light over the floor.
+    expect(script).toContain("#FF2A2A");
+    // Upstream's sound engine, muted by its switch, with the siren alone: the Mixue shop's tune
+    // was one of the sounds left out.
+    expect(script).toContain("office-sound");
+    expect(script).not.toContain("mixue");
+  }, 60_000);
 });

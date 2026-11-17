@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   sessions: new Map<string, Record<string, unknown>>(),
   workers: new Map<string, Record<string, unknown>>(),
   applauded: [] as string[],
+  played: [] as string[],
+  incidentsOpened: 0,
 }));
 
 vi.mock("../../vendor/my-office/src/office/paseo-modules.js", () => ({ MODULES: [] }));
@@ -89,17 +91,28 @@ vi.mock("../../vendor/my-office/src/office/world/props/shredder.js", () => ({
 }));
 vi.mock("../../vendor/my-office/src/office/life/tests.js", () => ({ clearRun() {}, onTest() {} }));
 vi.mock("../../vendor/my-office/src/office/life/your-turn.js", () => ({ onTurnDone() {} }));
+// The sounds need a page's audio: the test hears which one played.
+vi.mock("../../vendor/my-office/src/office/audio/sfx.js", () => ({
+  sfx: { play: (name: string) => h.played.push(name) },
+  setup() {},
+}));
 
 // The entry sets the API on the window as it loads.
 await import("../../vendor/my-office/src/office/paseo-entry.js");
+const { updateIncident } = await import("../../vendor/my-office/src/office/life/incidents.js");
 
 interface World {
   start(options?: object): void;
   setSessions(list: object[]): void;
   event(e: { sess: string; type: string }): void;
+  setIncidents(list: object[]): void;
 }
 const world = (globalThis as unknown as { PaseoOfficeWorld: World }).PaseoOfficeWorld;
-world.start();
+world.start({
+  onIncidents: () => {
+    h.incidentsOpened += 1;
+  },
+});
 
 const session = (id: string) => ({
   id,
@@ -114,6 +127,18 @@ const session = (id: string) => ({
   subs: [],
 });
 
+/** An element of the page the entry built. */
+function page(id: string): HTMLElement {
+  const found = document.getElementById(id);
+  if (found === null) throw new Error(`The page has no #${id}`);
+  return found;
+}
+
+/** An open incident as Paseo sends it, newest first; `ring` where this device has not rung for it. */
+function incident(key: string, title: string, ring: boolean) {
+  return { id: `jira:${key}`, key, title, ring };
+}
+
 /** Someone at a desk: a session the scene knows and the person drawn for it. */
 function seat(id: string) {
   world.setSessions([session(id)]);
@@ -124,7 +149,12 @@ beforeEach(() => {
   h.sessions.clear();
   h.workers.clear();
   h.applauded.length = 0;
+  h.played.length = 0;
+  h.incidentsOpened = 0;
   state.sim = 0;
+  state.incidentUntil = 0;
+  world.setIncidents([]);
+  page("stage-wrap").classList.remove("is-incident");
 });
 
 test("a deploy that succeeded is applauded, also right after a push or another deploy", () => {
@@ -174,4 +204,72 @@ test("an agent stopped on an error keeps no time of its last event, so it stays 
 
   expect(h.sessions.get("a")).toMatchObject({ last: { type: "fail" } });
   expect(h.sessions.get("a")).not.toHaveProperty("lastAt");
+});
+
+test("an incident that rings starts the alarm once: 25 s of red, a fail bubble over each person at work, the siren", () => {
+  world.setSessions([{ ...session("a"), status: "work" }, session("b")]);
+  const pushed: Record<string, unknown[]> = { a: [], b: [] };
+  h.workers.set("a", { id: "a", push: (act: unknown) => pushed.a?.push(act) });
+  h.workers.set("b", { id: "b", push: (act: unknown) => pushed.b?.push(act) });
+  state.sim = 100;
+  // Two new at once ring once.
+  world.setIncidents([
+    incident("SHOP-13", "Payments time out", true),
+    incident("SHOP-12", "Checkout fails on Safari", true),
+  ]);
+
+  expect(state.incidentUntil).toBe(125);
+  expect(page("stage-wrap").classList.contains("is-incident")).toBe(true);
+  expect(h.played).toEqual(["siren"]);
+  expect(pushed).toEqual({ a: [{ type: "fail", text: "Incident!" }], b: [] });
+
+  // The same incidents again, rung for already: nothing rings.
+  world.setIncidents([
+    incident("SHOP-13", "Payments time out", false),
+    incident("SHOP-12", "Checkout fails on Safari", false),
+  ]);
+  expect(h.played).toEqual(["siren"]);
+  expect(pushed.a).toHaveLength(1);
+});
+
+test("an incident rung for already shows on the banner and rings nothing", () => {
+  state.sim = 100;
+  world.setIncidents([incident("SHOP-12", "Checkout fails on Safari", false)]);
+
+  expect(state.incidentUntil).toBe(0);
+  expect(page("stage-wrap").classList.contains("is-incident")).toBe(false);
+  expect(h.played).toEqual([]);
+  expect(page("incident").hidden).toBe(false);
+});
+
+test("the red ends after 25 s and the banner stays while the incident is open", () => {
+  state.sim = 100;
+  world.setIncidents([incident("SHOP-12", "Checkout fails on Safari", true)]);
+  state.sim = 124;
+  updateIncident(state.sim);
+  expect(page("stage-wrap").classList.contains("is-incident")).toBe(true);
+
+  state.sim = 126;
+  updateIncident(state.sim);
+  expect(page("stage-wrap").classList.contains("is-incident")).toBe(false);
+  expect(page("incident").hidden).toBe(false);
+});
+
+test("the banner names the newest incident and how many more; a click opens Paseo's Incidents card", () => {
+  world.setIncidents([
+    incident("SHOP-13", "Payments time out", false),
+    incident("SHOP-12", "Checkout fails on Safari", false),
+    incident("SHOP-11", "Search is slow", false),
+  ]);
+  expect(page("incident").hidden).toBe(false);
+  expect(page("incident").textContent).toBe("Incident: SHOP-13 Payments time out · +2 more");
+
+  page("incident").click();
+  expect(h.incidentsOpened).toBe(1);
+
+  world.setIncidents([incident("SHOP-13", "Payments time out", false)]);
+  expect(page("incident").textContent).toBe("Incident: SHOP-13 Payments time out");
+
+  world.setIncidents([]);
+  expect(page("incident").hidden).toBe(true);
 });
