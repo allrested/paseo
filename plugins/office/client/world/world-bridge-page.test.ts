@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { bridgePageScript } from "./world-bridge-page.js";
 
 interface Frame {
@@ -92,4 +92,13 @@ test("a message that is not a call, or names no method, does nothing", () => {
 test("Full screen is off in the page whatever the WebView says", () => {
   run(SCENE);
   expect(document.fullscreenEnabled).toBe(false);
+});
+
+test("the page counts as focused while it is on screen", () => {
+  let visibility: DocumentVisibilityState = "visible";
+  vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+  run(SCENE);
+  expect(document.hasFocus()).toBe(true);
+  visibility = "hidden";
+  expect(document.hasFocus()).toBe(false);
 });

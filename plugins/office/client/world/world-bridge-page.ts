@@ -16,6 +16,8 @@ export function bridgePageScript(scene: string): string {
   var tell = function (message) { frame.post(JSON.stringify(message)); };
   var problem = function (error) { tell({ problem: String((error && error.message) || error) }); };
   try { Object.defineProperty(document, "fullscreenEnabled", { value: false }); } catch (e) {}
+  // (a WebView page never takes the app's keys, so for the scene's loop focus here means on screen)
+  document.hasFocus = function () { return document.visibilityState === "visible"; };
   function standIns(options) {
     var names = options.callbacks || [];
     delete options.callbacks;
