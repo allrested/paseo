@@ -428,7 +428,8 @@ async function openFrame() {
   if (!doc || !view) throw new Error("The frame has no page");
   // (jsdom's window.focus only reports that it has none)
   const focused = vi.spyOn(window, "focus").mockImplementation(() => {});
-  const press = () => doc.body.dispatchEvent(new view.Event("pointerup", { bubbles: true }));
+  const press = (target: Element = doc.body) =>
+    target.dispatchEvent(new view.Event("pointerup", { bubbles: true }));
   return {
     doc,
     press,
@@ -456,6 +457,25 @@ test("while walking, a press on the floor leaves the keyboard in the frame", asy
 
   // out of the walk, a press gives it back again
   frame.doc.body.classList.remove("is-fp");
+  frame.press();
+  expect(frame.focused).toHaveBeenCalledTimes(1);
+  frame.close();
+});
+
+// Safari and Firefox on macOS do not focus a button on a click: the body still has focus when
+// the press ends, and the walk starts on the click after it.
+test("a press on a control of the frame leaves the keyboard there, whatever has focus", async () => {
+  const frame = await openFrame();
+  const button = frame.doc.createElement("button");
+  const label = frame.doc.createElement("span");
+  button.append(label);
+  frame.doc.body.append(button);
+  expect(frame.doc.activeElement).toBe(frame.doc.body);
+  frame.press(button);
+  frame.press(label);
+  expect(frame.focused).not.toHaveBeenCalled();
+
+  // a press on the floor still gives it back
   frame.press();
   expect(frame.focused).toHaveBeenCalledTimes(1);
   frame.close();
