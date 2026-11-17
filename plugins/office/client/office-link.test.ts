@@ -62,13 +62,16 @@ interface FakeNavigation {
   opened: Array<{ agentId: string }>;
 }
 
-/** The app's navigation, with a side area when `beside` is given. */
-function fakeNavigation(): FakeNavigation {
+/**
+ * The app's navigation as a panel gets it. In the side area it has no `showBeside`; on the
+ * screen's own route (`ownRoute`) it has one.
+ */
+function fakeNavigation(ownRoute = false): FakeNavigation {
   const opened: Array<{ agentId: string }> = [];
   const navigation: NonNullable<Navigation> = {
     openAgent: (input) => void opened.push(input),
     openWorkspace: () => undefined,
-    showBeside: () => true,
+    ...(ownRoute ? { showBeside: () => true } : {}),
   };
   return { navigation, opened };
 }
@@ -107,6 +110,18 @@ test("with no surface, a session opens the agent's workspace", () => {
   linkOpenSession("a1", navigation);
 
   expect(opened).toEqual([{ agentId: "a1" }]);
+});
+
+test("on its own route, a row opens the workspace even with a surface registered", () => {
+  // "Open Sessions" pushed the screen's route over the office, which stays mounted and registered.
+  const surface = register("surface");
+  const { navigation, opened } = fakeNavigation(true);
+
+  linkSelect("a1", navigation);
+  linkOpenSession("a2", navigation);
+
+  expect(surface.calls).toEqual([]);
+  expect(opened).toEqual([{ agentId: "a1" }, { agentId: "a2" }]);
 });
 
 test("a panel with no navigation, and no surface, does nothing", () => {
