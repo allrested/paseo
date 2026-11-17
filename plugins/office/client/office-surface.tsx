@@ -328,6 +328,8 @@ function viewSync(
   return switchSync(sync, event);
 }
 
+const NONE_RUNG: Record<string, number> = {};
+
 /** The per-device view. The 3D office is loaded only where it is the chosen view. */
 function useViewChoice(platform: Platform): ViewChoiceState {
   const settings = useSettings(officeDeviceSettings);
@@ -346,6 +348,8 @@ function useViewChoice(platform: Platform): ViewChoiceState {
   const revision =
     settings.status === "ready" || settings.status === "invalid" ? settings.revision : null;
   const storedValue = settings.status === "ready" ? chosenView(settings.values) : null;
+  // A view's save keeps the incidents this device rang for.
+  const rungIncidents = settings.status === "ready" ? settings.values.rungIncidents : NONE_RUNG;
   const { save, reload } = settings;
   useEffect(() => {
     const stored = revision === null ? null : { value: storedValue, revision };
@@ -357,7 +361,7 @@ function useViewChoice(platform: Platform): ViewChoiceState {
     if (step.kind !== "save") return;
     dispatch({ type: "start", value: step.value, against: step.against, retry: step.retry });
     async function store(value: OfficeViewChoice, against: string): Promise<void> {
-      const ok = await save({ threeD: value !== "list", view: value }, against);
+      const ok = await save({ threeD: value !== "list", view: value, rungIncidents }, against);
       if (!mounted.current) return;
       dispatch({ type: "returned", stored: ok });
       if (ok) return;
@@ -366,7 +370,7 @@ function useViewChoice(platform: Platform): ViewChoiceState {
       if (mounted.current) dispatch({ type: "checked" });
     }
     void store(step.value, step.against);
-  }, [sync, revision, storedValue, save, reload]);
+  }, [sync, revision, storedValue, rungIncidents, save, reload]);
   const choose = useCallback(
     (next: OfficeViewChoice) => dispatch({ type: "tap", value: next }),
     [],

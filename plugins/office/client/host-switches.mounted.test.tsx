@@ -26,6 +26,13 @@ let saveError: string | null;
 /** Set to keep each save waiting for the host's answer. */
 let answer: Promise<boolean> | null;
 let stored: HostValues;
+/** The incident fields as a host that never set them holds them. */
+const NO_TRACKERS = {
+  jiraProjects: "",
+  sentryOrg: "",
+  sentryProjects: "",
+  sentryUrl: "https://sentry.io",
+};
 
 vi.mock("@getpaseo/plugin/client", () => ({
   useSettings: (): HostSettings => ({
@@ -76,7 +83,7 @@ beforeEach(() => {
   saved = [];
   saveError = null;
   answer = null;
-  stored = { agentTools: false, notesFolder: "", notesTimeZone: "Asia/Riyadh" };
+  stored = { agentTools: false, notesFolder: "", notesTimeZone: "Asia/Riyadh", ...NO_TRACKERS };
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -124,7 +131,12 @@ test("the notes folder saves once it loses focus, trimmed, and keeps the other s
   await leave("Notes folder");
   expect(saved).toEqual([
     {
-      values: { agentTools: false, notesFolder: "/workspace/notes", notesTimeZone: "Asia/Riyadh" },
+      values: {
+        agentTools: false,
+        notesFolder: "/workspace/notes",
+        notesTimeZone: "Asia/Riyadh",
+        ...NO_TRACKERS,
+      },
       revision: "r1",
     },
   ]);
@@ -158,7 +170,7 @@ test("the switch keeps the notes settings when it saves", async () => {
     container.querySelector<HTMLElement>('[aria-label="Agent tools"]')?.click(),
   );
   expect(saved.map((save) => save.values)).toEqual([
-    { agentTools: true, notesFolder: "", notesTimeZone: "Asia/Riyadh" },
+    { agentTools: true, notesFolder: "", notesTimeZone: "Asia/Riyadh", ...NO_TRACKERS },
   ]);
 });
 
