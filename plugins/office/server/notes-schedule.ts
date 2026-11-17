@@ -1,11 +1,10 @@
 import { isAbsolute } from "node:path";
-import { isDeepStrictEqual } from "node:util";
 import type { PluginServerContext, ScheduleCadence } from "@getpaseo/plugin/server";
-import { errorMessage } from "./errors.js";
+import { createScheduleFollower, type OfficeSchedule, syncSchedule } from "./schedule-follower.js";
 
 /** The daily schedule's name among the office's schedules, and the handler that answers it. */
 export const NOTES_SCHEDULE = "standup-notes";
-const NOTES_LABEL = "Stand-up notes";
+const NOTES: OfficeSchedule = { name: NOTES_SCHEDULE, label: "Stand-up notes", logName: "notes" };
 /** 8:00, Sunday to Thursday: the KSA work week. */
 const NOTES_CRON = "0 8 * * 0-4";
 
@@ -39,28 +38,14 @@ export function notesCadence(values: NotesSettings, hostTimeZone: string): Sched
 }
 
 /**
- * Brings the daemon's schedule in step with `cadence`: saves it, or removes it for null. A
- * schedule that is already so is left alone, since a save counts the next run again from now and
- * can move a run that is due. A time zone the daemon refuses rejects, and leaves the schedule as
- * it was.
+ * Brings the daemon's schedule in step with `cadence`, as `syncSchedule` does. A time zone the
+ * daemon refuses rejects, and leaves the schedule as it was.
  */
-export async function syncNotesSchedule(
+export function syncNotesSchedule(
   schedules: Schedules,
   cadence: ScheduleCadence | null,
 ): Promise<void> {
-  if (cadence === null) {
-    await schedules.remove(NOTES_SCHEDULE);
-    return;
-  }
-  // `list` leaves the label out; only this function saves the schedule, always with NOTES_LABEL.
-  const kept = (await schedules.list()).find((schedule) => schedule.name === NOTES_SCHEDULE);
-  if (kept?.handler === NOTES_SCHEDULE && isDeepStrictEqual(kept.cadence, cadence)) return;
-  await schedules.upsert({
-    name: NOTES_SCHEDULE,
-    handler: NOTES_SCHEDULE,
-    prompt: NOTES_LABEL,
-    cadence,
-  });
+  return syncSchedule(schedules, NOTES, cadence);
 }
 
 export interface NotesSchedulePorts {
@@ -77,23 +62,14 @@ export interface NotesSchedule {
 }
 
 export function createNotesSchedule(ports: NotesSchedulePorts): NotesSchedule {
-  let scheduleError: string | null = null;
-  // One at a time, in order: a slow save must not land after a later one.
-  let queue: Promise<void> = Promise.resolve();
-  async function follow(values: NotesSettings): Promise<void> {
-    try {
-      await syncNotesSchedule(ports.schedules, notesCadence(values, ports.hostTimeZone));
-      scheduleError = null;
-    } catch (error) {
-      scheduleError = errorMessage(error);
-      ports.log(`[office] notes schedule failed: ${scheduleError}`);
-    }
-  }
+  const follower = createScheduleFollower({
+    schedules: ports.schedules,
+    schedule: NOTES,
+    log: ports.log,
+  });
   return {
-    sync(values) {
-      queue = queue.then(() => follow(values));
-      return queue;
-    },
-    error: () => scheduleError,
+    // A folder that is not an absolute path fails in turn, as a refused save does.
+    sync: (values) => follower.sync(() => notesCadence(values, ports.hostTimeZone)),
+    error: follower.error,
   };
 }

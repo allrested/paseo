@@ -1,15 +1,18 @@
-import { isDeepStrictEqual } from "node:util";
 import type { PluginServerContext, ScheduleCadence } from "@getpaseo/plugin/server";
 import type { IncidentSource } from "../shared/contracts.js";
 import { JIRA_KEY, parseKeys, SENTRY_SLUG } from "../shared/settings.js";
-import { errorMessage } from "./errors.js";
 import type { TrackerReader } from "./incidents-http.js";
 import { createJiraReader, jiraEnv } from "./incidents-jira.js";
 import { createSentryReader, sentryToken } from "./incidents-sentry.js";
+import { createScheduleFollower, type OfficeSchedule } from "./schedule-follower.js";
 
 /** The check's schedule's name among the office's schedules, and the handler that answers it. */
 export const INCIDENTS_SCHEDULE = "incidents";
-const INCIDENTS_LABEL = "Incidents";
+const INCIDENTS: OfficeSchedule = {
+  name: INCIDENTS_SCHEDULE,
+  label: "Incidents",
+  logName: "incidents",
+};
 const EVERY_MS = 300_000;
 
 type Schedules = PluginServerContext["schedules"];
@@ -55,29 +58,6 @@ export function incidentsCadence(on: boolean): ScheduleCadence | null {
   return on ? { type: "every", everyMs: EVERY_MS } : null;
 }
 
-/**
- * Brings the daemon's schedule in step with `cadence`: saves it, or removes it for null. A
- * schedule that is already so is left alone, since a save counts the next run again from now.
- */
-async function syncIncidentsSchedule(
-  schedules: Schedules,
-  cadence: ScheduleCadence | null,
-): Promise<void> {
-  if (cadence === null) {
-    await schedules.remove(INCIDENTS_SCHEDULE);
-    return;
-  }
-  // `list` leaves the label out; only this function saves the schedule, always with the label.
-  const kept = (await schedules.list()).find((schedule) => schedule.name === INCIDENTS_SCHEDULE);
-  if (kept?.handler === INCIDENTS_SCHEDULE && isDeepStrictEqual(kept.cadence, cadence)) return;
-  await schedules.upsert({
-    name: INCIDENTS_SCHEDULE,
-    handler: INCIDENTS_SCHEDULE,
-    prompt: INCIDENTS_LABEL,
-    cadence,
-  });
-}
-
 export interface IncidentsSchedulePorts {
   schedules: Schedules;
   log(message: string): void;
@@ -94,23 +74,13 @@ export interface IncidentsSchedule {
 }
 
 export function createIncidentsSchedule(ports: IncidentsSchedulePorts): IncidentsSchedule {
-  let scheduleError: string | null = null;
-  // One at a time, in order: a slow save must not land after a later one.
-  let queue: Promise<void> = Promise.resolve();
-  async function follow(on: boolean): Promise<void> {
-    try {
-      await syncIncidentsSchedule(ports.schedules, incidentsCadence(on));
-      scheduleError = null;
-    } catch (error) {
-      scheduleError = errorMessage(error);
-      ports.log(`[office] incidents schedule failed: ${scheduleError}`);
-    }
-  }
+  const follower = createScheduleFollower({
+    schedules: ports.schedules,
+    schedule: INCIDENTS,
+    log: ports.log,
+  });
   return {
-    sync(on) {
-      queue = queue.then(() => follow(on));
-      return queue;
-    },
-    error: () => scheduleError,
+    sync: (on) => follower.sync(() => incidentsCadence(on)),
+    error: follower.error,
   };
 }
