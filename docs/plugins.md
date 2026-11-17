@@ -590,11 +590,12 @@ directory and the 5 s "doing now" reads run only while an office surface is open
 
 An agent whose own turn has ended is not idle while an agent it started, or one those started,
 runs, starts or waits for you: it waits on them (`waitingOnOf` in
-`plugins/office/client/model.ts`, the one place the rule is worked out). On both floors it stays
+`plugins/office/shared/model.ts`, the one place the rule is worked out). On both floors it stays
 at its desk, at work; the whiteboard and the stand-up say "Waiting on N sub-agents"; and the
 stand-up, the Library and Review cards and the janitor leave it alone. Only agents the office
-shows count. The rule is the client's: the office's server still takes such an agent for idle, so
-a mention on a board wakes it, and the Host card can still close a waiting agent.
+shows count. The stand-up report the server builds for the notes writer follows the rule too, but
+the server's wakes and cleanups do not: they take such an agent for idle, so a mention on a board
+wakes it, and the Host card can still close a waiting agent.
 
 The office also watches the host. While an office surface is open, the `office.machine`
 subscription sends a reading every 10 s: memory (the daemon's cgroup when it has a cap, else the
@@ -663,8 +664,10 @@ room under a red light. The paper on a desk and in its bin is the agent's contex
 it from 85%. When a context falls to less than half of what it was, by a compaction or a new
 conversation, the person carries the paper to the shredder. Opening the stand-up rings the bell
 on the meeting table: everyone the scene counts as free walks there and says what they are on.
-From 08:00 to 21:00 by the device's clock an agent at rest does not stay asleep at its desk: after
-30 to 90 seconds there it gets up for a game of pool, foosball or the games TV with another
+A click on the bell does the same and also starts the stand-up notes writer (below); opening the
+stand-up writes nothing. A "Stand-up notes" label on the meeting room's screen opens the notes
+card. From 08:00 to 21:00 by the device's clock an agent at rest does not stay asleep at its desk:
+after 30 to 90 seconds there it gets up for a game of pool, foosball or the games TV with another
 resting agent, for karaoke, a nap on the sofa, the fish, the arcade, a cup in the dining room or
 the restroom, never the same thing twice running, and work calls it back at once. After two hours
 of rest the gaps are 10 to 20 minutes. The games are upstream's, and Paseo's schedule
@@ -676,7 +679,8 @@ home, its rest counted from the host's last change of the agent. Designs:
 [the places](superpowers/specs/2026-11-16-office-activity-places-design.md),
 [the host](superpowers/specs/2026-11-16-office-server-care-design.md),
 [the janitor](superpowers/specs/2026-11-16-office-janitor-design.md),
-[the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
+[the stand-up](superpowers/specs/2026-11-16-office-standup-design.md),
+[the stand-up notes](superpowers/specs/2026-11-16-office-standup-notes-design.md).
 
 The 2D floor (`plugins/office/client/pixel`) is pixel art drawn with plain views, one per
 rectangle of colour. Plugin code in the installed app has React Native views only, with no canvas
@@ -746,6 +750,27 @@ a wake needs a name; the agent answers with `office_post`, and its note shows in
 agent is asked once per opening of the card, and the button is off while "Wake agents" is off.
 "Copy as text" copies the report. Design:
 [the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
+
+The office also writes the day's entry in a folder of stand-up notes, one `daily-standup-YYYYMM.md`
+per month. Nothing runs until you set "Notes folder", an absolute path, in the office's settings;
+"Time zone" is the notes' zone, the host's when empty. With a folder set, the office keeps a
+[plugin schedule](#schedules) at 08:00 Sunday to Thursday in that zone, so it is not in the app,
+`schedule ls` or `list_schedules`. Each run, and each click on the 3D floor's bell, starts an agent
+titled "Stand-up notes" in the notes folder's workspace, unattended: the first enabled, ready
+provider in the daemon's order, with that provider's default model, in its mode that edits files
+without asking (Claude's "Accept File Edits") or else its default mode. That mode covers file edits;
+whether the writer's shell commands, such as `git log`, ask first is up to the provider's own
+settings, for Claude its permission rules. Whatever asks, the writer waits on the permission until
+someone answers it. The writer follows the stand-up rules of the folder's `CLAUDE.md` and gets the
+stand-up report as text. One writer runs at a time, and the office keeps it in `$PASEO_HOME/office/notes-writer.json`, so a
+restart does not start a second. An entry counts as written only when its `## DD Month YYYY` header
+starts a line of the month's file after the writer's turn; the office then records the time and
+archives the writer. A writer that fails, is stopped or closed, or ends without the entry is left
+as it is and stays named, with a link to it, on the Stand-up card and the notes card; while it is
+at its turn again, no new writer starts. Under the Stand-up card's line, "Stand-up notes" opens the
+notes card: a month's file as Markdown at its newest entry, read only. The server reads only
+`daily-standup-YYYYMM.md` directly in the notes folder. Design:
+[the stand-up notes](superpowers/specs/2026-11-16-office-standup-notes-design.md).
 
 The Reviews entry is in the strip while a workspace has an open or draft pull request. Its card
 is a queue: what waits for a review first, then what was sent back, the approved and the drafts,
@@ -1276,6 +1301,41 @@ The same holds for a hook that runs inside an agent's lifecycle lane: an `agent.
 `agent.create.before` hook that awaits a write to the agent being opened (`setMetadata`, `setLabels`,
 an option, model, thinking or mode change) waits on the open, which waits on the hook. The hooks
 reference tells plugin authors to start such a write without awaiting it.
+
+## Schedules
+
+`server.schedules` keeps a plugin's own schedules, and `server.handleSchedule(handler, run)` answers
+them. `upsert` creates or updates the schedule of that `name` and replaces its whole cadence;
+`remove` and `list` see only this plugin's schedules. A `name` is unique per plugin. `prompt` is a
+label. When a schedule is due, the daemon calls the `run` registered for its `handler`, and the
+promise `run` returns ends the run. A rejection, an unregistered handler, or 10 minutes without an
+answer fails that run.
+
+The daemon stores the schedule, so it keeps running after a restart without another `upsert`. As
+with every schedule, a run that came due while the daemon was down is skipped: on start the daemon
+moves the schedule to its next time. A run that comes due while the daemon starts waits, for up to
+5 minutes, until the daemon has started its plugins. A schedule whose plugin is not loaded fails
+that run and stays active, so a later run reaches the plugin once it is back. The daemon takes the
+plugin id from the process that calls, never from the call, so a plugin cannot reach another
+plugin's schedules. The app's schedule screens and the `list_schedules` tool do not list plugin
+schedules.
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { writeSummary } from "./server/summary";
+
+export default function contribute(server: PluginServerContext) {
+  server.schedules
+    .upsert({
+      name: "daily-summary",
+      handler: "summary",
+      prompt: "Daily summary",
+      cadence: { type: "cron", expression: "0 8 * * 1-5", timezone: "Europe/Berlin" },
+    })
+    .catch((error) => console.error("Daily summary schedule failed", error));
+  return server.handleSchedule("summary", ({ paseo, runId }) => writeSummary(paseo, runId));
+}
+```
 
 ## Contribute a provider
 

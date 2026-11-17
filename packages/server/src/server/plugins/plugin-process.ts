@@ -3,8 +3,12 @@ import { PluginHookHandlers } from "./lifecycle/index.js";
 import { evaluateBundle } from "./bundle-evaluator.js";
 import {
   PluginProcessRequestSchema,
+  PluginScheduleKeptSchema,
+  PluginScheduleListSchema,
+  PluginSchedulesCallSchema,
   type PluginProcessMessage,
   type PluginProcessRequest,
+  type PluginSchedulesCall,
 } from "./plugin-process-protocol.js";
 import type { UsageSourceRegistration } from "@getpaseo/plugin/server/usage";
 import type {
@@ -14,6 +18,8 @@ import type {
 } from "@getpaseo/plugin";
 import type {
   PluginHandlerContext,
+  PluginScheduleRunContext,
+  PluginSchedules,
   PluginServerContext,
   PluginServerContribution,
 } from "@getpaseo/plugin/server";
@@ -22,8 +28,9 @@ import {
   PluginSubscriptionHandlers,
   type PluginSubscriptionHandler,
 } from "./subscription-handlers.js";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import type { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 import {
   ProviderEventSchema,
   type ProviderConnection,
@@ -87,6 +94,11 @@ export function createPluginWorker(options: {
     { connection: ProviderConnection; unsubscribe: () => void; closing?: Promise<void> }
   >();
   const pendingProviderConnections = new Map<string, { tombstoned: boolean }>();
+  const scheduleHandlers = new Map<string, (context: PluginScheduleRunContext) => Promise<void>>();
+  const pendingScheduleCalls = new Map<
+    string,
+    { resolve: (output: unknown) => void; reject: (error: Error) => void }
+  >();
   let cleanup: (() => void | Promise<void>) | null = null;
   let daemonClient: DaemonClient | null = null;
   let paseo: PaseoApi | null = null;
@@ -191,6 +203,82 @@ export function createPluginWorker(options: {
     }
     if (usageSources.has(id)) throw new Error(`Duplicate usage source: ${id}`);
     usageSources.set(id, { ...source, id });
+  }
+
+  // The call names no plugin: the daemon answers for the plugin this process was started as.
+  async function callSchedules<Output>(
+    call: PluginSchedulesCall,
+    output: ZodType<Output>,
+  ): Promise<Output> {
+    const message: PluginProcessMessage = {
+      type: "schedules.call",
+      requestId: randomUUID(),
+      call: PluginSchedulesCallSchema.parse(call),
+    };
+    const reply = await new Promise<unknown>((resolve, reject) => {
+      pendingScheduleCalls.set(message.requestId, { resolve, reject });
+      send(message);
+    });
+    return output.parse(reply);
+  }
+
+  const schedules: PluginSchedules = {
+    upsert: (input) => callSchedules({ method: "upsert", input }, PluginScheduleKeptSchema),
+    remove: (name) => callSchedules({ method: "remove", name }, z.boolean()),
+    list: () => callSchedules({ method: "list" }, PluginScheduleListSchema),
+  };
+
+  function handleSchedule(
+    handler: string,
+    run: (context: PluginScheduleRunContext) => Promise<void>,
+  ): () => void {
+    if (typeof run !== "function")
+      throw new Error(`Schedule handler ${handler} must be a function`);
+    if (scheduleHandlers.has(handler)) throw new Error(`Duplicate schedule handler: ${handler}`);
+    scheduleHandlers.set(handler, run);
+    return () => {
+      if (scheduleHandlers.get(handler) === run) scheduleHandlers.delete(handler);
+    };
+  }
+
+  function runSchedule(message: Extract<PluginProcessRequest, { type: "schedule.run" }>): void {
+    void (async () => {
+      const run = scheduleHandlers.get(message.handler);
+      if (!run) throw new Error(`Unknown schedule handler: ${message.handler}`);
+      if (!paseo) throw new Error("Plugin Paseo API is unavailable");
+      await run({ paseo, scheduleId: message.scheduleId, runId: message.runId });
+    })().then(
+      () => send({ type: "result", requestId: message.requestId, output: null }),
+      (error) => send({ type: "error", requestId: message.requestId, error: describeError(error) }),
+    );
+  }
+
+  function answerScheduleCall(
+    message: Extract<PluginProcessRequest, { type: "schedules.result" | "schedules.error" }>,
+  ): void {
+    const pending = pendingScheduleCalls.get(message.requestId);
+    if (!pending) return;
+    pendingScheduleCalls.delete(message.requestId);
+    if (message.type === "schedules.result") pending.resolve(message.output);
+    else pending.reject(new Error(message.error));
+  }
+
+  // Runs while the plugin stops too: a cleanup may still wait on a schedule call.
+  function handleScheduleMessage(
+    message: PluginProcessRequest,
+  ): message is Extract<
+    PluginProcessRequest,
+    { type: "schedule.run" | "schedules.result" | "schedules.error" }
+  > {
+    if (message.type === "schedules.result" || message.type === "schedules.error") {
+      answerScheduleCall(message);
+      return true;
+    }
+    if (message.type !== "schedule.run") return false;
+    if (stopping)
+      send({ type: "error", requestId: message.requestId, error: "Plugin is stopping" });
+    else runSchedule(message);
+    return true;
   }
 
   function providerMetadata(provider: ProviderRegistration) {
@@ -326,6 +414,8 @@ export function createPluginWorker(options: {
       registerProvider,
       registerUsageSource,
       registerSettings,
+      schedules,
+      handleSchedule,
       addHook: hooks.addHook,
       on: hooks.on,
       before: hooks.before,
@@ -470,26 +560,26 @@ export function createPluginWorker(options: {
     else send({ type: "error", requestId: message.requestId, error: "Plugin API unavailable" });
   }
 
+  function rejectInvalidMessage(rawMessage: unknown, error: z.ZodError): void {
+    const value = rawMessage as { connectionId?: unknown; acceptanceId?: unknown } | null;
+    if (value && typeof value.connectionId === "string" && typeof value.acceptanceId === "string") {
+      send({
+        type: "provider.rejected",
+        connectionId: value.connectionId,
+        acceptanceId: value.acceptanceId,
+        error: `Invalid provider input: ${error.message}`,
+      });
+      void closeProviderConnection(value.connectionId);
+      return;
+    }
+    send({ type: "fatal", error: `Invalid plugin process request: ${error.message}` });
+    void shutdown();
+  }
+
   function handleMessage(rawMessage: unknown): void {
     const parsed = PluginProcessRequestSchema.safeParse(rawMessage);
     if (!parsed.success) {
-      const value = rawMessage as { connectionId?: unknown; acceptanceId?: unknown } | null;
-      if (
-        value &&
-        typeof value.connectionId === "string" &&
-        typeof value.acceptanceId === "string"
-      ) {
-        send({
-          type: "provider.rejected",
-          connectionId: value.connectionId,
-          acceptanceId: value.acceptanceId,
-          error: `Invalid provider input: ${parsed.error.message}`,
-        });
-        void closeProviderConnection(value.connectionId);
-        return;
-      }
-      send({ type: "fatal", error: `Invalid plugin process request: ${parsed.error.message}` });
-      void shutdown();
+      rejectInvalidMessage(rawMessage, parsed.error);
       return;
     }
     const message = parsed.data;
@@ -507,6 +597,7 @@ export function createPluginWorker(options: {
       void shutdown();
       return;
     }
+    if (handleScheduleMessage(message)) return;
     if (stopping) {
       rejectWhileStopping(message);
       return;

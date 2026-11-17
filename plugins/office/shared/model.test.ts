@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
+import type { OfficeAgent, OfficeSnapshot, Post } from "./contracts.js";
 import {
   agentMeta,
   agentTask,

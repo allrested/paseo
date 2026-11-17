@@ -1,4 +1,4 @@
-import type { Machine, MachineAgent, OfficeAgent } from "../shared/contracts.js";
+import type { Machine, MachineAgent, OfficeAgent } from "./contracts.js";
 
 // Written as the Resources screen writes them (plugins/resource-manager/client/format.ts), so a
 // number reads the same in both places; a built-in cannot import another built-in's files.

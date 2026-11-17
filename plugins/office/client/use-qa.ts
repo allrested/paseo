@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { StripCard } from "./attention-strip.js";
-import type { OfficeModel } from "./model.js";
+import type { OfficeModel } from "../shared/model.js";
 import { qaNote, qaTeams, type QaTeam } from "./qa-text.js";
 
 export interface Qa {

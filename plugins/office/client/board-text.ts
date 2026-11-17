@@ -1,6 +1,6 @@
 import type { OfficeAgent, Post, WakeState } from "../shared/contracts.js";
 import { USER_AUTHOR } from "../shared/names.js";
-import { agentTitle } from "./model.js";
+import { agentTitle } from "../shared/model.js";
 
 /** How many posts a room card shows before it counts the rest. The board sheet shows them all. */
 export const CARD_POSTS = 3;

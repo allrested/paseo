@@ -61,7 +61,7 @@ export function planNumbers(agents: readonly NumberedAgent[]): NumberWrite[] {
   return writes;
 }
 
-// As client/model.ts agentTitle names an agent without a name of the office's.
+// As shared/model.ts agentTitle names an agent without a name of the office's.
 function ownTitle(agent: OfficeAgent): string {
   const title = agent.title?.trim();
   return title ? title : `Agent ${agent.id.slice(0, 8)}`;

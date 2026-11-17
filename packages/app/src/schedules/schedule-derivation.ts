@@ -70,6 +70,9 @@ function resolveTarget(input: ResolveScheduleInput): ScheduleTargetResolution {
     }
     return { label: "Agent unavailable", provider: null };
   }
+  if (schedule.target.type === "plugin") {
+    return { label: schedule.target.pluginId, provider: null };
+  }
   return {
     label: describeScheduleCwd({ serverId, cwd: schedule.target.config.cwd, projectNameByCwd }),
     provider: schedule.target.config.provider,

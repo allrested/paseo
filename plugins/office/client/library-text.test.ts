@@ -17,7 +17,7 @@ import {
   TOPIC_MAX,
   askHint,
 } from "./library-text.js";
-import { buildOfficeModel } from "./model.js";
+import { buildOfficeModel } from "../shared/model.js";
 
 function agent(id: string, patch: Partial<OfficeAgent> = {}): OfficeAgent {
   return {

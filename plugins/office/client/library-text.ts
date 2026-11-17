@@ -7,9 +7,9 @@ import {
   type AskAgent,
   type Asked,
 } from "./ask-text.js";
-import type { HostNote } from "./machine-text.js";
-import { agentTitle, type OfficeModel, type OfficeRoom } from "./model.js";
-import { teamName } from "./standup-text.js";
+import type { HostNote } from "../shared/machine-text.js";
+import { agentTitle, type OfficeModel, type OfficeRoom } from "../shared/model.js";
+import { teamName } from "../shared/standup-text.js";
 
 /** How a request for a skill starts on the board: the office finds its own requests by it. */
 export const SKILL_MARK = "Skill request: ";

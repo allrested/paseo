@@ -6,7 +6,7 @@ import type {
   Post,
   WorkspacePullRequest,
 } from "../shared/contracts.js";
-import { buildOfficeModel } from "./model.js";
+import { buildOfficeModel } from "../shared/model.js";
 import {
   reviewAsk,
   reviewAskLabel,

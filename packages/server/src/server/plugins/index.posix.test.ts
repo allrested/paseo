@@ -1294,6 +1294,64 @@ export default function contribute(plugin: unknown) {
     ]);
   });
 
+  it("holds a schedule run until the plugins the daemon starts with have loaded", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-home-"));
+    roots.push(home);
+    const store = createStore(home, {
+      slow: { source: "directory", path: "/plugins/slow", enabled: true },
+    });
+    const paused = createPausedRuntime();
+    const ran: string[] = [];
+    const service = new PluginService(pino({ level: "silent" }), store, "0.4.0", {
+      runtime: {
+        ...paused.runtime,
+        runSchedule: async (run) => {
+          ran.push(run.pluginId);
+        },
+      },
+    });
+    const run = service.runSchedule({
+      pluginId: "slow",
+      handler: "h",
+      scheduleId: "s",
+      runId: "r",
+    });
+    const starting = service.start();
+    await paused.started;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(ran).toEqual([]);
+
+    paused.releaseStart();
+    await starting;
+    await run;
+    expect(ran).toEqual(["slow"]);
+    await service.stopAllPlugins();
+  });
+
+  it("lets a waiting schedule run go when the plugins stop before they start", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-home-"));
+    roots.push(home);
+    const ran: string[] = [];
+    const service = new PluginService(pino({ level: "silent" }), createStore(home), "0.4.0", {
+      runtime: {
+        ...createPausedRuntime().runtime,
+        runSchedule: async (run) => {
+          ran.push(run.pluginId);
+        },
+      },
+    });
+    const run = service.runSchedule({
+      pluginId: "absent",
+      handler: "h",
+      scheduleId: "s",
+      runId: "r",
+    });
+
+    await service.stopAllPlugins();
+    await run;
+    expect(ran).toEqual(["absent"]);
+  });
+
   it("persists overlapping enable and disable without losing either source mutation", async () => {
     const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-home-"));
     roots.push(home);

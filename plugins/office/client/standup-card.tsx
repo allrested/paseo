@@ -1,7 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { ExternalLink, Modal, copyText, useToast } from "@getpaseo/plugin/client/ui";
+import type { NotesState } from "../shared/contracts.js";
 import { ActionButton, failureText } from "./action-button.js";
+import { WriterLine } from "./notes-card.js";
 import {
   askHint,
   askLabel,
@@ -11,7 +13,7 @@ import {
   standupText,
   teamName,
   type StandupTeam,
-} from "./standup-text.js";
+} from "../shared/standup-text.js";
 import type { OfficeStyles } from "./styles.js";
 
 interface TeamProps {
@@ -83,6 +85,16 @@ export interface StandupCardProps {
   ask(roomId: string, agentId: string): Promise<void>;
   /** "Wake agents" is off: a post would wait, so nobody is asked. */
   wakesPaused: boolean;
+  /** The stand-up notes writer's state, for the line under the totals. */
+  notes: NotesState | undefined;
+  /** When the card opened: the line's "today". */
+  now: number;
+  /** The zone the line's "today" is judged in. */
+  timeZone: string;
+  /** Opens the writer that stopped; undefined on a host that cannot open an agent from here. */
+  onOpenAgent: ((agentId: string) => void) | undefined;
+  /** Opens the Stand-up notes card. Opening this card writes nothing. */
+  onOpenNotes(): void;
   styles: OfficeStyles;
   onClose(): void;
 }
@@ -90,8 +102,21 @@ export interface StandupCardProps {
 /**
  * The stand-up: each team's ticket, branch and pull request, what blocks it, and what each of
  * its agents is at. Asking for updates posts on the teams' boards, where the agents answer.
+ * Under the totals, how today's entry of the stand-up notes stands, and the way to the notes.
  */
-export function StandupCard({ teams, open, ask, wakesPaused, styles, onClose }: StandupCardProps) {
+export function StandupCard({
+  teams,
+  open,
+  ask,
+  wakesPaused,
+  notes,
+  now,
+  timeZone,
+  onOpenAgent,
+  onOpenNotes,
+  styles,
+  onClose,
+}: StandupCardProps) {
   const toast = useToast();
   const mounted = useRef(true);
   useEffect(() => {
@@ -154,7 +179,24 @@ export function StandupCard({ teams, open, ask, wakesPaused, styles, onClose }: 
     <Modal title="Stand-up" open={open} onOpenChange={change}>
       <Modal.Content>
         <View style={styles.sheet}>
-          <Text style={styles.muted}>{standupSummary(teams)}</Text>
+          <View style={styles.sheetActions}>
+            <Text style={styles.muted}>{standupSummary(teams)}</Text>
+            <WriterLine
+              notes={notes}
+              now={now}
+              timeZone={timeZone}
+              onOpenAgent={onOpenAgent}
+              styles={styles}
+            />
+            <View style={styles.actions}>
+              <ActionButton
+                label="Stand-up notes"
+                pendingLabel="Opening..."
+                onPress={onOpenNotes}
+                styles={styles}
+              />
+            </View>
+          </View>
           <View style={styles.sheetActions}>
             <View style={styles.actions}>
               <ActionButton
