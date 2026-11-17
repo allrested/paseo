@@ -39,6 +39,8 @@ const OURS = {
   'paseo.deploy.failed': 'The deploy failed',
   // (the same words as the whiteboard's row: client/model.ts waitingOnText)
   'paseo.subwait': { one: 'Waiting on {n} sub-agent', other: 'Waiting on {n} sub-agents' },
+  // (the wall screen's tooltip while it opens Paseo's Resources: paseo-entry.js)
+  'paseo.tv.resources': 'Open Resources',
   'places.deploy.today': { one: '{n} deploy since the office opened', other: '{n} deploys since the office opened' },
   'places.live.deployToday': '{n} so far',
   // (first-person play is not taken: nobody walks in to pick up a cue; and the box asks no price)

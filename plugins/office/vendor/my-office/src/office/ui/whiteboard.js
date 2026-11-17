@@ -62,7 +62,7 @@ export function updateBoard(t) {
   if ((state.boardDirty || state.boardPulse.until > t) && t - boardAt > (state.boardPulse.until > t ? 0.08 : 0.4)) { boardAt = t; state.boardDirty = false; drawBoard(t); }
 }
 export const ray = new THREE.Raycaster();
-/** The racks and the wall screen open Paseo's machine panel; while it has none they are furniture. */
+/** The racks and the wall screen open Paseo's machine panel (the wall screen Resources, when Paseo has it); while there is no panel both are furniture. */
 const MACHINE = new Set(['racks', 'tv']);
 const pickUsableProp = () => { const pr = pickProp(); return pr && MACHINE.has(pr.prop.id) && !host.machine ? null : pr; };
 let ndc;
