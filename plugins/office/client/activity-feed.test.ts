@@ -289,6 +289,43 @@ test("one subscription's change is not diffed against another's state", () => {
   expect(feedStore.getSnapshot()).toHaveLength(1);
 });
 
+test("two subscriptions a millisecond apart make one Started working", () => {
+  feedStore.reset();
+  const idle = s({ ali: "idle" });
+  const running = s({ ali: "running" });
+  recordOfficeState(idle, running, t0);
+  let told = 0;
+  feedStore.subscribe(() => {
+    told += 1;
+  });
+  recordOfficeState(idle, running, t0 + 1);
+  expect(feedStore.getSnapshot().map((event) => [event.text, event.at])).toEqual([
+    ["Started working", t0],
+  ]);
+  expect(told).toBe(0);
+});
+
+test("two subscriptions a millisecond apart make one Stopped on an error", () => {
+  feedStore.reset();
+  const running = s({ ali: "running" });
+  const stopped = s({ ali: "error" });
+  recordOfficeState(running, stopped, t0);
+  recordOfficeState(running, stopped, t0 + 1);
+  expect(feedStore.getSnapshot().map((event) => [event.text, event.at])).toEqual([
+    ["Stopped on an error", t0],
+  ]);
+});
+
+test("two starts three seconds apart stay two events", () => {
+  feedStore.reset();
+  recordOfficeState(s({ ali: "idle" }), s({ ali: "running" }), t0);
+  recordOfficeState(s({ ali: "idle" }), s({ ali: "running" }), t0 + 3000);
+  expect(feedStore.getSnapshot().map((event) => [event.text, event.at])).toEqual([
+    ["Started working", t0],
+    ["Started working", t0 + 3000],
+  ]);
+});
+
 test("an event keeps the agent's title after the agent leaves", () => {
   feedStore.reset();
   const alive = s({ ali: { status: "running", title: "Ali One" } });
