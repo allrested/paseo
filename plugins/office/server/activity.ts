@@ -1,3 +1,9 @@
+import {
+  CHECKLIST_STEP_MAX,
+  CHECKLIST_TEXT_MAX,
+  type ChecklistStep,
+  type Checklists,
+} from "../shared/contracts.js";
 import type { ActivityKind, ActivityStep, TestResult } from "../shared/names.js";
 import { errorMessage } from "./errors.js";
 import type { Timers } from "./timers.js";
@@ -19,6 +25,8 @@ export interface ActivityItem {
   callId?: unknown;
   /** A tool call's detail as the host normalises it: `{ type: "shell", command }` and the like. */
   detail?: unknown;
+  /** A todo item's steps: `{ text, completed, status? }` each, as the provider wrote them. */
+  items?: unknown;
 }
 
 /** One line for the newest item it recognises. Never quotes prompt or tool text. */
@@ -239,6 +247,39 @@ export function nextStep(
   return result === null ? step : { ...before, result };
 }
 
+/**
+ * A step as the office sends it: its text's first line, cut to the most it sends. Null for a
+ * finished step, and for one with no text to show.
+ */
+function checklistStep(entry: unknown): ChecklistStep | null {
+  const text = field(entry, "text");
+  if (typeof text !== "string") return null;
+  const status = field(entry, "status");
+  // Either one saying finished wins: providers do not keep the pair consistent.
+  const finished = field(entry, "completed") === true || status === "completed";
+  if (finished) return null;
+  const line = text.split(/[\r\n]/, 1)[0].trim();
+  if (line === "") return null;
+  const shown =
+    line.length > CHECKLIST_TEXT_MAX ? `${line.slice(0, CHECKLIST_TEXT_MAX - 1)}…` : line;
+  return { text: shown, status: status === "in_progress" ? "in_progress" : "pending" };
+}
+
+/** The unfinished steps of the newest todo item in a tail; null when the tail has none. */
+export function readChecklist(items: readonly ActivityItem[]): ChecklistStep[] | null {
+  const todo = items.findLast((item) => item.type === "todo");
+  if (todo === undefined) return null;
+  if (!Array.isArray(todo.items)) return [];
+  const entries: readonly unknown[] = todo.items;
+  const steps: ChecklistStep[] = [];
+  for (const entry of entries) {
+    const step = checklistStep(entry);
+    if (step !== null) steps.push(step);
+    if (steps.length === CHECKLIST_STEP_MAX) break;
+  }
+  return steps;
+}
+
 /** What the poller knows of each running agent: its line, and its step when it is at one. */
 export type ActivityLines = Readonly<Record<string, string>>;
 export type ActivitySteps = Readonly<Record<string, ActivityStep>>;
@@ -249,7 +290,11 @@ export interface ActivityPorts {
   tail(agentId: string): Promise<readonly ActivityItem[]>;
   timers: Timers;
   log(message: string): void;
-  onChange(activity: ActivityLines, doing: ActivitySteps): void;
+  /**
+   * `checklists` holds each agent read this round whose tail has a todo item, `[]` when all its
+   * steps are finished; an agent whose read failed, or whose tail has none, is absent.
+   */
+  onChange(activity: ActivityLines, doing: ActivitySteps, checklists: Readonly<Checklists>): void;
 }
 
 export interface ActivityPoller {
@@ -279,6 +324,7 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
   let cancel: (() => void) | null = null;
   let previous: ActivityLines = {};
   let previousSteps: ActivitySteps = {};
+  let previousChecklists = "{}";
   // The calls each agent's last read saw, kept while the poller runs: an agent's next turn is
   // read against them too. A prompt ends the look back, so an old turn's call is never told.
   const seenCalls = new Map<string, ReadonlySet<string>>();
@@ -287,6 +333,7 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
     agentId: string,
     next: Record<string, string>,
     steps: Record<string, ActivityStep>,
+    checklists: Checklists,
   ): Promise<void> {
     try {
       const items = await ports.tail(agentId);
@@ -295,6 +342,8 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
       const seen = seenCalls.get(agentId);
       const step = nextStep(previousSteps[agentId], items, seen);
       if (step !== null) steps[agentId] = step;
+      const checklist = readChecklist(items);
+      if (checklist !== null) checklists[agentId] = checklist;
       const calls = callsIn(items);
       // A call held back for a run's end has not been told: it stays new for the next read.
       const newest = describeStep(items, seen);
@@ -312,14 +361,21 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
   async function tick(): Promise<void> {
     const next: Record<string, string> = {};
     const steps: Record<string, ActivityStep> = {};
+    const checklists: Checklists = {};
     for (const agentId of ports.running()) {
       if (stopped) return;
-      await readOne(agentId, next, steps);
+      await readOne(agentId, next, steps, checklists);
     }
-    if (stopped || (sameLines(previous, next) && sameSteps(previousSteps, steps))) return;
+    const checklistsText = JSON.stringify(checklists);
+    const unchanged =
+      sameLines(previous, next) &&
+      sameSteps(previousSteps, steps) &&
+      checklistsText === previousChecklists;
+    if (stopped || unchanged) return;
     previous = next;
     previousSteps = steps;
-    ports.onChange(next, steps);
+    previousChecklists = checklistsText;
+    ports.onChange(next, steps, checklists);
   }
 
   function runLogged(): void {
