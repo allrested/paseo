@@ -7,7 +7,8 @@ import { textAfterSend } from "./agent-card.js";
 import { AgentPicker } from "./agent-picker.js";
 import { NOBODY, choiceLabel, closeStep, keptChoice } from "./agent-picker-text.js";
 import { orderBoardPosts } from "./board-text.js";
-import type { OfficeRoom } from "../shared/model.js";
+import type { AgentTaskGroup, OfficeRoom } from "../shared/model.js";
+import { LobbyBody } from "./lobby-board.js";
 import { PostRow } from "./room-board.js";
 import { focusById, listenForSpace } from "./web-env.web.js";
 import type { OfficeStyles } from "./styles.js";
@@ -49,7 +50,7 @@ interface PostActionsProps {
   styles: OfficeStyles;
 }
 
-function PostWithActions({ post, name, actions, styles }: PostActionsProps) {
+export function PostWithActions({ post, name, actions, styles }: PostActionsProps) {
   const done = useCallback(() => actions.markDone(post.id), [actions, post.id]);
   const remove = useCallback(() => actions.remove(post.id), [actions, post.id]);
   // A deleted post is gone for good, so Delete asks once more. The question moves the buttons
@@ -140,7 +141,79 @@ function ChoiceField({ id, label, value, onOpen, styles }: ChoiceFieldProps) {
   );
 }
 
-interface SheetBodyProps {
+interface WakeChoiceInput {
+  rooms: readonly OfficeRoom[];
+  picking: boolean;
+  onPicking(picking: boolean): void;
+}
+
+interface WakeChoice {
+  /** The agent the post wakes, or nobody. */
+  to: string;
+  /** The form's row that opens the page. */
+  fieldId: string;
+  open(): void;
+  back(): void;
+  choose(value: string): void;
+  /** A post was sent: the next one starts from nobody. */
+  reset(): void;
+}
+
+/** Whom a post wakes, and the page that chooses it. */
+export function useWakeChoice({ rooms, picking, onPicking }: WakeChoiceInput): WakeChoice {
+  const [picked, setPicked] = useState(NOBODY);
+  // An agent that left the office cannot be woken: the choice is nobody again.
+  const to = keptChoice(picked, rooms);
+  // Back from the page, the pressed row is gone: the focus returns to the row that opened it.
+  const fieldId = useId();
+  const wasPicking = useRef(false);
+  useEffect(() => {
+    if (picking) wasPicking.current = true;
+    else if (wasPicking.current) focusById(fieldId);
+  }, [picking, fieldId]);
+  const open = useCallback(() => onPicking(true), [onPicking]);
+  const back = useCallback(() => onPicking(false), [onPicking]);
+  const choose = useCallback(
+    (value: string) => {
+      setPicked(value);
+      onPicking(false);
+    },
+    [onPicking],
+  );
+  const reset = useCallback(() => setPicked(NOBODY), []);
+  return { to, fieldId, open, back, choose, reset };
+}
+
+interface WakeFieldProps {
+  id: string;
+  to: string;
+  rooms: readonly OfficeRoom[];
+  wakesPaused: boolean;
+  onOpen(): void;
+  styles: OfficeStyles;
+}
+
+/** The form's row that opens the page, and while wakes are off, that the agent waits. */
+export function WakeField({ id, to, rooms, wakesPaused, onOpen, styles }: WakeFieldProps) {
+  return (
+    <View style={styles.sheetField}>
+      <ChoiceField
+        id={id}
+        label="Wake an agent with it"
+        value={choiceLabel(to, rooms)}
+        onOpen={onOpen}
+        styles={styles}
+      />
+      {to !== NOBODY && wakesPaused ? (
+        <Text style={styles.muted}>
+          Wake agents is off. The agent gets this post when you turn it on.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+export interface SheetBodyProps {
   room: OfficeRoom;
   rooms: readonly OfficeRoom[];
   name(author: string): string;
@@ -164,9 +237,7 @@ function SheetBody({
 }: SheetBodyProps) {
   const [kind, setKind] = useState<PostKind>("task");
   const [text, setText] = useState("");
-  const [picked, setPicked] = useState(NOBODY);
-  // An agent that left the office cannot be woken: the choice is nobody again.
-  const to = keptChoice(picked, rooms);
+  const { to, fieldId, open, back, choose, reset } = useWakeChoice({ rooms, picking, onPicking });
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -185,24 +256,8 @@ function SheetBody({
     if (!mounted.current) return;
     // Cleared only if the box still holds what was posted, so later typing stays.
     setText((current) => textAfterSend(current, sent));
-    setPicked(NOBODY);
-  }, [actions, room.id, kind, text, to]);
-  // Back from the page, the pressed row is gone: the focus returns to the row that opened it.
-  const fieldId = useId();
-  const wasPicking = useRef(false);
-  useEffect(() => {
-    if (picking) wasPicking.current = true;
-    else if (wasPicking.current) focusById(fieldId);
-  }, [picking, fieldId]);
-  const openPage = useCallback(() => onPicking(true), [onPicking]);
-  const back = useCallback(() => onPicking(false), [onPicking]);
-  const choose = useCallback(
-    (value: string) => {
-      setPicked(value);
-      onPicking(false);
-    },
-    [onPicking],
-  );
+    reset();
+  }, [actions, room.id, kind, text, to, reset]);
   const chosen = KINDS.find((option) => option.kind === kind) ?? KINDS[0];
   // The form's state is kept here while the page shows, so the text typed is there on return.
   if (picking) {
@@ -243,20 +298,14 @@ function SheetBody({
           style={styles.input}
         />
       </View>
-      <View style={styles.sheetField}>
-        <ChoiceField
-          id={fieldId}
-          label="Wake an agent with it"
-          value={choiceLabel(to, rooms)}
-          onOpen={openPage}
-          styles={styles}
-        />
-        {to !== NOBODY && wakesPaused ? (
-          <Text style={styles.muted}>
-            Wake agents is off. The agent gets this post when you turn it on.
-          </Text>
-        ) : null}
-      </View>
+      <WakeField
+        id={fieldId}
+        to={to}
+        rooms={rooms}
+        wakesPaused={wakesPaused}
+        onOpen={open}
+        styles={styles}
+      />
       <ActionButton
         label="Post"
         pendingLabel="Posting..."
@@ -289,6 +338,8 @@ export interface BoardSheetProps {
   room: OfficeRoom | null;
   /** Every room of the office: the agents a post can wake, and where each one sits. */
   rooms: readonly OfficeRoom[];
+  /** Every agent's unfinished checklist steps: the lobby's board shows them. */
+  agentTasks: readonly AgentTaskGroup[];
   name(author: string): string;
   actions: BoardActions;
   /** "Wake agents" is off: a post that names an agent waits. */
@@ -302,10 +353,14 @@ export interface BoardSheetProps {
   onClose(): void;
 }
 
-/** Post a task or note, optionally waking an agent; mark a task done or delete a post. */
+/**
+ * Post a task or note, optionally waking an agent; mark a task done or delete a post. The lobby's
+ * board is a to-do list instead, with the agents' tasks under it.
+ */
 export function BoardSheet({
   room,
   rooms,
+  agentTasks,
   name,
   actions,
   wakesPaused,
@@ -331,7 +386,21 @@ export function BoardSheet({
   return (
     <Modal title={picking ? "Wake an agent" : board} open={room !== null} onOpenChange={change}>
       <Modal.Content>
-        {room ? (
+        {room?.lobby ? (
+          <LobbyBody
+            key={room.id}
+            room={room}
+            rooms={rooms}
+            agentTasks={agentTasks}
+            name={name}
+            actions={actions}
+            wakesPaused={wakesPaused}
+            picking={picking}
+            onPicking={setPicking}
+            styles={styles}
+          />
+        ) : null}
+        {room !== null && !room.lobby ? (
           <SheetBody
             key={room.id}
             room={room}
