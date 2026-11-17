@@ -1,6 +1,6 @@
 # The office's team chat: design
 
-Date: 2026-11-17. Status: designed. Piece 5 of sub-project 7 ("Upstream's controls") of
+Date: 2026-11-17. Status: built. Piece 5 of sub-project 7 ("Upstream's controls") of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md). The owner's answers
 on how sub-project 7 splits are in [piece 1's design](2026-11-17-office-list-mode-design.md#the-owners-answers).
 It opens beside the floor as [Sessions and Activity](2026-11-17-office-side-panels-design.md)
@@ -146,6 +146,14 @@ the chat; the floor and the session show those.
   does not have.
 - Answers that come back after a daemon restart.
 
+## Where the build departs from this design
+
+The engine and its English `chat` area are in `plugins/office/shared/upstream/`, not
+`vendor/my-office/src/`: the plugin compiler bundles only `client/`, `server/` and `shared/`
+(`docs/plugins.md`). `import-upstream.mjs` still copies both from upstream unchanged. The chat
+shows upstream's lines with their emoji; the scene's stand-in strips emoji for its speech bubbles,
+and the chat does not use it.
+
 ## Testing
 
 Unit, with a fake clock and a temp folder: the team and the director only; storage across a
@@ -161,3 +169,27 @@ and the button hidden without `showBeside`.
 
 Live, against the daemon: the chat beside the office, an @mention to a real agent and its answer,
 on web at 1280 x 800 and 390 x 844.
+
+## Not verified
+
+The live check ran on 2026-11-17 against a dev daemon of this branch on its own port and home,
+with Expo web in the Paseo browser at 1280 x 800 and one Claude agent made on that daemon. It was
+cut off by a rate limit. Seen: the Chat button after Sessions and Activity, opening the chat beside
+the floor; Enter and the Send button sending, your message on the right; agent start lines; the
+`@` list opening, filtering, empty on no match and closing after a pick; an `@` to the agent
+showing it typing for about four seconds, its status reply and then its answer, both quoting your
+message, the answer clipped with Show more and with Open session; no `[office] chat` line in
+`daemon.log`. React and Reply showed on every message in the side area on desktop; that was fixed
+after the check (the actions follow the touch screen, not `compact`) and not looked at again.
+Not seen:
+
+- 390 x 844.
+- The prompt text in the agent's session.
+- Show more and Open session pressed.
+- The unread count while the chat is closed.
+- Reactions.
+- "meeting" ringing the bell on the 3D floor without the notes writer.
+- A restart keeping the chat and dropping a pending answer.
+- The 3D scene not re-sent its people on a chat change. `office-surface-panels.mounted.test.tsx`
+  covers that a chat change does not rebuild the floor's model.
+- Emoji in upstream's lines.

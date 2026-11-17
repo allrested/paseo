@@ -639,6 +639,8 @@ The header's Sessions and Activity buttons open those panels beside the floor; t
 is derived on the client from the office's state, kept in memory for this app run, and fills only
 while an office or a panel is open.
 
+The Chat button opens the team chat beside the floor. The conversation is upstream's engine running on the office's server (`plugins/office/server/chat-service.ts`; the importer takes the engine and its words into `plugins/office/shared/upstream/`), kept in `<PASEO_HOME>/office/chat.json`, and an `@` to an agent prompts it and posts its answer.
+
 On the 3D floor an agent is a person at a desk, and a workspace's agents sit together as a team.
 The floor is the scene of [my-office](https://github.com/khanh020905/my-office), vendored under
 `plugins/office/vendor/my-office`; `plugins/office/vendor/SOURCES.md` says what is taken, what
