@@ -18,7 +18,7 @@ import {
   type ChatMember,
   type EngineMessage,
   type Translate,
-} from "../vendor/my-office/src/shared/chat-engine.js";
+} from "../shared/upstream/chat-engine.js";
 import type { ChatData, ChatStore } from "./chat-store.js";
 import { errorMessage } from "./errors.js";
 import type { DirectoryView } from "./hub.js";

@@ -7,6 +7,7 @@
 // It copies the scene modules reached from upstream's start-up list, minus the parts Paseo does
 // not take (DENY), and the three.js files they import. It never writes a stand-in (a file at a
 // DENY path) and never overwrites a file that carries a "PASEO:" note; it lists both instead.
+// The team chat's engine and its English words go to the plugin's shared/upstream/ instead (CHAT).
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -132,9 +133,25 @@ const order = main
 const kept = order.filter((name) => !denied(imported.get(name)));
 for (const name of kept) visit(imported.get(name));
 for (const rel of ["i18n/locales/en/common.js", "i18n/locales/en/time.js"]) visit(rel);
-// The team chat's engine runs on the plugin's server, not in the scene, so nothing in the start-up list reaches it.
-// Its `tr('chat.…')` calls name the `chat` area, so the area is taken with the other English areas below.
-visit("shared/chat-engine.js");
+
+/**
+ * The team chat's engine and its English `chat` area, taken unchanged into the plugin's shared/upstream/: the
+ * plugin's own bundles take modules only from client/, server/ and shared/ (packages/server/src/server/plugins/
+ * compiler-build.ts). The scene does not run the engine.
+ */
+const CHAT = new Map([
+  ["shared/chat-engine.js", "chat-engine.js"],
+  ["i18n/locales/en/chat.js", "chat.js"],
+]);
+const chatOut = (name) => path.join(HERE, "../../shared/upstream", name);
+const chatTaken = new Map();
+for (const rel of CHAT.keys()) {
+  const file = srcOf(rel);
+  if (!existsSync(file)) throw new Error(`upstream has no ${rel}`);
+  const text = readFileSync(file, "utf8");
+  if (text.match(IMPORT)) throw new Error(`${rel} imports another file: take it too`);
+  chatTaken.set(rel, text);
+}
 
 // The English areas the kept code names: 'people.poke', `events.${type}`.
 const areas = readFileSync(srcOf("i18n/locales/en/index.js"), "utf8");
@@ -163,6 +180,7 @@ function put(file, text) {
 
 for (const [rel, text] of taken) put(outOf(rel), rewrite(text, outOf(rel)));
 for (const [rel, text] of addons) put(path.join(HERE, "three", rel), rewrite(text, path.join(HERE, "three", rel)));
+for (const [rel, text] of chatTaken) put(chatOut(CHAT.get(rel)), text);
 if (!CHECK) {
   mkdirSync(path.join(HERE, "three"), { recursive: true });
   writeFileSync(path.join(HERE, "three/three.module.min.js"), threeBuild);
@@ -211,11 +229,13 @@ const manifest = {
   standIns: Object.fromEntries([...needs].sort().map(([rel, names]) => [rel, [...names].sort()])),
   files: Object.fromEntries([...taken].sort().map(([rel, text]) => [rel, sha(text)])),
   addons: Object.fromEntries([...addons].sort().map(([rel, text]) => [rel, sha(text)])),
+  // Upstream's path -> its copy in the plugin's shared/upstream/.
+  chat: Object.fromEntries([...chatTaken].map(([rel, text]) => [rel, { to: `shared/upstream/${CHAT.get(rel)}`, sha256: sha(text) }])),
 };
 if (!CHECK) writeFileSync(path.join(HERE, "MANIFEST.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
 console.log(`upstream ${commit.slice(0, 7)} (v${version}), three ${threeVersion}`);
-console.log(`modules in start-up order: ${kept.length}; files: ${taken.size}; three add-ons: ${addons.size}; english areas: ${usedAreas.map(([name]) => name).join(" ")}`);
+console.log(`modules in start-up order: ${kept.length}; files: ${taken.size}; three add-ons: ${addons.size}; english areas: ${usedAreas.map(([name]) => name).join(" ")}; chat files: ${chatTaken.size}`);
 console.log(`${CHECK ? "would write" : "written"}: ${report.written}, unchanged: ${report.same}`);
 if (report.keptLocal.length > 0) console.log(`kept (carry a PASEO: note, upstream differs or changed):\n  ${report.keptLocal.join("\n  ")}`);
 if (report.missingStandIns.length > 0) console.log(`stand-ins to write or extend:\n  ${report.missingStandIns.join("\n  ")}`);

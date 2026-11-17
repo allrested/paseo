@@ -237,7 +237,6 @@
   },
   "files": {
     "i18n/locales/en/activity.js": "15f6b049c4f1f9b76498c5fd0cf14db9e00e5b208e6896be97964d1a7df3fa90",
-    "i18n/locales/en/chat.js": "225e33b5d6ee3a47dbfc65fcc99723c488ff496c8fe6a6db332e011757742b2f",
     "i18n/locales/en/common.js": "8011d3d9bdcb5fa846bbdf1fd831bac6920522e87c1f63cf4561a72317e1a824",
     "i18n/locales/en/events.js": "6bbfb6c9ae6d8259100b088751622171a1868d3a2f0b791733f8eb70b89dac1f",
     "i18n/locales/en/fp.js": "6fae360563129cc87e10a38dc7832147f927d404311c7ead749ce5059bfb787d",
@@ -324,7 +323,6 @@
     "office/world/terrace.js": "e07e6642f747523bf4d2f4363ffd72a78e6e75e3046d24f1f76f93e9e9485e65",
     "office/world/windows.js": "9d5c1d10a6b64dbca78258e232de1dc867787d1fd1361d5d36954774a58faeda",
     "shared/cache-clock.js": "6bea97429b540d61f392a69792b543c6c5466a795208a11862f6048aecc6744a",
-    "shared/chat-engine.js": "d494b5761f6f6c40cce24fb6827340c5529f846740601ee4a66eb0c62f303983",
     "shared/duty.js": "2ff5820852f1b3cade39ed2e2541dca3c14dfb0d6c0c26231522061c15f8f05c",
     "shared/model-name.js": "7ec137c9fd072acd272acfc6a94d89a8145851e179aa6f4c92d8ab55073f28b3",
     "shared/workdays.js": "82d793eac17886804cf2637f4a70dd992cbbc08e947f4145f31589998864268b"
@@ -345,5 +343,15 @@
     "addons/shaders/LuminosityHighPassShader.js": "3d841cc594a0c1767d1b0185720b32761a0133c5f1b70b56658e28f2fb9b7900",
     "addons/shaders/OutputShader.js": "53a52e430c27bc36ceaab8ae90a2b4af7b02672d7ee4b29d6ba3c28e09c92c2a",
     "addons/utils/BufferGeometryUtils.js": "9be041e96308775d00e2695cc607645b9a9b64fd7c0e759dd8f7c00a8d92becb"
+  },
+  "chat": {
+    "shared/chat-engine.js": {
+      "to": "shared/upstream/chat-engine.js",
+      "sha256": "d494b5761f6f6c40cce24fb6827340c5529f846740601ee4a66eb0c62f303983"
+    },
+    "i18n/locales/en/chat.js": {
+      "to": "shared/upstream/chat.js",
+      "sha256": "225e33b5d6ee3a47dbfc65fcc99723c488ff496c8fe6a6db332e011757742b2f"
+    }
   }
 }
