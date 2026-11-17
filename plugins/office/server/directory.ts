@@ -2,6 +2,7 @@ import {
   AgentStatusSchema,
   PermissionKindSchema,
   type AgentContext,
+  type AgentStatus,
   type OfficeAgent,
   type OfficeWorkspace,
   type PermissionKind,
@@ -60,7 +61,13 @@ export interface DirectoryAgentInput {
   archivedAt?: string | null;
   internal?: boolean;
   background?: boolean;
-  lastUsage?: { contextWindowMaxTokens?: number; contextWindowUsedTokens?: number };
+  lastUsage?: {
+    contextWindowMaxTokens?: number;
+    contextWindowUsedTokens?: number;
+    totalCostUsd?: number;
+  };
+  /** When the agent was last prompted; null before its first. */
+  lastUserMessageAt?: string | null;
   /** Data plugins stored on the agent; the office reads its sub-agent numbers here. */
   metadata?: Readonly<Record<string, unknown>>;
 }
@@ -207,6 +214,18 @@ function contextOf(agent: DirectoryAgentInput): AgentContext | undefined {
   return usedTokens >= 0 && maxTokens > 0 ? { usedTokens, maxTokens } : undefined;
 }
 
+/** The cost the provider reports, when it is a real one; a negative or infinite one is not. */
+function costOf(agent: DirectoryAgentInput): number | undefined {
+  const cost = agent.lastUsage?.totalCostUsd;
+  return cost !== undefined && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+}
+
+/** When the agent was last prompted, for an agent that is starting or running only. */
+function promptedAtOf(agent: DirectoryAgentInput, status: AgentStatus): string | undefined {
+  if (status !== "running" && status !== "initializing") return undefined;
+  return agent.lastUserMessageAt || undefined;
+}
+
 /** The office's view of an agent, or null when the office does not show it. */
 export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
   if (agent.internal === true || agent.background === true || agent.archivedAt) return null;
@@ -214,6 +233,8 @@ export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
   if (!status.success || status.data === "closed") return null;
   const parent = agent.labels?.[PARENT_AGENT_ID_LABEL]?.trim() ?? "";
   const context = contextOf(agent);
+  const cost = costOf(agent);
+  const promptedAt = promptedAtOf(agent, status.data);
   const number = storedNumber(agent.metadata?.[NUMBER_KEY]);
   const next = storedNumber(agent.metadata?.[NEXT_KEY]);
   return {
@@ -239,6 +260,8 @@ export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
     ...(number === undefined ? {} : { number }),
     ...(next === undefined ? {} : { next }),
     ...(status.data === "idle" && agent.updatedAt ? { idleSince: agent.updatedAt } : {}),
+    ...(cost === undefined ? {} : { costUsd: cost }),
+    ...(promptedAt === undefined ? {} : { promptedAt }),
   };
 }
 
@@ -283,8 +306,14 @@ export function applyAgentUpdate(
     return next;
   }
   const projected = projectAgent(update.agent);
-  if (projected) next.set(projected.id, projected);
-  else next.delete(update.agent.id);
+  if (!projected) {
+    next.delete(update.agent.id);
+    return next;
+  }
+  // The host's mid-turn usage carries the context without the cost; the last cost stands.
+  const lastCost = agents.get(projected.id)?.costUsd;
+  if (projected.costUsd === undefined && lastCost !== undefined) projected.costUsd = lastCost;
+  next.set(projected.id, projected);
   return next;
 }
 

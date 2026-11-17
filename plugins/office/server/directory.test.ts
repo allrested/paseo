@@ -223,6 +223,54 @@ test("an agent carries how full its context is when its provider says both numbe
   expect(context({ contextWindowUsedTokens: -1, contextWindowMaxTokens: 200_000 })).toBeUndefined();
 });
 
+test("an agent carries the cost its provider reports", () => {
+  expect(projectAgent(agentInput({ lastUsage: { totalCostUsd: 1.5 } }))?.costUsd).toBe(1.5);
+  expect(projectAgent(agentInput({ lastUsage: { totalCostUsd: 0 } }))?.costUsd).toBe(0);
+  expect(projectAgent(agentInput({ lastUsage: { totalCostUsd: -1 } }))).not.toHaveProperty(
+    "costUsd",
+  );
+  expect(projectAgent(agentInput({ lastUsage: { totalCostUsd: Number.NaN } }))).not.toHaveProperty(
+    "costUsd",
+  );
+  expect(projectAgent(agentInput({}))).not.toHaveProperty("costUsd");
+});
+
+test("an update without a cost keeps the agent's last cost, and a new cost replaces it", () => {
+  // Mid-turn the host's usage carries the context alone; the cost comes back when the turn ends.
+  const start = agentsFromSnapshot([agentInput({ lastUsage: { totalCostUsd: 0.42 } })]);
+
+  const midTurn = applyAgentUpdate(start, {
+    kind: "upsert",
+    agent: agentInput({ status: "running", lastUsage: { contextWindowUsedTokens: 9000 } }),
+  });
+  expect(midTurn.get("a1")?.costUsd).toBe(0.42);
+
+  const ended = applyAgentUpdate(midTurn, {
+    kind: "upsert",
+    agent: agentInput({ lastUsage: { totalCostUsd: 0.9 } }),
+  });
+  expect(ended.get("a1")?.costUsd).toBe(0.9);
+
+  const newcomer = applyAgentUpdate(start, { kind: "upsert", agent: agentInput({ id: "a2" }) });
+  expect(newcomer.get("a2")).not.toHaveProperty("costUsd");
+});
+
+test("a running agent carries when it was last prompted, an idle one does not", () => {
+  const at = "2026-11-17T09:00:00.000Z";
+  expect(projectAgent(agentInput({ status: "running", lastUserMessageAt: at }))?.promptedAt).toBe(
+    at,
+  );
+  expect(
+    projectAgent(agentInput({ status: "initializing", lastUserMessageAt: at }))?.promptedAt,
+  ).toBe(at);
+  expect(projectAgent(agentInput({ status: "idle", lastUserMessageAt: at }))).not.toHaveProperty(
+    "promptedAt",
+  );
+  expect(
+    projectAgent(agentInput({ status: "running", lastUserMessageAt: null })),
+  ).not.toHaveProperty("promptedAt");
+});
+
 test("a reset agent's context reads empty until its provider says another number", () => {
   const full = { usedTokens: 164_000, maxTokens: 200_000 };
   const agents = [
