@@ -47,10 +47,13 @@ export function sessionRows(model: OfficeModel, tab: ListTab, query: string): Se
   const children = new Map<string, SessionRow[]>();
   const tops: SessionRow[] = [];
   for (const entry of matching) {
-    const parent = entry.row.agent.parentAgentId;
-    // Depth 1 means the parent is in the same room, so the model drew it there as its child.
-    if (entry.row.depth === 1 && parent !== null && kept.has(parent)) {
-      children.set(parent, [...(children.get(parent) ?? []), entry]);
+    const { agent } = entry.row;
+    const parent = agent.parentAgentId;
+    // The model's depth is per room; this list spans rooms, and a sub-agent in its own worktree
+    // sits in another room than its parent.
+    if (parent !== null && parent !== agent.id && kept.has(parent)) {
+      const child = { ...entry, row: { ...entry.row, depth: 1 as const } };
+      children.set(parent, [...(children.get(parent) ?? []), child]);
     } else {
       tops.push(entry.row.depth === 0 ? entry : { ...entry, row: { ...entry.row, depth: 0 } });
     }

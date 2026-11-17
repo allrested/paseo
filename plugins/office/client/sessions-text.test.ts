@@ -104,3 +104,33 @@ test("the tab and the search filter across rooms", () => {
   expect(ids(sessionRows(model, "all", "shop"))).toEqual(["w1:0", "w1-1:1"]);
   expect(ids(sessionRows(model, "working", "blog"))).toEqual([]);
 });
+
+test("a sub-agent in another room than its parent still sits under it", () => {
+  const model = buildOfficeModel(
+    office([
+      agent("p", { status: "running", workspaceId: "w1", promptedAt: "2026-11-17T09:10:00.000Z" }),
+      // Its own worktree workspace puts the sub-agent in another room.
+      agent("p-1", {
+        workspaceId: "w2",
+        parentAgentId: "p",
+        idleSince: "2026-11-17T09:50:00.000Z",
+      }),
+      agent("r", { workspaceId: "w2", idleSince: "2026-11-17T09:30:00.000Z" }),
+    ]),
+  );
+  const all = sessionRows(model, "all", "");
+  expect(ids(all)).toEqual(["p:0", "p-1:1", "r:0"]);
+  expect(all[1]?.room.name).toBe("blog");
+  // A search that drops the parent leaves the sub-agent on its own, in its own place.
+  expect(ids(sessionRows(model, "all", "blog"))).toEqual(["p-1:0", "r:0"]);
+});
+
+test("a parent loop across rooms keeps each of its rows once", () => {
+  const model = buildOfficeModel(
+    office([
+      agent("x", { workspaceId: "w1", parentAgentId: "y", idleSince: "2026-11-17T09:00:00.000Z" }),
+      agent("y", { workspaceId: "w2", parentAgentId: "x", idleSince: "2026-11-17T09:30:00.000Z" }),
+    ]),
+  );
+  expect(ids(sessionRows(model, "all", ""))).toEqual(["y:0", "x:1"]);
+});
