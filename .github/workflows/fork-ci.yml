@@ -5,11 +5,13 @@
 # `gh workflow enable "CI"` for a full 18-job run when that is worth 25 minutes.
 #
 # This fork changes docker/**, built-in usage-source plugins in plugins/ (kiro,
-# bddevlab, claude) and session move, which spans the server, the CLI and
-# packages/app/src/session-move. Upstream already proves the rest of the app,
-# desktop, relay, CLI and SDK on its own runs, so re-testing them here buys
-# nothing and costs ~145 runner-minutes. The seven jobs below are the ones that
-# can actually catch a fork-authored mistake.
+# bddevlab, claude), session move, which spans the server, the CLI and
+# packages/app/src/session-move, ScriptFrame in packages/app (the office
+# plugin's 3D view runs in it on Android), and the fork's APK
+# (app.config.js's fork variant and fork-android-apk.yml). Upstream already
+# proves the rest of the app, desktop, relay, CLI and SDK on its own runs, so
+# re-testing them here buys nothing and costs ~145 runner-minutes. The seven
+# jobs below are the ones that can actually catch a fork-authored mistake.
 #
 # Deliberately not covered:
 #   playwright        browser E2E of packages/app — 4 shards x ~22 min, and each
@@ -17,7 +19,8 @@
 #                     journey this fork owns runs alone in session-move-e2e.
 #   desktop-tests     packages/desktop — untouched here
 #   relay-tests       packages/relay — the relay is not deployed
-#   cli/app/sdk       beyond session move, untouched here
+#   cli/app/sdk       beyond session move, ScriptFrame and the fork variant,
+#                     untouched here
 #   server-tests on windows  the deploy target is arm64 linux; this also carries
 #                     a known flake in workspace-git-service.observation.test.ts
 #
@@ -143,8 +146,10 @@ jobs:
           FIGCRAFT_SERVER_BIN: ${{ steps.figcraft.outputs.FIGCRAFT_SERVER_BIN }}
         run: npx vitest run design/test/figcraft-contract.real.test.ts --bail=1
 
-  # Session move's app and CLI tests. The server half runs in server-tests;
-  # these are the only fork-authored tests outside it.
+  # Session move's app and CLI tests, and the app's ScriptFrame and fork-variant
+  # unit tests. Session move's server half and the built-in plugins (the office
+  # among them) run in server-tests; these are the only fork-authored tests
+  # outside it.
   session-move-tests:
     runs-on: ubuntu-latest
     env:
@@ -159,9 +164,9 @@ jobs:
         run: node scripts/npm-retry.mjs ci
       - name: Build server stack
         run: npm run build:server
-      - name: Run app session-move tests
+      - name: Run app session-move, ScriptFrame and fork-variant tests
         working-directory: packages/app
-        run: npx vitest run src/session-move src/screens/workspace/workspace-tab-menu.test.ts
+        run: npx vitest run src/session-move src/screens/workspace/workspace-tab-menu.test.ts src/plugins/react-native/script-frame-page.test.ts src/plugins/react-native/script-frame.native.test.tsx src/plugins/evaluate.test.ts app.config.test.ts
       - name: Check design mode's copy of the Paseo tokens
         working-directory: packages/app
         run: npx vitest run src/styles/design-tokens.test.ts
@@ -171,6 +176,7 @@ jobs:
 
   # The move dialog, the tab swap and the move-back banner in a real browser, against
   # a real daemon. One spec: a build and about a minute of test time, with no agent CLIs.
+  # ScriptFrame's web test runs here too, since this is the job with Chromium.
   session-move-e2e:
     # The locked Playwright installers do not support ubuntu-latest's Ubuntu 26.04.
     runs-on: ubuntu-24.04
@@ -191,6 +197,9 @@ jobs:
         run: npm run build:server
       - name: Build native app dependency
         run: npm run build --workspace=@getpaseo/expo-two-way-audio
+      - name: Run ScriptFrame's web test
+        working-directory: packages/app
+        run: npx vitest run --project browser src/plugins/react-native/script-frame.web.browser.test.tsx
       - name: Run the session move journey
         run: npm run test:e2e --workspace=@getpaseo/app -- e2e/browser/session-move.spec.ts
       - name: Upload the Playwright report
@@ -206,7 +215,8 @@ jobs:
   # docker/** is most of this fork, and its scripts and compose files are
   # covered only by this node:test suite. It needs no npm install. Without it a
   # change to the browser's healthcheck or session scripts merges untested, and
-  # every instance auto-deploys from main.
+  # every instance auto-deploys from main. The APK workflow's steps are tested
+  # here too (scripts/fork-android-apk.test.mjs).
   docker-tests:
     runs-on: ubuntu-latest
     steps:
@@ -214,5 +224,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Run docker script and compose tests
+      - name: Run docker and APK workflow script tests
         run: node --test scripts/vpn-overlay.test.mjs scripts/fork-android-apk.test.mjs
