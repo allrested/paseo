@@ -91,6 +91,20 @@ describe("the vendored entry", () => {
     expect(bundle).toContain("ph-shoot");
   }, 60_000);
 
+  it("bundles upstream's first-person walk, with the street cut", async () => {
+    const walk = readFileSync(
+      new URL("../vendor/my-office/src/office/interact/first-person.js", import.meta.url),
+      "utf8",
+    );
+    const bundle = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+
+    expect(walk).not.toContain("stand-in");
+    expect(walk).toMatch(/\/\/ PASEO:[^\n]*\n\s*const street = \(\) => null;/);
+    expect(walk).toMatch(/export const floorBounds/);
+    expect(walk).toContain("open: true");
+    expect(bundle).toContain("fp-near");
+  }, 60_000);
+
   it("the scene's bundle builds with the new modules", async () => {
     const script = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
 
