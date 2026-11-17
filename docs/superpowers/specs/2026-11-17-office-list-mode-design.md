@@ -1,6 +1,6 @@
 # The office's List view, as upstream's list mode: design
 
-Date: 2026-11-17. Status: approved, not built. Piece 1 of sub-project 7 ("Upstream's controls") of
+Date: 2026-11-17. Status: built. Piece 1 of sub-project 7 ("Upstream's controls") of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects. The other pieces designed with it:
 [the camera toolbar](2026-11-17-office-camera-toolbar-design.md) (piece 2) and
@@ -132,8 +132,78 @@ under its shown parent; "No agent matches."
 Live, against a dev daemon with fixtures and no agent created: 1280 px and 390 px, light and dark,
 by pointer and by keyboard.
 
+## Verified
+
+### On a static page
+
+The List view was seen on a static page in Paseo's browser, not on a dev daemon: no dev daemon was
+started, and the daemon at 6767 was not touched. The page mounted the plugin's real
+`StructureView` and `useOfficeStyles`, bundled with the repo's esbuild, `react-native` aliased to
+`react-native-web`, and the kit's `ScrollView`, `TextInput` and `Modal` stood in by React Native's,
+as in the mounted tests. The theme was the app's default light and dark colors. The rooms were
+made up: the lobby with an agent stopped on an error; `shop-api` on `feat/cart` with a running
+agent at 62% and $0.42, its running sub-agent, an idle agent at 90% and $1.24, and an agent asking
+a permission; `café-web` on `fix/menü` with an idle Codex agent "Zoë", an idle parent waiting on
+two sub-agents, and a starting agent. At 1280 px and 390 px (`compact`), light and dark:
+
+- The tabs read All 8, Needs you 2, Working 4, Resting 2. A click, a tap and Enter on a focused
+  tab each chose it, and only that tab's rooms and rows were left. The chosen tab is filled; a
+  focused tab has the browser's focus ring.
+- The search: "ALI cart" kept Ali and his sub-agent under him. "zoe menu" found Zoë, "CAFÉ hána"
+  found Hana, and "ali zoe" left "No agent matches." in place of the cards. At 390 px the field is
+  16 px and takes the full width under the tabs.
+- Escape in the field cleared it, kept the focus in it, and brought every room back.
+- "/" with the focus on a button or a tab moved the focus to the field and typed nothing. "/" in
+  the field was typed as text, and "/" in another field on the page stayed in that field.
+- The rows: the context bar is muted at 12% and 45%, the warning tone at 62% and the danger tone
+  at 90%. A running row's clock went up each second (4:12, 4:15, 4:28). A resting row read
+  "5m ago" and "2h ago". The agent stopped on an error and the one asking a permission had no
+  time; the starting agent had none either. A cost was left out where none was given. Each row's
+  label carried them, for example "Ali: Running, context 62%, 4:19, $0.42".
+- At 390 px the context, time and cost sat on their own line under the second line, and the tabs
+  sat in a row that scrolls sideways (378 px of tabs in 375 px).
+- Tab order: the four tabs, the search, then the rows and the board buttons, in reading order. A
+  click on a row and Enter on a focused row both selected the agent.
+- Space on a focused tab did nothing: react-native-web presses on Space only for the `button` and
+  `menuitem` roles, and the tabs have the `tab` role.
+- The idle parent waiting on its sub-agents counts under Working but its row reads as idle,
+  "1m ago", as the row's decisions say for an idle agent.
+
+### The cost
+
+Claude's figure is the running total of Paseo's current Claude process for that agent, not the
+last turn's cost and not the agent's whole life.
+
+- Paseo keeps one `query()` per agent and sends each prompt into its input stream
+  (`packages/server/src/server/agent/providers/claude/agent.ts:3613`, `prompt: input.iterable`).
+- `agent.ts:2221` copies the result's `total_cost_usd` into `lastUsage.totalCostUsd` unchanged.
+- The SDK (`@anthropic-ai/claude-agent-sdk` 0.3.246, `sdk.d.ts:4652`) says the figure is
+  "cumulative across turns in streaming-input sessions — each result carries the running total so
+  far", that "resumed sessions start fresh", and that a `/clear` resets it.
+- Paseo makes a new query with `resume` when a launch setting changes (`agent.ts:3579-3593`) and
+  when the daemon loads the agent again, so the figure starts again from zero there.
+- While a turn runs, each streamed request sends a `usage_updated` with only the context
+  (`agent.ts:2259`, `agent.ts:5072`), and the agent manager replaces `lastUsage` with it
+  (`agent-manager.ts:5435`). A running Claude agent has no cost until its turn ends, when
+  `turn_completed` merges the result's usage back (`agent-manager.ts:5590`).
+
+No recorded fixture has a real Claude result: the provider's tests set `total_cost_usd` to 0 or to
+made-up values (`agent.error-result.test.ts:168`, `:208`), so the before-and-after reading of a
+second turn rests on the SDK's own contract. A real-provider test that sends two prompts into one
+query and compares the two results' `total_cost_usd` would settle it from data.
+
 ## Not verified
 
-Whether Claude's `total_cost_usd` is the session's total or the last turn's in Paseo's long-lived
-sessions was not checked; the row shows what the provider reports. The builder checks it against a
-real turn's `lastUsage` and says which in the plan's report.
+- The List view inside the app: the host's sheet and surface, the office's header and view switch
+  around it, and the host's own kit (`ScrollView`, `TextInput`) in place of React Native's.
+- What Escape in the field does in the host. On the page, react-native-web's field stops every
+  key from bubbling past it, so nothing outside the field saw the Escape in the bubble phase. The
+  app's key handling listens in the capture phase on `window`
+  (`packages/app/src/keyboard/internal/sources/dom.web.ts:34`), before the field, so whether it
+  also acts on that Escape was not seen.
+- A dev daemon with the office's fixtures, and the snapshot's `costUsd` and `promptedAt` arriving
+  over the wire: the page was given them directly.
+- A real Claude agent's cost across two turns, after a resume, or after `/clear`. No agent was
+  created or prompted.
+- Hover on a tab or a row, which was not looked at.
+- Native iOS and Android, and the installed app on a phone or a tablet.
