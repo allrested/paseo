@@ -2845,7 +2845,11 @@ export class AgentManager {
     });
   }
 
-  /** Applies a plugin-metadata patch (null removes a key) and returns the stored result. */
+  /**
+   * Applies a plugin-metadata patch (null removes a key) and returns the stored result. A plugin's
+   * write is not the agent's activity: updatedAt stays, as it drives list order, the active window
+   * and idle collection.
+   */
   async setMetadata(
     agentId: string,
     patch: Record<string, JsonValue | null>,
@@ -2854,7 +2858,6 @@ export class AgentManager {
       const liveAgent = this.agents.get(agentId);
       if (liveAgent) {
         liveAgent.metadata = applyRecordPatch<JsonValue>(liveAgent.metadata, patch);
-        this.touchUpdatedAt(liveAgent);
         await this.persistSnapshot(liveAgent);
         this.emitState(liveAgent, { persist: false });
         return liveAgent.metadata;
@@ -2895,7 +2898,8 @@ export class AgentManager {
       ...(patch.title ? { title: patch.title } : {}),
       ...(patch.labels ? { labels: applyRecordPatch(record.labels, patch.labels) } : {}),
       ...(patch.metadata ? { metadata: applyRecordPatch(record.metadata, patch.metadata) } : {}),
-      updatedAt: this.nextStoredUpdatedAt(record),
+      // Plugin metadata alone is not activity (see setMetadata).
+      updatedAt: patch.title || patch.labels ? this.nextStoredUpdatedAt(record) : record.updatedAt,
     };
     await registry.upsert(nextRecord);
     return nextRecord;

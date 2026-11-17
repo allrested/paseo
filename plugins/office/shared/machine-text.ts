@@ -1,4 +1,4 @@
-import type { Machine, MachineAgent } from "./contracts.js";
+import type { Machine, MachineAgent, OfficeAgent } from "./contracts.js";
 
 // Written as the Resources screen writes them (plugins/resource-manager/client/format.ts), so a
 // number reads the same in both places; a built-in cannot import another built-in's files.
@@ -27,6 +27,26 @@ export function formatDuration(ms: number): string {
 export function machineTitle(agent: Pick<MachineAgent, "agentId" | "title">): string {
   const title = agent.title?.trim();
   return title ? title : `Agent ${agent.agentId.slice(0, 8)}`;
+}
+
+/**
+ * The reading with each agent the office numbered under its office name (Mjd-1, not its task), so
+ * the host's card and the server racks name it as the floor does. The same reading when none is.
+ */
+export function namedMachine(
+  machine: Machine | null,
+  agents: ReadonlyMap<string, Pick<OfficeAgent, "name">>,
+): Machine | null {
+  if (machine === null) return null;
+  const named = (agentId: string) => agents.get(agentId)?.name;
+  if (!machine.agents.some((agent) => named(agent.agentId) !== undefined)) return machine;
+  return {
+    ...machine,
+    agents: machine.agents.map((agent) => {
+      const name = named(agent.agentId);
+      return name === undefined ? agent : { ...agent, title: name };
+    }),
+  };
 }
 
 /** Memory in use as a whole percent; null without a reading. */

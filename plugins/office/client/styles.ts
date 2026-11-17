@@ -52,6 +52,12 @@ export interface OfficeStyles {
   /** The strip's scroller, as wide as its rail. */
   stripScroll: ViewStyle;
   strip: ViewStyle;
+  /** The strip on a wide screen: its entries wrap onto more rows. */
+  stripWrap: ViewStyle;
+  /** Over the right edge of the strip on a phone while more entries are past it. */
+  stripFade: ViewStyle;
+  /** The fade's strips, from clear to the surface. */
+  stripFadeSteps: readonly { opacity: number; style: ViewStyle }[];
   stripItem: ViewStyle;
   stripItemPressed: ViewStyle;
   /** The fill of a row or a strip entry under a finger or a pointer: a layer, as buttonFill is. */
@@ -197,6 +203,8 @@ const COLUMN = 720;
 const SCENE_MIN_HEIGHT = 160;
 /** Room around a focusable row inside a scroller, which would cut its focus ring off. */
 const FOCUS_RING = 4;
+/** How wide the fade over the strip's right edge is on a phone. */
+const STRIP_FADE = 24;
 const DOT = 8;
 const DOT_GAP = 12;
 /** Where a row's text starts, from the row's own left edge. A child's dot sits on this rail. */
@@ -424,6 +432,26 @@ export function useOfficeStyles(
         paddingVertical: FOCUS_RING,
         paddingHorizontal: compact ? pad : FOCUS_RING,
       },
+      stripWrap: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        paddingVertical: FOCUS_RING,
+        paddingHorizontal: FOCUS_RING,
+      },
+      stripFade: {
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: STRIP_FADE,
+        flexDirection: "row",
+        pointerEvents: "none",
+      },
+      stripFadeSteps: [0.25, 0.5, 0.75, 1].map((opacity) => ({
+        opacity,
+        style: { flex: 1, backgroundColor: colors.surface0, opacity },
+      })),
       stripItem,
       // A pressed row or entry keeps its own box: the fill is the pressedFill layer inside it.
       stripItemPressed: stripItem,

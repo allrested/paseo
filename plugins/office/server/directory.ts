@@ -11,6 +11,7 @@ import {
   type WorkspaceScript,
   type WorkspaceTicket,
 } from "../shared/contracts.js";
+import { NEXT_KEY, NUMBER_KEY, storedNumber } from "./subagent-names.js";
 
 // PARENT_AGENT_ID_LABEL in packages/protocol/src/agent-labels.ts. Server code may import the
 // protocol's types, not its values.
@@ -52,12 +53,16 @@ export interface DirectoryAgentInput {
   status: string;
   workspaceId?: string;
   createdAt: string;
+  /** When anything about the agent last changed on the host. */
+  updatedAt?: string;
   labels?: Readonly<Record<string, string>>;
   pendingPermissions: readonly DirectoryPermissionInput[];
   archivedAt?: string | null;
   internal?: boolean;
   background?: boolean;
   lastUsage?: { contextWindowMaxTokens?: number; contextWindowUsedTokens?: number };
+  /** Data plugins stored on the agent; the office reads its sub-agent numbers here. */
+  metadata?: Readonly<Record<string, unknown>>;
 }
 
 export type AgentUpdateInput =
@@ -209,6 +214,8 @@ export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
   if (!status.success || status.data === "closed") return null;
   const parent = agent.labels?.[PARENT_AGENT_ID_LABEL]?.trim() ?? "";
   const context = contextOf(agent);
+  const number = storedNumber(agent.metadata?.[NUMBER_KEY]);
+  const next = storedNumber(agent.metadata?.[NEXT_KEY]);
   return {
     id: agent.id,
     title: agent.title,
@@ -229,6 +236,9 @@ export function projectAgent(agent: DirectoryAgentInput): OfficeAgent | null {
     }),
     createdAt: agent.createdAt,
     ...(context === undefined ? {} : { context }),
+    ...(number === undefined ? {} : { number }),
+    ...(next === undefined ? {} : { next }),
+    ...(status.data === "idle" && agent.updatedAt ? { idleSince: agent.updatedAt } : {}),
   };
 }
 

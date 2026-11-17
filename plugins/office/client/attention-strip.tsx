@@ -1,5 +1,12 @@
 import { useCallback, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import {
+  Pressable,
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import type { HostNote } from "../shared/machine-text.js";
 import type { AttentionEntry, AttentionReason } from "../shared/model.js";
@@ -107,33 +114,81 @@ export interface AttentionStripProps {
   /** The office's cards that have something to say, in their order. They come after the agents. */
   cards: readonly StripCard[];
   styles: OfficeStyles;
+  /** A wide screen: the entries wrap onto more rows. A phone: they scroll sideways, with a fade. */
+  wrap: boolean;
   onSelect(agentId: string): void;
 }
 
+export interface StripScroll {
+  viewport: number;
+  content: number;
+  offset: number;
+}
+
+/** More entries are past the right edge, by more than the 1 dp a whole-pixel offset can miss. */
+export function fadeShown({ viewport, content, offset }: StripScroll): boolean {
+  return viewport > 0 && offset + viewport < content - 1;
+}
+
 /** The agents that need the user, then the office's cards. On a phone this is the fast path. */
-export function AttentionStrip({ entries, cards, styles, onSelect }: AttentionStripProps) {
+export function AttentionStrip({ entries, cards, styles, wrap, onSelect }: AttentionStripProps) {
+  const [scroll, setScroll] = useState<StripScroll>({ viewport: 0, content: 0, offset: 0 });
+  const layout = useCallback((event: LayoutChangeEvent) => {
+    const viewport = event.nativeEvent.layout.width;
+    setScroll((current) => ({ ...current, viewport }));
+  }, []);
+  const sized = useCallback((content: number) => {
+    setScroll((current) => ({ ...current, content }));
+  }, []);
+  const scrolled = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offset = event.nativeEvent.contentOffset.x;
+    setScroll((current) => ({ ...current, offset }));
+  }, []);
   if (entries.length === 0 && cards.length === 0) return null;
+  const items = (
+    <>
+      {entries.map((entry) => (
+        <AttentionItem key={entry.agentId} entry={entry} styles={styles} onSelect={onSelect} />
+      ))}
+      {cards.map((card) => (
+        <NoteItem
+          key={card.title}
+          title={card.title}
+          note={card.note}
+          styles={styles}
+          onOpen={card.onOpen}
+        />
+      ))}
+    </>
+  );
+  if (wrap) {
+    return (
+      <View style={styles.stripRail}>
+        <View style={styles.stripWrap}>{items}</View>
+      </View>
+    );
+  }
   return (
-    <View style={styles.stripRail}>
+    <View style={styles.stripRail} onLayout={layout}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.stripScroll}
         contentContainerStyle={styles.strip}
+        onContentSizeChange={sized}
+        onScroll={scrolled}
+        scrollEventThrottle={16}
       >
-        {entries.map((entry) => (
-          <AttentionItem key={entry.agentId} entry={entry} styles={styles} onSelect={onSelect} />
-        ))}
-        {cards.map((card) => (
-          <NoteItem
-            key={card.title}
-            title={card.title}
-            note={card.note}
-            styles={styles}
-            onOpen={card.onOpen}
-          />
-        ))}
+        {items}
       </ScrollView>
+      {fadeShown(scroll) ? (
+        <View style={styles.stripFade}>
+          {styles.stripFadeSteps.map((step) => (
+            // (the kit has no gradient: a few strips of the surface, each more opaque)
+            <View key={step.opacity} style={step.style} />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }

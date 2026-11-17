@@ -101,6 +101,22 @@ test("a search keeps the agents whose title or room has the words, without case"
   expect(pickerGroups(all, "w1", "nothing")).toEqual([]);
 });
 
+test("a numbered sub-agent's row keeps its task, and a search by the task finds it", () => {
+  const all = rooms([
+    agent("1", { title: "Mjd" }),
+    agent("2", { title: "Explore the cart API", parentAgentId: "1", name: "Mjd-1" }),
+  ]);
+  const rows = pickerGroups(all, "w1", "").flatMap((group) => group.rows);
+  expect(rows.find((row) => row.agentId === "2")).toEqual({
+    agentId: "2",
+    title: "Mjd-1",
+    detail: "Explore the cart API · shop-api · Idle",
+    tone: "idle",
+  });
+  expect(ids(all, "w1", "cart")).toEqual(["2"]);
+  expect(ids(all, "w1", "mjd-1")).toEqual(["2"]);
+});
+
 test("the search field shows from nine agents", () => {
   const some = (count: number) =>
     rooms(Array.from({ length: count }, (_, index) => agent(String(index + 1))));

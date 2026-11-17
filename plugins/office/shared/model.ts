@@ -60,9 +60,17 @@ export type DotTone = "running" | "idle" | "starting" | "warning" | "danger";
 
 const ANSWERABLE_KINDS: ReadonlySet<string> = new Set(["tool", "mode", "other"]);
 
+/** The office's name for a numbered sub-agent, else its own title. */
 export function agentTitle(agent: OfficeAgent): string {
+  if (agent.name) return agent.name;
   const title = agent.title?.trim();
   return title ? title : `Agent ${agent.id.slice(0, 8)}`;
+}
+
+/** A named sub-agent's own title, its task, when it says more than the name; else null. */
+export function agentTask(agent: OfficeAgent): string | null {
+  const title = agent.title?.trim();
+  return agent.name && title && title !== agent.name ? title : null;
 }
 
 export function agentMeta(agent: OfficeAgent): string {
