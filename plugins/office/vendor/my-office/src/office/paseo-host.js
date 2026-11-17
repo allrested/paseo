@@ -13,6 +13,8 @@ export const host = {
   board() {},
   /** The server racks or the wall screen were chosen; null while Paseo has nothing to open for them. */
   machine: null,
+  /** The server room's wall screen was chosen; null while Paseo has nothing to show for it (the screen opens `machine` then). */
+  resources: null,
   /** The library's chip or the bookshelf was chosen; null while Paseo has nothing to open for them. */
   library: null,
   /** A short line the office says once. */
