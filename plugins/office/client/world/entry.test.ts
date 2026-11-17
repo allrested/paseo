@@ -43,7 +43,6 @@ vi.mock("../../vendor/my-office/src/office/ui/session-drawer.js", () => ({
   openSession() {},
   closeSession() {},
 }));
-vi.mock("../../vendor/my-office/src/office/ui/mac-drawer.js", () => ({ setMacSnap() {} }));
 vi.mock("../../vendor/my-office/src/office/interact/place-chips.js", () => ({ PLACES: {} }));
 vi.mock("../../vendor/my-office/src/office/interact/props.js", () => ({ PROPS: new Map() }));
 vi.mock("../../vendor/my-office/src/office/interact/place-cards.js", () => ({ closePlace() {} }));
@@ -97,6 +96,7 @@ interface World {
   start(options?: object): void;
   setSessions(list: object[]): void;
   event(e: { sess: string; type: string }): void;
+  setMachine(machine: object | null): void;
 }
 const world = (globalThis as unknown as { PaseoOfficeWorld: World }).PaseoOfficeWorld;
 world.start();
@@ -174,4 +174,54 @@ test("an agent stopped on an error keeps no time of its last event, so it stays 
 
   expect(h.sessions.get("a")).toMatchObject({ last: { type: "fail" } });
   expect(h.sessions.get("a")).not.toHaveProperty("lastAt");
+});
+
+/**
+ * A page of its own, started with `options` and a reading of the host (the server room is furniture without one).
+ * The entry starts once a page. Gives back what a click on a prop does: upstream's `activateProp` calls its `act`.
+ */
+async function startPage(options: object): Promise<(propId: string) => void> {
+  vi.resetModules();
+  // Upstream's racks and wall screen open the machine panel (interact/props.js, prop('racks') and prop('tv')). The
+  // stand-in is registered again for each page: resetModules keeps a mock's first module, and with it the first
+  // page's host.
+  vi.doMock("../../vendor/my-office/src/office/interact/props.js", async () => {
+    const { openMac } = await import("../../vendor/my-office/src/office/ui/mac-drawer.js");
+    return {
+      PROPS: new Map([
+        ["racks", { id: "racks", act: () => openMac() }],
+        ["tv", { id: "tv", act: () => openMac() }],
+      ]),
+    };
+  });
+  // (three.js, which core/env.js loads, warns when it loads twice in one window: a page of its own loads it again)
+  delete (window as { __THREE__?: string }).__THREE__;
+  await import("../../vendor/my-office/src/office/paseo-entry.js");
+  const page = (globalThis as unknown as { PaseoOfficeWorld: World }).PaseoOfficeWorld;
+  page.start(options);
+  page.setMachine({ mem: null, cpu: { percent: 0 }, devServers: [] });
+  const { PROPS } = await import("../../vendor/my-office/src/office/interact/props.js");
+  return (propId) => (PROPS as Map<string, { act(): void }>).get(propId)?.act();
+}
+
+test("the wall screen asks Paseo for Resources, and the racks still open the Host card", async () => {
+  const resources = vi.fn();
+  const machine = vi.fn();
+  const activate = await startPage({ onResources: resources, onMachine: machine });
+
+  activate("tv");
+  expect(resources).toHaveBeenCalledTimes(1);
+  expect(machine).not.toHaveBeenCalled();
+
+  activate("racks");
+  expect(machine).toHaveBeenCalledTimes(1);
+  expect(resources).toHaveBeenCalledTimes(1);
+});
+
+test("without Resources the wall screen opens the Host card", async () => {
+  const machine = vi.fn();
+  const activate = await startPage({ onMachine: machine });
+
+  activate("tv");
+  expect(machine).toHaveBeenCalledTimes(1);
 });

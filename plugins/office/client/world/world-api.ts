@@ -122,10 +122,15 @@ export interface WorldStartOptions {
   /** A team's chip was chosen, or the whiteboard (null). */
   onBoard(project: string | null): void;
   onProblem(message: string): void;
-  /** The server room was chosen: its chip, the racks, the wall screen or a server box. */
+  /**
+   * The server room was chosen: its chip, the racks or a server box, and the wall screen while
+   * `onResources` is absent.
+   */
   onMachine?(): void;
   /** The library was chosen: its chip or the bookshelf. Absent: the scene's own card opens. */
   onLibrary?(): void;
+  /** The server room's wall screen was chosen. Absent while Paseo has nothing to show for it. */
+  onResources?(): void;
   /** A short line the office says once. */
   onToast?(text: string): void;
 }
