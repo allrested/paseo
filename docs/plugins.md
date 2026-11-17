@@ -632,8 +632,14 @@ reset agent's context as empty until the provider reports another number (`settl
 
 The office has three views: a 3D floor, a 2D floor and the list. The header's switch chooses one
 per device and keeps it in the `office-device` setting. A device that never chose shows the 3D
-floor where it can draw it, which is a browser with WebGL2, and the 2D floor anywhere else. A 3D
-floor that fails gives way to the 2D one, under a banner with a way to try again.
+floor where it can draw it: a browser with WebGL2, or an app whose kit has `ScriptFrame` (the
+fork's Android app; the store build does not). It shows the 2D floor anywhere else. On the web the
+scene runs in an `iframe` of its own (`client/world/world-frame.web.ts`); in an app it runs in a
+`ScriptFrame`, and `client/world/world-bridge.ts` carries the scene's API over messages. The
+plugin bundle has no platform file extensions, so `office-surface.tsx` picks the view by
+`layout.platform`. An app's page finds out whether the phone has WebGL2; with none, and for any
+other failure, the 3D floor gives way to the 2D one under a banner with a way to try again. Photo
+mode is off in an app, since a WebView cannot keep a download.
 
 The header's Sessions and Activity buttons open those panels beside the floor; the Activity feed
 is derived on the client from the office's state, kept in memory for this app run, and fills only
@@ -1554,7 +1560,7 @@ The handle checks every write against the version it last read or wrote, so two 
 and an agent cannot silently overwrite each other. The daemon reports the file's kind (text,
 image, binary) with its stat from a bounded sniff, which is how Source claims text files without a
 read. See the [public file panel reference](../public-docs/plugins/reference.md#file-panels) for
-the author API, selection, `DocumentFrame`, and the version requirement. The examples live in
+the author API, selection, `DocumentFrame`, `ScriptFrame`, and the version requirement. The examples live in
 `plugin-examples/pdf-panel` and `plugin-examples/markdown-panel`; the `viewers` built-in
 (`plugins/viewers`) holds three read-only panels, with a mounted test for each that stands a
 fake `PluginFile` in for the host's (`client/testing.ts`).

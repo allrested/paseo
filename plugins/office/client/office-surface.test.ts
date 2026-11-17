@@ -1,6 +1,7 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
   IDLE_SWITCH,
+  canDraw3D,
   chosenView,
   hasTouchScreen,
   keptSelection,
@@ -77,6 +78,27 @@ test("the switch offers 3D only where the device can draw it", () => {
     ["3d", "2d", "list"],
     ["2d", "list"],
   ]);
+});
+
+test("3D can be drawn in a browser with WebGL2, and in an app with ScriptFrame, and nowhere else", () => {
+  const yes = () => true;
+  const no = () => false;
+  expect([
+    canDraw3D("web", yes, no),
+    canDraw3D("web", no, yes),
+    canDraw3D("android", no, yes),
+    canDraw3D("android", yes, no),
+    canDraw3D("ios", no, no),
+  ]).toEqual([true, false, true, false, false]);
+});
+
+test("the browser is not asked on a phone, and the kit is not asked in a browser", () => {
+  const webgl2 = vi.fn(() => true);
+  const scriptFrame = vi.fn(() => true);
+  canDraw3D("android", webgl2, scriptFrame);
+  expect(webgl2).not.toHaveBeenCalled();
+  canDraw3D("web", webgl2, scriptFrame);
+  expect(scriptFrame).toHaveBeenCalledTimes(1);
 });
 
 test("the surface shows the chosen view", () => {
