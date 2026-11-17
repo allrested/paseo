@@ -275,6 +275,7 @@ const api = {
     host.boardRows = () => boardRows;
     problem = (message) => options.onProblem?.(message);
     buildPage();
+    cameraBar.build();
     // (the frame counts as focused while Paseo's page is: upstream's loop draws full rate then, see paseo-focus.js)
     followHostFocus(document, window.parent);
     applyColors(options.colors || {}, host.night);

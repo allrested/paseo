@@ -5,6 +5,7 @@
 // its stand-in, with where it comes from.
 import { beforeEach, expect, test, vi } from "vitest";
 import { state } from "../../vendor/my-office/src/office/core/state.js";
+import { openWorldFrame } from "./world-frame.web.js";
 
 const h = vi.hoisted(() => ({
   sessions: new Map<string, Record<string, unknown>>(),
@@ -32,7 +33,7 @@ vi.mock("../../vendor/my-office/src/office/world/backdrops/index.js", () => ({
   setup() {},
   applyNight() {},
 }));
-vi.mock("../../vendor/my-office/src/office/ui/camera-bar.js", () => ({ setup() {} }));
+vi.mock("../../vendor/my-office/src/office/ui/camera-bar.js", () => ({ build() {}, setup() {} }));
 vi.mock("../../vendor/my-office/src/office/ui/event-text.js", () => ({
   ACT: { other: {} },
   bubbleText: () => "",
@@ -355,4 +356,12 @@ test("the wall screen's tooltip says what it opens", async () => {
 
   const without = await startPage({ onMachine() {} });
   expect(without.get("tv")?.hint).toBe("Open the Host panel");
+});
+
+test("the frame's page lets the office go full screen", () => {
+  const container = document.createElement("div");
+  const frame = openWorldFrame({ container, script: "", title: "Office in 3D" });
+
+  expect(container.querySelector("iframe")?.getAttribute("allow")).toBe("fullscreen");
+  frame.dispose();
 });
