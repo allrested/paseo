@@ -1,5 +1,5 @@
 // PASEO: types for chat-engine.js, which is upstream's and stays as it is.
-// Only the part the office's server calls is typed.
+// Only the part the office calls is typed.
 
 export const REACTIONS: string[];
 

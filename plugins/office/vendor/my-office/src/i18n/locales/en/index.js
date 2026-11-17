@@ -12,6 +12,5 @@ import places from './places.js';
 import props from './props.js';
 import world from './world.js';
 import life from './life.js';
-import chat from './chat.js';
 
-export default { common, time, ui, settings, fp, activity, incident, events, people, places, props, world, life, chat };
+export default { common, time, ui, settings, fp, activity, incident, events, people, places, props, world, life };

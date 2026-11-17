@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ChatChange, ChatMessage, OfficeAgent } from "../shared/contracts.js";
-import { t } from "../vendor/my-office/src/i18n/index.js";
+import { chatT } from "../shared/chat-words.js";
 import {
   CHAT_CLOCK_MS,
   PROMPT_PREFIX,
@@ -86,7 +86,7 @@ async function harness(options: { at?: number; store?: ChatStore } = {}) {
   const service = await createChatService({
     store,
     clock,
-    tr: t,
+    tr: chatT,
     send: async (id, prompt) => {
       if (failure.hold) {
         const wait = deferred();
@@ -117,8 +117,8 @@ const said = (h: Harness, name: string): string[] =>
     .map((message) => message.text);
 const mine = (h: Harness): ChatMessage[] => messages(h).filter((message) => message.from === "me");
 const typing = (h: Harness): string[] => h.service.snapshot().typing;
-const WORK = (key: string): string[] => t(`chat.work.${key}`, null, "list");
-const REST = t("chat.reply.statusRest", null, "list");
+const WORK = (key: string): string[] => chatT(`chat.work.${key}`, null, "list");
+const REST = chatT("chat.reply.statusRest", null, "list");
 /** Upstream's lines for `key` with their `{name}` parts filled, as the engine says them. */
 const filled = (lines: string[], vars: Record<string, string>): string[] =>
   lines.map((line) => line.replace(/\{(\w+)\}/g, (part, name: string) => vars[name] ?? part));
@@ -130,7 +130,7 @@ async function send(h: Harness, text: string): Promise<void> {
 /* ---------- the pure parts ---------- */
 
 test("only the director has a name", () => {
-  expect(staffNameOf("__director", t)).toBe("Director");
+  expect(staffNameOf("__director", chatT)).toBe("Director");
   for (const key of [
     "__reception",
     "__hr",
@@ -140,7 +140,7 @@ test("only the director has a name", () => {
     "__accountant",
     "__claude",
   ]) {
-    expect(staffNameOf(key, t)).toBeNull();
+    expect(staffNameOf(key, chatT)).toBeNull();
   }
 });
 
@@ -189,7 +189,7 @@ test("an @name prompts its member only: a longer member's name and a name charac
 test("a new conversation starts with upstream's first line and says so to nobody", async () => {
   const h = await harness();
   expect(messages(h)).toEqual([
-    expect.objectContaining({ kind: "sys", text: t("chat.sys.created") }),
+    expect.objectContaining({ kind: "sys", text: chatT("chat.sys.created") }),
   ]);
   expect(h.changes).toEqual([]);
 });
@@ -251,7 +251,7 @@ test("an archived agent matches nobody: no prompt, no answer", async () => {
   expect(typing(h)).toEqual([]);
   expect(messages(h).at(-1)).toMatchObject({
     kind: "sys",
-    text: t("chat.sys.left", { name: "Alice" }),
+    text: chatT("chat.sys.left", { name: "Alice" }),
   });
 
   const before = messages(h).length;
@@ -557,7 +557,7 @@ test("each office event is the engine's line: the first view is a baseline and s
   // An agent already there is not announced; a permission already there is not either.
   h.service.view(view(waiting));
   h.clock.advance(10_000);
-  expect(messages(h)).toEqual([expect.objectContaining({ text: t("chat.sys.created") })]);
+  expect(messages(h)).toEqual([expect.objectContaining({ text: chatT("chat.sys.created") })]);
 });
 
 test("each office event is the engine's line: a new agent is added and says hello", async () => {
@@ -568,7 +568,7 @@ test("each office event is the engine's line: a new agent is added and says hell
   expect(messages(h)).toContainEqual(
     expect.objectContaining({
       kind: "sys",
-      text: t("chat.sys.added", { by: "Boss", name: "Bea" }),
+      text: chatT("chat.sys.added", { by: "Boss", name: "Bea" }),
     }),
   );
   const hello = said(h, "Bea");
@@ -637,7 +637,7 @@ test("the director is the only staff, so the morning hello does not come and the
   const early = await harness({ at: new Date(2026, 10, 18, 8, 0).getTime() });
   early.service.view(view(agent("a1", "Alice")));
   early.clock.advance(CHAT_CLOCK_MS);
-  expect(messages(early)).toEqual([expect.objectContaining({ text: t("chat.sys.created") })]);
+  expect(messages(early)).toEqual([expect.objectContaining({ text: chatT("chat.sys.created") })]);
 
   const noon = await harness({ at: new Date(2026, 10, 18, 10, 50).getTime() });
   noon.service.view(view(agent("a1", "Alice")));
@@ -646,7 +646,7 @@ test("the director is the only staff, so the morning hello does not come and the
   expect(messages(noon)).toContainEqual(
     expect.objectContaining({
       kind: "sys",
-      text: t("chat.sys.poll", { name: "Alice", q: t("chat.life.lunchPoll") }),
+      text: chatT("chat.sys.poll", { name: "Alice", q: chatT("chat.life.lunchPoll") }),
     }),
   );
 });
@@ -809,7 +809,7 @@ test("a save that fails is logged and the next change saves again", async () => 
   await send(h, "hello");
   await settle();
   expect(saved.at(-1)?.msgs.map((message) => message.text)).toEqual([
-    t("chat.sys.created"),
+    chatT("chat.sys.created"),
     "hello",
   ]);
 });

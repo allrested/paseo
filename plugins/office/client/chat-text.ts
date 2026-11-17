@@ -1,7 +1,7 @@
 import { CHAT_TEXT_MAX, type ChatMessage } from "../shared/contracts.js";
 import { agentTitle, type OfficeModel } from "../shared/model.js";
-import { REACTIONS } from "../vendor/my-office/src/shared/chat-engine.js";
-import chat from "../vendor/my-office/src/i18n/locales/en/chat.js";
+import { REACTIONS } from "../shared/upstream/chat-engine.js";
+import chat from "../shared/upstream/chat.js";
 import { matchesQuery } from "./list-text.js";
 import { SHIRTS, lookOf } from "./pixel/art.js";
 
