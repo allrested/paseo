@@ -403,7 +403,7 @@ export function createHub(ports: HubPorts): Hub {
       } catch (error) {
         ports.log(`[office] directory stop failed: ${errorMessage(error)}`);
       }
-      return { ...snapshot(), agents: [...latest.agents], workspaces: [...latest.workspaces] };
+      return { ...snapshot(), agents: named(latest.agents), workspaces: [...latest.workspaces] };
     },
     script(workspaceId, name) {
       const workspace = reported.workspaces.find((candidate) => candidate.id === workspaceId);
