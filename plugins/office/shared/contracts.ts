@@ -234,6 +234,98 @@ export const IncidentsStateSchema = z.object({
 });
 export type IncidentsState = z.output<typeof IncidentsStateSchema>;
 
+/** The most characters of one chat message the office takes. */
+export const CHAT_TEXT_MAX = 600;
+/** The most chat messages kept, as upstream's engine keeps them. */
+export const CHAT_MESSAGE_MAX = 300;
+
+/** The message a chat message answers, as it was when the answer was sent. */
+export const ChatReplySchema = z.object({ id: z.string(), name: z.string(), text: z.string() });
+
+/** A poll's question, and each option with who voted for it. */
+export const ChatPollSchema = z.object({
+  q: z.string(),
+  opts: z.array(z.object({ t: z.string(), by: z.array(z.string()) })),
+});
+
+/** A reminder: its title, its time, how it repeats, and who is going and who is not. */
+export const ChatRemindSchema = z.object({
+  title: z.string(),
+  at: z.number(),
+  repeat: z.string(),
+  yes: z.array(z.string()),
+  no: z.array(z.string()),
+  done: z.boolean().optional(),
+});
+
+/**
+ * A message of the team chat, as upstream's engine keeps it. Keys not named here (a photo's
+ * picture, a work card's body) are dropped on parse.
+ */
+export const ChatMessageSchema = z.object({
+  id: z.string(),
+  at: z.number(),
+  /**
+   * "text", "sticker", "poll", "remind" and "sys" show; the engine has more kinds, which the
+   * office never shows.
+   */
+  kind: z.string(),
+  /** An agent id, "me", or a staff key like "__director"; absent on a system line. */
+  from: z.string().optional(),
+  name: z.string().optional(),
+  text: z.string(),
+  sticker: z.number().int().nullable().optional(),
+  poll: ChatPollSchema.nullable().optional(),
+  remind: ChatRemindSchema.nullable().optional(),
+  reply: ChatReplySchema.nullable().optional(),
+  /** Emoji → who reacted with it. */
+  reacts: z.record(z.string(), z.array(z.string())),
+  recalled: z.boolean().optional(),
+});
+export type ChatMessage = z.output<typeof ChatMessageSchema>;
+
+/** The conversation, and the names typing now. */
+export const ChatSnapshotSchema = z.object({
+  messages: z.array(ChatMessageSchema),
+  typing: z.array(z.string()),
+});
+export type ChatSnapshot = z.output<typeof ChatSnapshotSchema>;
+
+/**
+ * One change of the chat, as the engine emits it. "act" asks the open scenes to gather at the
+ * bell; a client drops an act it already saw by its id.
+ */
+export const ChatChangeSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("add"), message: ChatMessageSchema }),
+  z.object({ op: z.literal("update"), message: ChatMessageSchema }),
+  z.object({ op: z.literal("typing"), names: z.array(z.string()) }),
+  z.object({ op: z.literal("all"), messages: z.array(ChatMessageSchema) }),
+  z.object({ op: z.literal("act"), what: z.literal("meeting"), id: z.string() }),
+]);
+export type ChatChange = z.output<typeof ChatChangeSchema>;
+
+/** What the owner does in the chat; each op goes to the engine's function of that name. */
+export const ChatRequestSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("send"),
+    text: z.string().max(CHAT_TEXT_MAX).optional(),
+    sticker: z.number().int().min(0).optional(),
+    replyTo: z.string().min(1).optional(),
+  }),
+  z.object({ op: z.literal("react"), id: z.string().min(1), emoji: z.string().min(1) }),
+  z.object({ op: z.literal("vote"), id: z.string().min(1), index: z.number().int().min(0) }),
+  z.object({ op: z.literal("rsvp"), id: z.string().min(1), yes: z.boolean() }),
+  z.object({ op: z.literal("recall"), id: z.string().min(1) }),
+]);
+export type ChatRequest = z.output<typeof ChatRequestSchema>;
+
+/** Whether the chat took the call; `error` says why not. */
+export const ChatResultSchema = z.union([
+  z.object({ ok: z.literal(true) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+export type ChatResult = z.output<typeof ChatResultSchema>;
+
 export const OfficeSnapshotSchema = z.object({
   agents: z.array(OfficeAgentSchema),
   workspaces: z.array(OfficeWorkspaceSchema),
@@ -249,6 +341,8 @@ export const OfficeSnapshotSchema = z.object({
   notes: NotesStateSchema.optional(),
   /** Absent until the office's server has read the incidents. */
   incidents: IncidentsStateSchema.optional(),
+  /** Absent until the office's server has loaded the chat. */
+  chat: ChatSnapshotSchema.optional(),
 });
 export type OfficeSnapshot = z.output<typeof OfficeSnapshotSchema>;
 
@@ -265,6 +359,7 @@ export const OfficeEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("board"), board: z.string(), posts: z.array(PostSchema) }),
   z.object({ type: z.literal("board-removed"), board: z.string() }),
   z.object({ type: z.literal("wake"), wake: WakeStateSchema }),
+  z.object({ type: z.literal("chat"), change: ChatChangeSchema }),
 ]);
 export type OfficeEvent = z.output<typeof OfficeEventSchema>;
 
@@ -484,6 +579,13 @@ export const incidentsDismissRpc = defineRpc({
   name: "office.incidents.dismiss.request",
   input: z.object({ ids: z.array(z.string()).optional() }),
   output: z.object({ dismissed: z.number().int().nonnegative() }),
+});
+
+/** Something the owner does in the team chat: send, react, vote, answer a reminder, recall. */
+export const chatRpc = defineRpc({
+  name: "office.chat.request",
+  input: ChatRequestSchema,
+  output: ChatResultSchema,
 });
 
 /**

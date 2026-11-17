@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 import {
+  ChatMessageSchema,
+  ChatRequestSchema,
   ChecklistStepSchema,
+  chatRpc,
   MachineEventSchema,
   cleanupRpc,
   clearDoneRpc,
@@ -167,4 +170,48 @@ test("a step is pending or in progress, never completed", () => {
 test("clear done names its RPC and needs a board", () => {
   expect(clearDoneRpc.name).toBe("office.board.clear_done.request");
   expect(clearDoneRpc.input.safeParse({ board: "" }).success).toBe(false);
+});
+
+test("the chat call names its RPC and takes each op", () => {
+  expect(chatRpc.name).toBe("office.chat.request");
+  for (const input of [
+    { op: "send", text: "@Alice hi", replyTo: "m1" },
+    { op: "send", sticker: 3 },
+    { op: "react", id: "m1", emoji: "👍" },
+    { op: "vote", id: "m1", index: 0 },
+    { op: "rsvp", id: "m1", yes: true },
+    { op: "recall", id: "m1" },
+  ])
+    expect(ChatRequestSchema.safeParse(input).success).toBe(true);
+  expect(ChatRequestSchema.safeParse({ op: "send", text: "x".repeat(601) }).success).toBe(false);
+  expect(ChatRequestSchema.safeParse({ op: "pin", id: "m1" }).success).toBe(false);
+});
+
+test("a snapshot and an event carry the chat, and a snapshot parses without it", () => {
+  const message = {
+    id: "m1",
+    at: 1,
+    kind: "text",
+    from: "me",
+    name: "Boss",
+    text: "hi",
+    reacts: {},
+  };
+  const chat = { messages: [message], typing: ["Alice"] };
+  expect(OfficeSnapshotSchema.parse({ ...emptySnapshot(), chat }).chat).toEqual(chat);
+  expect(OfficeSnapshotSchema.parse(emptySnapshot()).chat).toBeUndefined();
+  for (const change of [
+    { op: "add", message },
+    { op: "update", message },
+    { op: "typing", names: [] },
+    { op: "all", messages: [message] },
+    { op: "act", what: "meeting", id: "a1" },
+  ])
+    expect(OfficeEventSchema.parse({ type: "chat", change })).toEqual({ type: "chat", change });
+});
+
+test("a system line has no sender", () => {
+  expect(
+    ChatMessageSchema.parse({ id: "s", at: 1, kind: "sys", text: "created", reacts: {} }).from,
+  ).toBeUndefined();
 });

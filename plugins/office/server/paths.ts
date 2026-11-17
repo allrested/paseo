@@ -31,6 +31,11 @@ export function incidentsFile(env: NodeJS.ProcessEnv, home: string): string {
   return join(officeDir(env, home), "incidents.json");
 }
 
+/** The team chat's conversation, kept as upstream's engine writes it. */
+export function chatFile(env: NodeJS.ProcessEnv, home: string): string {
+  return join(officeDir(env, home), "chat.json");
+}
+
 /** A folder skills are read from, and the name the card gives it. */
 export interface SkillFolder {
   label: string;
