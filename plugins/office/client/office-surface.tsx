@@ -76,7 +76,9 @@ import { useMachine } from "./use-machine.js";
 import { useOffice, type OfficeState } from "./use-office.js";
 import { ViewSwitch } from "./view-switch.js";
 import { hasWebGL2 } from "./web-env.web.js";
+import { hasScriptFrame } from "./world/script-frame-kit.js";
 import { WorldView } from "./world/world-view.js";
+import { WorldViewNative } from "./world/world-view-native.js";
 
 export type OfficeSurfaceProps = PluginScreenProps | PluginWorkspacePanelProps;
 
@@ -162,17 +164,30 @@ export function savedView(setting: ViewSetting): SavedView | null {
 }
 
 /**
- * The view a saved choice means on this device. Only a browser with WebGL2 draws the 3D office;
- * anywhere else that choice, and no choice, is the 2D one.
+ * The view a saved choice means on this device. Only a device that can draw the 3D office shows
+ * it; anywhere else that choice, and no choice, is the 2D one.
  */
-export function viewOnDevice(saved: SavedView, webgl2: boolean): OfficeViewChoice {
+export function viewOnDevice(saved: SavedView, can3d: boolean): OfficeViewChoice {
   if (saved === "2d" || saved === "list") return saved;
-  return webgl2 ? "3d" : "2d";
+  return can3d ? "3d" : "2d";
 }
 
 /** The views a device offers, in the switch's order. */
-export function viewOptions(webgl2: boolean): readonly OfficeViewChoice[] {
-  return webgl2 ? OFFICE_VIEWS : OFFICE_VIEWS.filter((view) => view !== "3d");
+export function viewOptions(can3d: boolean): readonly OfficeViewChoice[] {
+  return can3d ? OFFICE_VIEWS : OFFICE_VIEWS.filter((view) => view !== "3d");
+}
+
+/**
+ * Whether this device can draw the 3D office: a browser with WebGL2, or an app whose kit has
+ * ScriptFrame. The other is not asked. On an app the page finds out whether the phone has WebGL2
+ * (the scene reports a problem if not), and the surface gives way to 2D.
+ */
+export function canDraw3D(
+  platform: Platform,
+  webgl2: () => boolean,
+  scriptFrame: () => boolean,
+): boolean {
+  return platform === "web" ? webgl2() : scriptFrame();
 }
 
 /** A device setting as a switch's saves see it; null while it is read or unreadable. */
@@ -348,7 +363,7 @@ const NONE_RUNG: Record<string, number> = {};
 /** The per-device view. The 3D office is loaded only where it is the chosen view. */
 function useViewChoice(platform: Platform): ViewChoiceState {
   const settings = useSettings(officeDeviceSettings);
-  const webgl2 = useMemo(() => platform === "web" && hasWebGL2(), [platform]);
+  const can3d = useMemo(() => canDraw3D(platform, hasWebGL2, hasScriptFrame), [platform]);
   // The view follows the tap at once. A choice the device could not store stays here, so the
   // switch still does what it says until the surface closes.
   const [sync, dispatch] = useReducer(viewSync, IDLE_SWITCH);
@@ -390,11 +405,11 @@ function useViewChoice(platform: Platform): ViewChoiceState {
     (next: OfficeViewChoice) => dispatch({ type: "tap", value: next }),
     [],
   );
-  const options = useMemo(() => viewOptions(webgl2), [webgl2]);
+  const options = useMemo(() => viewOptions(can3d), [can3d]);
   const saved = sync.wanted ?? savedView(settings);
   return {
     options,
-    choice: saved === null ? null : viewOnDevice(saved, webgl2),
+    choice: saved === null ? null : viewOnDevice(saved, can3d),
     unsaved: switchUnsaved(sync),
     choose,
   };
@@ -618,6 +633,7 @@ interface SurfaceBodyProps {
   /** The 3D office's incidents banner. */
   onOpenIncidents(): void;
   onSceneProblem(message: string): void;
+  platform: Platform;
 }
 
 function SurfaceBody({
@@ -647,6 +663,7 @@ function SurfaceBody({
   incidents,
   onOpenIncidents,
   onSceneProblem,
+  platform,
 }: SurfaceBodyProps) {
   if (office.subscription.status === "error") {
     const { message } = office.subscription.error;
@@ -668,8 +685,9 @@ function SurfaceBody({
     return <Text style={styles.sceneStatus}>Loading...</Text>;
   }
   if (view === "3d") {
+    const World = platform === "web" ? WorldView : WorldViewNative;
     return (
-      <WorldView
+      <World
         model={model}
         theme={theme}
         styles={styles}
@@ -977,6 +995,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         incidents={incidents}
         onOpenIncidents={openIncidents}
         onSceneProblem={setSceneProblem}
+        platform={layout.platform}
       />
       <AgentCard
         agent={selected}
