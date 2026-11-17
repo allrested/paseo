@@ -129,8 +129,8 @@ when absent, negative or not finite, and `promptedAt` left out for an idle agent
 Mounted: the List view with fixtures: a tab hides rooms with no match; a search keeps a sub-agent
 under its shown parent; "No agent matches."
 
-Live, against a dev daemon with fixtures and no agent created: 1280 px and 390 px, light and dark,
-by pointer and by keyboard.
+Live, on a static page of the real `StructureView` (see Verified): 1280 px and 390 px, light and
+dark, by pointer and by keyboard.
 
 ## Verified
 
@@ -164,8 +164,9 @@ two sub-agents, and a starting agent. At 1280 px and 390 px (`compact`), light a
   sat in a row that scrolls sideways (378 px of tabs in 375 px).
 - Tab order: the four tabs, the search, then the rows and the board buttons, in reading order. A
   click on a row and Enter on a focused row both selected the agent.
-- Space on a focused tab did nothing: react-native-web presses on Space only for the `button` and
-  `menuitem` roles, and the tabs have the `tab` role.
+- Space on a focused tab did nothing: react-native-web presses on Space only for a `button`
+  element or the `button` role (`PressResponder.js`, `isValidKeyPress`), and the tabs have the
+  `tab` role. The tabs now listen for Space themselves, as the board's chips do.
 - The idle parent waiting on its sub-agents counts under Working but its row reads as idle,
   "1m ago", as the row's decisions say for an idle agent.
 
@@ -184,8 +185,13 @@ last turn's cost and not the agent's whole life.
   when the daemon loads the agent again, so the figure starts again from zero there.
 - While a turn runs, each streamed request sends a `usage_updated` with only the context
   (`agent.ts:2259`, `agent.ts:5072`), and the agent manager replaces `lastUsage` with it
-  (`agent-manager.ts:5435`). A running Claude agent has no cost until its turn ends, when
-  `turn_completed` merges the result's usage back (`agent-manager.ts:5590`).
+  (`agent-manager.ts:5435`). `turn_completed` merges the result's usage back
+  (`agent-manager.ts:5590`).
+- The office keeps an agent's last known cost through a turn: an update without a cost keeps the
+  one it had (`server/directory.ts`, `applyAgentUpdate`). A surface opened while an agent is
+  mid-turn starts from `agents.list`, whose `lastUsage` has already lost the cost, so that agent
+  shows no cost until its turn ends. The fix is in the daemon: merge usage at
+  `agent-manager.ts:5435` the way `:5590` does. That is out of scope for this branch.
 
 No recorded fixture has a real Claude result: the provider's tests set `total_cost_usd` to 0 or to
 made-up values (`agent.error-result.test.ts:168`, `:208`), so the before-and-after reading of a
