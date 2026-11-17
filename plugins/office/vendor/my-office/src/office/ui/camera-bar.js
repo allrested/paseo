@@ -183,8 +183,8 @@ export function setup() {
     if (state.selectedId) closeSession();
     goView(b.dataset.view);
   });
-  $('zoom-in').addEventListener('click', () => { state.zoomGoal = Math.min(controls.maxZoom, (state.zoomGoal ?? camera.zoom) * 1.2); });
-  $('zoom-out').addEventListener('click', () => { state.zoomGoal = Math.max(controls.minZoom, (state.zoomGoal ?? camera.zoom) / 1.2); });
+  $('zoom-in').addEventListener('click', () => { setView(null); state.zoomGoal = Math.min(controls.maxZoom, (state.zoomGoal ?? camera.zoom) * 1.2); });
+  $('zoom-out').addEventListener('click', () => { setView(null); state.zoomGoal = Math.max(controls.minZoom, (state.zoomGoal ?? camera.zoom) / 1.2); });
   if (!document.fullscreenEnabled) $('btn-full').hidden = true;
   $('btn-full').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen?.();

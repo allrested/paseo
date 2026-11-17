@@ -253,3 +253,19 @@ test("the bar's text stays light on its dark track in either theme", () => {
   const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
   expect(css).toMatch(/\.toolbar \{[^}]*color: #E8ECF4;/);
 });
+
+test("a zoom clears the pressed view, and a resize then does not refit", () => {
+  open();
+  click("#zoom-in");
+  click("#zoom-in");
+  expect(pressed()).toEqual([]);
+  const zoomed = state.zoomGoal;
+  const fitted = h.copy.mock.calls.length;
+  resized?.();
+  expect(h.copy.mock.calls.length).toBe(fitted);
+  expect(state.zoomGoal).toBe(zoomed);
+
+  click("[data-view=home]");
+  click("#zoom-out");
+  expect(pressed()).toEqual([]);
+});
