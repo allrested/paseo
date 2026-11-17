@@ -50,7 +50,14 @@ function errorKind(error: unknown): string {
 function closeByAge(data: IncidentsData, now: number): void {
   data.open = data.open.filter((open) => now - open.foundAt < OPEN_FOR_MS);
   for (const mark of Object.values(data.trackers)) {
-    const kept = Object.entries(mark.seen).filter(([, seenAt]) => now - seenAt < SEEN_FOR_MS);
+    // A tracker failing or off for days keeps its time, so its next read can still return a key
+    // seen in the window, however old: that key stays.
+    const windowStart = mark.checkedAt - WINDOW_MARGIN_MS;
+    const kept = Object.entries(mark.seen).filter(([, seenAt]) => {
+      const recent = now - seenAt < SEEN_FOR_MS;
+      const readable = seenAt >= windowStart;
+      return recent || readable;
+    });
     mark.seen = Object.fromEntries(kept);
   }
 }
