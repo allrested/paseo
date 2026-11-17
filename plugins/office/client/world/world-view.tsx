@@ -69,6 +69,12 @@ export interface WorldViewProps {
    * absent where it cannot. Read when the office starts.
    */
   onOpenResources: (() => void) | undefined;
+  /**
+   * E by a person while walking in: the agent card's "Open session". Absent only where the office
+   * has no navigation; with navigation but no side area it opens the agent's workspace, leaving the
+   * office, as the card does. Read when the office starts.
+   */
+  onOpenSession: ((agentId: string) => void) | undefined;
   /** A tap on the library: its chip or the bookshelf. */
   onOpenLibrary(): void;
   /** A tap on the label over the meeting room's screen. */
@@ -109,6 +115,7 @@ export function WorldView({
   machine,
   onOpenMachine,
   onOpenResources,
+  onOpenSession,
   onOpenLibrary,
   onOpenNotes,
   meeting,
@@ -146,6 +153,7 @@ export function WorldView({
     onSelectBoard,
     onOpenMachine,
     onOpenResources,
+    onOpenSession,
     onOpenLibrary,
     onOpenNotes,
     onOpenIncidents,
@@ -162,6 +170,7 @@ export function WorldView({
       onSelectBoard,
       onOpenMachine,
       onOpenResources,
+      onOpenSession,
       onOpenLibrary,
       onOpenNotes,
       onOpenIncidents,
@@ -177,6 +186,7 @@ export function WorldView({
     onSelectBoard,
     onOpenMachine,
     onOpenResources,
+    onOpenSession,
     onOpenLibrary,
     onOpenNotes,
     onOpenIncidents,
@@ -232,8 +242,10 @@ export function WorldView({
           // Read when the office starts: a page's brand does not change while the page lives.
           brand: worldBrand(readBrand()),
           // What these open is Paseo's (a card, a sheet): the keyboard goes with it.
+          // A card closed from the scene opens nothing, and Walk in closes the card as it starts:
+          // the keyboard stays where it is.
           onSelect: (agentId) => {
-            focusApp();
+            if (agentId !== null) focusApp();
             latest.current.onSelectAgent(agentId);
           },
           onBoard: (project) => {
@@ -262,6 +274,17 @@ export function WorldView({
                 onResources: () => {
                   focusApp();
                   latest.current.onOpenResources?.();
+                },
+              }),
+          // Given only where the office can open a session (the agent card's "Open session"):
+          // otherwise a person under E is chosen, as a click does. The keyboard goes with the
+          // session.
+          ...(latest.current.onOpenSession === undefined
+            ? {}
+            : {
+                onOpen: (agentId: string) => {
+                  focusApp();
+                  latest.current.onOpenSession?.(agentId);
                 },
               }),
           // The bell opens nothing of Paseo's: the keyboard stays in the office.

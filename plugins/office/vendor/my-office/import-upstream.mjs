@@ -36,7 +36,6 @@ const DENY = [
   /^office\/(demo|replay|audio)\//,
   /^office\/world\/backdrops\//,
   /^office\/world\/pro\/wing\.js$/,
-  /^office\/interact\/first-person\.js$/,
   /^office\/people\/(outings|comnha|comtrua|duty|teatime|accountant|rounds|guard|hr|farewell|interns|nhau|photobooth|pickle|staff)\.js$/,
   /^office\/life\/(seasons|rain|weather|altar|lift-service|drill|day-swaps|photostrips|post|incidents|nap)\.js$/,
   /^office\/main\.js$/,

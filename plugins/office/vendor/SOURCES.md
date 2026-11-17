@@ -23,15 +23,18 @@ billiards.js`, `gaming.js`, `foosball.js`, `karaoke.js`). Upstream's files are c
 except that `'three'` and `'three/addons/...'` imports are rewritten to relative paths, so the
 bundle needs no resolver.
 
-The games call the group chat, the sounds and the first-person walk. The chat and the walk are not
-taken: their stand-ins export what the games import and do nothing. The sounds are the siren alone
-(below). So a game is seen and not heard, nobody plays it in first person, and a karaoke song has
-no sound.
+The first-person walk is taken too: Walk in, at the camera bar's end, walks the floor as your own
+character, and a game can be played from there. The games call the group chat and the sounds. The
+chat's window is not taken: its stand-in exports what the games import and does nothing. The sounds are the
+siren alone (below). So a game is seen and not heard, and a karaoke song has no sound.
 
-Four copied files are changed by hand, and each change starts with `// PASEO:`:
+Five copied files are changed by hand, and each change starts with `// PASEO:`:
 
 - `src/office/core/env.js`: the build flag upstream reads from `process.env` is a constant, and
   the floor plan comes from Paseo, not from the page's address and storage.
+- `src/office/interact/first-person.js`: the street is cut (`street()` returns null, so the door
+  has no E action), E on a person passes `opts.open` to the session drawer, and `floorBounds` is
+  exported for the camera bar.
 - `src/office/interact/place-cards.js`: the lounge's card has a cup for its icon, not a sparkle,
   and the launch pad's card lists no repositories (a team is a workspace, and Paseo sends no
   repository state).
@@ -73,10 +76,10 @@ and `people.director`, which keeps upstream's emoji.
 
 Upstream's own interface (panels, the session drawer, the chat, settings, the top bar), its server
 connection, the replay, the demo, every sound but the siren, other languages, the street outside
-with its shops, the first-person walk, and the daily-life scenes (lunch runs, the midday nap, the
-seasons, the weather and the like). The owner asked for the office floor only. Of the camera
-toolbar and photo mode, these are left out on purpose: the list button, Walk in, the automatic
-camera, clip recording, and photo mode's day and night buttons.
+with its shops, and the daily-life scenes (lunch runs, the midday nap, the seasons, the weather and
+the like). The owner asked for the office floor only. Of the camera toolbar and photo mode, these
+are left out on purpose: the list button, the automatic camera, clip recording, and photo mode's
+day and night buttons.
 
 The kept modules still import those files, so each has a stand-in at the same path that starts
 with `// PASEO: stand-in`. Most export what is asked of them and do nothing. These do work:
@@ -86,10 +89,9 @@ with `// PASEO: stand-in`. Most export what is asked of them and do nothing. The
 | `i18n/index.js`             | English only; drops the emoji upstream ends its lines with; Paseo's wording where upstream's line needs a file name or a command |
 | `ui/session-drawer.js`      | A chosen person is told to Paseo, which opens its agent card           |
 | `ui/whiteboard.js`          | Draws Paseo's rows on the board; picks people and furniture            |
-| `ui/camera-bar.js`          | Builds upstream's toolbar and photo mode's bar; Overview is the floor fitted to the frame, the other three views are upstream's places; zoom and full screen |
+| `ui/camera-bar.js`          | Builds upstream's toolbar and photo mode's bar; Overview is the floor fitted to the frame, the other three views are upstream's places; zoom and full screen, and Walk in with its overlay |
 | `ui/mac-drawer.js`          | Holds the host's readings Paseo sets; opens Paseo's panel when it has one |
 | `ui/activity.js`            | Passes the scene's toasts to Paseo                                     |
-| `interact/first-person.js`  | The collision grid people route around, without the first-person walk  |
 | `world/backdrops/index.js`  | A plain backdrop in the app's surface colour; day and night            |
 | `life/nap.js`               | No midday nap; calls Paseo's lively floor every frame                  |
 

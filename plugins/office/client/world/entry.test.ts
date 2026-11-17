@@ -5,6 +5,7 @@
 // its stand-in, with where it comes from.
 import { beforeEach, expect, test, vi } from "vitest";
 import { state } from "../../vendor/my-office/src/office/core/state.js";
+import { WORLD_API_VERSION } from "./world-api.js";
 import { openWorldFrame } from "./world-frame.web.js";
 
 const h = vi.hoisted(() => ({
@@ -427,4 +428,88 @@ test("the frame's page lets the office go full screen", () => {
 
   expect(container.querySelector("iframe")?.getAttribute("allow")).toBe("fullscreen");
   frame.dispose();
+});
+
+/**
+ * Opens a frame whose script is a world the frame accepts, and returns the frame's page and how
+ * often a press in it gave the keyboard back to Paseo's page.
+ */
+async function openFrame() {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const script = `window.PaseoOfficeWorld = { version: ${WORLD_API_VERSION}, start() {}, stop() {}, setSessions() {}, event() {}, select() {}, setMachine() {} };`;
+  const frame = openWorldFrame({ container, script, title: "Office in 3D" });
+  await frame.api;
+  const doc = container.querySelector("iframe")?.contentDocument;
+  const view = doc?.defaultView;
+  if (!doc || !view) throw new Error("The frame has no page");
+  // (jsdom's window.focus only reports that it has none)
+  const focused = vi.spyOn(window, "focus").mockImplementation(() => {});
+  const press = (target: Element = doc.body) =>
+    target.dispatchEvent(new view.Event("pointerup", { bubbles: true }));
+  return {
+    doc,
+    press,
+    focused,
+    close() {
+      focused.mockRestore();
+      frame.dispose();
+      container.remove();
+    },
+  };
+}
+
+test("a press on the floor gives the keyboard back to Paseo's page", async () => {
+  const frame = await openFrame();
+  frame.press();
+  expect(frame.focused).toHaveBeenCalledTimes(1);
+  frame.close();
+});
+
+test("while walking, a press on the floor leaves the keyboard in the frame", async () => {
+  const frame = await openFrame();
+  frame.doc.body.classList.add("is-fp");
+  frame.press();
+  expect(frame.focused).not.toHaveBeenCalled();
+
+  // out of the walk, a press gives it back again
+  frame.doc.body.classList.remove("is-fp");
+  frame.press();
+  expect(frame.focused).toHaveBeenCalledTimes(1);
+  frame.close();
+});
+
+// Safari and Firefox on macOS do not focus a button on a click: the body still has focus when
+// the press ends, and the walk starts on the click after it.
+test("a press on a control of the frame leaves the keyboard there, whatever has focus", async () => {
+  const frame = await openFrame();
+  const button = frame.doc.createElement("button");
+  const label = frame.doc.createElement("span");
+  button.append(label);
+  frame.doc.body.append(button);
+  expect(frame.doc.activeElement).toBe(frame.doc.body);
+  frame.press(button);
+  frame.press(label);
+  expect(frame.focused).not.toHaveBeenCalled();
+
+  // a press on the floor still gives it back
+  frame.press();
+  expect(frame.focused).toHaveBeenCalledTimes(1);
+  frame.close();
+});
+
+test("onOpen is what the scene calls to open a person's session", async () => {
+  const open = vi.fn();
+  await startPage({ onOpen: open });
+  const { host: fresh } = await import("../../vendor/my-office/src/office/paseo-host.js");
+
+  fresh.open?.("ada");
+  expect(open).toHaveBeenCalledWith("ada");
+});
+
+test("without onOpen the scene has nothing to open a session with", async () => {
+  await startPage({});
+  const { host: fresh } = await import("../../vendor/my-office/src/office/paseo-host.js");
+
+  expect(fresh.open).toBeNull();
 });

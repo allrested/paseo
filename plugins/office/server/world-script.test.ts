@@ -46,6 +46,8 @@ describe("the vendored entry", () => {
     expect(script).toContain("PaseoOfficeWorld");
     // The library's chip and the bookshelf tell Paseo, which opens its Library card.
     expect(script).toContain("onLibrary");
+    // E by a person while walking in tells Paseo, which opens their session.
+    expect(script).toContain("onOpen");
     // The bell tells Paseo, which has the stand-up notes written, and the label over the meeting
     // room's screen opens them.
     expect(script).toContain("onBell");
@@ -89,6 +91,20 @@ describe("the vendored entry", () => {
     expect(photo).toMatch(/office-\$\{/);
     expect(photo).not.toContain("my-office-");
     expect(bundle).toContain("ph-shoot");
+  }, 60_000);
+
+  it("bundles upstream's first-person walk, with the street cut", async () => {
+    const walk = readFileSync(
+      new URL("../vendor/my-office/src/office/interact/first-person.js", import.meta.url),
+      "utf8",
+    );
+    const bundle = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+
+    expect(walk).not.toContain("stand-in");
+    expect(walk).toMatch(/\/\/ PASEO:[^\n]*\n\s*const street = \(\) => null;/);
+    expect(walk).toMatch(/export const floorBounds/);
+    expect(walk).toContain("open: true");
+    expect(bundle).toContain("fp-near");
   }, 60_000);
 
   it("the scene's bundle builds with the new modules", async () => {

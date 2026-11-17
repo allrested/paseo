@@ -72,6 +72,7 @@
     "office/interact/place-chips.js",
     "office/interact/place-cards.js",
     "office/ui/photo.js",
+    "office/interact/first-person.js",
     "office/net/live.js",
     "office/life/your-turn.js",
     "office/core/loop.js",
@@ -89,13 +90,6 @@
     ],
     "office/demo/demo.js": [
       "DEMO"
-    ],
-    "office/interact/first-person.js": [
-      "blocked",
-      "buildGrid",
-      "exitFp",
-      "fp",
-      "fpUpdate"
     ],
     "office/life/altar.js": [
       "updateAltar"
@@ -124,6 +118,7 @@
     ],
     "office/life/seasons.js": [
       "SEASON_SPOT",
+      "floorBlocks",
       "seasonName",
       "seasonProp"
     ],
@@ -253,6 +248,7 @@
     "office/core/loop.js": "3d369e26d2612603108d49c596b1624753c1a0ff197a2ff5d1981b87a10df57d",
     "office/core/optimize.js": "34a58c2630428dd660ccc672f5e8274fa8333ef3c008756d355c1e3d827d158e",
     "office/core/state.js": "e14a53df91f94c556cb7435fac419f9b685cc43ade25e7cf12d1472d4e2fc1e6",
+    "office/interact/first-person.js": "6d9f1a0566e7e42e4dbec8a8cbef8af4f82ac246d99938a24812ea6c7dc7bb4a",
     "office/interact/place-cards.js": "3f3402711e7c7668b13473a7b4ffa8c59b59acdca6c9141590c885cf828a1541",
     "office/interact/place-chips.js": "602bbf24a39821ca534a45ff02d6244ec6f03ade1ed36db970b6b6317fb00f4b",
     "office/interact/props.js": "eaea94db0fb65a93267ee17364b8fb6640cec7b68b3de3e5a404bedd5db6a815",

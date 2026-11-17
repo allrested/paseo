@@ -681,6 +681,7 @@ function SurfaceBody({
         machine={machine}
         onOpenMachine={onOpenMachine}
         onOpenResources={onOpenResources}
+        onOpenSession={onOpenSession}
         onOpenLibrary={onOpenLibrary}
         onOpenNotes={onOpenNotes}
         meeting={meeting}
