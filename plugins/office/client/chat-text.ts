@@ -186,8 +186,27 @@ export interface MentionOption {
   room: string;
 }
 
-/** The agents the List's search finds for the words after `@`, in the floor's order. */
+/**
+ * The words start with an agent's whole name and a space, and no name starts with all of them: a
+ * name was picked or typed in full.
+ */
+function mentionDone(model: OfficeModel, query: string): boolean {
+  const typed = query.toLowerCase();
+  const names = model.rooms.flatMap((room) =>
+    room.rows.map((row) => agentTitle(row.agent).toLowerCase()),
+  );
+  return (
+    names.some((name) => typed.startsWith(`${name} `)) &&
+    !names.some((name) => name.startsWith(typed))
+  );
+}
+
+/**
+ * The agents the List's search finds for the words after `@`, in the floor's order. None once a
+ * name is complete, so the list closes after a pick.
+ */
 export function mentionOptions(model: OfficeModel, query: string): MentionOption[] {
+  if (mentionDone(model, query)) return [];
   const options: MentionOption[] = [];
   for (const room of model.rooms) {
     for (const row of room.rows) {
