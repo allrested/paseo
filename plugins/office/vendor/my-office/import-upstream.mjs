@@ -25,7 +25,7 @@ if (!FROM || !THREE) {
 }
 
 /**
- * Not taken: upstream's panels, chat, replay, demo, every sound but the siren, the street, and the daily-life scenes.
+ * Not taken: upstream's panels, chat window, replay, demo, every sound but the siren, the street, and the daily-life scenes.
  * The lounge's four games are taken (people/billiards.js, gaming.js, foosball.js, karaoke.js). The siren's
  * audio/sfx.js and life/incidents.js are taken trimmed by hand, so they stay denied here and only their exports are
  * checked.
@@ -132,6 +132,9 @@ const order = main
 const kept = order.filter((name) => !denied(imported.get(name)));
 for (const name of kept) visit(imported.get(name));
 for (const rel of ["i18n/locales/en/common.js", "i18n/locales/en/time.js"]) visit(rel);
+// The team chat's engine runs on the plugin's server, not in the scene, so nothing in the start-up list reaches it.
+// Its `tr('chat.…')` calls name the `chat` area, so the area is taken with the other English areas below.
+visit("shared/chat-engine.js");
 
 // The English areas the kept code names: 'people.poke', `events.${type}`.
 const areas = readFileSync(srcOf("i18n/locales/en/index.js"), "utf8");
