@@ -212,6 +212,13 @@ export function HostSwitches({
   );
 }
 
+type TrackerField = "jiraProjects" | "sentryOrg" | "sentryProjects" | "sentryUrl";
+
+/** A tracker field's stored text; null while the settings are read or cannot be read. */
+function storedText(values: HostValues | null, field: TrackerField): string | null {
+  return values === null ? null : values[field];
+}
+
 interface TrackerFieldsProps {
   /** Null while the settings are read or cannot be read. */
   values: HostValues | null;
@@ -243,9 +250,12 @@ function TrackerFields({ values, incidents, change, saveProblem, styles }: Track
     (next: string) => change("Sentry address", { sentryUrl: next }),
     [change],
   );
-  const jiraProjects = values?.jiraProjects ?? null;
-  const sentryOrg = values?.sentryOrg ?? null;
-  const sentryProjects = values?.sentryProjects ?? null;
+  const jiraProjects = storedText(values, "jiraProjects");
+  const sentryOrg = storedText(values, "sentryOrg");
+  const sentryProjects = storedText(values, "sentryProjects");
+  const sentryUrl = storedText(values, "sentryUrl");
+  // The address always has a value: only one other than the default was set by somebody.
+  const sentryUrlSet = sentryUrl === DEFAULTS.sentryUrl ? null : sentryUrl;
   // Not known until the host has said: no line before then.
   const jiraMissing = incidents?.jiraReady === false ? JIRA_UNSET : null;
   const sentryMissing = incidents?.sentryReady === false ? SENTRY_UNSET : null;
@@ -255,6 +265,7 @@ function TrackerFields({ values, incidents, change, saveProblem, styles }: Track
     saveProblem("Sentry organisation") ?? unsetLine(sentryOrg, sentryMissing);
   const sentryProjectsProblem =
     saveProblem("Sentry projects") ?? unsetLine(sentryProjects, sentryMissing);
+  const sentryUrlProblem = saveProblem("Sentry address") ?? unsetLine(sentryUrlSet, sentryMissing);
   const scheduleError = incidents?.scheduleError ?? null;
   return (
     <>
@@ -286,9 +297,9 @@ function TrackerFields({ values, incidents, change, saveProblem, styles }: Track
         <SettingField
           label="Sentry address"
           hint="Where SENTRY_AUTH_TOKEN is sent. https, or http on the host itself."
-          value={values?.sentryUrl ?? null}
+          value={sentryUrl}
           onSave={saveSentryUrl}
-          problem={saveProblem("Sentry address")}
+          problem={sentryUrlProblem}
           styles={styles}
         />
       </View>

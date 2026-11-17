@@ -241,7 +241,7 @@ test("a tracker's field set while its variables are not names them under it", as
   await mount(null, { jiraReady: false, sentryReady: false, scheduleError: null });
   expect(fieldBlock("Jira projects")).toBe("Jira projects" + JIRA_HINT + JIRA_UNSET);
   expect(fieldBlock("Sentry organisation")).toContain(SENTRY_UNSET);
-  // An empty field says nothing, and the address always has one, so it says nothing either.
+  // An empty field says nothing, nor does the address left at its default.
   expect(fieldBlock("Sentry projects")).not.toContain(SENTRY_UNSET);
   expect(fieldBlock("Sentry address")).not.toContain(SENTRY_UNSET);
 
@@ -250,6 +250,19 @@ test("a tracker's field set while its variables are not names them under it", as
   // Before the host has said, nothing is claimed.
   await mount(null, undefined);
   expect(fieldBlock("Sentry organisation")).not.toContain(SENTRY_UNSET);
+});
+
+test("an address other than sentry.io counts as set: it names the Sentry token too", async () => {
+  stored = { ...stored, sentryUrl: "https://sentry.acme.dev" };
+  await mount(null, { jiraReady: true, sentryReady: false, scheduleError: null });
+  expect(fieldBlock("Sentry address")).toBe(
+    "Sentry address" +
+      "Where SENTRY_AUTH_TOKEN is sent. https, or http on the host itself." +
+      SENTRY_UNSET,
+  );
+
+  await mount(null, { jiraReady: true, sentryReady: true, scheduleError: null });
+  expect(fieldBlock("Sentry address")).not.toContain(SENTRY_UNSET);
 });
 
 test("the incidents schedule's failure shows under the incidents fields", async () => {

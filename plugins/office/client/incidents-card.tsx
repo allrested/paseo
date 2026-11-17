@@ -1,25 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { Modal } from "@getpaseo/plugin/client/ui";
+import { Text, View } from "react-native";
+import { ExternalLink, Modal } from "@getpaseo/plugin/client/ui";
 import type { IncidentsState } from "../shared/contracts.js";
 import { ActionButton, failureText } from "./action-button.js";
 import { incidentProblems, incidentRows, type IncidentRow } from "./incidents-text.js";
 import type { OfficeStyles } from "./styles.js";
-
-/** Rejects when the host did not dismiss them. No ids dismisses every open incident. */
-export type DismissIncidents = (ids?: string[]) => Promise<void>;
-
-/** Opens an issue in its tracker; rejects when this device could not. */
-export type OpenUrl = (url: string) => Promise<void>;
+import type { DismissIncidents } from "./use-incidents.js";
 
 interface RowProps {
   row: IncidentRow;
   onDismiss: DismissIncidents;
-  onOpenUrl: OpenUrl;
   styles: OfficeStyles;
 }
 
-function Row({ row, onDismiss, onOpenUrl, styles }: RowProps) {
+function Row({ row, onDismiss, styles }: RowProps) {
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -29,22 +23,22 @@ function Row({ row, onDismiss, onOpenUrl, styles }: RowProps) {
   }, []);
   // Dismiss keeps its failure under its button; the link's goes under the row.
   const [failure, setFailure] = useState<string | null>(null);
-  const open = useCallback(() => {
-    setFailure(null);
-    void onOpenUrl(row.url).catch((caught: unknown) => {
+  const openFailed = useCallback(
+    (caught: unknown) => {
       if (mounted.current) setFailure(failureText(`Open ${row.key}`, caught));
-    });
-  }, [onOpenUrl, row.url, row.key]);
+    },
+    [row.key],
+  );
   const dismiss = useCallback(() => onDismiss([row.id]), [onDismiss, row.id]);
   return (
     <View style={styles.machineRow}>
-      <Pressable
-        accessibilityRole="link"
+      <ExternalLink
+        href={row.url}
         accessibilityLabel={`Open ${row.key} in ${row.sourceLabel}`}
-        onPress={open}
+        onError={openFailed}
       >
-        <Text style={styles.sheetText}>{row.title}</Text>
-      </Pressable>
+        {row.title}
+      </ExternalLink>
       <Text style={styles.rowMeta}>{`${row.sourceLabel} ${row.key} · ${row.age}`}</Text>
       <View style={styles.actions}>
         <ActionButton
@@ -70,7 +64,6 @@ export interface IncidentsCardProps {
   /** When the card opened: the ages are counted to it. */
   now: number;
   onDismiss: DismissIncidents;
-  onOpenUrl: OpenUrl;
   styles: OfficeStyles;
   onClose(): void;
 }
@@ -85,7 +78,6 @@ export function IncidentsCard({
   open,
   now,
   onDismiss,
-  onOpenUrl,
   styles,
   onClose,
 }: IncidentsCardProps) {
@@ -107,13 +99,7 @@ export function IncidentsCard({
           ) : (
             <View style={styles.janitorRows}>
               {rows.map((row) => (
-                <Row
-                  key={row.id}
-                  row={row}
-                  onDismiss={onDismiss}
-                  onOpenUrl={onOpenUrl}
-                  styles={styles}
-                />
+                <Row key={row.id} row={row} onDismiss={onDismiss} styles={styles} />
               ))}
             </View>
           )}

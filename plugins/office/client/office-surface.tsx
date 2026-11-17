@@ -10,13 +10,12 @@ import {
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
-  openExternalUrl,
   useRpc,
   useSettings,
   type PluginScreenProps,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
-import { incidentsDismissRpc, notesReadRpc, type Machine } from "../shared/contracts.js";
+import { notesReadRpc, type Machine } from "../shared/contracts.js";
 import {
   OFFICE_VIEWS,
   officeDeviceSettings,
@@ -30,7 +29,7 @@ import { AttentionStrip, type StripCard } from "./attention-strip.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { HostSwitches } from "./host-switches.js";
-import { IncidentsCard, type DismissIncidents } from "./incidents-card.js";
+import { IncidentsCard } from "./incidents-card.js";
 import { incidentsEntry } from "./incidents-text.js";
 import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
@@ -54,6 +53,7 @@ import { todayZone } from "./notes-text.js";
 import { QaCard } from "./qa-card.js";
 import { ReviewCard } from "./review-card.js";
 import { StandupCard } from "./standup-card.js";
+import { useIncidents } from "./use-incidents.js";
 import { useJanitor } from "./use-janitor.js";
 import { useLibrary } from "./use-library.js";
 import { useQa } from "./use-qa.js";
@@ -577,16 +577,16 @@ function useBoardSheet(model: OfficeModel, live: boolean): BoardSheetState {
   return { room, open: setRoomId, close };
 }
 
-interface NotesCardState {
+interface CardOpening {
   open: boolean;
-  /** When the card last opened: its line's "today". */
+  /** When the card last opened: the notes line's "today", the incidents' ages. */
   openedAt: number;
   show(): void;
   close(): void;
 }
 
-/** Whether the stand-up notes card is open: never while the data is frozen. */
-function useNotesCard(live: boolean): NotesCardState {
+/** Whether a card is open, and when it last opened: never open while the data is frozen. */
+function useCardOpening(live: boolean): CardOpening {
   const [opened, setOpened] = useState(false);
   const [openedAt, setOpenedAt] = useState(0);
   const show = useCallback(() => {
@@ -595,35 +595,6 @@ function useNotesCard(live: boolean): NotesCardState {
   }, []);
   const close = useCallback(() => setOpened(false), []);
   return { open: opened && live, openedAt, show, close };
-}
-
-interface IncidentsCardState {
-  open: boolean;
-  /** When the card last opened: its ages are counted to it. */
-  openedAt: number;
-  /** Opens the card: from the strip's entry, or from anywhere else on the surface. */
-  show(): void;
-  close(): void;
-  dismiss: DismissIncidents;
-}
-
-/** Whether the Incidents card is open, never while the data is frozen, and its Dismiss. */
-function useIncidentsCard(live: boolean): IncidentsCardState {
-  const [opened, setOpened] = useState(false);
-  const [openedAt, setOpenedAt] = useState(0);
-  const show = useCallback(() => {
-    setOpenedAt(Date.now());
-    setOpened(true);
-  }, []);
-  const close = useCallback(() => setOpened(false), []);
-  const call = useRpc(incidentsDismissRpc);
-  const dismiss = useCallback(
-    async (ids?: string[]) => {
-      await call(ids === undefined ? {} : { ids });
-    },
-    [call],
-  );
-  return { open: opened && live, openedAt, show, close, dismiss };
 }
 
 /** One surface for both places: the sidebar screen and a workspace tab. */
@@ -645,6 +616,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const openMachine = useCallback(() => setMachineOpen(true), []);
   const closeMachine = useCallback(() => setMachineOpen(false), []);
   const tidy = useJanitor();
+  const dismissIncidents = useIncidents();
   const [janitorOpen, setJanitorOpen] = useState(false);
   const openJanitor = useCallback(() => setJanitorOpen(true), []);
   const closeJanitor = useCallback(() => setJanitorOpen(false), []);
@@ -661,9 +633,9 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   // In error or closed the data is frozen: no strip, no card and no board sheet to act on it.
   const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
   const board = useBoardSheet(model, live);
-  const notesCard = useNotesCard(live);
+  const notesCard = useCardOpening(live);
   const { show: openNotes, close: closeNotes } = notesCard;
-  const incidentsCard = useIncidentsCard(live);
+  const incidentsCard = useCardOpening(live);
   const { show: openIncidents } = incidentsCard;
   const standup = useStandup(model, boardActions.post, live);
   const { close: closeStandup } = standup;
@@ -846,8 +818,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         state={incidents}
         open={incidentsCard.open}
         now={incidentsCard.openedAt}
-        onDismiss={incidentsCard.dismiss}
-        onOpenUrl={openExternalUrl}
+        onDismiss={dismissIncidents}
         styles={styles}
         onClose={incidentsCard.close}
       />
