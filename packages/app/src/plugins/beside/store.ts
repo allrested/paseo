@@ -31,6 +31,10 @@ export function sameBesideTarget(a: ResolvedBesideTarget, b: ResolvedBesideTarge
   );
 }
 
+// One counter for every area, never reset: a body keyed on the revision remounts even when a close
+// and a new target land in the same render.
+let lastRevision = 0;
+
 export const useBesideStore = create<BesideState>((set) => ({
   areas: {},
   width: null,
@@ -38,8 +42,8 @@ export const useBesideStore = create<BesideState>((set) => ({
     set((state) => {
       const shown: BesideArea | undefined = state.areas[surfaceKey];
       if (shown && sameBesideTarget(shown.target, target)) return state;
-      const revision = (shown?.revision ?? 0) + 1;
-      return { areas: { ...state.areas, [surfaceKey]: { target, revision } } };
+      lastRevision += 1;
+      return { areas: { ...state.areas, [surfaceKey]: { target, revision: lastRevision } } };
     }),
   close: (surfaceKey) =>
     set((state) => {
