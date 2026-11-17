@@ -157,6 +157,8 @@ export interface WorldStartOptions {
   onIncidents?(): void;
   /** A short line the office says once. */
   onToast?(text: string): void;
+  /** False hides Photo mode: a WebView cannot keep a download. Absent: Photo mode is offered. */
+  photo?: boolean;
 }
 
 export interface WorldApi {
