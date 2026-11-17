@@ -406,6 +406,8 @@ const api = {
     const open = Array.isArray(list) ? list : [];
     showIncidents(open);
     if (open.some((incident) => incident.ring)) lifeIncidents.startIncident();
+    // With every incident dismissed, the red ends at the next frame rather than after its 25 s.
+    if (open.length === 0) state.incidentUntil = 0;
   },
   /** Usage windows of the accounts in use: [{ key, pct, resetsAt }]. */
   setLimits(list) { limits = Array.isArray(list) ? list : []; },

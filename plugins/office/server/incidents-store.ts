@@ -36,7 +36,10 @@ export interface IncidentsData {
 export const EMPTY_INCIDENTS: IncidentsData = emptyIncidents();
 
 export interface IncidentsStore {
-  /** Runs after every earlier load and save. Never rejects: a missing or broken file is empty. */
+  /**
+   * Runs after every earlier load and save. A missing file, or one that is not JSON or not of the
+   * store's shape, is empty; any other read error rejects, so no save replaces a file it never read.
+   */
   load(): Promise<IncidentsData>;
   /** Runs after every earlier load and save; rejects when the write fails. */
   save(data: IncidentsData): Promise<void>;
@@ -71,11 +74,17 @@ export function createIncidentsStore(options: {
   }
 
   async function read(): Promise<IncidentsData> {
-    let json: unknown;
+    let text: string;
     try {
-      json = JSON.parse(await readFile(file, "utf8"));
+      text = await readFile(file, "utf8");
     } catch (error) {
       if (isMissing(error)) return emptyIncidents();
+      throw error;
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
       return unreadable(errorKind(error));
     }
     const parsed = IncidentsFileSchema.safeParse(json);

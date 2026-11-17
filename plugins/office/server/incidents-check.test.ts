@@ -53,14 +53,18 @@ interface MemoryStore extends IncidentsStore {
   kept: IncidentsData;
   /** Thrown by every save while set. */
   failure: Error | null;
+  /** Thrown by every load while set. */
+  loadFailure: Error | null;
 }
 
 function memoryStore(events: string[]): MemoryStore {
   const store: MemoryStore = {
     kept: structuredClone(EMPTY_INCIDENTS),
     failure: null,
+    loadFailure: null,
     async load() {
       events.push("load");
+      if (store.loadFailure !== null) throw store.loadFailure;
       return structuredClone(store.kept);
     },
     async save(data) {
@@ -135,6 +139,13 @@ function opened(source: IncidentSource, issue: FoundIssue, foundAt: number): Inc
   };
 }
 
+/** A read of incidents.json that failed, as `readFile` rejects: its message holds the path. */
+function fileError(code: string): Error {
+  return Object.assign(new Error(`${code}: failed, open '/home/me/.paseo/office/incidents.json'`), {
+    code,
+  });
+}
+
 /** Holds the reader's reads until the returned function is called. */
 function holdReads(reader: FakeReader): () => void {
   let release = () => {};
@@ -204,6 +215,22 @@ test("start loads the store and pushes the state, reading no tracker", async () 
   await h.check.start();
 
   expect(h.changes).toEqual([{ open: [incident], problems: {} }]);
+  expect(h.events).toEqual(["load"]);
+});
+
+test("start closes what is a day old before it pushes, and saves nothing", async () => {
+  const h = harness();
+  const old = opened("jira", bug("FPOS-2", NOW - 2 * DAY), NOW - OPEN_FOR_MS);
+  const recent = opened("jira", bug("FPOS-3", NOW - 2 * MINUTE), NOW - MINUTE);
+  h.store.kept = {
+    version: 1,
+    trackers: { jira: { checkedAt: NOW - MINUTE, seen: { "FPOS-2": NOW - OPEN_FOR_MS } } },
+    open: [old, recent],
+  };
+
+  await h.check.start();
+
+  expect(h.changes).toEqual([{ open: [recent], problems: {} }]);
   expect(h.events).toEqual(["load"]);
 });
 
@@ -429,7 +456,7 @@ test("reads that fail for 3 days, then succeed, do not open the key seen in the 
   expect(h.changes.at(-1)).toEqual({ open: [], problems: {} });
 });
 
-test("a tracker turned off keeps its mark, and its incidents stay until they close", async () => {
+test("a tracker turned off forgets its mark; its incidents stay until they close", async () => {
   const h = await checkedOnce();
   h.on.add("sentry");
   const issue = bug("FPOS-3", NOW + 2 * MINUTE);
@@ -438,7 +465,6 @@ test("a tracker turned off keeps its mark, and its incidents stay until they clo
   h.jira.failure = new TrackerProblem(REFUSED);
   h.clock.advance(5 * MINUTE);
   await h.check.check();
-  const mark = h.store.kept.trackers.jira;
   const reads = h.jira.reads.length;
 
   h.on.delete("jira");
@@ -448,15 +474,32 @@ test("a tracker turned off keeps its mark, and its incidents stay until they clo
   const incident = opened("jira", issue, NOW + 5 * MINUTE);
   expect(h.jira.reads).toHaveLength(reads);
   expect(h.sentry.reads).toHaveLength(3);
-  expect(h.store.kept.trackers.jira).toEqual(mark);
+  expect(h.store.kept.trackers.jira).toBeUndefined();
   expect(h.store.kept.open).toEqual([incident]);
   // A tracker that is off is not failing.
   expect(h.changes.at(-1)).toEqual({ open: [incident], problems: {} });
 
   h.clock.advance(OPEN_FOR_MS);
   await h.check.check();
-  expect(h.store.kept.trackers.jira).toEqual(mark);
   expect(h.store.kept.open).toEqual([]);
+});
+
+test("turned on again, the next check opens nothing and marks what it finds as seen", async () => {
+  const h = await checkedOnce();
+  h.on.delete("jira");
+  await h.check.check();
+  // A week off, with bugs coming in.
+  h.clock.advance(7 * DAY);
+  h.jira.issues.push(bug("FPOS-3", NOW + DAY), bug("FPOS-4", NOW + 7 * DAY - MINUTE));
+  h.on.add("jira");
+
+  await h.check.check();
+
+  const now = NOW + 7 * DAY + 5 * MINUTE;
+  expect(h.jira.reads.at(-1)).toBe(now - WINDOW_MARGIN_MS);
+  expect(h.store.kept.open).toEqual([]);
+  expect(h.store.kept.trackers.jira).toEqual({ checkedAt: now, seen: { "FPOS-4": now } });
+  expect(h.changes.at(-1)).toEqual({ open: [], problems: {} });
 });
 
 test("trackers that cannot be listed are left as they were; incidents still close", async () => {
@@ -501,6 +544,40 @@ test("a store that loads empty mid-run makes the next run a first check", async 
     open: [],
   });
   expect(h.changes.at(-1)).toEqual({ open: [], problems: {} });
+});
+
+test("a run whose store cannot be read logs its kind and reads, saves and pushes nothing", async () => {
+  const h = await checkedOnce();
+  h.jira.issues.push(bug("FPOS-3", NOW + 2 * MINUTE));
+  const kept = structuredClone(h.store.kept);
+  const pushed = h.changes.length;
+  h.store.loadFailure = fileError("EMFILE");
+  h.events.length = 0;
+
+  await expect(h.check.check()).resolves.toBeUndefined();
+
+  expect(h.events).toEqual(["load"]);
+  expect(h.store.kept).toEqual(kept);
+  expect(h.changes).toHaveLength(pushed);
+  expect(h.logs).toEqual(["[office] unable to read the incidents (EMFILE)"]);
+
+  // Readable again: the next run opens what came in meanwhile.
+  h.store.loadFailure = null;
+  h.clock.advance(5 * MINUTE);
+  await h.check.check();
+  expect(h.store.kept.open.map((open) => open.key)).toEqual(["FPOS-3"]);
+});
+
+test("with a store that cannot be read, start logs and pushes nothing, and a dismiss rejects", async () => {
+  const h = harness();
+  h.store.loadFailure = fileError("EACCES");
+
+  await expect(h.check.start()).resolves.toBeUndefined();
+  await expect(h.check.dismiss()).rejects.toHaveProperty("code", "EACCES");
+
+  expect(h.events).toEqual(["load", "load"]);
+  expect(h.changes).toEqual([]);
+  expect(h.logs).toEqual(["[office] unable to read the incidents (EACCES)"]);
 });
 
 test("two checks at once run one after the other", async () => {

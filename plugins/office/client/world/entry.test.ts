@@ -255,6 +255,23 @@ test("the red ends after 25 s and the banner stays while the incident is open", 
   expect(page("incident").hidden).toBe(false);
 });
 
+test("dismissing one incident leaves the red; dismissing every one ends it at once", () => {
+  state.sim = 100;
+  world.setIncidents([
+    incident("SHOP-13", "Payments time out", true),
+    incident("SHOP-12", "Checkout fails on Safari", true),
+  ]);
+  state.sim = 101;
+  world.setIncidents([incident("SHOP-13", "Payments time out", false)]);
+  updateIncident(state.sim);
+  expect(page("stage-wrap").classList.contains("is-incident")).toBe(true);
+
+  world.setIncidents([]);
+  updateIncident(state.sim);
+  expect(page("stage-wrap").classList.contains("is-incident")).toBe(false);
+  expect(page("incident").hidden).toBe(true);
+});
+
 test("the banner names the newest incident and how many more; a click opens Paseo's Incidents card", () => {
   world.setIncidents([
     incident("SHOP-13", "Payments time out", false),

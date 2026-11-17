@@ -40,6 +40,7 @@ const SearchSchema = z.object({
     }),
   ),
   nextPageToken: z.string().nullish(),
+  isLast: z.boolean().nullish(),
 });
 
 /**
@@ -92,6 +93,7 @@ export function createJiraReader(
     const keys = projects.map((key) => `"${key}"`).join(", ");
     const jql = `project in (${keys}) AND issuetype = Bug AND created >= "${time}" ORDER BY created ASC`;
     const found: FoundIssue[] = [];
+    const tokensSeen = new Set<string>();
     let pageToken: string | null = null;
     do {
       const query = new URLSearchParams({
@@ -113,7 +115,12 @@ export function createJiraReader(
           createdAt: issue.fields.created,
         });
       }
-      pageToken = page.nextPageToken ?? null;
+      // Jira can hand out a token with an empty page, or the same token again: following it would
+      // never end, and the run would hold up every later run and dismiss.
+      const next = page.nextPageToken ?? null;
+      const more = page.isLast !== true && page.issues.length > 0 && next !== null;
+      pageToken = more && !tokensSeen.has(next) ? next : null;
+      if (next !== null) tokensSeen.add(next);
     } while (pageToken !== null && found.length < READ_MAX);
     return found.slice(0, READ_MAX);
   }

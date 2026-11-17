@@ -33,7 +33,7 @@ export interface IncidentsPorts {
 }
 
 export interface IncidentsCheck {
-  /** Loads the store and pushes the state. */
+  /** Loads the store and pushes the state. Never rejects: a store it cannot read pushes nothing. */
   start(): Promise<void>;
   /** One run over the trackers that are on. Never rejects. */
   check(): Promise<void>;
@@ -41,17 +41,18 @@ export interface IncidentsCheck {
   dismiss(ids?: string[]): Promise<number>;
 }
 
-/** An error's kind, never its message: it may hold an address or a header. */
+/** An error's kind, never its message: it may hold an address or a header. A file error's code. */
 function errorKind(error: unknown): string {
-  return error instanceof Error ? error.name : typeof error;
+  if (!(error instanceof Error)) return typeof error;
+  return "code" in error && typeof error.code === "string" ? error.code : error.name;
 }
 
 // Closed incidents leave the file; their keys stay seen for longer, so they never open again.
 function closeByAge(data: IncidentsData, now: number): void {
   data.open = data.open.filter((open) => now - open.foundAt < OPEN_FOR_MS);
   for (const mark of Object.values(data.trackers)) {
-    // A tracker failing or off for days keeps its time, so its next read can still return a key
-    // seen in the window, however old: that key stays.
+    // A tracker failing for days keeps its time, so its next read can still return a key seen in
+    // the window, however old: that key stays.
     const windowStart = mark.checkedAt - WINDOW_MARGIN_MS;
     const kept = Object.entries(mark.seen).filter(([, seenAt]) => {
       const recent = now - seenAt < SEEN_FOR_MS;
@@ -139,17 +140,30 @@ export function createIncidentsCheck(ports: IncidentsPorts): IncidentsCheck {
       if (reader !== undefined) {
         await checkTracker({ data, source, reader, now });
       } else {
-        // Turned off: nothing will clear its problem, and it is not failing.
+        // Turned off: nothing will clear its problem, and it is not failing. Its mark goes too, so
+        // turned on again it starts with a first check, not a replay of the time it was off.
         delete problems[source];
+        delete data.trackers[source];
       }
     }
   }
 
+  // Null when the store could not be read: a save then would replace incidents it never read.
+  async function load(): Promise<IncidentsData | null> {
+    try {
+      return await ports.store.load();
+    } catch (error) {
+      ports.log(`[office] unable to read the incidents (${errorKind(error)})`);
+      return null;
+    }
+  }
+
   // The store is read on each run and dismiss, so a file deleted while the daemon runs makes the
-  // next run a first check.
+  // next run a first check. One that cannot be read skips the run.
   async function run(): Promise<void> {
     const now = ports.now();
-    const data = await ports.store.load();
+    const data = await load();
+    if (data === null) return;
     await checkTrackers(data, now);
     closeByAge(data, now);
     try {
@@ -160,8 +174,13 @@ export function createIncidentsCheck(ports: IncidentsPorts): IncidentsCheck {
     push(data);
   }
 
+  // After a long outage, what is a day old closes here too (unsaved), so the first push neither
+  // shows nor rings it.
   async function start(): Promise<void> {
-    push(await ports.store.load());
+    const data = await load();
+    if (data === null) return;
+    closeByAge(data, ports.now());
+    push(data);
   }
 
   async function dismiss(ids?: string[]): Promise<number> {
