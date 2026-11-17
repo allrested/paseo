@@ -8,6 +8,9 @@ Controlled by `APP_VARIANT` in `packages/app/app.config.js` (vanilla Expo, no cu
 | ------------- | ----------- | ---------------- |
 | `production`  | Paseo       | `sh.paseo`       |
 | `development` | Paseo Debug | `sh.paseo.debug` |
+| `fork`        | Paseo Fork  | `sh.paseo.fork`  |
+
+`fork` is the allrested fork's own app: it installs beside the store app, pairs on its own and has no Firebase file, so push notifications do not work in it. `npm run build:apk:fork` builds it (see "The fork's app").
 
 EAS profiles: `development`, `production`, and `production-apk` in `packages/app/eas.json`.
 
