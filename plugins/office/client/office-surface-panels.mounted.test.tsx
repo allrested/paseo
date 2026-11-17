@@ -11,7 +11,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps, SettingsState } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { officeHostSettings, officeDeviceSettings } from "../shared/settings.js";
-import { ACTIVITY_SCREEN, SESSIONS_SCREEN } from "./office-link.js";
+import { ACTIVITY_SCREEN, SESSIONS_SCREEN, claimOfficeLink, linkSelect } from "./office-link.js";
 
 /** The view the device holds; every other device value is the office's default. */
 let view: "3d" | "2d" | "list";
@@ -170,6 +170,21 @@ test("the header has Sessions and Activity when the side area exists, and they o
   await press("Activity");
   expect(shown).toEqual([SESSIONS, ACTIVITY]);
   expect(opened).toEqual([]);
+});
+
+test("a header press claims the link for this office", async () => {
+  await mount();
+  // Another office took the link after this one mounted, as a second retained office would.
+  const elsewhere: string[] = [];
+  claimOfficeLink({
+    select: (agentId) => void elsewhere.push(agentId),
+    openSession: (agentId) => void elsewhere.push(agentId),
+  });
+
+  await press("Sessions");
+  // The panel in the area (no showBeside of its own) now reaches this office, not the other.
+  act(() => linkSelect("a1", { openAgent: () => undefined, openWorkspace: () => undefined }));
+  expect(elsewhere).toEqual([]);
 });
 
 test("without showBeside the buttons are not there", async () => {
