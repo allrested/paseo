@@ -77,17 +77,17 @@ change a token; the most work).
 
 ### The check
 
-| Question        | Decision                                                                                                                                                                                                                                                                                                                     |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The schedule    | One plugin schedule, `incidents`, every 5 minutes, kept while at least one tracker is on and removed when none is. It follows the settings the way `createNotesSchedule` does: in order, unchanged schedules left alone, a failure kept for the settings screen.                                                             |
-| Jira            | `GET /rest/api/3/search/jql` with `project in (<keys>) AND issuetype = Bug AND created >= "<time>" ORDER BY created ASC`, fields `summary` and `created`. The issue's link is `<ATLASSIAN_BASE_URL>/browse/<key>`.                                                                                                           |
-| Sentry          | `GET <sentryUrl>/api/0/organizations/<org>/issues/` with `query=is:unresolved firstSeen:>=<time>` and the listed projects, newest first. The link is the issue's `permalink`.                                                                                                                                                |
-| The time window | My call: `<time>` is the last successful check less 10 minutes. Jira compares `created` to the minute and in the time zone of the token user's Jira profile, so a window to the second would miss issues. Keys seen in the last 2 days are kept, and an issue whose key was seen is not an incident again, dismissed or not. |
-| The first check | A tracker with no saved time saves the check's time and the keys found, and opens nothing. A tracker whose projects change keeps its time, so a project added later rings only for issues from then on less the margin. My call.                                                                                             |
-| Limits          | At most 20 incidents opened per tracker per check, the oldest first; the rest wait for the next check, which looks from the same time. Each request ends after 30 s and follows no redirect. My call.                                                                                                                        |
-| A failed check  | The tracker's saved time does not move. The error (status and the tracker's message, never a header or a token) is logged once per change and kept as the tracker's `problem` until a check succeeds.                                                                                                                        |
-| The store       | `$PASEO_HOME/office/incidents.json`, written whole through a temp file as `boards.json` is: per tracker the last check's time and the seen keys with when they were seen; the open incidents. An incident is `{ id, source: "jira" \| "sentry", key, title, url, createdAt, foundAt }`. A title is cut at 200 characters.    |
-| Closing         | An incident closes when it is dismissed or 24 hours after `foundAt`. Closed incidents are dropped from the file; their keys stay seen.                                                                                                                                                                                       |
+| Question        | Decision                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The schedule    | One plugin schedule, `incidents`, every 5 minutes, kept while at least one tracker is on and removed when none is. It follows the settings the way `createNotesSchedule` does: in order, unchanged schedules left alone, a failure kept for the settings screen.                                                                                                                                          |
+| Jira            | `GET /rest/api/3/search/jql` with `project in (<keys>) AND issuetype = Bug AND created >= "<time>" ORDER BY created ASC`, fields `summary` and `created`. The issue's link is `<ATLASSIAN_BASE_URL>/browse/<key>`.                                                                                                                                                                                        |
+| Sentry          | `GET <sentryUrl>/api/0/organizations/<org>/issues/` with `query=is:unresolved firstSeen:>=<time>` and the listed projects, newest first. The link is the issue's `permalink`.                                                                                                                                                                                                                             |
+| The time window | My call: `<time>` is the last successful check less 10 minutes. Jira compares `created` to the minute and in the time zone of the token user's Jira profile, so a window to the second would miss issues. Keys seen in the last 2 days are kept, and an issue whose key was seen is not an incident again, dismissed or not.                                                                              |
+| The first check | A tracker with no saved time saves the check's time and the keys found, and opens nothing. A tracker whose projects change keeps its time, so a project added later rings only for issues from then on less the margin. My call. Decided while building: a tracker that is off at a check forgets its time, so turned on again its next check is a first check and rings nothing for the time it was off. |
+| Limits          | At most 20 incidents opened per tracker per check, the oldest first; the rest wait for the next check, which reads from the `created` of the last one opened, less the margin. Each request ends after 30 s and follows no redirect. My call.                                                                                                                                                             |
+| A failed check  | The tracker's saved time does not move. The error (status and the tracker's message, never a header or a token) is logged once per change and kept as the tracker's `problem` until a check succeeds.                                                                                                                                                                                                     |
+| The store       | `$PASEO_HOME/office/incidents.json`, written whole through a temp file as `boards.json` is: per tracker the last check's time and the seen keys with when they were seen; the open incidents. An incident is `{ id, source: "jira" \| "sentry", key, title, url, createdAt, foundAt }`. A title is cut at 200 characters.                                                                                 |
+| Closing         | An incident closes when it is dismissed or 24 hours after `foundAt`. Closed incidents are dropped from the file; their keys stay seen.                                                                                                                                                                                                                                                                    |
 
 ### On the screen
 
@@ -102,7 +102,7 @@ change a token; the most work).
 
 | Question            | Decision                                                                                                                                                                                                                                                                                                                                          |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The scene's call    | `setIncidents(incidents)` on `PaseoOfficeWorld`, with each open incident and whether this device has rung for it. `WORLD_API_VERSION` stays 1 if the call is optional to the client, as `setMachine` is.                                                                                                                                          |
+| The scene's call    | `setIncidents(incidents)` on `PaseoOfficeWorld`, with each open incident and whether this device has rung for it. `WORLD_API_VERSION` stays 1 if the call is optional to the client, as `meet` is.                                                                                                                                                |
 | What rings          | An incident this device has not rung for: 25 s of upstream's red pulsing light and red stage, a fail bubble for each person at work, and the siren. Several new at once ring once.                                                                                                                                                                |
 | Rung on this device | The client keeps the ids this device rang for, for 2 days, so opening the office again does not ring again. Where it keeps them is the builder's (below). My call.                                                                                                                                                                                |
 | The banner          | Upstream's `#incident` banner while any incident is open, not only during the 25 s: "Incident: <key> <title>" for the newest, and "+N more" for the rest. A click opens the Incidents card through a new `onIncidents()` start option; the scene opens no link itself.                                                                            |
@@ -194,11 +194,11 @@ touched. The office was driven through its RPCs with the CLI's client, and its s
   all, the search's count. The 40 dismissed by then did not open again, though the last read's
   window held at least one of them, `FP-1435`.
 - Dismiss, from the card through the page below: one id answered `{ dismissed: 1 }` and the next
-  snapshot had 39; none answered `{ dismissed: 39 }` and the snapshot had none. With the CLI's
-  client on the last 2: one id answered 1, the same id again 0, all answered 1, and all again 0.
-  The 42 keys stayed seen in `incidents.json`, which is mode 600.
+  snapshot had 39; Dismiss all (no ids) answered `{ dismissed: 39 }` and the snapshot had none.
+  With the CLI's client on the last 2: one id answered 1, the same id again 0, all answered 1, and
+  all again 0. The 42 keys stayed seen in `incidents.json`, which is mode 600.
 - "Jira projects" cleared: the schedule left the daemon's store, Jira's mark stayed, and no
-  problem was set.
+  problem was set. Since then, a tracker turned off forgets its mark (The first check, above).
 - No log line of the daemon held the token or the Basic header made from it, checked by count.
 
 ### On a static page
@@ -233,9 +233,8 @@ What did not come out as the check was written:
 - Jira does not refuse a project key it does not know. Read only, `project in ("FP", "ZZNOPE")`
   answered 200 with FP's issues, and `"ZZNOPE"` alone 200 with none. A mistyped key rings nothing
   and shows no problem, and no failed check could be caused against the real Jira.
-- The stage stayed red after "Dismiss all" until its 25 s ran out: a dismiss does not end a ring.
-  In this browser the scene drew a few frames a second, so the 25 s of scene time took longer.
-- Nobody was at work on the dev daemon, so no fail bubble was drawn.
+- The stage stayed red after "Dismiss all" until its 25 s ran out. Since then, a list with no open
+  incident ends the red at the next frame (below, under Not verified).
 
 ## Not verified
 
@@ -249,6 +248,14 @@ Tests cover each of these; the live check did not reach them:
   `plugins/office/client/incidents-text.test.ts`.
 - An incident closing 24 hours after it was found: `incidents-check.test.ts`. The daemon ran for
   less than 20 minutes.
+- A Jira user whose profile zone is far from the host's: the query's time is written in the zone
+  `/myself` gives. `plugins/office/server/incidents-jira.test.ts`.
+- `incidents.json` deleted or broken while the daemon runs: the next check is a first check and
+  opens nothing for the backlog. A file that cannot be read skips the check and is not
+  overwritten. `plugins/office/server/incidents-store.test.ts`, `incidents-check.test.ts`.
+- A fail bubble over each person at work: nobody was at work on the dev daemon.
+  `plugins/office/client/world/entry.test.ts`.
+- "Dismiss all" ending a ring under way, built after the live check: `entry.test.ts`.
 
 Not seen for other reasons:
 

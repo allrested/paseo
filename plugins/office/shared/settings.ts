@@ -104,8 +104,8 @@ export type OfficeViewChoice = (typeof OFFICE_VIEWS)[number];
 /**
  * Per device. `view` is the view somebody chose. A device that never chose has only `threeD`,
  * from when the office had a 3D switch: off is the list, on leaves the choice to the device. A
- * save writes both, so a client from before `view` still reads its switch. `rungIncidents` is
- * when this device rang its alarm for each incident, epoch ms by incident id.
+ * save writes both. A client from before version 2 reads neither: it refuses the newer version.
+ * `rungIncidents` is when this device rang its alarm for each incident, epoch ms by incident id.
  */
 export const officeDeviceSettings = defineSettings({
   id: "office-device",

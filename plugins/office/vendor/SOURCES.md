@@ -94,10 +94,10 @@ and the bookshelf open Paseo's Library card.
 ### What the scene is told
 
 Paseo sends the scene who is there and what kind of thing each person does (`client/world/
-world-api.ts`), never a file name, a command or a prompt, and the open incidents' keys and titles
-for the banner. The scene runs in upstream's streamer mode, which writes "a file" and "a command"
-where upstream would write the name, and the entry keeps the feed and the counts upstream's server
-would keep, from the moment the office opens.
+world-api.ts`), never a file name, a command or a prompt. It also sends the open incidents' keys
+and titles for the banner. The scene runs in upstream's streamer mode, which writes "a file" and
+"a command" where upstream would write the name, and the entry keeps the feed and the counts
+upstream's server would keep, from the moment the office opens.
 
 The scene writes three things to the app origin's `localStorage`, under keys that start with
 `office-`: which team sits where, the plants, and the graphics level. It reads a few more

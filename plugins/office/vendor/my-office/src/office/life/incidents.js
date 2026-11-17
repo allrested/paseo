@@ -1,4 +1,4 @@
-// Incidents: repeated failures turn the office red.
+// PASEO: Incidents: one the office found in Jira or Sentry turns the office red (upstream's: repeated failures).
 // PASEO: upstream's file, trimmed. An incident is one Paseo's office found in a tracker and the entry tells the scene
 // (paseo-entry.js setIncidents), not three failures in five minutes: `fails` and that branch are cut. `onEvent` is cut
 // too: its part that moves people and furniture is paseo-entry.js's. The banner is paseo-entry.js's: it shows while an
@@ -12,7 +12,7 @@ import { sessions, workers } from '../people/workers.js';
 import { sfx } from '../audio/sfx.js';
 import { t as tr } from '../../i18n/index.js';
 
-/* ---------- incidents: three failures in five minutes turn the office red for a while ---------- */
+// PASEO: incidents: a new one from a tracker turns the office red for 25 s (upstream's: three failures in five minutes)
 const alarm = new THREE.PointLight('#FF2A2A', 0, 18, 1.4);
 // PASEO: exported for paseo-entry.js; no session to name and no banner to fill here, the banner is the entry's
 export function startIncident() {
