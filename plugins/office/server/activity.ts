@@ -47,10 +47,16 @@ const DETAIL_KINDS: Readonly<Record<string, ActivityKind>> = {
   plan: "plan",
 };
 
+// What a command line puts before the command: `sudo`, `env`, `NAME=value`.
+const PREFIX = String.raw`(?:(?:sudo|env)(?:\s+-\S+)*\s+|\w+=\S*\s+)*`;
 // Where a command starts: the start of the string, or after `;`, `&&`, `||`, `|`, `(` or a newline,
-// past what a command line puts before the command (`sudo`, `env`, `NAME=value`).
-const COMMAND_START = String.raw`(?:^|[;&|(\n])\s*(?:(?:sudo|env)(?:\s+-\S+)*\s+|\w+=\S*\s+)*`;
+// past its prefix.
+const COMMAND_START = String.raw`(?:^|[;&|(\n])\s*` + PREFIX;
 
+// `make deploy`, `just deploy`, and their `deploy-…` targets.
+const DEPLOY_TARGET = new RegExp(
+  COMMAND_START + String.raw`(?:make|just)\b[^\n;|&]*?\sdeploy(?:-[\w-]*)?(?=$|[\s;|&)])`,
+);
 // A push of a version tag, or a command whose job is to put something live.
 const DEPLOY = [
   /\bgit\s+push\b[^\n;|&]*(?:--tags\b|\bv\d+\.\d+\.\d+)/,
@@ -62,10 +68,7 @@ const DEPLOY = [
   /\bterraspace\s+up\b/,
   /\bdocker\s+push\b/,
   /\bgh\s+release\s+create\b/,
-  // `make deploy`, `just deploy`, and their `deploy-…` targets.
-  new RegExp(
-    COMMAND_START + String.raw`(?:make|just)\b[^\n;|&]*?\sdeploy(?:-[\w-]*)?(?=$|[\s;|&)])`,
-  ),
+  DEPLOY_TARGET,
   // A Dokploy redeploy: an HTTP client calls its API's method, which may come anywhere on its line.
   new RegExp(
     COMMAND_START +
@@ -92,11 +95,25 @@ const SKILL_IN_COMMAND = /(?:^|[\s/'"])SKILL\.md\b/;
 const TEST =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\b(?:vitest|jest|pytest)\b|\bplaywright\s+test\b|\b(?:go|cargo)\s+test\b|\bgradlew?\s+\S*test\b/;
 
+// A deploy that only says what it would do: a check, a dry run, a list. To make, just and a
+// deploy script `-n` is a dry run too, past the prefix (`sudo -n` asks for no password); to
+// kubectl and helm it names a namespace.
+const DRY_RUN = /\s--(?:dry-?run|check|list|just-print|recon)(?=$|[\s=])/;
+const DRY_RUN_SHORT = /\s-n(?=$|\s)/;
+const LEADING_PREFIX = new RegExp(String.raw`^[\s(]*` + PREFIX);
+
+/** One command of a command line puts something live: a deploy that is not a dry run. */
+function deploys(command: string): boolean {
+  const runner = DEPLOY_TARGET.test(command) || DEPLOY_SCRIPT.test(command);
+  if (!runner && !DEPLOY.some((pattern) => pattern.test(command))) return false;
+  const bare = command.replace(LEADING_PREFIX, "");
+  return !DRY_RUN.test(command) && !(runner && DRY_RUN_SHORT.test(bare));
+}
+
 /** What a shell command is for. The command is read here and goes no further. */
 function commandKind(command: string): ActivityKind {
-  if (DEPLOY.some((pattern) => pattern.test(command)) || DEPLOY_SCRIPT.test(command)) {
-    return "deploy";
-  }
+  // Each command of the line on its own: a dry run's flag says nothing of the next command.
+  if (command.split(/[;&|\n]/).some(deploys)) return "deploy";
   if (/\bgit\s+push\b/.test(command)) return "push";
   if (/\bgit\s+commit\b/.test(command)) return "commit";
   if (TEST.test(command)) return "test";

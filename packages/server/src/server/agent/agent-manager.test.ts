@@ -6184,6 +6184,62 @@ test("reopening a closed agent keeps metadata saved while the loader was reading
   expect((await storage.get(agentId))?.metadata).toEqual({ first: 1, second: 2 });
 });
 
+test("setMetadata on a live agent is not activity: updatedAt stays and the state still goes out", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-metadata-live-updated-at-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+  const created = await manager.createAgent(
+    { provider: "codex", cwd: workdir, title: "Metadata live" },
+    undefined,
+    { workspaceId: undefined },
+  );
+  const before = manager.getAgent(created.id)!.updatedAt.getTime();
+  const storedBefore = (await storage.get(created.id))!.updatedAt;
+  const emitted: unknown[] = [];
+  manager.subscribe(
+    (event) => {
+      if (event.type === "agent_state") emitted.push(event.agent.metadata);
+    },
+    { agentId: created.id, replayState: false },
+  );
+
+  await manager.setMetadata(created.id, { "office.subagent.number": 1 });
+
+  expect(manager.getAgent(created.id)!.updatedAt.getTime()).toBe(before);
+  expect((await storage.get(created.id))!.updatedAt).toBe(storedBefore);
+  expect((await storage.get(created.id))!.metadata).toEqual({ "office.subagent.number": 1 });
+  expect(emitted.at(-1)).toEqual({ "office.subagent.number": 1 });
+});
+
+test("setMetadata on a stored agent is not activity: updatedAt stays", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-metadata-stored-updated-at-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+  const created = await manager.createAgent(
+    { provider: "codex", cwd: workdir, title: "Metadata stored" },
+    undefined,
+    { workspaceId: undefined, metadata: { first: 1 } },
+  );
+  await manager.closeAgent(created.id);
+  expect(manager.getAgent(created.id)).toBeNull();
+  const before = (await storage.get(created.id))!.updatedAt;
+
+  const saved = await manager.setMetadata(created.id, { "office.subagent.next": 2 });
+
+  expect(saved).toEqual({ first: 1, "office.subagent.next": 2 });
+  const after = await storage.get(created.id);
+  expect(after?.metadata).toEqual({ first: 1, "office.subagent.next": 2 });
+  expect(after?.updatedAt).toBe(before);
+});
+
 test("detachAgent removes relationship lifecycle labels from a live agent and emits state", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-detach-live-"));
   const storagePath = join(workdir, "agents");

@@ -39,6 +39,7 @@ export function liveHubPorts(
     },
     timers,
     log,
+    setAgentMetadata: (agentId, patch) => holder.require().agents.ref(agentId).setMetadata(patch),
   };
 }
 

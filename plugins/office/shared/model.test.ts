@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { OfficeAgent, OfficeSnapshot, Post } from "./contracts.js";
 import {
   agentMeta,
+  agentTask,
   agentTitle,
   answerableInOffice,
   buildOfficeModel,
@@ -250,6 +251,17 @@ test("a room shows open and claimed tasks and notes, not done tasks or unknown b
   );
   expect(model.rooms[1]?.posts.map((item) => item.id)).toEqual(["p1", "p3"]);
   expect(model.rooms.some((room) => room.id === "w9")).toBe(false);
+});
+
+test("the office name comes first, and the task is kept for the card", () => {
+  expect(agentTitle(agent("a", { title: "Explore the cart API", name: "Mjd-1" }))).toBe("Mjd-1");
+  expect(agentTitle(agent("a", { title: "Mjd" }))).toBe("Mjd");
+  expect(agentTask(agent("a", { title: " Explore the cart API ", name: "Mjd-1" }))).toBe(
+    "Explore the cart API",
+  );
+  expect(agentTask(agent("a", { title: "Mjd" }))).toBeNull();
+  expect(agentTask(agent("a", { title: "Mjd-1", name: "Mjd-1" }))).toBeNull();
+  expect(agentTask(agent("a", { title: null, name: "Mjd-1" }))).toBeNull();
 });
 
 test("titles, meta, dots and answerable kinds", () => {

@@ -12,6 +12,7 @@ import type { ActivityLines, ActivitySteps } from "./activity.js";
 import { settleResets } from "./directory.js";
 import { errorMessage } from "./errors.js";
 import type { Timers } from "./timers.js";
+import { NEXT_KEY, NUMBER_KEY, officeNames, planNumbers } from "./subagent-names.js";
 
 /** Directory updates come in bursts while agents stream; one event per window is enough. */
 export const DIRECTORY_FLUSH_MS = 300;
@@ -43,6 +44,8 @@ export interface HubPorts {
   ): () => void;
   timers: Timers;
   log(message: string): void;
+  /** Stores data on an agent; the office keeps its sub-agent numbers there. */
+  setAgentMetadata?(agentId: string, patch: Record<string, number>): Promise<void>;
 }
 
 export interface Hub {
@@ -146,11 +149,76 @@ export function createHub(ports: HubPorts): Hub {
     }
   }
 
+  // Numbers sent and not yet reported back, by agent. They are planned as if stored, so a
+  // number in flight is never handed out again, whatever order the echoes come back in.
+  const pendingNumbers = new Map<string, Record<string, number>>();
+
+  function withPending(agents: readonly OfficeAgent[]): OfficeAgent[] {
+    return agents.map((agent) => {
+      const patch = pendingNumbers.get(agent.id);
+      if (patch === undefined) return agent;
+      const number = patch[NUMBER_KEY];
+      const next = patch[NEXT_KEY];
+      if (
+        (number === undefined || agent.number === number) &&
+        (next === undefined || agent.next === next)
+      ) {
+        pendingNumbers.delete(agent.id);
+        return agent;
+      }
+      return {
+        ...agent,
+        ...(number === undefined ? {} : { number }),
+        ...(next === undefined ? {} : { next }),
+      };
+    });
+  }
+
+  function writeNumbers(agents: readonly OfficeAgent[]): void {
+    const write = ports.setAgentMetadata;
+    if (write === undefined) return;
+    const send = (agentId: string, patch: Record<string, number>): Promise<boolean> =>
+      write(agentId, patch).then(
+        () => true,
+        (error: unknown) => {
+          pendingNumbers.delete(agentId);
+          ports.log(`[office] subagent number failed: ${errorMessage(error)}`);
+          return false;
+        },
+      );
+    // A parent's next is stored before its sub-agents' numbers go out (see planNumbers).
+    let parentStored: Promise<boolean> = Promise.resolve(true);
+    for (const { agentId, patch } of planNumbers(withPending(agents))) {
+      pendingNumbers.set(agentId, { ...pendingNumbers.get(agentId), ...patch });
+      if (NEXT_KEY in patch) {
+        parentStored = send(agentId, patch);
+        continue;
+      }
+      void parentStored.then((stored) => {
+        if (stored) return send(agentId, patch);
+        pendingNumbers.delete(agentId);
+        return false;
+      });
+    }
+  }
+
+  function named(agents: readonly OfficeAgent[]): OfficeAgent[] {
+    const names = officeNames(agents);
+    return agents.map((agent) => {
+      const name = names.get(agent.id);
+      return name === undefined ? agent : { ...agent, name };
+    });
+  }
+
   function onDirectory(next: DirectoryView): void {
     reported = next;
+    writeNumbers(next.agents);
     const settled = settleResets(next.agents, resets);
     resets = settled.resets;
-    view = resets.size === 0 ? next : { agents: settled.agents, workspaces: next.workspaces };
+    view = {
+      agents: named(resets.size === 0 ? next.agents : settled.agents),
+      workspaces: next.workspaces,
+    };
     // Until the start finished, the first snapshot carries the view.
     if (stopDirectory === null || cancelFlush !== null) return;
     cancelFlush = ports.timers.setTimeout(() => {
@@ -262,6 +330,7 @@ export function createHub(ports: HubPorts): Hub {
     stopDirectory = null;
     view = EMPTY_VIEW;
     reported = EMPTY_VIEW;
+    pendingNumbers.clear();
     if (stop === null) return;
     try {
       await stop();

@@ -22,6 +22,7 @@ import {
   unarchiveAgentState,
   waitForAgentRunStartWithTimeout,
 } from "../agent-prompt.js";
+import type { JsonValue } from "@getpaseo/protocol/agent-types";
 import type { AgentMode, AgentSessionConfig } from "../agent-sdk-types.js";
 import type { AgentStorage, StoredAgentRecord } from "../agent-storage.js";
 import type { FinishRegistration } from "../finish-subscriptions/index.js";
@@ -516,7 +517,12 @@ async function resumeNatively(
     { ...source.persistence, provider: target.providerId },
     { cwd: source.cwd, ...(model ? { model } : {}) },
     undefined,
-    { labels, workspaceId: source.workspaceId, background: source.background },
+    {
+      labels,
+      metadata: source.metadata,
+      workspaceId: source.workspaceId,
+      background: source.background,
+    },
   );
 }
 
@@ -559,7 +565,8 @@ async function moveForward(
   // its own parent link (paseo.parent-agent-id / paseo.parent-server-id, so it stays a sub-agent
   // of the same parent), its open tabs (paseo.open-agent-tab.*, so archive keeps it listed), an
   // earlier paseo.moved-from-agent-id (overwritten below to point at the source), and any user
-  // labels. The source's own moved-to link is the one label that does not carry over.
+  // labels. The source's own moved-to link is the one label that does not carry over. The
+  // source's plugin metadata carries over whole, as labels do.
   const labels: Record<string, string> = {
     ...source.labels,
     [MOVED_FROM_AGENT_ID_LABEL]: source.id,
@@ -611,6 +618,7 @@ async function moveForward(
         },
         workspaceId,
         labels,
+        metadata: source.metadata,
         background: source.background ?? false,
         provisionalTitle: title,
         firstAgentContext: { attachments: [] },
@@ -799,6 +807,31 @@ export async function moveAgentBack(
   });
 }
 
+/** The metadata patch that leaves an agent holding `next` exactly: keys only in `held` go. */
+function replacingMetadata(
+  held: Readonly<Record<string, JsonValue>>,
+  next: Readonly<Record<string, JsonValue>>,
+): Record<string, JsonValue | null> {
+  const patch: Record<string, JsonValue | null> = { ...next };
+  for (const key of Object.keys(held)) if (!(key in next)) patch[key] = null;
+  return patch;
+}
+
+/**
+ * The agent being left holds the plugins' newest state of this session (a move forward copied it
+ * there), so the original takes it over as it is.
+ */
+async function takeOverMetadata(
+  deps: MoveAgentDeps,
+  current: ManagedAgent,
+  original: ManagedAgent,
+): Promise<void> {
+  const latest = deps.agentManager.getAgent(current.id)?.metadata ?? current.metadata;
+  // (after a native reload `original` is stale, as in finish)
+  const held = deps.agentManager.getAgent(original.id)?.metadata ?? original.metadata;
+  await deps.agentManager.setMetadata(original.id, replacingMetadata(held, latest));
+}
+
 /** Move back returns only to an archived agent; a live one has its own session going on. */
 function activeAgainError(agentId: string): MoveAgentError {
   return new MoveAgentError(
@@ -882,6 +915,7 @@ async function moveBack(
       moveHistory: { ...chain, sinceSeq: await latestSeq(deps, originalId) },
       pendingMoveContext,
     });
+    await takeOverMetadata(deps, current, original);
     // Returning to a login is trusting it again. Cleared before the continue turn, so a limit
     // that turn hits is recorded rather than erased.
     await deps.agentManager.setLimitReached(originalId, null);
@@ -899,6 +933,7 @@ async function moveBack(
       previousMovedTo,
       previousMoveState,
       previousLimitReached: record.limitReached ?? null,
+      previousMetadata: record.metadata,
     });
     await undoTranscriptCopy(deps, shared);
     throw toMoveError(error);
@@ -906,8 +941,8 @@ async function moveBack(
 }
 
 /**
- * Puts the original back the way move back found it: its move state and limit, archived and
- * linked.
+ * Puts the original back the way move back found it: its move state, limit and plugin metadata,
+ * archived and linked.
  */
 async function restoreOriginal(
   deps: MoveAgentDeps,
@@ -919,11 +954,20 @@ async function restoreOriginal(
       pendingMoveContext: PendingMoveContext | null;
     };
     previousLimitReached: ManagedAgent["limitReached"];
+    previousMetadata: Readonly<Record<string, JsonValue>>;
   },
 ): Promise<void> {
   const { originalId, previousMovedTo } = input;
   try {
     await deps.agentStorage.setMoveState(originalId, input.previousMoveState);
+    const held =
+      deps.agentManager.getAgent(originalId)?.metadata ??
+      (await deps.agentStorage.get(originalId))?.metadata ??
+      {};
+    await deps.agentManager.setMetadata(
+      originalId,
+      replacingMetadata(held, input.previousMetadata),
+    );
     if (deps.agentManager.getAgent(originalId)) {
       // The archive below persists the live agent, so its limit goes back first.
       await deps.agentManager.setLimitReached(originalId, input.previousLimitReached);

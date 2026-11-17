@@ -48,6 +48,17 @@ export const OfficeAgentSchema = z.object({
   createdAt: z.string(),
   /** Absent for a provider that reports no context window, and before an agent's first turn. */
   context: AgentContextSchema.optional(),
+  /** A sub-agent's number among its parent's, as the office stored it on the agent. */
+  number: z.number().int().positive().optional(),
+  /** On a parent: the number its next sub-agent gets. */
+  next: z.number().int().positive().optional(),
+  /** The office's name for a numbered sub-agent: `<parent's name>-<number>`. */
+  name: z.string().optional(),
+  /**
+   * For an idle agent: when anything about it last changed on the host, its turn's end at the
+   * earliest. Absent for any other status: a running agent's time moves with every step.
+   */
+  idleSince: z.string().optional(),
 });
 export type OfficeAgent = z.output<typeof OfficeAgentSchema>;
 

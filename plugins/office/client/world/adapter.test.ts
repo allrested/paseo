@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityStep, OfficeAgent, OfficeSnapshot } from "../../shared/contracts.js";
 import { buildOfficeModel } from "../../shared/model.js";
+import { NO_RESTS, restsAfter } from "../pixel/actors.js";
 import {
   PLAN_DESKS,
   type WorldMemory,
@@ -14,6 +15,7 @@ import {
   worldChanges,
   worldMachine,
   worldPeople,
+  withRestTimes,
 } from "./adapter.js";
 
 function agent(id: string, patch: Partial<OfficeAgent> = {}): OfficeAgent {
@@ -151,6 +153,56 @@ describe("the office's agents as the scene's people", () => {
 
     expect(sessions[0]?.usage).toEqual({ ctx: 164_000, ctxMax: 200_000 });
     expect(sessions[1]).not.toHaveProperty("usage");
+  });
+
+  it("gives a resting person the time it came to rest, kept while it rests", () => {
+    const seat = (agents: OfficeAgent[]) =>
+      worldPeople(buildOfficeModel(office(agents)), PLAN_DESKS.pro).sessions;
+    const first = seat([agent("1"), agent("2", { status: "running" })]);
+    const rests = restsAfter(NO_RESTS, first, 1_000);
+
+    const shown = withRestTimes(first, rests);
+    expect(shown[0]?.doneAt).toBe(1_000);
+    expect(shown[1]).not.toHaveProperty("doneAt");
+
+    // Agent 2 rests from 5 s on; agent 1 still from 1 s.
+    const second = seat([agent("1"), agent("2")]);
+    const later = withRestTimes(second, restsAfter(rests, second, 5_000));
+    expect(later.map((session) => [session.id, session.doneAt])).toEqual([
+      ["1", 1_000],
+      ["2", 5_000],
+    ]);
+  });
+
+  it("takes the host's time of a resting agent, or the view's when that is earlier", () => {
+    const host = Date.parse("2026-11-17T18:00:00.000Z");
+    const idleSince = "2026-11-17T18:00:00.000Z";
+    const { sessions } = worldPeople(
+      buildOfficeModel(
+        office([
+          agent("1", { idleSince }),
+          agent("2", { idleSince }),
+          // Idle itself, and at work for the scene while its sub-agent runs.
+          agent("3", { idleSince }),
+          agent("4", { parentAgentId: "3", status: "running" }),
+        ]),
+      ),
+      PLAN_DESKS.pro,
+    );
+    expect(sessions[0]?.doneAt).toBe(host);
+    expect(sessions[2]).not.toHaveProperty("doneAt");
+
+    // Agent 1 was first seen resting at 22:00; agent 2 was renamed after it came to rest.
+    const seen = new Map([
+      ["1", host + 4 * 3_600_000],
+      ["2", host - 60_000],
+    ]);
+    expect(withRestTimes(sessions, seen).map((session) => session.doneAt)).toEqual([
+      host,
+      host - 60_000,
+      undefined,
+      undefined,
+    ]);
   });
 
   it("names a room's team, and nothing for a room that is gone", () => {
