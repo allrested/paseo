@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import { ACTIVITY_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
 import { OfficeSurface } from "./client/office-surface.js";
 
 const SCREEN_ID = "office";
@@ -12,11 +13,31 @@ function OfficeItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return <SidebarRow icon={ICON} active={currentScreen?.screenId === SCREEN_ID} onPress={open} />;
 }
 
+// The panels beside the floor are built next: the header's buttons open them in the side area,
+// and their own routes show them full width.
+function SessionsPanelPlaceholder() {
+  return null;
+}
+
+function ActivityPanelPlaceholder() {
+  return null;
+}
+
 // A built-in has no row in Settings > Plugins: the sidebar item and the Command Center item are
 // the ways in. Settings > Sidebar can hide the item.
 export default function contribute(client: PluginClientContext) {
   const removers = [
     client.addScreen({ id: SCREEN_ID, title: "Office", Component: OfficeSurface }),
+    client.addScreen({
+      id: SESSIONS_SCREEN,
+      title: "Sessions",
+      Component: SessionsPanelPlaceholder,
+    }),
+    client.addScreen({
+      id: ACTIVITY_SCREEN,
+      title: "Activity",
+      Component: ActivityPanelPlaceholder,
+    }),
     client.addSidebarHeaderItem({ id: SCREEN_ID, title: "Office", Component: OfficeItem }),
     client.addWorkspacePanel({
       id: PANEL_ID,
