@@ -126,7 +126,7 @@ test("status changes: started, finished, error", () => {
   expect(ids(events)).toEqual([`ali:running@${t0}`, `bob:idle@${IDLE_SINCE}`, `cid:error@${t0}`]);
 });
 
-test("a new permission is an alert with its title", () => {
+test("a new permission is an alert, with its title for a tool and its kind's words for a plan", () => {
   const events = feedEvents(
     s({
       ali: {
@@ -146,7 +146,7 @@ test("a new permission is an alert with its title", () => {
     t0,
   );
   expect(events.map((event) => [event.id, event.kind, event.alert, event.text])).toEqual([
-    ["ali:p2", "permission", true, "Needs permission: Write the plan"],
+    ["ali:p2", "permission", true, "Has a plan to review"],
   ]);
 });
 
@@ -378,7 +378,7 @@ test("alerts stand alone", () => {
       ev("a:p1", t0 - 1000, {
         kind: "permission",
         alert: true,
-        text: eventText("permission", { title: "Bash" }),
+        text: eventText("permission", { title: "Bash", permissionKind: "tool" }),
       }),
       ev("a:k2", t0 - 2000),
     ],
@@ -399,7 +399,7 @@ test("the Needs you tab and the chips filter", () => {
     ev("c:p1", t0 - 3 * 60_000, {
       kind: "permission",
       alert: true,
-      text: eventText("permission", { title: "Bash" }),
+      text: eventText("permission", { title: "Bash", permissionKind: "tool" }),
     }),
     ev("d:k1", t0 - 2 * 60_000, { kind: "error", alert: true }),
     ev("e:k1", t0 - 60_000, {
@@ -437,6 +437,8 @@ test("no event text names a file, a command or a prompt", () => {
           status: "running",
           permissions: [
             { id: "p1", kind: "tool", title: "Bash", detail: "rm -rf ./build && cat .env" },
+            // Claude's AskUserQuestion: the title is the question, the model's own prose.
+            { id: "p2", kind: "question", title: "Run rm -rf ./build, then read .env?" },
           ],
         },
       },
@@ -446,6 +448,7 @@ test("no event text names a file, a command or a prompt", () => {
   );
   const texts = events.map((event) => event.text);
   expect(texts).toContain("Needs permission: Bash");
+  expect(texts).toContain("Has a question");
   expect(texts).toContain("Running a command");
   for (const text of texts) {
     expect(text).not.toContain("rm -rf");

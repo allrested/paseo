@@ -35,10 +35,24 @@ test("the status words", () => {
   expect(eventText("error")).toBe("Stopped on an error");
 });
 
-test("a permission is named by its short title, never its detail", () => {
-  expect(eventText("permission", { title: "Bash" })).toBe("Needs permission: Bash");
+test("a tool or mode permission is named by its short title, never its detail", () => {
+  expect(eventText("permission", { title: "Bash", permissionKind: "tool" })).toBe(
+    "Needs permission: Bash",
+  );
+  expect(eventText("permission", { title: "Plan mode", permissionKind: "mode" })).toBe(
+    "Needs permission: Plan mode",
+  );
   // No title, as the office sends none for some kinds: the word alone.
-  expect(eventText("permission")).toBe("Needs permission");
+  expect(eventText("permission", { permissionKind: "tool" })).toBe("Needs permission");
+});
+
+test("a question, a plan or another permission never shows its title, which can be prose", () => {
+  const title = "Should I delete ./build and run rm -rf?";
+  expect(eventText("permission", { title, permissionKind: "question" })).toBe("Has a question");
+  expect(eventText("permission", { title, permissionKind: "plan" })).toBe("Has a plan to review");
+  expect(eventText("permission", { title, permissionKind: "other" })).toBe("Needs permission");
+  // A permission whose kind is not given is not trusted with its title either.
+  expect(eventText("permission", { title })).toBe("Needs permission");
 });
 
 test("a sub-agent's start names the office's name for it", () => {
