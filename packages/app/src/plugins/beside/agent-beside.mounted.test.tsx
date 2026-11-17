@@ -7,7 +7,7 @@
 // workspace providers it asserts, its draft by key, the agent's archived state).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useEffect, type ReactNode } from "react";
+import { createElement, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Text } from "react-native";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -21,7 +21,13 @@ import {
   useDiffDocumentWorkspaceCache,
 } from "@/git/diff-document/workspace-cache";
 import { i18n } from "@/i18n/i18next";
-import { usePaneContext, usePaneFocus, type PaneContextValue } from "@/panels/pane-context";
+import {
+  createPaneFocusContextValue,
+  PaneFocusProvider,
+  usePaneContext,
+  usePaneFocus,
+  type PaneContextValue,
+} from "@/panels/pane-context";
 import { definePanel, registerPanel } from "@/panels/panel-registry";
 import { ensurePanelsRegistered } from "@/panels/register-panels";
 import type { ResolvedBesideTarget } from "@/plugins/host-navigation-model";
@@ -196,7 +202,13 @@ let showBeside: ((target: ResolvedBesideTarget) => boolean) | undefined;
 
 function OfficeContent() {
   showBeside = useShowBeside();
-  return <Text testID="office-content">The office</Text>;
+  return (
+    <>
+      <Text testID="office-content">The office</Text>
+      {/* The office's 3D scene is an iframe (plugins/office/client/world/world-frame.web.ts). */}
+      {createElement("iframe", { "data-testid": "office-scene", title: "Office", sandbox: "" })}
+    </>
+  );
 }
 
 const toast = { show: vi.fn(), copied: vi.fn(), error: vi.fn() } as unknown as ToastApi;
@@ -225,6 +237,14 @@ function show(target: ResolvedBesideTarget): boolean {
     shown = showBeside!(target);
   });
   return shown;
+}
+
+/** The page's window loses the focus, and the next tick passes. */
+async function blurWindow() {
+  await act(async () => {
+    window.dispatchEvent(new Event("blur"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }
 
 function text(testID: string): string {
@@ -389,6 +409,40 @@ describe("an agent's session beside the office's own screen", () => {
     fireEvent.focusIn(screen.getByTestId("probe-draft"));
     expect(text("probe-focus")).toBe("focused");
   });
+
+  it("gives up the keyboard when focus moves into the office's scene, an iframe", async () => {
+    renderOffice();
+    show(TARGET);
+    const scene = screen.getByTestId("office-scene");
+
+    fireEvent.pointerDown(screen.getByTestId("probe-tab"));
+    fireEvent.focusIn(scene);
+    expect(text("probe-focus")).toBe("unfocused");
+
+    // A press in an iframe reaches no listener in the page, and a browser may fire no focusin on
+    // the iframe element either: the page's window loses focus to it.
+    fireEvent.pointerDown(screen.getByTestId("probe-tab"));
+    expect(text("probe-focus")).toBe("focused");
+    const activeElement = vi.spyOn(document, "activeElement", "get").mockReturnValue(scene);
+    await blurWindow();
+    activeElement.mockRestore();
+    expect(text("probe-focus")).toBe("unfocused");
+  });
+
+  it("keeps the keyboard when the page's window loses focus with the pane focused", async () => {
+    renderOffice();
+    show(TARGET);
+    fireEvent.pointerDown(screen.getByTestId("probe-tab"));
+    const activeElement = vi
+      .spyOn(document, "activeElement", "get")
+      .mockReturnValue(screen.getByTestId("probe-draft"));
+
+    // Another app took the focus; the pane gets it back with the window.
+    await blurWindow();
+    activeElement.mockRestore();
+
+    expect(text("probe-focus")).toBe("focused");
+  });
 });
 
 /** The sheet host of a workspace the office panel is a tab of. */
@@ -406,6 +460,20 @@ function officeSheetHost(workspaceId: string): SheetPaneHost {
 
 const OFFICE_SHEET_HOSTS = { ops: officeSheetHost("ops"), "shop-api": officeSheetHost("shop-api") };
 
+/** Lets a test move the workspace's focus off the office's pane, as a press in another pane does. */
+const officePane = { setFocused: null as null | ((focused: boolean) => void) };
+
+/** The focus of the workspace pane the office panel is a tab of. */
+function OfficePane({ children }: { children: ReactNode }) {
+  const [focused, setFocused] = useState(true);
+  officePane.setFocused = setFocused;
+  const value = useMemo(
+    () => createPaneFocusContextValue({ isWorkspaceFocused: true, isPaneFocused: focused }),
+    [focused],
+  );
+  return <PaneFocusProvider value={value}>{children}</PaneFocusProvider>;
+}
+
 describe("an agent's session beside the office as a workspace panel", () => {
   /** The office workspace's own providers, around the panel the office is a tab of. */
   function inWorkspace(workspaceId: keyof typeof OFFICE_SHEET_HOSTS) {
@@ -417,7 +485,7 @@ describe("an agent's session beside the office as a workspace panel", () => {
             serverId={SERVER}
             workspaceRoot={`/repo/${workspaceId}`}
           >
-            {children}
+            <OfficePane>{children}</OfficePane>
           </AssistantFileLinkResolverProvider>
         </SheetPaneHostProvider>
       </DiffDocumentWorkspaceCacheProvider>
@@ -432,6 +500,25 @@ describe("an agent's session beside the office as a workspace panel", () => {
     expect(text("probe-workspace")).toBe("shop-api");
     expect(text("probe-sheet-workspace")).toBe("shop-api");
     expect(text("probe-file-root")).toBe("/repo/shop-api");
+  });
+
+  it("is the focused pane only while the office's pane is focused and the area has the keyboard", () => {
+    renderOffice(`${SERVER}:ops:office-tab`, inWorkspace("ops"));
+    show(TARGET);
+    fireEvent.pointerDown(screen.getByTestId("probe-tab"));
+    expect(text("probe-focus")).toBe("focused");
+
+    // A press in another split pane is outside the frame; that pane takes the workspace's focus.
+    act(() => officePane.setFocused!(false));
+    expect(text("probe-focus")).toBe("unfocused");
+
+    // A press on the office's content gives its pane the focus back, and the area stays unfocused.
+    act(() => officePane.setFocused!(true));
+    fireEvent.pointerDown(screen.getByTestId("office-content"));
+    expect(text("probe-focus")).toBe("unfocused");
+
+    fireEvent.pointerDown(screen.getByTestId("probe-tab"));
+    expect(text("probe-focus")).toBe("focused");
   });
 
   it("shares the agent's draft with its workspace tab, under a tab id no workspace tab has", () => {
