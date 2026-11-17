@@ -100,7 +100,7 @@ export function hasTouchScreen(platform: Platform, pointer: PointerFacts | null)
 }
 
 // Web only: the surface asks when layout.platform is "web", and nothing asks at module top level.
-function readPointer(): PointerFacts | null {
+export function readPointer(): PointerFacts | null {
   if (typeof window === "undefined") return null;
   return {
     anyCoarse:

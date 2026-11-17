@@ -235,7 +235,20 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.useRealTimers();
+  Reflect.deleteProperty(window, "matchMedia");
 });
+
+/** A browser on a touch screen: its pointer is coarse. */
+function touchScreen(): void {
+  window.matchMedia = ((query: string) => ({
+    matches: query === "(any-pointer: coarse)",
+  })) as never;
+}
+
+const enter = (element: HTMLElement) =>
+  act(async () => void element.dispatchEvent(new MouseEvent("mouseenter")));
+const leave = (element: HTMLElement) =>
+  act(async () => void element.dispatchEvent(new MouseEvent("mouseleave")));
 
 test("empty: the line that says how to start", async () => {
   await mount();
@@ -652,10 +665,6 @@ test("on a wide screen a message's actions show on hover and focus, and stay whi
   await mount({ compact: false });
   await snapshot([said], [FIX]);
   const actions = () => labelled("React", row(said.id)).parentElement as HTMLElement;
-  const enter = (element: HTMLElement) =>
-    act(async () => void element.dispatchEvent(new MouseEvent("mouseenter")));
-  const leave = (element: HTMLElement) =>
-    act(async () => void element.dispatchEvent(new MouseEvent("mouseleave")));
 
   // Hidden, and still in place: hovering does not move the list.
   expect(getComputedStyle(actions()).opacity).toBe("0");
@@ -671,4 +680,76 @@ test("on a wide screen a message's actions show on hover and focus, and stay whi
   // The keyboard reaches them too.
   await act(async () => labelled("React", row(said.id)).focus());
   expect(getComputedStyle(actions()).opacity).not.toBe("0");
+});
+
+test("the list follows the newest message when the area below it grows, and not when you have scrolled up", async () => {
+  await mount();
+  await snapshot([msg()], [FIX]);
+  const list = () => {
+    if (!scroller) throw new Error("No message list");
+    return scroller;
+  };
+  const layout = (height: number) =>
+    ({ nativeEvent: { layout: { x: 0, y: 0, width: 300, height } } }) as unknown as Parameters<
+      NonNullable<ScrollViewProps["onLayout"]>
+    >[0];
+
+  // At the bottom: the Reply bar or the keyboard shrinks the list, and it stays at its end.
+  await act(async () => list().onLayout?.(layout(240)));
+  expect(toEnd).toBe(1);
+
+  // Scrolled up to read: the list is left where it is.
+  await act(async () => list().onScroll?.(scrollEvent(0, 1000, 240)));
+  await act(async () => list().onLayout?.(layout(200)));
+  expect(toEnd).toBe(1);
+});
+
+test("in the side area on the web without a touch screen, a message's actions wait for hover or focus", async () => {
+  const said = msg();
+  // The side area passes compact on every layout.
+  await mount({ compact: true });
+  await snapshot([said], [FIX]);
+  const actions = () => labelled("React", row(said.id)).parentElement as HTMLElement;
+
+  expect(getComputedStyle(actions()).opacity).toBe("0");
+  await enter(row(said.id));
+  expect(getComputedStyle(actions()).opacity).not.toBe("0");
+  await leave(row(said.id));
+  expect(getComputedStyle(actions()).opacity).toBe("0");
+  await act(async () => labelled("Reply", row(said.id)).focus());
+  expect(getComputedStyle(actions()).opacity).not.toBe("0");
+});
+
+test("on a touch screen a message's actions always show, and Enter does not send", async () => {
+  touchScreen();
+  const said = msg();
+  await mount({ compact: false });
+  await snapshot([said], [FIX]);
+
+  const actions = labelled("React", row(said.id)).parentElement as HTMLElement;
+  expect(getComputedStyle(actions).opacity).not.toBe("0");
+
+  await type("hello");
+  await key("Enter");
+  expect(call).not.toHaveBeenCalled();
+  await press("Send");
+  expect(call.mock.calls).toEqual([[{ op: "send", text: "hello" }]]);
+});
+
+test("a picked reaction leaves with the pointer on it, and the actions hide", async () => {
+  const said = msg();
+  await mount({ compact: false });
+  await snapshot([said], [FIX]);
+  const actions = () => labelled("React", row(said.id)).parentElement as HTMLElement;
+  const last = REACTION_CHOICES.at(-1) ?? "";
+
+  await enter(row(said.id));
+  await press("React", row(said.id));
+  // The pointer moves onto a choice: the row loses its hover to it.
+  await enter(labelled(last, row(said.id)));
+  await leave(row(said.id));
+  await press(last, row(said.id));
+
+  expect(maybe(last, row(said.id))).toBeNull();
+  expect(getComputedStyle(actions()).opacity).toBe("0");
 });

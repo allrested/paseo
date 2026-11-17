@@ -50,6 +50,7 @@ import {
 } from "./chat-text.js";
 import { markChatSeen } from "./chat-seen.js";
 import { linkOpenSession } from "./office-link.js";
+import { hasTouchScreen, readPointer } from "./office-surface.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useOffice } from "./use-office.js";
 
@@ -119,19 +120,38 @@ function ChatButton<Value>({
 }: ChatButtonProps<Value>) {
   const press = useCallback(() => onPress(value), [onPress, value]);
   const [hovered, setHovered] = useState(false);
+  // What this button holds of its message's Keep, given back when it leaves.
+  const held = useRef({ hover: false, focus: false });
   const hoverIn = useCallback(() => {
     setHovered(true);
+    held.current.hover = true;
     keep?.hover(true);
   }, [keep]);
   const hoverOut = useCallback(() => {
     setHovered(false);
+    held.current.hover = false;
     keep?.hover(false);
   }, [keep]);
   const [pressed, setPressed] = useState(false);
   const pressIn = useCallback(() => setPressed(true), []);
   const pressOut = useCallback(() => setPressed(false), []);
-  const focus = useCallback(() => keep?.focus(true), [keep]);
-  const blur = useCallback(() => keep?.focus(false), [keep]);
+  const focus = useCallback(() => {
+    held.current.focus = true;
+    keep?.focus(true);
+  }, [keep]);
+  const blur = useCallback(() => {
+    held.current.focus = false;
+    keep?.focus(false);
+  }, [keep]);
+  // A button that leaves (Show more, a picked reaction, Recall running out) gets no hover-out or
+  // blur.
+  useEffect(() => {
+    const now = held.current;
+    return () => {
+      if (now.hover) keep?.hover(false);
+      if (now.focus) keep?.focus(false);
+    };
+  }, [keep]);
   return (
     <Pressable
       accessibilityRole={radio ? "radio" : "button"}
@@ -418,7 +438,7 @@ function useRecallable(message: ChatMessage): boolean {
 interface ChatRowProps {
   message: ChatMessage;
   onFloor: boolean;
-  /** Nothing to hover with: a phone, or the compact layout. */
+  /** A touch screen, where nothing hovers. */
   always: boolean;
   navigation: Navigation;
   run: Run;
@@ -428,7 +448,7 @@ interface ChatRowProps {
 
 /**
  * One message: an agent's on the left with its avatar, name and time, yours on the right. Its
- * actions show on hover and focus on a wide web screen, and always on a phone.
+ * actions show on hover and focus on the web, and always on a touch screen.
  */
 const ChatRow = memo(function ChatRow({
   message,
@@ -641,8 +661,12 @@ export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
   const all = chat?.messages;
   const messages = useMemo(() => (all ?? []).filter(shows), [all]);
   const problem = loadProblem(subscription);
-  const web = layout.platform === "web";
-  const always = layout.compact || !web;
+  // Asked once, as the surface does. A phone, or a browser on a touch screen, has nothing to hover
+  // with and no Enter that sends: the actions always show and the Send button sends.
+  const touchScreen = useMemo(
+    () => hasTouchScreen(layout.platform, layout.platform === "web" ? readPointer() : null),
+    [layout.platform],
+  );
   // The chat is seen up to its newest message while it is open.
   const newest = messages.at(-1)?.at ?? 0;
   useEffect(() => {
@@ -656,7 +680,8 @@ export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
     atBottom.current =
       contentSize.height - contentOffset.y - layoutMeasurement.height < BOTTOM_SLACK;
   }, []);
-  const onContentSizeChange = useCallback(() => {
+  // Also when the list shrinks: the Reply bar, the @ list or the keyboard takes room below it.
+  const followEnd = useCallback(() => {
     if (atBottom.current) scroller.current?.scrollToEnd({ animated: false });
   }, []);
 
@@ -715,9 +740,9 @@ export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
   }, []);
   const onKeyPress = useCallback(
     (event: KeyPress) => {
-      // On a phone Enter is a new line, and the Send button sends. An IME's Enter picks a word.
+      // On a touch screen Enter is a new line, and the Send button sends. An IME's Enter picks a word.
       const { nativeEvent } = event;
-      if (!web || nativeEvent.isComposing === true) return;
+      if (touchScreen || nativeEvent.isComposing === true) return;
       const tab = nativeEvent.key === "Tab" && nativeEvent.shiftKey !== true;
       // While the @ list is open, Enter and Tab put the first name and do not send.
       if (first !== undefined && (tab || enterSends(nativeEvent))) {
@@ -730,7 +755,7 @@ export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
         void send();
       }
     },
-    [web, first, pick, send],
+    [touchScreen, first, pick, send],
   );
   const toggleStickers = useCallback(() => setStickersOpen((open) => !open), []);
   const closeReply = useCallback(() => setReplyTo(null), []);
@@ -744,7 +769,8 @@ export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
         ref={scroller}
         contentContainerStyle={styles.chatList}
         onScroll={onScroll}
-        onContentSizeChange={onContentSizeChange}
+        onContentSizeChange={followEnd}
+        onLayout={followEnd}
         scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled"
       >
@@ -752,7 +778,7 @@ export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
           messages={messages}
           agents={model.agents}
           problem={problem}
-          always={always}
+          always={touchScreen}
           navigation={navigation}
           run={run}
           onReply={setReplyTo}
