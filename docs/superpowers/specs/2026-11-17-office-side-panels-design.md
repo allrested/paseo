@@ -169,7 +169,7 @@ without the side area.
   not the focused screen.
 - **At 390 px, a header button pressed right after the area's sheet closes does nothing.** Pressed
   1.5 s after Close it did nothing three times out of three; a second press opened the sheet, and a
-  press 5 s after Close always did. The browser tab throttled timers to about 1 s, so the window
+  press 5 s after Close opened it on both tries. The browser tab throttled timers to about 1 s, so the window
   is likely shorter in a foreground tab. The race is in the side area's sheet (sub-project 4); the
   office's press only calls `showBeside`.
 
@@ -198,6 +198,7 @@ workspace. Not seen, or seen only in part:
 - The buttons without a side area. `office-surface-panels.mounted.test.tsx` covers it.
 - The office screen at 1280 px in dark and the office panel at 390 px in dark.
 - Native layouts and Android Back.
-- Once at 390 px, after a reload, a row press left no card, and presses on the floor showed none
-  either until the next reload. Three tries after that, one of them pressing while the sheet still
-  rose, opened the card each time.
+- A row press that opened no card. Once at 390 px, after a reload to switch the theme, Sessions
+  row presses opened no card, and presses on the 2D floor showed none either, until the next
+  reload. It was tried three more times after that, one press while the sheet still rose, and the
+  card opened each time, so it was not reproduced. No test covers it.
