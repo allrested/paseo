@@ -4,4 +4,7 @@
  * module loads; this file imports them.
  */
 
+// oxlint-disable-next-line import/no-unassigned-import -- The screen kind registers itself on import.
+import "./screen-beside";
+
 export { BesideFrame, useShowBeside } from "./beside-area";
