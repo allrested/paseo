@@ -81,14 +81,14 @@ Points 3 and 4 of the owner's review:
 
 ### The writer
 
-| Question      | Decision                                                                                                                                                                                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Who           | One new agent in the workspace of the notes folder, with the host's default provider, titled "Stand-up notes". It runs in the provider's mode that edits files without asking, Claude's "Accept File Edits"; a provider without one runs in its default mode. The owner's call: nobody watches the 8:00 run to answer an edit. |
-| Its prompt    | Write today's stand-up note under the stand-up rules of this folder's `CLAUDE.md`, for the date in the owner's time zone. If today's entry exists, bring it up to date in place, keep what is still true, and keep the Contents list right. Edit only this month's file, commit nothing. Then the stand-up report text.        |
-| The report    | `standupText` of the office's state at that moment. The report code moves from `client/` to `shared/` so the server builds it from the hub's snapshot (`server/hub.ts`).                                                                                                                                                       |
-| One at a time | While a writer runs, a bell click or the 8:00 run starts nothing. The office remembers the running writer's id in its host storage, so a restart does not start a second.                                                                                                                                                      |
-| When it ends  | The office records the time and archives the writer, once the day's `## DD Month YYYY` header is in the month's file after its turn. My call, so writers do not fill the office. A writer that ends without the header is left as on an error, with the reason "it ended without writing today's entry".                       |
-| An error      | A writer that stops on an error is left as it is, not archived, and the card says it stopped with a link to it.                                                                                                                                                                                                                |
+| Question      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Who           | One new agent in the workspace of the notes folder, with the host's default provider, titled "Stand-up notes". It runs in the provider's mode that edits files without asking, Claude's "Accept File Edits"; a provider without one runs in its default mode. The owner's call: nobody watches the 8:00 run to answer an edit. The mode covers file edits only: whether the writer's shell commands, such as the `git log` the stand-up rules call for, ask first is up to the provider's own settings (Claude's permission rules). |
+| Its prompt    | Write today's stand-up note under the stand-up rules of this folder's `CLAUDE.md`, for the date in the owner's time zone. If today's entry exists, bring it up to date in place, keep what is still true, and keep the Contents list right. Edit only this month's file, commit nothing. Then the stand-up report text.                                                                                                                                                                                                             |
+| The report    | `standupText` of the office's state at that moment. The report code moves from `client/` to `shared/` so the server builds it from the hub's snapshot (`server/hub.ts`).                                                                                                                                                                                                                                                                                                                                                            |
+| One at a time | While a writer runs, a bell click or the 8:00 run starts nothing. The office remembers the running writer's id in its host storage, so a restart does not start a second.                                                                                                                                                                                                                                                                                                                                                           |
+| When it ends  | The office records the time and archives the writer, once the day's `## DD Month YYYY` header is in the month's file after its turn. My call, so writers do not fill the office. A writer that ends without the header is left as on an error, with the reason "it ended without writing today's entry".                                                                                                                                                                                                                            |
+| An error      | A writer that stops on an error is left as it is, not archived, and the card says it stopped with a link to it.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### The bell and the Stand-up card
 
@@ -154,11 +154,15 @@ its `office.state` subscription. On 17 November 2026 at 03:22 in Asia/Riyadh:
   listed nothing, and `schedule ls --json` gave `[]`.
 - Two `office.notes.write.request` a second apart: the first answered `started: true`, the second
   `started: false`. One agent, "Stand-up notes", started in the copy's folder on
-  `notes-haiku/haiku`, in the mode `acceptEdits`, with no permission asked.
+  `notes-haiku/haiku`, in the mode `acceptEdits`. It asked no permission: its two file edits fell
+  under that mode, and its shell commands under this host's Claude settings, which allow every
+  shell command. Most of its work was shell: `git log` and `git status` over the workspace's
+  repositories, reading the memory index, and the entry appended with `cat >>`.
 - About a minute later its turn ended. The copy's November file had a `## 17 November 2026` entry
   after 16 November's, in the voice of the others and ending with blockers and a "Next:" line, and
-  a Contents line for it. No other file in the copy changed. The office recorded the time and
-  archived the writer, and it left the office's agents.
+  a Contents line for it. No other file in the copy changed. As its rules say, it read the real
+  workspace's repositories and memory index, with read-only commands, and wrote only in the copy.
+  The office recorded the time and archived the writer, and it left the office's agents.
 - The Stand-up card's line, worked out by the client's `notesLine` from each notes state the
   subscription pushed: left out with no folder, then "No entry today yet", "Writing today's
   entry…" and "Today's entry written at 03:23". The card itself was not drawn.
@@ -290,6 +294,9 @@ Tests cover each of these; the dev daemon did not reach them:
 
 Not seen for other reasons:
 
+- A writer on a host whose provider settings ask before its shell commands: it waits on the
+  permission, as under a mode that asks before an edit, and the 8:00 run and the bell start nothing
+  until it ends.
 - The bell's own click against a daemon: the RPC it sends stood in for it. The static pages showed
   that a click sends one.
 - The host's sheet around the cards, Escape on it, and the host's Markdown: the page had
