@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   boardsFile,
+  chatFile,
   hostSkillFolders,
   incidentsFile,
   notesWriterFile,
@@ -23,6 +24,7 @@ test("keeps the office's files under PASEO_HOME/office", () => {
   expect(boardsFile(env, HOME)).toBe("/srv/paseo/office/boards.json");
   expect(notesWriterFile(env, HOME)).toBe("/srv/paseo/office/notes-writer.json");
   expect(incidentsFile(env, HOME)).toBe("/srv/paseo/office/incidents.json");
+  expect(chatFile(env, HOME)).toBe("/srv/paseo/office/chat.json");
 });
 
 test("reads the host's skills from the Claude config folder and Paseo's two other homes", () => {
