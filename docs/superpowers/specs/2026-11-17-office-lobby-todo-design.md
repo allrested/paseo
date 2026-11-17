@@ -1,6 +1,6 @@
 # The lobby board's to-do list: design
 
-Date: 2026-11-17. Status: approved, not built.
+Date: 2026-11-17. Status: built.
 
 ## Request
 
@@ -181,3 +181,16 @@ Follow `docs/testing.md`; run only the touched test files.
   line, another room's board still showing posts.
 - Live against a dev daemon with fixtures, at 390 px and 1280 px, light and dark: the lobby board
   from the 3D scene, the 2D floor and the structure view; keyboard through the sheet.
+
+## Not verified
+
+- A real agent's checklist: the hard rule of this build is that no agent is created, so the dev
+  daemon had none and the board showed "No agent tasks". The groups and their step lines are
+  covered by the mounted test, the server's reads by the unit tests.
+- A to-do for an agent or claimed by one: with no agent, the picker offered only Nobody. The
+  claimed fixture was claimed by "You".
+- A note from an agent's `office_post`: the lobby's field adds to-dos only, so the two notes were
+  written into `boards.json` before the dev daemon started.
+- A pointer click on the 3D whiteboard: the scene's Whiteboard button was pressed from a script.
+- The installed app on a phone or a tablet, including Enter keeping the keyboard up on iOS and
+  Android. The 390 px checks were the web app in a desktop browser.
