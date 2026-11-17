@@ -143,6 +143,31 @@ test("follows nextPageToken, asking only for what is left of 100", async () => {
   expect(found.map((issue) => issue.key)).toEqual([...first, ...second].map((bug) => bug.key));
 });
 
+test("a page holding a token and no issues ends the read", async () => {
+  const server = await standIn((request, res) => {
+    if (request.path === "/rest/api/3/myself") return json(res, { timeZone: "UTC" });
+    json(res, { issues: [], nextPageToken: "again" });
+  });
+  expect(await createJiraReader(env(server.base), ["FPOS"]).read(0)).toEqual([]);
+  expect(server.requests).toHaveLength(2);
+});
+
+test("isLast ends the read, and so does a token Jira handed out before", async () => {
+  const last = await standIn(
+    jira("UTC", [{ issues: [BUG], nextPageToken: "page-2", isLast: true }]),
+  );
+  await createJiraReader(env(last.base), ["FPOS"]).read(0);
+  expect(last.requests).toHaveLength(2);
+
+  const repeating = await standIn((request, res) => {
+    if (request.path === "/rest/api/3/myself") return json(res, { timeZone: "UTC" });
+    json(res, { issues: [BUG], nextPageToken: "same", isLast: false });
+  });
+  await createJiraReader(env(repeating.base), ["FPOS"]).read(0);
+  const tokens = repeating.requests.slice(1).map((request) => request.query.get("nextPageToken"));
+  expect(tokens).toEqual([null, "same"]);
+});
+
 test("a 401 is a problem naming ATLASSIAN_API_TOKEN, without the header", async () => {
   const server = await standIn((_request, res) => json(res, { errorMessages: [] }, 401));
   const read = createJiraReader(env(server.base), ["FPOS"]).read(0);

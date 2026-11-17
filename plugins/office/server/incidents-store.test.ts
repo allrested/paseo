@@ -68,12 +68,16 @@ test("a file of the wrong shape loads as empty and logs it as invalid, not its t
   expect(logs[0]).not.toContain("SECRET");
 });
 
-test("a file that cannot be read loads as empty and logs its code", async () => {
+test("a file that cannot be read rejects with its code, and the next load reads again", async () => {
   const file = join(directory, "incidents.json");
+  const incidents = store(file);
   await mkdir(file);
-  expect(await store(file).load()).toEqual(EMPTY_INCIDENTS);
-  expect(logs).toHaveLength(1);
-  expect(logs[0]).toContain("EISDIR");
+  await expect(incidents.load()).rejects.toHaveProperty("code", "EISDIR");
+  expect(logs).toEqual([]);
+
+  await rm(file, { recursive: true });
+  await incidents.save(data("BUG-1"));
+  expect(await incidents.load()).toEqual(data("BUG-1"));
 });
 
 test("an empty load is the caller's to change", async () => {
