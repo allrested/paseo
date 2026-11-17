@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  */
 // The side area around a plugin's content, mounted with a test kind: the wide panel, the compact
-// sheet, Close, an unavailable target, and closing when the surface is left.
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+// sheet, Close, an unavailable target, closing when the surface is left, and one area per frame.
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { Text } from "react-native";
 import { NavigationContext } from "expo-router/react-navigation";
@@ -65,8 +65,11 @@ vi.mock("@/constants/layout", async (importOriginal) => ({
   useIsCompactFormFactor: () => layout.compact,
 }));
 
-/** The presented sheet's drag-down, as Gorhom reports it: the index drops and the sheet dismisses. */
-const sheet = vi.hoisted(() => ({ dragDown: null as null | (() => void) }));
+/**
+ * The presented sheet's drag-down, as Gorhom reports it: the index drops and the sheet dismisses.
+ * `presents` counts every sheet's `present`.
+ */
+const sheet = vi.hoisted(() => ({ dragDown: null as null | (() => void), presents: 0 }));
 
 // Gorhom's modal, reduced to what the frame relies on: it shows its content only while presented,
 // and reports a dismissal through `onChange(-1)` and `onDismiss`, whoever started it.
@@ -90,6 +93,7 @@ vi.mock("@gorhom/bottom-sheet", async (importOriginal) => {
       sheet.dragDown = dismiss;
       return {
         present: () => {
+          sheet.presents += 1;
           setPresented(true);
           latest.current.onChange?.(0);
         },
@@ -226,6 +230,7 @@ beforeAll(async () => {
 beforeEach(() => {
   layout.compact = false;
   sheet.dragDown = null;
+  sheet.presents = 0;
   bodyMounts = [];
   showBeside = undefined;
   OPEN_IN_WORKSPACE.onPress.mockClear();
@@ -429,7 +434,7 @@ describe("BesideFrame targets and leaving", () => {
   it("clears its area when it unmounts, and refuses targets afterwards", () => {
     const view = render(frame("host:office:office"));
     show(AGENT_ONE);
-    expect(useBesideStore.getState().areas["host:office:office"]).toBeDefined();
+    expect(screen.getByTestId("beside-panel")).toBeTruthy();
 
     view.unmount();
 
@@ -466,5 +471,74 @@ describe("BesideFrame targets and leaving", () => {
 
     expect(useBesideStore.getState().areas).toEqual({});
     expect(screen.queryByTestId("beside-panel")).toBeNull();
+  });
+});
+
+describe("BesideFrame owns its area, not its surface key", () => {
+  it("starts empty when it remounts under the same key, as a panel does at the compact breakpoint", () => {
+    // The workspace moves a panel to another tree when the window crosses the breakpoint: a new
+    // frame renders before the old one's cleanup closes the old area.
+    const view = render(
+      <BesideFrame key="wide" surfaceKey="host:workspace:tab">
+        <PluginContent />
+      </BesideFrame>,
+    );
+    show(AGENT_ONE);
+    expect(screen.getByTestId("beside-panel")).toBeTruthy();
+
+    layout.compact = true;
+    view.rerender(
+      <BesideFrame key="compact" surfaceKey="host:workspace:tab">
+        <PluginContent />
+      </BesideFrame>,
+    );
+
+    // The new frame's sheet never sees the old area, so it is never presented and dismissed in
+    // one frame, which leaves Gorhom's sheet stuck dismissing.
+    expect(sheet.presents).toBe(0);
+    expect(screen.queryByTestId("beside-sheet")).toBeNull();
+    expect(useBesideStore.getState().areas).toEqual({});
+    expect(bodyMounts).toEqual(["one"]);
+
+    expect(show(AGENT_TWO)).toBe(true);
+    expect(sheet.presents).toBe(1);
+    expect(within(screen.getByTestId("beside-sheet")).getByText("Agent two")).toBeTruthy();
+  });
+
+  it("keeps a separate area for each of two frames with one key, as stacked copies of a screen", () => {
+    const shows: Record<string, (target: ResolvedBesideTarget) => boolean> = {};
+    function NamedContent({ name }: { name: string }) {
+      shows[name] = useShowBeside()!;
+      return <Text>{name}</Text>;
+    }
+    render(
+      <>
+        <BesideFrame surfaceKey="host:office:office">
+          <NamedContent name="hidden" />
+        </BesideFrame>
+        <BesideFrame surfaceKey="host:office:office">
+          <NamedContent name="top" />
+        </BesideFrame>
+      </>,
+    );
+    const [hiddenFrame, topFrame] = screen.getAllByTestId("beside-frame");
+
+    act(() => {
+      shows.top!(AGENT_ONE);
+    });
+    expect(within(topFrame!).getByText("Agent one")).toBeTruthy();
+    expect(within(hiddenFrame!).queryByTestId("beside-panel")).toBeNull();
+
+    act(() => {
+      shows.hidden!(AGENT_TWO);
+    });
+    expect(within(hiddenFrame!).getByText("Agent two")).toBeTruthy();
+    expect(within(topFrame!).getByText("Agent one")).toBeTruthy();
+    expect(within(topFrame!).queryByText("Agent two")).toBeNull();
+
+    act(() => fireEvent.click(within(topFrame!).getByLabelText("Close")));
+
+    expect(within(topFrame!).queryByTestId("beside-panel")).toBeNull();
+    expect(within(hiddenFrame!).getByText("Agent two")).toBeTruthy();
   });
 });

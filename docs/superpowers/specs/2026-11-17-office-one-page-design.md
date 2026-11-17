@@ -1,6 +1,6 @@
 # The office as one page: design
 
-Date: 2026-11-17. Status: built, with two known defects. Sub-project 4 of
+Date: 2026-11-17. Status: built, with one known defect. Sub-project 4 of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects.
 
@@ -162,16 +162,20 @@ the area; the wall screen opening Resources, and the Host card with the plugin d
 
 ## Known defects
 
-Found in the look at it and not fixed here:
+The look found two defects with one cause: the area belonged to the surface's key, not to the
+frame that opened it. Both are fixed. Each mounted frame now has its own area, and the surface's key
+only names the area's tab:
 
-- On the office panel, the area closes when the window crosses the compact breakpoint. After that,
-  "Open session" at compact width shows no sheet: `showBeside` answers `true` and the store holds
-  the target, so the card stays open over nothing. A cold load at compact width works, and the
-  office screen keeps its area across the same change.
-- Each visit to the office from the sidebar pushes another office screen, and every office screen
-  still mounted has the same surface key, so each draws the area. Wide, a hidden copy of the agent
-  pane sits under the visible one; compact, one session sheet per office screen opens, stacked.
-  Close in one closes all of them.
+- After the office panel crossed the compact breakpoint, "Open session" showed no sheet while
+  `showBeside` answered `true`. The panel's new frame starts with no area now, and the next
+  `showBeside` opens the sheet.
+- Every office screen still mounted from earlier sidebar visits drew the area, and Close in one
+  closed all of them. Each screen now has its own area, and only the top one is open.
+
+Still there: on the office panel, the area closes when the window crosses the compact breakpoint,
+because the workspace mounts the panel in another tree and the new frame starts empty. The office
+screen keeps its area across the same change. Do not fix this by sharing the area between frames
+again; that sharing caused both defects above.
 
 ## Not verified
 
@@ -202,5 +206,7 @@ mouse. Not seen, or seen only in part:
   area, because the scene's release hands the keyboard back to the page before the area's blur
   check runs. Electron and Firefox were not tried.
 - The office panel in dark, and the 2D office with the area open.
+- The fix for the two defects above, which came after the look. `beside-area.mounted.test.tsx`
+  covers a frame remounted under one key and two frames with one key.
 - The header actions' tooltips. Their accessible names were read and both actions were pressed;
   no tooltip was hovered.

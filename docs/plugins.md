@@ -1217,8 +1217,11 @@ plugin's installation, so the SDK hands out the call and no components
 ([design](superpowers/specs/2026-11-17-office-one-page-design.md)).
 
 - `packages/app/src/plugins/beside/` holds it. `BesideFrame` wraps the plugin's content in
-  `surface-screen.tsx` and `workspace-panels/panel.tsx` and owns `showBeside` for that surface,
-  keyed by the screen's host, plugin and screen id, or by the panel's tab.
+  `surface-screen.tsx` and `workspace-panels/panel.tsx` and owns `showBeside` for that surface.
+  The area belongs to the mounted frame, not to the surface's key (the screen's host, plugin and
+  screen id, or the panel's tab), which only names the area's tab. A panel's frame remounts when
+  the window crosses the compact breakpoint, and the stack can hold several copies of one screen;
+  an area keyed by the surface would reach frames that never opened it.
 - Each target kind registers itself with `registerBesideKind`, and the folder's `index.ts` imports
   the kind modules. `agent-beside.tsx` imports the panel registry, which imports the panel that
   imports the barrel, so it calls `ensurePanelsRegistered()` at render time, never at import.

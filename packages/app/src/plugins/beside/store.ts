@@ -9,8 +9,9 @@ interface BesideArea {
 interface BesideState {
   areas: Record<string, BesideArea>;
   width: number | null;
-  show: (surfaceKey: string, target: ResolvedBesideTarget) => void;
-  close: (surfaceKey: string) => void;
+  /** Keyed by the frame that shows the area (beside-area.tsx), not by its surface. */
+  show: (areaKey: string, target: ResolvedBesideTarget) => void;
+  close: (areaKey: string) => void;
   setWidth: (width: number) => void;
 }
 
@@ -38,17 +39,17 @@ let lastRevision = 0;
 export const useBesideStore = create<BesideState>((set) => ({
   areas: {},
   width: null,
-  show: (surfaceKey, target) =>
+  show: (areaKey, target) =>
     set((state) => {
-      const shown: BesideArea | undefined = state.areas[surfaceKey];
+      const shown: BesideArea | undefined = state.areas[areaKey];
       if (shown && sameBesideTarget(shown.target, target)) return state;
       lastRevision += 1;
-      return { areas: { ...state.areas, [surfaceKey]: { target, revision: lastRevision } } };
+      return { areas: { ...state.areas, [areaKey]: { target, revision: lastRevision } } };
     }),
-  close: (surfaceKey) =>
+  close: (areaKey) =>
     set((state) => {
-      if (!state.areas[surfaceKey]) return state;
-      const { [surfaceKey]: _closed, ...areas } = state.areas;
+      if (!state.areas[areaKey]) return state;
+      const { [areaKey]: _closed, ...areas } = state.areas;
       return { areas };
     }),
   setWidth: (width) => set({ width }),
