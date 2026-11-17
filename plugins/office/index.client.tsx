@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import { ActivityPanel } from "./client/activity-panel.js";
 import { ACTIVITY_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
 import { OfficeSurface } from "./client/office-surface.js";
 
@@ -13,13 +14,9 @@ function OfficeItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return <SidebarRow icon={ICON} active={currentScreen?.screenId === SCREEN_ID} onPress={open} />;
 }
 
-// The panels beside the floor are built next: the header's buttons open them in the side area,
-// and their own routes show them full width.
+// The Sessions panel is built next: the header's button opens it in the side area, and its own
+// route shows it full width.
 function SessionsPanelPlaceholder() {
-  return null;
-}
-
-function ActivityPanelPlaceholder() {
   return null;
 }
 
@@ -36,7 +33,7 @@ export default function contribute(client: PluginClientContext) {
     client.addScreen({
       id: ACTIVITY_SCREEN,
       title: "Activity",
-      Component: ActivityPanelPlaceholder,
+      Component: ActivityPanel,
     }),
     client.addSidebarHeaderItem({ id: SCREEN_ID, title: "Office", Component: OfficeItem }),
     client.addWorkspacePanel({

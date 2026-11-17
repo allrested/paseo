@@ -194,6 +194,19 @@ export interface OfficeStyles {
   /** A line over a corner of the 3D office: it lies above the frame and takes no pointer. */
   sceneNote: ViewStyle;
   sceneNoteText: TextStyle;
+  /** The Activity panel beside the floor: its top and its feed of cards. */
+  panelTop: ViewStyle;
+  /** The "Live" tag: the running dot and its word. */
+  panelLive: ViewStyle;
+  panelLiveText: TextStyle;
+  /** The kind chips: the view switch's pills, wrapping on a narrow panel. */
+  panelChips: ViewStyle;
+  /** The Needs you tab's count, quieter than its label. */
+  panelCount: TextStyle;
+  panelFeed: ViewStyle;
+  panelTime: TextStyle;
+  /** An alert card's Open session, on the card's text rail. */
+  panelActions: ViewStyle;
 }
 
 // The app's two control sizes (packages/app/src/components/ui/control-geometry.ts).
@@ -718,6 +731,14 @@ export function useOfficeStyles(
         pointerEvents: "none",
       },
       sceneNoteText: { ...small, color: colors.foregroundMuted },
+      panelTop: { paddingHorizontal: pad, paddingTop: pad, paddingBottom: 8, gap: 8 },
+      panelLive: { flexDirection: "row", alignItems: "center", gap: 8 },
+      panelLiveText: { ...small, color: colors.foregroundMuted },
+      panelChips: { ...segments, flexWrap: "wrap" },
+      panelCount: { color: colors.foregroundMuted },
+      panelFeed: { paddingBottom: 24 },
+      panelTime: { ...small, flexShrink: 0, color: colors.foregroundMuted },
+      panelActions: { paddingLeft: pad + TEXT_RAIL, paddingRight: pad, paddingBottom: 12 },
     };
   }, [theme, compact, touchScreen]);
 }
