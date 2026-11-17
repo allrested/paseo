@@ -45,6 +45,21 @@ const agent = (id: string, title: string, overrides: Partial<OfficeAgent> = {}):
 });
 const view = (...agents: OfficeAgent[]): DirectoryView => ({ agents, workspaces: [WORKSPACE] });
 
+/** A promise the test ends itself: `finish(null)` resolves it, `finish(error)` rejects it. */
+function deferred() {
+  let resolve = (): void => undefined;
+  let reject = (_error: Error): void => undefined;
+  const promise = new Promise<void>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  const finish = (error: Error | null): void => {
+    if (error === null) resolve();
+    else reject(error);
+  };
+  return { promise, finish };
+}
+
 async function harness(options: { at?: number; store?: ChatStore } = {}) {
   const clock = createFakeClock(options.at ?? MORNING);
   const sent: [string, string][] = [];
@@ -54,7 +69,14 @@ async function harness(options: { at?: number; store?: ChatStore } = {}) {
   const saved: ChatData[] = [];
   const logs: string[] = [];
   const answers = new Map<string, string | null>();
-  const failure = { send: null as Error | null, answer: null as Error | null };
+  // `hold`: each send waits in `held` until the test finishes it. `answerGate`: a read waits for it.
+  const failure = {
+    send: null as Error | null,
+    answer: null as Error | null,
+    hold: false,
+    answerGate: null as Promise<void> | null,
+  };
+  const held: ((error: Error | null) => void)[] = [];
   const store: ChatStore = options.store ?? {
     load: async () => emptyChat(),
     save: async (data) => {
@@ -66,19 +88,25 @@ async function harness(options: { at?: number; store?: ChatStore } = {}) {
     clock,
     tr: t,
     send: async (id, prompt) => {
+      if (failure.hold) {
+        const wait = deferred();
+        held.push(wait.finish);
+        await wait.promise;
+      }
       if (failure.send) throw failure.send;
       sent.push([id, prompt]);
     },
     lastAnswer: async (id, turnId) => {
       asked.push(id);
       turns.push(turnId);
+      if (failure.answerGate) await failure.answerGate;
       if (failure.answer) throw failure.answer;
       return answers.get(id) ?? null;
     },
     emit: (change) => changes.push(change),
     log: (message) => logs.push(message),
   });
-  return { service, clock, sent, asked, turns, changes, saved, logs, answers, failure };
+  return { service, clock, sent, asked, turns, changes, saved, logs, answers, failure, held };
 }
 type Harness = Awaited<ReturnType<typeof harness>>;
 
@@ -385,6 +413,77 @@ test("a prompt that cannot be sent keeps the earlier one waiting, and its answer
   await h.service.turnEnded({ id: "a1" }, { kind: "completed" }, "t1");
   const answer = messages(h).find((message) => message.text === "First is done.");
   expect(answer?.reply).toEqual({ id: first?.id, name: "Boss", text: "@Alice first" });
+  expect(typing(h)).toEqual([]);
+});
+
+test("two prompts in flight that both fail leave nobody typing", async () => {
+  const h = await harness();
+  h.service.view(view(agent("a1", "Alice")));
+  h.failure.hold = true;
+  await send(h, "@Alice A");
+  await send(h, "@Alice B");
+  expect(typing(h)).toEqual(["Alice"]);
+
+  h.held[0]?.(new Error("agent is gone"));
+  await settle();
+  expect(typing(h)).toEqual(["Alice"]);
+  h.held[1]?.(new Error("agent is gone"));
+  await settle();
+  expect(typing(h)).toEqual([]);
+  const failures = messages(h).filter(
+    (message) => message.text === "Could not reach Alice: agent is gone.",
+  );
+  expect(failures).toHaveLength(2);
+});
+
+test("a prompt sent while an answer is read, which then fails, leaves nothing waiting", async () => {
+  const h = await harness();
+  h.service.view(view(agent("a1", "Alice")));
+  h.answers.set("a1", "A is done.");
+  await send(h, "@Alice A");
+  const [first] = mine(h);
+  const read = deferred();
+  h.failure.answerGate = read.promise;
+  const ended = h.service.turnEnded({ id: "a1" }, { kind: "completed" }, "t1");
+
+  h.failure.hold = true;
+  await send(h, "@Alice B");
+  read.finish(null);
+  await ended;
+  const answer = messages(h).find((message) => message.text === "A is done.");
+  expect(answer?.reply).toMatchObject({ id: first?.id, text: "@Alice A" });
+  // B is still on its way.
+  expect(typing(h)).toEqual(["Alice"]);
+
+  h.held[0]?.(new Error("agent is gone"));
+  await settle();
+  expect(typing(h)).toEqual([]);
+  // Nothing waits any more: a later turn reads no answer and quotes nobody.
+  h.failure.answerGate = null;
+  h.answers.set("a1", "Later.");
+  await h.service.turnEnded({ id: "a1" }, { kind: "completed" }, "t2");
+  expect(h.asked).toEqual(["a1"]);
+  expect(messages(h).filter((message) => message.text === "Later.")).toEqual([]);
+});
+
+test("a newer prompt that fails while the turn end is read: the answer quotes it and typing stops", async () => {
+  const h = await harness();
+  h.service.view(view(agent("a1", "Alice")));
+  h.answers.set("a1", "Both read.");
+  await send(h, "@Alice A");
+  h.failure.hold = true;
+  await send(h, "@Alice B");
+  const second = mine(h).at(-1);
+  const read = deferred();
+  h.failure.answerGate = read.promise;
+  const ended = h.service.turnEnded({ id: "a1" }, { kind: "completed" }, "t1");
+
+  h.held[0]?.(new Error("Active turn changed before steering could be delivered"));
+  await settle();
+  read.finish(null);
+  await ended;
+  const answer = messages(h).find((message) => message.text === "Both read.");
+  expect(answer?.reply).toEqual({ id: second?.id, name: "Boss", text: "@Alice B" });
   expect(typing(h)).toEqual([]);
 });
 

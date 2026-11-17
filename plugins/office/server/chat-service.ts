@@ -149,8 +149,9 @@ export async function createChatService(ports: ChatServicePorts): Promise<ChatSe
   const { clock, log, tr } = ports;
   const loaded = await ports.store.load();
   const roster = new Map<string, ChatMember>();
-  // A prompt waiting for its answer, by agent: kept in memory only.
-  const waiting = new Map<string, Waiting>();
+  // The prompts waiting for an answer, by agent, in send order; never an empty list. In memory only.
+  // Each ends by its own failure, a turn end or an archive.
+  const waiting = new Map<string, readonly Waiting[]>();
   const timers = new Set<() => void>();
   // The permission ids each agent had in the last view; null until the first view of an open office.
   let baseline: Map<string, ReadonlySet<string>> | null = null;
@@ -189,7 +190,7 @@ export async function createChatService(ports: ChatServicePorts): Promise<ChatSe
   const members = (): ChatMember[] => [
     ...roster.values(),
     ...[...waiting.values()]
-      .map((entry) => entry.member)
+      .map((entries) => entries[0].member)
       .filter((member) => !roster.has(member.id)),
   ];
 
@@ -250,22 +251,26 @@ export async function createChatService(ports: ChatServicePorts): Promise<ChatSe
   }
   scheduleClock();
 
-  // Typing stops while the agent is still a member: the engine cannot name one that left.
-  function endWait(agentId: string): void {
+  // Ends these waits of the agent. When none is left, typing stops while the agent is still a
+  // member: the engine cannot name one that left.
+  function release(agentId: string, ended: readonly Waiting[]): void {
+    const entries = waiting.get(agentId);
+    if (entries === undefined) return;
+    const left = entries.filter((entry) => !ended.includes(entry));
+    if (left.length > 0) {
+      waiting.set(agentId, left);
+      return;
+    }
     engine.working(agentId, false);
     waiting.delete(agentId);
   }
 
   function prompt(member: ChatMember, text: string, reply: Waiting["reply"]): void {
-    const previous = waiting.get(member.id);
-    waiting.set(member.id, { member, reply });
+    const entry: Waiting = { member, reply };
+    waiting.set(member.id, [...(waiting.get(member.id) ?? []), entry]);
     engine.working(member.id, true);
     ports.send(member.id, PROMPT_PREFIX + text).catch((error: unknown) => {
-      if (waiting.get(member.id)?.reply === reply) {
-        // The agent still works on the earlier message, so that one waits again.
-        if (previous === undefined) endWait(member.id);
-        else waiting.set(member.id, previous);
-      }
+      release(member.id, [entry]);
       engine.system(`Could not reach ${member.name}: ${errorMessage(error)}.`);
     });
   }
@@ -347,26 +352,28 @@ export async function createChatService(ports: ChatServicePorts): Promise<ChatSe
           limit: isUsageLimit(outcome.error.message),
         });
       }
-      const entry = waiting.get(agent.id);
-      if (entry === undefined) return;
+      // This turn answers the prompts sent before it ended; one sent during the read waits on.
+      const consumed = waiting.get(agent.id) ?? [];
+      const newest = consumed.at(-1);
+      if (newest === undefined) return;
       try {
         if (outcome.kind === "completed") {
           const text = await ports.lastAnswer(agent.id, turnId);
           if (text !== null) {
-            engine.say(agent.id, clipAnswer(text), { now: true, long: true, reply: entry.reply });
+            engine.say(agent.id, clipAnswer(text), { now: true, long: true, reply: newest.reply });
           }
         }
       } catch (error) {
         log(`[office] chat could not read the answer of ${agent.id}: ${errorMessage(error)}`);
       } finally {
-        if (waiting.get(agent.id) === entry) endWait(agent.id);
+        release(agent.id, consumed);
       }
     },
 
     archived(agentId) {
-      const entry = waiting.get(agentId);
-      if (entry !== undefined) endWait(agentId);
-      const member = roster.get(agentId) ?? entry?.member;
+      const entries = waiting.get(agentId);
+      if (entries !== undefined) release(agentId, entries);
+      const member = roster.get(agentId) ?? entries?.[0]?.member;
       roster.delete(agentId);
       if (member !== undefined) engine.onLeft(member.name);
     },
