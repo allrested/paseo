@@ -123,6 +123,20 @@ export interface OfficeStyles {
   /** A row's permission requests, on the row's text rail. */
   rowPermissions: ViewStyle;
   rowChildPermissions: ViewStyle;
+  /** The List view's bar over the cards: the tabs, then the search; stacked on a phone. */
+  listBar: ViewStyle;
+  /** The tabs' scroller on a phone, out to the screen's edges, and the row of tabs in it. */
+  listTabScroll: ViewStyle;
+  listTabs: ViewStyle;
+  listTab: ViewStyle;
+  listTabCount: TextStyle;
+  listSearch: TextStyle;
+  /** A row's context, time and cost: beside its text on a wide screen, under it on a phone. */
+  listFacts: ViewStyle;
+  listFact: TextStyle;
+  listContextTrack: ViewStyle;
+  listContextBase: ViewStyle;
+  listContextFill: Record<"low" | "mid" | "high", ViewStyle>;
   permission: ViewStyle;
   permissionTitle: TextStyle;
   permissionDetail: TextStyle;
@@ -587,6 +601,47 @@ export function useOfficeStyles(
         paddingRight: pad,
         paddingBottom: 8,
         gap: 12,
+      },
+      listBar: compact
+        ? { gap: 8 }
+        : { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12 },
+      listTabScroll: { marginHorizontal: -pad },
+      listTabs: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: compact ? pad : 0,
+      },
+      // A view switch's pill with its count beside the label; the fill is the segment's.
+      listTab: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        minHeight: controlHeight,
+        minWidth: TOUCH_CONTROL,
+        paddingHorizontal: 12,
+        borderRadius: 9999,
+        overflow: "hidden",
+      },
+      listTabCount: { ...base, color: colors.foregroundMuted, fontVariant: ["tabular-nums"] },
+      listSearch: compact ? lineInput : { ...lineInput, flexGrow: 1, flexBasis: 200 },
+      // As tall as the title's line, so the figures sit on it.
+      listFacts: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        minHeight: 20,
+        flexShrink: 0,
+      },
+      listFact: { ...small, color: colors.foregroundMuted, fontVariant: ["tabular-nums"] },
+      listContextTrack: { width: 40, height: 4, borderRadius: 2, overflow: "hidden" },
+      listContextBase: fill,
+      // As the host card's meters: grey while there is room, so a colour means something.
+      listContextFill: {
+        low: { height: 4, backgroundColor: colors.foregroundMuted },
+        mid: { height: 4, backgroundColor: colors.statusWarning },
+        high: { height: 4, backgroundColor: colors.statusDanger },
       },
       permission: { gap: 8 },
       // What the agent asks for is the thing to read before answering, so it is not in the

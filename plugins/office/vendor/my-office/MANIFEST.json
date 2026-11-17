@@ -71,6 +71,7 @@
     "office/interact/props.js",
     "office/interact/place-chips.js",
     "office/interact/place-cards.js",
+    "office/ui/photo.js",
     "office/net/live.js",
     "office/life/your-turn.js",
     "office/core/loop.js",
@@ -92,6 +93,7 @@
     "office/interact/first-person.js": [
       "blocked",
       "buildGrid",
+      "exitFp",
       "fp",
       "fpUpdate"
     ],
@@ -245,6 +247,7 @@
     "i18n/locales/en/props.js": "f82d272dfafcedf02c2411c6957d41ff0608fef2c891332f3c01bd806325876b",
     "i18n/locales/en/settings.js": "ff6b2bfc29a7c1803924f7d4f3915d13f2ddec7e5a56d6955b6f375d07dc48d4",
     "i18n/locales/en/time.js": "ef6a0fc21a0ac4ccdc658fcb8679b9a867201e76957d3acc9cdd1824aa087ca7",
+    "i18n/locales/en/ui.js": "6d39f37a0ac76d63370b1676fbc870ac48b6339233781dd4f85870775774e5a9",
     "i18n/locales/en/world.js": "f25ea10826f5f17ac38c2ff5501d64635f5aa3d724b9d9d0d8e129b0bc32d1af",
     "office/core/env.js": "d3655e5843758dd55288c175873ff4dc63249c824e4015ded95835e65428a676",
     "office/core/loop.js": "3d369e26d2612603108d49c596b1624753c1a0ff197a2ff5d1981b87a10df57d",
@@ -280,6 +283,7 @@
     "office/scene/renderer.js": "9cd0f1f7c22e4ff15f49a874773ec8f9e42e507746c186cd9cfdec73beafeb10",
     "office/ui/event-text.js": "aacc48a70644ad3ba284f264b2383bdd57b0612da81ea19a7c8bf8eb3c33faf4",
     "office/ui/icons.js": "0aa45c14cd93a1cd31acc1038a4e65faa390e80c3de55daeeedfdf9118896973",
+    "office/ui/photo.js": "6406ea9f4a1a26893dcad0308d65378676812607f2e72c1b92d8a4e76e8a9ad0",
     "office/world/cozy-room.js": "6d97d3b3bfacc0c9f5957ea0d63040fb0779496c26c0ae7cf59afecd2b4be1b9",
     "office/world/desks.js": "9657ee54ad8a5fed27f5c3cd3a5227bd5728988fa9beb64242c1380e6719bbc4",
     "office/world/entrance.js": "214eb0073156deba09aa1ac56062d672741f7747cb6a8375032c08394d83b484",

@@ -306,8 +306,14 @@ export function applyAgentUpdate(
     return next;
   }
   const projected = projectAgent(update.agent);
-  if (projected) next.set(projected.id, projected);
-  else next.delete(update.agent.id);
+  if (!projected) {
+    next.delete(update.agent.id);
+    return next;
+  }
+  // The host's mid-turn usage carries the context without the cost; the last cost stands.
+  const lastCost = agents.get(projected.id)?.costUsd;
+  if (projected.costUsd === undefined && lastCost !== undefined) projected.costUsd = lastCost;
+  next.set(projected.id, projected);
   return next;
 }
 

@@ -40,6 +40,9 @@ export function openWorldFrame({ container, script, title }: WorldFrameInput): W
   const element = document.createElement("iframe");
   element.title = title;
   element.srcdoc = PAGE;
+  // The bar's Full screen button calls requestFullscreen on the page's own root; without this the
+  // browser refuses it for a frame.
+  element.setAttribute("allow", "fullscreen");
   element.style.cssText = FRAME_STYLE;
   let loaded: WorldApi | null = null;
   const api = new Promise<WorldApi>((resolve, reject) => {

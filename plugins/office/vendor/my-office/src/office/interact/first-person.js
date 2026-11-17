@@ -7,6 +7,8 @@ import { scene } from '../scene/renderer.js';
 
 export const fp = { on: false, grid: null };
 export function fpUpdate() {}
+/** PASEO: stand-in until the walk-in piece replaces it; ui/photo.js leaves first person before a photo. */
+export function exitFp() {}
 
 const CELL = 0.1;
 /** The floor people walk on, in the scene's units. */
