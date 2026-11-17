@@ -60,8 +60,8 @@ it. Its trailing rail holds icon buttons only (`SheetHeaderIconButton`): Open as
 full-screen glyph beside Close, so the title keeps its width. Compact sheets use the app overlay
 host: a workspace-local host sits behind the app-level left sidebar. The sheet pane bridge
 (`useSheetPaneBridge`) preserves existing editing sessions, caches, file-link resolution and
-supported navigation context without moving their providers; the plugin side area's sheet, which
-also opens outside a workspace, uses `useSheetPaneBridgeAnywhere`, which carries the workspace host
+supported navigation context without moving their providers. The plugin side area's sheet can
+open outside a workspace, so it uses `useSheetPaneBridgeAnywhere`, which carries the workspace host
 and the diff cache only when they are present. Keep this capability at the workspace
 boundary; new sheet callers must not assemble provider internals. Wide layouts retain local hosting
 and pane geometry. Both hosts forward the same Gorhom modal queue; neither creates another stack.

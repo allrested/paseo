@@ -772,10 +772,10 @@ export function SessionRow({ agentId, navigation, theme }: SessionRowProps) {
 }
 ```
 
-| Target                                                       | Shows                                                                                                                                                              |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `{ kind: "agent", agentId, serverId? }`                      | The agent's full session, as in its workspace. The header has Open in workspace and Close. Opening a file or a tab from it goes to the agent's workspace.          |
-| `{ kind: "screen", pluginId, screenId, params?, serverId? }` | That plugin's screen with its params, `layout.compact: true` and no `showBeside` of its own, calling its own plugin's RPCs. The header has Open {title} and Close. |
+| Target                                                       | Shows                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{ kind: "agent", agentId, serverId? }`                      | The agent's full session, as in its workspace. The header has Open in workspace and Close. Opening a file or a tab from the session's links goes to the agent's workspace; opening Changes or a subagent from the composer's pills does not. |
+| `{ kind: "screen", pluginId, screenId, params?, serverId? }` | That plugin's screen with its params, `layout.compact: true` and no `showBeside` of its own, calling its own plugin's RPCs. The header has Open {title} and Close.                                                                           |
 
 `serverId` defaults to your surface's `host.id`. The call returns `true` when it shows the target.
 It returns `false`, and does not throw, when the host does not know the agent, does not have the
