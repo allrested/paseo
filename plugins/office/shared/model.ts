@@ -1,5 +1,7 @@
 import type {
   ActivityStep,
+  ChecklistStep,
+  Checklists,
   OfficeAgent,
   OfficeSnapshot,
   OfficeWorkspace,
@@ -36,6 +38,8 @@ export interface OfficeRoom {
   rows: OfficeRow[];
   /** Open and claimed tasks and notes. */
   posts: Post[];
+  /** The lobby's task posts, done ones included, in to-do order; [] for every other room. */
+  todos: Post[];
 }
 
 export type AttentionReason = "permission" | "error";
@@ -47,9 +51,17 @@ export interface AttentionEntry {
   reason: AttentionReason;
 }
 
+/** An agent's unfinished checklist steps, in the agent's order. */
+export interface AgentTaskGroup {
+  agentId: string;
+  steps: ChecklistStep[];
+}
+
 export interface OfficeModel {
   rooms: OfficeRoom[];
   attention: AttentionEntry[];
+  /** Every agent with an unfinished step, room by room and in each room's row order. */
+  agentTasks: AgentTaskGroup[];
   agents: ReadonlyMap<string, OfficeAgent>;
   roomOfAgent: ReadonlyMap<string, string>;
   /** The agents that wait on sub-agents, each with how many (`waitingOnOf`). */
@@ -186,10 +198,18 @@ function orderRows(
   return rows;
 }
 
+function byAge(left: Post, right: Post): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.seq - right.seq;
+}
+
 function visiblePosts(posts: readonly Post[]): Post[] {
-  return posts
-    .filter((post) => !(post.kind === "task" && post.state === "done"))
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.seq - right.seq);
+  return posts.filter((post) => !(post.kind === "task" && post.state === "done")).sort(byAge);
+}
+
+/** Open and claimed first, then done; oldest first within each. */
+export function orderTodos(posts: readonly Post[]): Post[] {
+  const rank = (post: Post) => (post.state === "done" ? 1 : 0);
+  return [...posts].sort((left, right) => rank(left) - rank(right) || byAge(left, right));
 }
 
 function attentionList(
@@ -214,6 +234,17 @@ function attentionList(
   );
 }
 
+function agentTaskGroups(rooms: readonly OfficeRoom[], checklists: Checklists): AgentTaskGroup[] {
+  const groups: AgentTaskGroup[] = [];
+  for (const room of rooms) {
+    for (const row of room.rows) {
+      const steps = checklists[row.agent.id] ?? [];
+      if (steps.length > 0) groups.push({ agentId: row.agent.id, steps });
+    }
+  }
+  return groups;
+}
+
 export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
   const workspaceIds = new Set(state.workspaces.map((workspace) => workspace.id));
   const agents = new Map<string, OfficeAgent>();
@@ -233,14 +264,19 @@ export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
     subtitle: string | null,
     workspace: OfficeWorkspace | null,
   ): OfficeRoom {
+    const lobby = workspace === null;
+    const posts = state.boards[id] ?? [];
+    const tasks = posts.filter((post) => post.kind === "task");
+    const todos = lobby ? orderTodos(tasks) : [];
     return {
       id,
       name,
       subtitle,
-      lobby: workspace === null,
+      lobby,
       workspace,
       rows: orderRows(byRoom.get(id) ?? [], state.activity, state.doing ?? {}, waitingOn),
-      posts: visiblePosts(state.boards[id] ?? []),
+      posts: visiblePosts(posts),
+      todos,
     };
   }
   const rooms = [
@@ -252,6 +288,7 @@ export function buildOfficeModel(state: OfficeSnapshot): OfficeModel {
   return {
     rooms,
     attention: attentionList(agents.values(), roomOfAgent),
+    agentTasks: agentTaskGroups(rooms, state.checklists ?? {}),
     agents,
     roomOfAgent,
     waitingOn,

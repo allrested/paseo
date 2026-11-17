@@ -79,7 +79,9 @@ const ACTIONS: BoardActions = {
     posted.push(input);
   },
   markDone: async () => undefined,
+  reopen: async () => undefined,
   remove: async () => undefined,
+  clearDone: async () => undefined,
   setWakesPaused: async () => undefined,
 };
 const nameOf = (author: string) => author;

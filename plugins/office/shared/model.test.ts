@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { OfficeAgent, OfficeSnapshot, Post } from "./contracts.js";
+import type { ChecklistStep, OfficeAgent, OfficeSnapshot, Post } from "./contracts.js";
 import {
   agentMeta,
   agentTask,
@@ -10,6 +10,8 @@ import {
   orderRoomsForFocus,
   waitingOnOf,
   waitingOnText,
+  type OfficeModel,
+  type OfficeRoom,
 } from "./model.js";
 
 function agent(id: string, overrides: Partial<OfficeAgent> = {}): OfficeAgent {
@@ -54,6 +56,12 @@ function post(id: string, overrides: Partial<Post>): Post {
     updatedAt: "2026-11-11T08:00:00.000Z",
     ...overrides,
   };
+}
+
+function roomOf(model: OfficeModel, roomId: string): OfficeRoom {
+  const room = model.rooms.find((candidate) => candidate.id === roomId);
+  if (!room) throw new Error(`No room ${roomId}`);
+  return room;
 }
 
 function rowIds(model: ReturnType<typeof buildOfficeModel>, roomId: string): string[] {
@@ -251,6 +259,52 @@ test("a room shows open and claimed tasks and notes, not done tasks or unknown b
   );
   expect(model.rooms[1]?.posts.map((item) => item.id)).toEqual(["p1", "p3"]);
   expect(model.rooms.some((room) => room.id === "w9")).toBe(false);
+});
+
+test("the lobby's to-dos include done ones in to-do order; other rooms have none", () => {
+  const at = (minute: number) => `2026-11-11T08:0${minute}:00.000Z`;
+  const model = buildOfficeModel(
+    snapshot({
+      boards: {
+        lobby: [
+          post("p4", {
+            board: "lobby",
+            seq: 4,
+            state: "claimed",
+            claimedBy: "a",
+            createdAt: at(4),
+          }),
+          post("p1", { board: "lobby", seq: 1, state: "done", createdAt: at(1) }),
+          post("p3", { board: "lobby", seq: 3, kind: "note", state: undefined, createdAt: at(3) }),
+          post("p2", { board: "lobby", seq: 2, createdAt: at(2) }),
+        ],
+        w1: [post("p5", { seq: 5 })],
+      },
+    }),
+  );
+  expect(roomOf(model, "lobby").todos.map((item) => item.id)).toEqual(["p2", "p4", "p1"]);
+  expect(roomOf(model, "lobby").posts.map((item) => item.id)).toEqual(["p2", "p3", "p4"]);
+  expect(roomOf(model, "w1").todos).toEqual([]);
+});
+
+test("agent tasks follow rooms and rows, sub-agents under parents, and skip empty checklists", () => {
+  const steps = (text: string): ChecklistStep[] => [{ text, status: "pending" }];
+  const model = buildOfficeModel(
+    snapshot({
+      agents: [
+        agent("a1", { createdAt: "2026-11-11T08:00:00.000Z" }),
+        agent("a2", { parentAgentId: "a1", createdAt: "2026-11-11T08:01:00.000Z" }),
+        agent("l1", { workspaceId: null, createdAt: "2026-11-11T08:02:00.000Z" }),
+        agent("x", { workspaceId: "w2" }),
+      ],
+      checklists: { a2: steps("Test"), l1: steps("Plan"), a1: steps("Build"), x: [] },
+    }),
+  );
+  expect(model.agentTasks).toEqual([
+    { agentId: "l1", steps: steps("Plan") },
+    { agentId: "a1", steps: steps("Build") },
+    { agentId: "a2", steps: steps("Test") },
+  ]);
 });
 
 test("the office name comes first, and the task is kept for the card", () => {
