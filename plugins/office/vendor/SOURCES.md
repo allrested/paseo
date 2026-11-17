@@ -67,7 +67,7 @@ takes the two files by name and records them under `chat` in `MANIFEST.json`. Th
 with `allowJs` off, so two `.d.ts` files beside them type what the office calls:
 `shared/upstream/chat-engine.d.ts` and `shared/upstream/chat.d.ts`. The import tool never writes a
 `.d.ts`. The engine's `tr` is `shared/chat-words.ts`, the stand-in's lookup over the `chat` area
-alone, which keeps upstream's emoji.
+and `people.director`, which keeps upstream's emoji.
 
 ### What is not taken
 

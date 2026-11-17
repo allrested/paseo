@@ -393,11 +393,15 @@ export function createOfficePlugin(
         holder.remember(context.paseo);
         office.noteAgent(agent);
         office.turnEnded(agent.id);
+      } catch (error) {
+        log(`[office] agent.turn.after failed: ${errorMessage(error)}`);
+      }
+      try {
         void chat
           ?.turnEnded(agent, outcome, turnId)
           .catch((error: unknown) => log(`[office] chat turn end failed: ${errorMessage(error)}`));
       } catch (error) {
-        log(`[office] agent.turn.after failed: ${errorMessage(error)}`);
+        log(`[office] chat turn end failed: ${errorMessage(error)}`);
       }
       // A stopped turn counts as failed: the entry is not written, and the writer is left.
       try {
@@ -413,14 +417,23 @@ export function createOfficePlugin(
       } catch (error) {
         log(`[office] agent.close.after failed: ${errorMessage(error)}`);
       }
+      try {
+        chat?.closed(agent.id);
+      } catch (error) {
+        log(`[office] chat close failed: ${errorMessage(error)}`);
+      }
     }),
     server.addHook("agent.archive.after", async ({ agent }) => {
       try {
         office.agentGone(agent.id);
-        chat?.archived(agent.id);
         await writer.agentArchived(agent.id);
       } catch (error) {
         log(`[office] agent.archive.after failed: ${errorMessage(error)}`);
+      }
+      try {
+        chat?.archived(agent.id);
+      } catch (error) {
+        log(`[office] chat archive failed: ${errorMessage(error)}`);
       }
     }),
     server.addHook("workspace.archive.after", async ({ workspace }) => {

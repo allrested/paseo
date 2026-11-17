@@ -57,6 +57,8 @@ export interface ChatService {
     turnId: string | null,
   ): Promise<void>;
   archived(agentId: string): void;
+  /** Ends the waits of an agent closed mid-turn: its turn end never comes. */
+  closed(agentId: string): void;
   request(input: ChatRequest): Promise<ChatResult>;
   /** Cancels the clock and the engine's timers and waits for the last save. */
   stop(): Promise<void>;
@@ -150,7 +152,7 @@ export async function createChatService(ports: ChatServicePorts): Promise<ChatSe
   const loaded = await ports.store.load();
   const roster = new Map<string, ChatMember>();
   // The prompts waiting for an answer, by agent, in send order; never an empty list. In memory only.
-  // Each ends by its own failure, a turn end or an archive.
+  // Each ends by its own failure, a turn end, a close or an archive.
   const waiting = new Map<string, readonly Waiting[]>();
   const timers = new Set<() => void>();
   // The permission ids each agent had in the last view; null until the first view of an open office.
@@ -376,6 +378,11 @@ export async function createChatService(ports: ChatServicePorts): Promise<ChatSe
       const member = roster.get(agentId) ?? entries?.[0]?.member;
       roster.delete(agentId);
       if (member !== undefined) engine.onLeft(member.name);
+    },
+
+    closed(agentId) {
+      const entries = waiting.get(agentId);
+      if (entries !== undefined) release(agentId, entries);
     },
 
     async request(input) {

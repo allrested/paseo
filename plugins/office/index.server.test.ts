@@ -781,6 +781,27 @@ test("an archived agent of the office leaves the chat", async () => {
   await stop();
 });
 
+test("an agent closed while the chat waits for it stops typing", async () => {
+  const { recorded, context, directory, logs, stop } = setup(async () => ON);
+  directory.agents.push(listedAgent("a1", "Mjd"));
+  await settle();
+  const office = openOffice(recorded, context);
+  await settle();
+
+  const chat = recorded.handlers.get("office.chat.request");
+  expect(await chat?.({ op: "send", text: "@Mjd hi" }, context)).toEqual({ ok: true });
+  await settle();
+  const typingNames = () =>
+    office.events.flatMap(({ change }) => (change?.op === "typing" ? [change.names] : []));
+  expect(typingNames().at(-1)).toEqual(["Mjd"]);
+
+  await recorded.hooks.get("agent.close.after")?.({ agent: hookAgent("a1") }, context);
+  expect(typingNames().at(-1)).toEqual([]);
+  expect(logs).toEqual([]);
+  await office.leave();
+  await stop();
+});
+
 test("a chat that cannot start answers its call with an error and the rest of the office goes on", async () => {
   const broken: ChatStore = {
     load: async () => {

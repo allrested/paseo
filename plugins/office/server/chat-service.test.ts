@@ -264,6 +264,24 @@ test("an archived agent matches nobody: no prompt, no answer", async () => {
   expect(typing(h)).toEqual([]);
 });
 
+test("an agent closed mid-turn stops typing and answers nothing", async () => {
+  const h = await harness();
+  h.service.view(view(agent("a1", "Alice")));
+  h.answers.set("a1", "Never posted.");
+  await send(h, "@Alice look at this");
+  h.clock.advance(10_000);
+  expect(typing(h)).toEqual(["Alice"]);
+
+  h.service.closed("a1");
+  expect(typing(h)).toEqual([]);
+  // A closed agent's turn end never comes; one that came anyway finds nothing waiting.
+  await h.service.turnEnded({ id: "a1" }, { kind: "completed" }, "t1");
+  h.clock.advance(10_000);
+  expect(h.asked).toEqual([]);
+  expect(said(h, "Alice")).not.toContain("Never posted.");
+  expect(typing(h)).toEqual([]);
+});
+
 test("an agent whose runtime is closed is not in the team", async () => {
   const h = await harness();
   h.service.view(view(agent("a1", "Alice", { status: "closed" })));
