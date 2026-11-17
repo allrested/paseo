@@ -1,4 +1,6 @@
 import type {
+  ChatChange,
+  ChatSnapshot,
   IncidentsState,
   Checklists,
   NotesState,
@@ -66,6 +68,21 @@ export interface Hub {
   /** The open incidents and the trackers' state; the same state again sends nothing. */
   setIncidents(incidents: IncidentsState): void;
   /**
+   * The conversation each snapshot carries from now on; null removes it. Every subscriber gets a
+   * fresh snapshot.
+   */
+  setChat(source: (() => ChatSnapshot) | null): void;
+  /**
+   * One change of the conversation, sent as a `chat` event to subscribers that have their
+   * snapshot.
+   */
+  chatChange(change: ChatChange): void;
+  /**
+   * Calls `listener` with each view the directory reports, and with null when it stops; at once
+   * with the current view when a directory is open. Returns what ends it.
+   */
+  watch(listener: (view: DirectoryView | null) => void): () => void;
+  /**
    * The office now, for the stand-up report. While an office is open it is what its subscribers
    * see; while none is, a directory is opened for this read alone and closed again, so the read
    * has the agents and rooms but no "doing now" lines.
@@ -115,6 +132,8 @@ export function createHub(ports: HubPorts): Hub {
   let sentNotes = "";
   let incidents: IncidentsState | null = null;
   let sentIncidents = "";
+  let chatSource: (() => ChatSnapshot) | null = null;
+  const watchers = new Set<(view: DirectoryView | null) => void>();
   let starting: Promise<void> | null = null;
   let stopDirectory: (() => Promise<void>) | null = null;
   let stopActivity: (() => void) | null = null;
@@ -137,6 +156,7 @@ export function createHub(ports: HubPorts): Hub {
       wake: { paused: wake.paused, queued: { ...wake.queued } },
       ...(notes === null ? {} : { notes: { ...notes } }),
       ...(incidents === null ? {} : { incidents: { ...incidents } }),
+      ...(chatSource === null ? {} : { chat: chatSource() }),
     };
   }
 
@@ -146,6 +166,19 @@ export function createHub(ports: HubPorts): Hub {
       subscriber
         .push(event)
         .catch((error: unknown) => ports.log(`[office] push failed: ${errorMessage(error)}`));
+    }
+  }
+
+  function tell(
+    next: DirectoryView | null,
+    listeners: Iterable<(view: DirectoryView | null) => void> = watchers,
+  ): void {
+    for (const listener of listeners) {
+      try {
+        listener(next);
+      } catch (error) {
+        ports.log(`[office] chat watcher failed: ${errorMessage(error)}`);
+      }
     }
   }
 
@@ -249,6 +282,7 @@ export function createHub(ports: HubPorts): Hub {
       agents: named(resets.size === 0 ? next.agents : settled.agents),
       workspaces: next.workspaces,
     };
+    tell(view);
     // Until the start finished, the first snapshot carries the view.
     if (stopDirectory === null || cancelFlush !== null) return;
     cancelFlush = ports.timers.setTimeout(() => {
@@ -374,6 +408,7 @@ export function createHub(ports: HubPorts): Hub {
     view = EMPTY_VIEW;
     reported = EMPTY_VIEW;
     pendingNumbers.clear();
+    tell(null);
     if (stop === null) return;
     try {
       await stop();
@@ -441,6 +476,20 @@ export function createHub(ports: HubPorts): Hub {
       sentIncidents = text;
       incidents = { ...next };
       broadcast({ type: "snapshot", state: snapshot() });
+    },
+    setChat(source) {
+      chatSource = source;
+      broadcast({ type: "snapshot", state: snapshot() });
+    },
+    chatChange(change) {
+      broadcast({ type: "chat", change });
+    },
+    watch(listener) {
+      watchers.add(listener);
+      if (stopDirectory !== null) tell(view, [listener]);
+      return () => {
+        watchers.delete(listener);
+      };
     },
     async read() {
       if (stopDirectory !== null) return snapshot();

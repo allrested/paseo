@@ -500,6 +500,120 @@ test("setIncidents broadcasts a snapshot carrying incidents; the same state send
   await subscriber.done;
 });
 
+test("a chat source is in the next snapshot and subscribers get one when it is set", async () => {
+  const harness = startHarness({ agents: [], workspaces: [] });
+  const first = subscribe(harness.hub);
+  await settle();
+  harness.hub.setChat(() => ({ messages: [], typing: ["A"] }));
+  expect(first.events).toHaveLength(2);
+  expect(first.events.at(-1)).toMatchObject({
+    type: "snapshot",
+    state: { chat: { messages: [], typing: ["A"] } },
+  });
+
+  const second = subscribe(harness.hub);
+  await settle();
+  expect(second.events).toEqual([
+    {
+      type: "snapshot",
+      state: {
+        agents: [],
+        workspaces: [],
+        activity: {},
+        doing: {},
+        checklists: {},
+        boards: {},
+        wake: EMPTY_WAKE,
+        chat: { messages: [], typing: ["A"] },
+      },
+    },
+  ]);
+
+  harness.hub.setChat(null);
+  const last = first.events.at(-1);
+  expect(last?.type).toBe("snapshot");
+  expect(last?.type === "snapshot" && "chat" in last.state).toBe(false);
+  first.controller.abort();
+  second.controller.abort();
+  await Promise.all([first.done, second.done]);
+});
+
+test("a chat change goes to subscribers that have their snapshot, as a chat event", async () => {
+  const harness = startHarness({ agents: [], workspaces: [] });
+  const gate = deferred();
+  harness.directory.openGate = gate.promise;
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.hub.chatChange({ op: "typing", names: ["A"] });
+  expect(subscriber.events).toEqual([]);
+
+  gate.release();
+  await settle();
+  harness.hub.chatChange({ op: "typing", names: ["B"] });
+  expect(subscriber.events.map((event) => event.type)).toEqual(["snapshot", "chat"]);
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "chat",
+    change: { op: "typing", names: ["B"] },
+  });
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("a watcher gets each view the directory reports, and null when it stops", async () => {
+  const first: DirectoryView = { agents: [agent("a", "idle")], workspaces: [] };
+  const harness = startHarness(first);
+  const seen: (DirectoryView | null)[] = [];
+  harness.hub.watch((view) => seen.push(view));
+  expect(seen).toEqual([]);
+
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(seen).toEqual([first]);
+
+  const next: DirectoryView = { agents: [agent("a", "running")], workspaces: [] };
+  harness.directory.emit(next);
+  expect(seen).toEqual([first, next]);
+
+  subscriber.controller.abort();
+  await subscriber.done;
+  await settle();
+  expect(seen).toEqual([first, next, null]);
+});
+
+test("a watcher added while a directory is open gets the current view at once, and can be removed", async () => {
+  const first: DirectoryView = { agents: [agent("a", "idle")], workspaces: [] };
+  const harness = startHarness(first);
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  const seen: (DirectoryView | null)[] = [];
+  const stop = harness.hub.watch((view) => seen.push(view));
+  expect(seen).toEqual([first]);
+
+  stop();
+  harness.directory.emit({ agents: [agent("a", "running")], workspaces: [] });
+  subscriber.controller.abort();
+  await subscriber.done;
+  await settle();
+  expect(seen).toEqual([first]);
+});
+
+test("a watcher that throws is logged and does not stop the others", async () => {
+  const logs: string[] = [];
+  const first: DirectoryView = { agents: [agent("a", "idle")], workspaces: [] };
+  const harness = startHarness(first, { log: (message) => logs.push(message) });
+  const seen: (DirectoryView | null)[] = [];
+  harness.hub.watch(() => {
+    throw new Error("chat is down");
+  });
+  harness.hub.watch((view) => seen.push(view));
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(seen).toEqual([first]);
+  expect(logs).toEqual(["[office] chat watcher failed: chat is down"]);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
 test("with no office open, a read opens the directory for itself and closes it", async () => {
   const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
   harness.hub.setBoard("lobby", [note("p1")]);

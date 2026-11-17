@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, expect, test } from "vitest";
 import { createOfficePlugin } from "./index.server.js";
 import { EMPTY_BOARDS, type BoardStore } from "./server/board-store.js";
+import { emptyChat, type ChatData, type ChatStore } from "./server/chat-store.js";
 import { createFakeClock, settle } from "./server/fake-clock.js";
 import {
   EMPTY_INCIDENTS,
@@ -20,6 +21,7 @@ import {
   type IncidentsStore,
 } from "./server/incidents-store.js";
 import type { NotesStore, StoredNotes } from "./server/notes-writer.js";
+import { chatRpc } from "./shared/contracts.js";
 import type { officeHostSettings } from "./shared/settings.js";
 
 type SettingsState = PluginSettingsState<typeof officeHostSettings.schema>;
@@ -239,6 +241,18 @@ function memoryIncidentsStore(): IncidentsStore & { kept: IncidentsData } {
   return store;
 }
 
+function memoryChatStore(): ChatStore & { kept: ChatData } {
+  // Copied on each load and save, as the file is.
+  const store = {
+    kept: emptyChat(),
+    load: async () => structuredClone(store.kept),
+    save: async (data: ChatData) => {
+      store.kept = structuredClone(data);
+    },
+  };
+  return store;
+}
+
 function memoryStore(): BoardStore {
   let current = EMPTY_BOARDS;
   return {
@@ -281,8 +295,14 @@ function hookAgent(id: string): PluginHookAgent {
   };
 }
 
-/** `env` is the daemon's environment the trackers' variables are read from; empty by default. */
-function setup(read: () => Promise<SettingsState>, options: { env?: NodeJS.ProcessEnv } = {}) {
+/**
+ * `env` is the daemon's environment the trackers' variables are read from; empty by default.
+ * `chatStore` replaces the chat's memory store.
+ */
+function setup(
+  read: () => Promise<SettingsState>,
+  options: { env?: NodeJS.ProcessEnv; chatStore?: ChatStore } = {},
+) {
   const recorded: Recorded = {
     hooks: new Map(),
     handlers: new Map(),
@@ -299,12 +319,14 @@ function setup(read: () => Promise<SettingsState>, options: { env?: NodeJS.Proce
   const writers: Writers = { created: [], prompts: [], archived: [] };
   const notesStore = memoryNotesStore();
   const incidentsStore = memoryIncidentsStore();
+  const chatStore = options.chatStore ?? memoryChatStore();
   const clock = createFakeClock(Date.parse("2026-11-11T09:00:00.000Z"));
   const context = fakeContext(statuses, sent, writers);
   const stop = createOfficePlugin(fakeServer(recorded, read), {
     store: memoryStore(),
     notesStore,
     incidentsStore,
+    chatStore,
     env: options.env ?? {},
     clock,
     log: (message) => logs.push(message),
@@ -504,11 +526,11 @@ test("the machine is read for a subscriber and no longer once it left", async ()
       },
     },
   ]);
-  // The hourly prune and the next reading.
-  expect(clock.pending()).toBe(2);
+  // The hourly prune, the chat's clock and the next reading.
+  expect(clock.pending()).toBe(3);
   leaving.abort();
   await done;
-  expect(clock.pending()).toBe(1);
+  expect(clock.pending()).toBe(2);
   await stop();
 });
 
@@ -599,6 +621,7 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "office.set_wakes_paused.request",
     "office.notes.write.request",
     "office.incidents.dismiss.request",
+    "office.chat.request",
   ]);
   expect([...recorded.scheduleRuns.keys()]).toEqual(["standup-notes", "incidents"]);
   expect([...recorded.hooks.keys()]).toEqual([
@@ -608,11 +631,129 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "agent.archive.after",
     "workspace.archive.after",
   ]);
-  // The hourly prune is waiting.
-  expect(clock.pending()).toBe(1);
+  // The hourly prune and the chat's 30 s clock are waiting.
+  expect(clock.pending()).toBe(2);
   await stop();
   expect(recorded.hooks.size).toBe(0);
   expect(recorded.scheduleRuns.size).toBe(0);
+  expect(clock.pending()).toBe(0);
+});
+
+/** Subscribes to office.state as a page does; `events` records what it is pushed. */
+function openOffice(recorded: Recorded, context: PluginHandlerContext) {
+  const events: { type: string; state?: { chat?: unknown }; change?: unknown }[] = [];
+  const leaving = new AbortController();
+  const done = recorded.handlers.get("office.state")?.({}, {
+    ...context,
+    signal: leaving.signal,
+    push: async (event: { type: string }) => void events.push(event),
+  } as never);
+  return {
+    events,
+    async leave() {
+      leaving.abort();
+      await done;
+    },
+  };
+}
+
+test("a chat send posts your message to an open office and the snapshot carries the chat", async () => {
+  const { recorded, context, stop } = setup(async () => ON);
+  await settle();
+  const first = openOffice(recorded, context);
+  await settle();
+  // The engine's own welcome line opens a new conversation.
+  expect(first.events.at(-1)?.state?.chat).toMatchObject({
+    messages: [{ kind: "sys" }],
+    typing: [],
+  });
+
+  const chat = recorded.handlers.get("office.chat.request");
+  expect(await chat?.({ op: "send", text: "hello" }, context)).toEqual({ ok: true });
+  expect(first.events.filter((event) => event.type === "chat")).toMatchObject([
+    { type: "chat", change: { op: "add", message: { from: "me", text: "hello" } } },
+  ]);
+
+  const second = openOffice(recorded, context);
+  await settle();
+  expect(second.events.at(-1)?.state?.chat).toMatchObject({
+    messages: [{ kind: "sys" }, { from: "me", text: "hello" }],
+  });
+  await first.leave();
+  await second.leave();
+  await stop();
+});
+
+test("a chat call with a bad op is refused by the contract", () => {
+  expect(chatRpc.input.safeParse({ op: "shout", text: "hello" }).success).toBe(false);
+  expect(chatRpc.input.safeParse({ op: "send", text: "hello" }).success).toBe(true);
+});
+
+test("a turn that ends, and an archive, reach the chat", async () => {
+  const { recorded, context, logs, stop } = setup(async () => ON);
+  await settle();
+  await recorded.hooks.get("agent.turn.after")?.(
+    { agent: hookAgent("a1"), turnId: "t1", outcome: { kind: "completed" } },
+    context,
+  );
+  await recorded.hooks.get("agent.archive.after")?.(
+    { agent: hookAgent("a1"), archivedAt: "2026-11-11T09:01:00.000Z" },
+    context,
+  );
+  await settle();
+  expect(logs).toEqual([]);
+  await stop();
+});
+
+test("a chat that cannot start answers its call with an error and the rest of the office goes on", async () => {
+  const broken: ChatStore = {
+    load: async () => {
+      throw new Error("chat.json is locked");
+    },
+    save: async () => undefined,
+  };
+  const { recorded, context, logs, stop } = setup(async () => ON, { chatStore: broken });
+  await settle();
+  const chat = recorded.handlers.get("office.chat.request");
+  await expect(chat?.({ op: "send", text: "hello" }, context)).rejects.toThrow(
+    "The team chat did not start",
+  );
+  const post = recorded.handlers.get("office.post.request");
+  expect(await post?.({ board: "w1", kind: "note", text: "Still here" }, context)).toMatchObject({
+    ok: true,
+  });
+  expect(logs).toContain("[office] chat unavailable: chat.json is locked");
+  await stop();
+});
+
+test("the chat's clock beats every 30 s until the office stops", async () => {
+  const { clock, stop } = setup(async () => ON);
+  await settle();
+  // The hourly prune and the chat's clock.
+  expect(clock.pending()).toBe(2);
+  clock.advance(30_000);
+  expect(clock.pending()).toBe(2);
+  clock.advance(30_000);
+  expect(clock.pending()).toBe(2);
+  await stop();
+  expect(clock.pending()).toBe(0);
+});
+
+test("an office stopped before its chat has loaded stops the chat's clock too", async () => {
+  let load: (data: ChatData) => void = () => undefined;
+  const slow: ChatStore = {
+    load: () =>
+      new Promise<ChatData>((resolve) => {
+        load = resolve;
+      }),
+    save: async () => undefined,
+  };
+  const { clock, stop } = setup(async () => ON, { chatStore: slow });
+  await settle();
+  const stopping = stop();
+  load(emptyChat());
+  await stopping;
+  await settle();
   expect(clock.pending()).toBe(0);
 });
 

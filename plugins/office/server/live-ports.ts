@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { ACTIVITY_TAIL_LIMIT, startActivityPoller } from "./activity.js";
+import { lastAssistantText, type ChatServicePorts } from "./chat-service.js";
 import type { Hub, HubPorts } from "./hub.js";
 import type { JanitorPorts } from "./janitor.js";
 import { wakeTargetOf } from "./mention-queue.js";
@@ -68,6 +69,26 @@ export function liveAgentPorts(holder: PaseoHolder): OfficeAgentPorts {
           prompt,
           source === null ? { activeTurnBehavior: "steer" } : { sourceAgentId: source },
         ),
+  };
+}
+
+/** The team chat's ports on the daemon's own API; the holder is set by every hook and handler. */
+export function liveChatPorts(holder: PaseoHolder): Pick<ChatServicePorts, "send" | "lastAnswer"> {
+  return {
+    // Steers a running turn, as a wake from the user does, so a busy agent is not cut off.
+    send: async (agentId, prompt) =>
+      holder.require().agents.ref(agentId).send(prompt, { activeTurnBehavior: "steer" }),
+    // The hook's own recipe (PluginHookEvents["agent.turn.after"]): the latest whole turn, kept
+    // only when it is the turn that ended. A null turn id has no entries.
+    async lastAnswer(agentId, turnId) {
+      if (turnId === null) return null;
+      const page = await holder
+        .require()
+        .agents.ref(agentId)
+        .timeline.refetch({ direction: "tail", limit: 1, wholeTurns: true });
+      const turn = page.entries.filter((entry) => entry.turnId === turnId);
+      return lastAssistantText(turn.map((entry) => entry.item));
+    },
   };
 }
 
