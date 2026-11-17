@@ -757,8 +757,9 @@ per month. Nothing runs until you set "Notes folder", an absolute path, in the o
 [plugin schedule](#schedules) at 08:00 Sunday to Thursday in that zone, so it is not in the app,
 `schedule ls` or `list_schedules`. Each run, and each click on the 3D floor's bell, starts an agent
 titled "Stand-up notes" in the notes folder's workspace, unattended: the first enabled, ready
-provider in the daemon's order, with that provider's default model and default mode. Under a mode
-that asks before an edit, the writer waits on a permission until someone answers it. The writer
+provider in the daemon's order, with that provider's default model, in its mode that edits files
+without asking (Claude's "Accept File Edits") or else its default mode. Under a mode that still asks
+before an edit, the writer waits on a permission until someone answers it. The writer
 follows the stand-up rules of the folder's `CLAUDE.md` and gets the stand-up report as text. One
 writer runs at a time, and the office keeps it in `$PASEO_HOME/office/notes-writer.json`, so a
 restart does not start a second. An entry counts as written only when its `## DD Month YYYY` header

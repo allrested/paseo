@@ -100,6 +100,7 @@ interface ProviderEntry {
   status: string;
   enabled: boolean;
   defaultModeId?: string | null;
+  modes?: { id: string; label: string }[];
   models?: { id: string; isDefault?: boolean; isSelectable?: boolean }[];
 }
 
@@ -143,7 +144,7 @@ const NO_HUB = {
   },
 };
 
-test("the writer starts in the folder's workspace, on the first ready provider with the model and mode it offers first", async () => {
+test("the writer starts in the folder's workspace, on the first ready provider with its default model and the mode that accepts edits", async () => {
   const created: Created[] = [];
   const entries: ProviderEntry[] = [
     { provider: "codex", status: "error", enabled: true, models: [{ id: "gpt" }] },
@@ -153,6 +154,12 @@ test("the writer starts in the folder's workspace, on the first ready provider w
       status: "ready",
       enabled: true,
       defaultModeId: "auto",
+      modes: [
+        { id: "default", label: "Always Ask" },
+        { id: "acceptEdits", label: "Accept File Edits" },
+        { id: "auto", label: "Auto mode" },
+        { id: "bypassPermissions", label: "Bypass" },
+      ],
       models: [
         { id: "haiku", isSelectable: false, isDefault: true },
         { id: "opus" },
@@ -168,12 +175,38 @@ test("the writer starts in the folder's workspace, on the first ready provider w
     {
       cwd: "/n",
       options: {
-        config: { provider: "claude/sonnet", modeId: "auto" },
+        config: { provider: "claude/sonnet", modeId: "acceptEdits" },
         title: "Stand-up notes",
         prompt: "Write",
       },
     },
   ]);
+});
+
+test("a provider with no mode that accepts edits starts the writer in its default mode", async () => {
+  const created: Created[] = [];
+  const entries: ProviderEntry[] = [
+    {
+      provider: "codex",
+      status: "ready",
+      enabled: true,
+      defaultModeId: "auto-review",
+      modes: [
+        { id: "auto", label: "Default Permissions" },
+        { id: "auto-review", label: "Auto-review" },
+        { id: "full-access", label: "Full Access" },
+      ],
+      models: [{ id: "gpt", isDefault: true }],
+    },
+  ];
+  await liveNotesPorts(notesHolder(entries, created, []), NO_HUB).startAgent({
+    cwd: "/n",
+    title: "Stand-up notes",
+    prompt: "Write",
+  });
+  expect(created[0]?.options).toMatchObject({
+    config: { provider: "codex/gpt", modeId: "auto-review" },
+  });
 });
 
 test("a provider without a default model takes its first, and no mode when it names none", async () => {
