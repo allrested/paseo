@@ -175,6 +175,12 @@ export interface WorldApi {
    */
   meet?(): void;
   /**
+   * A chat that calls a meeting: rings the same bell without telling Paseo (`onBell`), so the
+   * stand-up notes writer does not start. Upstream's own opening line, not the stand-up's. Nothing
+   * happens while another gathering is on, or when nobody is free.
+   */
+  gather?(): void;
+  /**
    * The open incidents, newest first. The banner names the newest while any is open. One that
    * rings starts the alarm: 25 s of red, a fail bubble over everyone at work and the siren. Several
    * that ring at once ring once.

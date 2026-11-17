@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   applauded: [] as string[],
   played: [] as string[],
   incidentsOpened: 0,
+  /** How many times the meeting table's bell rang. */
+  rung: 0,
   /** The camera bar's markup is in the page. */
   built: false,
   /** Whether it was when the first of the scene's modules started (ui/photo.js wires it then). */
@@ -93,7 +95,9 @@ vi.mock("../../vendor/my-office/src/office/people/navigation.js", () => ({ STATI
 vi.mock("../../vendor/my-office/src/office/people/gatherings.js", async () => {
   const scene = await import("../../vendor/my-office/src/office/core/state.js");
   return {
-    ringBell() {},
+    ringBell() {
+      h.rung += 1;
+    },
     // Upstream's applause cheers someone once per 600 s of scene time (people/gatherings.js applaud).
     applaud(sess: string) {
       const w = h.workers.get(sess) as { cheeredAt?: number } | undefined;
@@ -131,6 +135,8 @@ interface World {
   event(e: { sess: string; type: string }): void;
   setIncidents(list: object[]): void;
   setMachine(machine: object | null): void;
+  meet(): void;
+  gather(): void;
 }
 const world = (globalThis as unknown as { PaseoOfficeWorld: World }).PaseoOfficeWorld;
 world.start({
@@ -177,6 +183,7 @@ beforeEach(() => {
   h.applauded.length = 0;
   h.played.length = 0;
   h.incidentsOpened = 0;
+  h.rung = 0;
   state.sim = 0;
   state.incidentUntil = 0;
   world.setIncidents([]);
@@ -315,6 +322,16 @@ test("the banner names the newest incident and how many more; a click opens Pase
 
   world.setIncidents([]);
   expect(page("incident").hidden).toBe(true);
+});
+
+test("gather rings the bell for everyone without telling Paseo, and meet is not changed", () => {
+  const bell = vi.fn();
+  host.bell = bell;
+  world.gather();
+  expect(h.rung).toBe(1);
+  expect(bell).not.toHaveBeenCalled();
+  world.meet();
+  expect(h.rung).toBe(2);
 });
 
 interface Prop {
