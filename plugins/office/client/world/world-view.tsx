@@ -240,8 +240,10 @@ export function WorldView({
           // Read when the office starts: a page's brand does not change while the page lives.
           brand: worldBrand(readBrand()),
           // What these open is Paseo's (a card, a sheet): the keyboard goes with it.
+          // A card closed from the scene opens nothing, and Walk in closes the card as it starts:
+          // the keyboard stays where it is.
           onSelect: (agentId) => {
-            focusApp();
+            if (agentId !== null) focusApp();
             latest.current.onSelectAgent(agentId);
           },
           onBoard: (project) => {
