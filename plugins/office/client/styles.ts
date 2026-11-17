@@ -199,9 +199,9 @@ export interface OfficeStyles {
   /** The "Live" tag: the running dot and its word. */
   panelLive: ViewStyle;
   panelLiveText: TextStyle;
-  /** The kind chips: the view switch's pills, wrapping on a narrow panel. */
+  /** The kind chips and the Sessions tabs: the view switch's pills, wrapping on a narrow panel. */
   panelChips: ViewStyle;
-  /** The Needs you tab's count, quieter than its label. */
+  /** A tab's count, quieter than its label. */
   panelCount: TextStyle;
   panelFeed: ViewStyle;
   panelTime: TextStyle;
