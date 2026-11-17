@@ -257,10 +257,15 @@ export async function createChatService(ports: ChatServicePorts): Promise<ChatSe
   }
 
   function prompt(member: ChatMember, text: string, reply: Waiting["reply"]): void {
+    const previous = waiting.get(member.id);
     waiting.set(member.id, { member, reply });
     engine.working(member.id, true);
     ports.send(member.id, PROMPT_PREFIX + text).catch((error: unknown) => {
-      if (waiting.get(member.id)?.reply === reply) endWait(member.id);
+      if (waiting.get(member.id)?.reply === reply) {
+        // The agent still works on the earlier message, so that one waits again.
+        if (previous === undefined) endWait(member.id);
+        else waiting.set(member.id, previous);
+      }
       engine.system(`Could not reach ${member.name}: ${errorMessage(error)}.`);
     });
   }

@@ -368,6 +368,26 @@ test("a prompt that cannot be sent says so and stops the typing", async () => {
   expect(h.asked).toEqual([]);
 });
 
+test("a prompt that cannot be sent keeps the earlier one waiting, and its answer still comes", async () => {
+  const h = await harness();
+  h.service.view(view(agent("a1", "Alice")));
+  h.answers.set("a1", "First is done.");
+  await send(h, "@Alice first");
+  const [first] = mine(h);
+  // The first prompt started a turn; the second cannot steer it.
+  h.failure.send = new Error("cannot steer");
+  await send(h, "@Alice second");
+  await settle();
+  const system = messages(h).filter((message) => message.kind === "sys");
+  expect(system.at(-1)?.text).toBe("Could not reach Alice: cannot steer.");
+  expect(typing(h)).toEqual(["Alice"]);
+
+  await h.service.turnEnded({ id: "a1" }, { kind: "completed" }, "t1");
+  const answer = messages(h).find((message) => message.text === "First is done.");
+  expect(answer?.reply).toEqual({ id: first?.id, name: "Boss", text: "@Alice first" });
+  expect(typing(h)).toEqual([]);
+});
+
 test("a turn that ends with no office open still gets its answer", async () => {
   const h = await harness();
   h.service.view(view(agent("a1", "Alice"), agent("a2", "Bea")));
