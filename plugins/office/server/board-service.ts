@@ -53,6 +53,8 @@ export interface BoardService {
   post(input: NewPost): Promise<PostResult>;
   update(input: PostUpdate): Promise<PostResult>;
   remove(id: string): Promise<DeleteResult>;
+  /** Deletes every done task of `board`. */
+  clearDone(board: string): Promise<DeleteResult>;
   read(board: string, since: number | null): ReadResult;
   removeBoard(board: string): Promise<void>;
   setWakesPaused(paused: boolean): Promise<void>;
@@ -242,6 +244,15 @@ export function createBoardService(ports: BoardServicePorts): BoardService {
         if (!post) return { ok: false, error: `Unable to delete ${id}: no such post` };
         const posts = data.posts.filter((item) => item.id !== id);
         const saved = await commit({ ...data, posts }, [post.board]);
+        return saved.ok ? { ok: true } : saved;
+      }),
+    clearDone: (board) =>
+      exclusive(async (): Promise<DeleteResult> => {
+        const posts = data.posts.filter(
+          (item) => item.board !== board || item.kind !== "task" || item.state !== "done",
+        );
+        if (posts.length === data.posts.length) return { ok: true };
+        const saved = await commit({ ...data, posts }, [board]);
         return saved.ok ? { ok: true } : saved;
       }),
     read(board, since) {

@@ -45,6 +45,7 @@ export interface Office {
   post(input: { board: string; kind: PostKind; text: string; to?: string }): Promise<PostResult>;
   update(input: { id: string; action: UpdateAction }): Promise<PostResult>;
   remove(id: string): Promise<DeleteResult>;
+  clearDone(board: string): Promise<DeleteResult>;
   setWakesPaused(paused: boolean): Promise<WakeState>;
   turnEnded(agentId: string): void;
   agentGone(agentId: string): void;
@@ -159,6 +160,10 @@ export function createOffice(deps: OfficeDeps): Office {
     async remove(id) {
       await ready;
       return service.remove(id);
+    },
+    async clearDone(board) {
+      await ready;
+      return service.clearDone(board);
     },
     async setWakesPaused(paused) {
       const wakeQueue = await requireQueue();
