@@ -18,7 +18,8 @@ export interface OfficeLink {
 /**
  * The surface registered here, if one is. The panels are a second React tree beside the floor,
  * and the plugin's client modules are one bundle, so this module is the channel between them.
- * One surface is mounted at a time.
+ * Two surfaces can be mounted at once (a retained deck or panel), so the one that opens a panel
+ * claims the link; a mount registers too, for the 3D to List remount.
  */
 let registered: OfficeLink | null = null;
 
@@ -33,6 +34,15 @@ export function useOfficeLink(link: OfficeLink): void {
       if (registered === link) registered = null;
     };
   }, [link]);
+}
+
+/**
+ * The office whose header button opens a panel takes the link, so the panel beside it reaches
+ * that office and not another mounted one. The area closes when its surface leaves view, so the
+ * opener is the office beside the panel.
+ */
+export function claimOfficeLink(link: OfficeLink): void {
+  registered = link;
 }
 
 /**

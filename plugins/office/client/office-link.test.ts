@@ -9,6 +9,7 @@ import {
   ACTIVITY_SCREEN,
   SESSIONS_SCREEN,
   linkOpenSession,
+  claimOfficeLink,
   linkSelect,
   useOfficeLink,
   type OfficeLink,
@@ -20,6 +21,7 @@ vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
 interface Seat {
   root: Root;
+  link: OfficeLink;
   calls: string[];
 }
 
@@ -41,7 +43,7 @@ function register(prefix: string): Seat {
   document.body.append(container);
   const root = createRoot(container);
   act(() => root.render(createElement(Registered, { link })));
-  const seat = { root, calls };
+  const seat = { root, link, calls };
   seats.push(seat);
   return seat;
 }
@@ -153,6 +155,23 @@ test("the last surface to mount wins; an old surface's unmount leaves the new on
   unmount(second);
   linkSelect("a3", navigation);
   expect(opened).toEqual([{ agentId: "a3" }]);
+});
+
+test("the surface that opens a panel claims the link from a later one", () => {
+  // Two offices mounted (a retained deck): the earlier one's header button opened the panel.
+  const earlier = register("earlier");
+  const later = register("later");
+  const { navigation } = fakeNavigation();
+
+  claimOfficeLink(earlier.link);
+  linkSelect("a1", navigation);
+  expect(earlier.calls).toEqual(["earlier select a1"]);
+  expect(later.calls).toEqual([]);
+
+  // The later office leaving does not clear the claimer's registration.
+  unmount(later);
+  linkOpenSession("a2", navigation);
+  expect(earlier.calls).toEqual(["earlier select a1", "earlier openSession a2"]);
 });
 
 test("the two screens' ids are the ones the office registers", () => {

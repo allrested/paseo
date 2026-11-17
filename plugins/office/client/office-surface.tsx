@@ -37,7 +37,13 @@ import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
 import { hostNote, namedMachine, type HostNote } from "../shared/machine-text.js";
-import { ACTIVITY_SCREEN, SESSIONS_SCREEN, useOfficeLink } from "./office-link.js";
+import {
+  ACTIVITY_SCREEN,
+  SESSIONS_SCREEN,
+  claimOfficeLink,
+  useOfficeLink,
+  type OfficeLink,
+} from "./office-link.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
@@ -484,6 +490,8 @@ function PanelButton({ label, icon, screenId, size, color, onOpen, styles }: Pan
 interface PanelButtonsProps {
   /** Null, or with no `showBeside`, on an app without a side area: the panels are not offered. */
   navigation: PluginScreenProps["navigation"];
+  /** This surface's link, which it claims as it opens a panel. */
+  link: OfficeLink;
   /** The app's two control sizes: touch-sized in the compact layout or on a touch screen. */
   compact: boolean;
   touchScreen: boolean;
@@ -493,13 +501,21 @@ interface PanelButtonsProps {
 }
 
 /** The header's two ways to the panels, after the view switch. */
-function PanelButtons({ navigation, compact, touchScreen, color, styles }: PanelButtonsProps) {
+function PanelButtons({
+  navigation,
+  link,
+  compact,
+  touchScreen,
+  color,
+  styles,
+}: PanelButtonsProps) {
   const showBeside = navigation?.showBeside;
   const open = useCallback(
     (screenId: string) => {
+      claimOfficeLink(link);
       showBeside?.({ kind: "screen", pluginId: "office", screenId });
     },
-    [showBeside],
+    [link, showBeside],
   );
   if (showBeside === undefined) return null;
   // The glyph at the app's icon sizes (control-geometry.ts iconSizeFor("md")).
@@ -867,6 +883,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           />
           <PanelButtons
             navigation={navigation}
+            link={link}
             compact={layout.compact}
             touchScreen={touchScreen}
             color={theme.colors.foreground}
