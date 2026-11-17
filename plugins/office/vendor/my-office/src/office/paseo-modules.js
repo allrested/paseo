@@ -61,6 +61,7 @@ import * as interactProps from './interact/props.js';
 import * as interactPlaceChips from './interact/place-chips.js';
 import * as interactPlaceCards from './interact/place-cards.js';
 import * as uiPhoto from './ui/photo.js';
+import * as interactFirstPerson from './interact/first-person.js';
 import * as netLive from './net/live.js';
 import * as lifeYourTurn from './life/your-turn.js';
 import * as coreLoop from './core/loop.js';
@@ -129,6 +130,7 @@ export const MODULES = [
   ['interactPlaceChips', interactPlaceChips],
   ['interactPlaceCards', interactPlaceCards],
   ['uiPhoto', uiPhoto],
+  ['interactFirstPerson', interactFirstPerson],
   ['netLive', netLive],
   ['lifeYourTurn', lifeYourTurn],
   ['coreLoop', coreLoop],

@@ -36,6 +36,11 @@ vi.mock("../../vendor/my-office/src/office/ui/session-drawer.js", () => ({
   closeSession: h.closeSession,
 }));
 vi.mock("../../vendor/my-office/src/office/paseo-host.js", () => ({ host: { toast: h.toast } }));
+vi.mock("../../vendor/my-office/src/office/interact/first-person.js", () => ({
+  floorBounds: () => ({ x0: -7.85, x1: 15.3, z0: -7.85, z1: 11.3 }),
+  fp: { on: false },
+  exitFp() {},
+}));
 
 import { build, goView, setView, setup } from "../../vendor/my-office/src/office/ui/camera-bar.js";
 
@@ -106,7 +111,7 @@ afterEach(() => {
   delete (document.documentElement as { requestFullscreen?: unknown }).requestFullscreen;
 });
 
-test("the bar has its eight controls with their labels", () => {
+test("the bar has its nine controls with their labels", () => {
   open();
 
   expect(
@@ -120,6 +125,7 @@ test("the bar has its eight controls with their labels", () => {
     "Zoom in",
     "Full screen",
     "Photo mode",
+    "Walk in",
   ]);
   expect(document.querySelector(".toolbar")?.getAttribute("aria-label")).toBe("View");
 });
@@ -244,6 +250,25 @@ test("every element ui/photo.js wires is built before the modules run", () => {
   for (const id of ["btn-photo", "ph-exit", "ph-shoot", "ph-names", "ph-mark", "photo-bar"]) {
     expect(document.getElementById(id), id).not.toBeNull();
   }
+});
+
+test("every element first-person.js wires is built before the modules run", () => {
+  // first-person.js's setup reads these ids and holds no guard: a missing one throws before the office draws.
+  build();
+  for (const id of ["btn-fp", "fp-hud", "fp-near", "fp-exit", "fp-joy"]) {
+    expect(document.getElementById(id), id).not.toBeNull();
+  }
+  expect(page("fp-hud").hidden).toBe(true);
+  expect(page("btn-fp").getAttribute("aria-pressed")).toBe("false");
+  expect(page("btn-fp").getAttribute("title")).toBe("Walk in");
+});
+
+test("the overlay's style keeps upstream's light ink and hides the chips while walking", () => {
+  build();
+  const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  expect(css).toMatch(/\.fp-help \{[^}]*color: #8D97AA;/);
+  expect(css).toMatch(/\.is-fp \.zone/);
+  expect(css).toMatch(/\.bil-hud \{/);
 });
 
 test("the bar's text stays light on its dark track in either theme", () => {

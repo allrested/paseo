@@ -1,10 +1,10 @@
-// PASEO: stand-in for my-office's ui/camera-bar.js. Upstream's bar of named views, its zoom and its
-// full screen are taken; its automatic camera, first person and list mode are not. One view is
-// Paseo's own: the whole floor, fitted to the frame. Upstream's opening view is sized for its own
+// PASEO: stand-in for my-office's ui/camera-bar.js. Upstream's bar of named views, its zoom, its
+// full screen and its Walk in button are taken; its automatic camera and list mode are not. One view
+// is Paseo's own: the whole floor, fitted to the frame. Upstream's opening view is sized for its own
 // page; Paseo's frame is a screen or a workspace tab of any shape, so Overview is that fitted view
 // and the other three are upstream's places at a factor of its zoom.
-// Photo mode's bar is built here too: upstream's PhotoBar.tsx is React, and photo mode's own
-// ui/photo.js finds its elements by id.
+// Photo mode's bar and the walk's overlay are built here too: upstream's PhotoBar.tsx and
+// FirstPersonHud.tsx are React, and ui/photo.js and interact/first-person.js find their elements by id.
 import * as THREE from '../../../three/three.module.min.js';
 import { state } from '../core/state.js';
 import { camera, controls } from '../scene/renderer.js';
@@ -37,7 +37,10 @@ let fitZoom = 0;
  */
 const VIEWS = { desks: { t: [2.3, 0.6, 3.6], z: 1.9 }, meeting: { t: [-1.2, 0.6, -5.4], z: 2.0 }, server: { t: [-5.6, 1.0, -0.6], z: 2.4 } };
 
-/** The toolbar's and the photo bar's markup, as upstream's CameraToolbar.tsx and PhotoBar.tsx draw it. */
+/**
+ * The toolbar's, the walk's overlay's and the photo bar's markup, as upstream's CameraToolbar.tsx,
+ * FirstPersonHud.tsx and PhotoBar.tsx draw them.
+ */
 const BAR = `
     <div class="toolbar" role="toolbar" aria-label="View">
       <div class="tb-seg">
@@ -51,6 +54,14 @@ const BAR = `
         <button type="button" class="tb-full" id="btn-full" aria-label="Full screen" title="Full screen"><span data-icon="maximize"></span></button>
         <button type="button" class="tb-full" id="btn-photo" aria-label="Photo mode" title="Photo mode"><span data-icon="camera"></span></button>
       </div>
+      <button type="button" class="tb-fp" id="btn-fp" aria-pressed="false" aria-label="Walk in" title="Walk in"><span data-icon="walk"></span><span>Walk in</span></button>
+    </div>
+    <div class="fp-hud" id="fp-hud" hidden>
+      <i class="fp-cross" aria-hidden="true"></i>
+      <button type="button" class="fp-near" id="fp-near" hidden></button>
+      <div class="fp-help"><b>Walking the office</b><span>W A S D to walk · drag to look · Shift to run · E to use what is in front of you (or wake someone up) · V to switch view · Esc to exit</span></div>
+      <button type="button" class="fp-exit" id="fp-exit"><span data-icon="x"></span><span>Exit</span></button>
+      <div class="fp-joy" id="fp-joy" aria-hidden="true"><i></i></div>
     </div>
     <div class="photo-bar" id="photo-bar" hidden role="toolbar" aria-label="Photo mode">
       <p class="photo-hint">Drag to move · right-drag to turn · scroll to zoom where you point · P or Esc to leave</p>
@@ -65,9 +76,10 @@ const BAR = `
     </div>`;
 
 /**
- * Upstream's styles/stage.css lines 9 to 26 and its photo bar, with its colours as literals: Paseo's
- * ink and muted are dark in the light theme, and would not read on this near-black track. Only the
- * accent is the app's, where it stays legible on it.
+ * Upstream's styles/stage.css lines 9 to 26, its walk (lines 32 to 56, with the pool table's score,
+ * and places.css's two `.is-fp` rules) and its photo bar, with its colours as literals: Paseo's ink
+ * and muted are dark in the light theme, and would not read on these near-black panels. Only the
+ * accent is the app's, where it stays legible on them.
  */
 const STYLE = `
 .toolbar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px; color: #E8ECF4; background: rgba(15, 20, 28, .84); -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); border: 1px solid rgba(255, 255, 255, .13); border-radius: 15px; box-shadow: 0 12px 32px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .05); z-index: 2; max-width: calc(100% - 24px); }
@@ -94,10 +106,38 @@ const STYLE = `
    the one span it was written for is the percent) */
 #zoom-val { min-width: 42px; text-align: center; font-size: .76rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 /* Paseo's svg.ic carries no size (each label sets its own); the bar's icons are upstream's 16 px. */
-.toolbar .ic, .photo-bar .ic { width: 16px; height: 16px; flex: none; }
+.toolbar .ic, .photo-bar .ic, .fp-hud .ic { width: 16px; height: 16px; flex: none; }
 @media (max-width: 520px) { .seg-btn > span:last-child { display: none; } }
 /* (a narrow frame has no room for the last tool's name: at 390 px it ran past the right edge) */
 @media (max-width: 520px) { .tb-zoom button::after, .tb-full::after { display: none; } }
+/* Walk in: the button at the bar's end, and the overlay while walking (upstream's touch line and its fade to the
+   street are not taken; the joystick stays hidden) */
+.tb-fp { all: unset; height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 16px 0 13px; box-sizing: border-box; border-radius: 11px; background: var(--o-accent, #EF8A5F); color: #2A1307; font-size: .8rem; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 14px rgba(239, 138, 95, .26), inset 0 1px 0 rgba(255, 255, 255, .28); transition: background .15s; }
+.tb-fp:hover { background: #F5A07A; }
+.tb-fp:focus-visible { outline: 2px solid var(--o-accent, #EF8A5F); outline-offset: 2px; }
+.tb-fp[aria-pressed="true"] { background: rgba(239, 138, 95, .13); color: #F5A07A; box-shadow: inset 0 0 0 1px rgba(239, 138, 95, .6); }
+.is-fp .tb-seg, .is-fp .tb-zoom { opacity: .35; }
+.fp-hud { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.fp-cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255, 255, 255, .85); box-shadow: 0 0 0 2px rgba(0, 0, 0, .35); }
+.fp-help { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; max-width: calc(100% - 140px); padding: 8px 14px; border-radius: 12px; background: rgba(17, 23, 32, .8); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, .13); font-size: .76rem; color: #8D97AA; }
+.fp-help b { color: #F2B544; white-space: nowrap; }
+.fp-exit { all: unset; pointer-events: auto; position: absolute; right: 14px; top: 12px; height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 10px; background: rgba(17, 23, 32, .86); border: 1px solid rgba(255, 255, 255, .13); color: #E8ECF4; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.fp-exit:hover { background: #1E2734; }
+.fp-near { all: unset; pointer-events: auto; position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: rgba(17, 23, 32, .9); border: 1px solid #3DDC84; color: #E8ECF4; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap; max-width: 80%; overflow: hidden; text-overflow: ellipsis; }
+.is-gaming .fp-near, .is-gaming .fp-cross, .is-gaming .fp-help { display: none !important; }   /* (on the sofa with a controller: the TV is the view) */
+/* first person at the pool table (people/billiards.js): the score, whose shot it is, the power while Space is held, the keys */
+.bil-hud { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 6; display: grid; justify-items: center; gap: 6px; min-width: 260px; padding: 10px 16px; border-radius: 14px; background: rgba(10, 14, 22, .8); color: #FFFFFF; font-size: .8rem; pointer-events: none; }
+.bil-hud .bil-score { font-size: .95rem; font-variant-numeric: tabular-nums; }
+.bil-hud .bil-turn { color: #FFD27A; font-weight: 600; }
+.bil-power { display: block; width: 220px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, .18); overflow: hidden; }
+.bil-power > i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, #4ADE80, #FACC15, #EF4444); }
+.bil-hud .bil-help { color: #C9D4E3; font-size: .7rem; }
+.fp-near kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-right: 8px; border-radius: 6px; background: #3DDC84; color: #06210F; font: 800 .72rem/1 inherit; }
+.fp-joy { display: none; pointer-events: auto; position: absolute; left: 22px; bottom: 96px; width: 116px; height: 116px; border-radius: 50%; background: rgba(17, 23, 32, .45); border: 1px solid rgba(255, 255, 255, .13); touch-action: none; }
+.fp-joy i { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: var(--o-accent, #EF8A5F); opacity: .9; }
+.is-fp .team-tag { display: none; }
+.is-fp .zone { display: none; }
+@media (max-width: 520px) { .tb-fp span:last-child { display: none; } .tb-fp { padding: 0 11px; } .fp-help { top: 56px; max-width: calc(100% - 24px); } }
 body.is-photo .toolbar { display: none; }
 /* Photo mode: the office alone, with one bar to frame and take the picture */
 body.is-photo #stage-wrap > :not(#stage):not(#photo-bar) { display: none !important; }
@@ -159,7 +199,7 @@ export function goView(view) {
   setView(view);
 }
 
-/** Builds the bar's and the photo bar's markup and styles, before the modules that fill and wire them. */
+/** Builds the bar's, the walk's overlay's and the photo bar's markup and styles, before the modules that fill and wire them. */
 export function build() {
   const style = document.createElement('style');
   style.textContent = STYLE;
