@@ -62,7 +62,9 @@ them under `standIns`). Each cut or change starts with `// PASEO:`. `paseo-entry
 Upstream's own interface (panels, the session drawer, the chat, settings, the top bar), its server
 connection, the replay, the demo, every sound but the siren, other languages, the street outside
 with its shops, the first-person walk, and the daily-life scenes (lunch runs, the midday nap, the
-seasons, the weather and the like). The owner asked for the office floor only.
+seasons, the weather and the like). The owner asked for the office floor only. Of the camera
+toolbar and photo mode, these are left out on purpose: the list button, Walk in, the automatic
+camera, clip recording, and photo mode's day and night buttons.
 
 The kept modules still import those files, so each has a stand-in at the same path that starts
 with `// PASEO: stand-in`. Most export what is asked of them and do nothing. These do work:
@@ -72,7 +74,7 @@ with `// PASEO: stand-in`. Most export what is asked of them and do nothing. The
 | `i18n/index.js`             | English only; drops the emoji upstream ends its lines with; Paseo's wording where upstream's line needs a file name or a command |
 | `ui/session-drawer.js`      | A chosen person is told to Paseo, which opens its agent card           |
 | `ui/whiteboard.js`          | Draws Paseo's rows on the board; picks people and furniture            |
-| `ui/camera-bar.js`          | One view: the floor fitted to the frame                                |
+| `ui/camera-bar.js`          | Builds upstream's toolbar and photo mode's bar; Overview is the floor fitted to the frame, the other three views are upstream's places; zoom and full screen |
 | `ui/mac-drawer.js`          | Holds the host's readings Paseo sets; opens Paseo's panel when it has one |
 | `ui/activity.js`            | Passes the scene's toasts to Paseo                                     |
 | `interact/first-person.js`  | The collision grid people route around, without the first-person walk  |
