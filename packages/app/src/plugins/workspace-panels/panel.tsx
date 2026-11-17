@@ -19,6 +19,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useWorkspaceExists } from "@/stores/session-store-hooks";
 import type { Theme } from "@/styles/theme";
 import { normalizeWorkspaceOpaqueId } from "@/utils/workspace-identity";
+import { BesideFrame, useShowBeside } from "../beside";
 import { usePluginHostNavigation } from "../host-navigation";
 import { createPluginClientStateSource } from "../client-state/source";
 import { toPluginTheme } from "../theme";
@@ -68,7 +69,9 @@ function PluginPanelBody({ theme }: { theme: PluginTheme }) {
   const host = useMemo(() => ({ id: serverId, label: hostLabel }), [hostLabel, serverId]);
   const layout = useMemo(() => ({ compact, platform: resolvePluginPlatform() }), [compact]);
   const stateSource = useMemo(() => createPluginClientStateSource(serverId), [serverId]);
-  const navigation = usePluginHostNavigation(serverId);
+  // Workspace and agent panels alike are tabs in a workspace, so both can show something beside.
+  const showBeside = useShowBeside();
+  const navigation = usePluginHostNavigation(serverId, showBeside);
 
   if (!plugin || !contribution || !workspaceExists) {
     return <PluginPanelUnavailable />;
@@ -133,7 +136,12 @@ function PluginPanelBody({ theme }: { theme: PluginTheme }) {
 const ThemedPluginPanelBody = withUnistyles(PluginPanelBody);
 
 function PluginPanel() {
-  return <ThemedPluginPanelBody uniProps={pluginThemeMapping} />;
+  const { serverId, workspaceId, tabId } = usePaneContext();
+  return (
+    <BesideFrame surfaceKey={`${serverId}:${workspaceId}:${tabId}`}>
+      <ThemedPluginPanelBody uniProps={pluginThemeMapping} />
+    </BesideFrame>
+  );
 }
 
 function PluginPanelUnavailable({

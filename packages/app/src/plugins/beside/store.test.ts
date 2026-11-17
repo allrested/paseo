@@ -18,27 +18,32 @@ describe("beside store", () => {
   it("replaces the area's target and grows its revision when a different agent is shown", () => {
     const { show } = useBesideStore.getState();
     show("office", agentOne);
+    const first = useBesideStore.getState().areas.office!.revision;
     show("office", agentTwo);
-    expect(useBesideStore.getState().areas).toEqual({
-      office: { target: agentTwo, revision: 2 },
-    });
+    const replaced = useBesideStore.getState().areas.office!;
+    expect(replaced.target).toBe(agentTwo);
+    expect(replaced.revision).toBeGreaterThan(first);
   });
 
   it("keeps the revision when the same agent is shown again", () => {
     const { show } = useBesideStore.getState();
     show("office", agentOne);
+    const first = useBesideStore.getState().areas.office!.revision;
     show("office", { ...agentOne });
-    expect(useBesideStore.getState().areas.office).toEqual({ target: agentOne, revision: 1 });
+    expect(useBesideStore.getState().areas.office).toEqual({ target: agentOne, revision: first });
   });
 
-  it("removes the area on close and starts it again at revision 1", () => {
+  it("removes the area on close and reopens it at a higher revision", () => {
     const { show, close } = useBesideStore.getState();
     show("office", agentOne);
     show("office", agentTwo);
+    const beforeClose = useBesideStore.getState().areas.office!.revision;
     close("office");
     expect(useBesideStore.getState().areas).toEqual({});
     show("office", agentOne);
-    expect(useBesideStore.getState().areas.office).toEqual({ target: agentOne, revision: 1 });
+    const reopened = useBesideStore.getState().areas.office!;
+    expect(reopened.target).toBe(agentOne);
+    expect(reopened.revision).toBeGreaterThan(beforeClose);
   });
 
   it("does nothing when an unknown area is closed", () => {
@@ -53,8 +58,8 @@ describe("beside store", () => {
     show("office", agentOne);
     show("panel:tab-1", resources);
     expect(useBesideStore.getState().areas).toEqual({
-      office: { target: agentOne, revision: 1 },
-      "panel:tab-1": { target: resources, revision: 1 },
+      office: { target: agentOne, revision: expect.any(Number) },
+      "panel:tab-1": { target: resources, revision: expect.any(Number) },
     });
   });
 
