@@ -336,6 +336,27 @@ test("an empty report removes the agent's checklist", async () => {
   await subscriber.done;
 });
 
+test("a report that names an agent no longer listed does not bring its checklist back", async () => {
+  const harness = startHarness({
+    agents: [agent("a1", "running"), agent("a2", "running")],
+    workspaces: [],
+  });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.activity.emit({}, {}, { a1: [STEP] });
+  // a1 is archived while a round is reading it; that round's report still names it.
+  harness.directory.emit({ agents: [agent("a2", "running")], workspaces: [] });
+  harness.activity.emit({}, {}, { a1: [STEP], a2: [STEP] });
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "activity",
+    activity: {},
+    doing: {},
+    checklists: { a2: [STEP] },
+  });
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
 test("stopping the directory empties the checklists", async () => {
   const harness = startHarness({ agents: [agent("a1", "running")], workspaces: [] });
   const first = subscribe(harness.hub);

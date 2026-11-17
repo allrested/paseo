@@ -642,6 +642,33 @@ test("the poller reports checklists, and a checklist change alone is a change", 
   harness.poller.stop();
 });
 
+test("an agent that stopped since the last round is read once more, for its checklist only", async () => {
+  const todo = (completed: boolean): ActivityItem => ({
+    type: "todo",
+    items: [{ text: "Write the test", completed }],
+  });
+  const running = ["a"];
+  const tails = new Map<string, ActivityItem[]>([["a", [todo(false), { type: "reasoning" }]]]);
+  const harness = startHarness(running, tails);
+  await settle();
+  // a ticked its last step, ran one more call and stopped, all between two reads.
+  tails.set("a", [todo(true), call({ type: "shell", command: "ls" }), wrote]);
+  running.length = 0;
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+
+  expect(harness.reads).toEqual(["a", "a"]);
+  expect(harness.changes.slice(0, 2)).toEqual([{ a: "Thinking" }, {}]);
+  expect(harness.steps.slice(0, 2)).toEqual([{}, {}]);
+  expect(harness.checklists.slice(0, 2)).toEqual([
+    { a: [{ text: "Write the test", status: "pending" }] },
+    { a: [] },
+  ]);
+  harness.poller.stop();
+});
+
 test("stop ends the reads and leaves no timer", async () => {
   const harness = startHarness(["a"], new Map([["a", [{ type: "reasoning" }]]]));
   await settle();

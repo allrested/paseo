@@ -254,7 +254,10 @@ export function createHub(ports: HubPorts): Hub {
     }, DIRECTORY_FLUSH_MS);
   }
 
-  /** Each report replaces the checklists of the agents it names; one reported empty goes. */
+  /**
+   * Each report replaces the checklists of the agents it names; one reported empty goes. An agent
+   * that left the list while the round read it stays gone.
+   */
   function onActivity(
     next: ActivityLines,
     steps: ActivitySteps,
@@ -262,7 +265,9 @@ export function createHub(ports: HubPorts): Hub {
   ): void {
     activity = next;
     doing = steps;
-    const merged = Object.entries({ ...checklists, ...report });
+    const listed = new Set(view.agents.map((agent) => agent.id));
+    const fresh = Object.entries(report).filter(([agentId]) => listed.has(agentId));
+    const merged = Object.entries({ ...checklists, ...Object.fromEntries(fresh) });
     checklists = Object.fromEntries(merged.filter(([, list]) => list.length > 0));
     broadcast(activityEvent());
   }

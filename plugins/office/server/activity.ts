@@ -292,7 +292,8 @@ export interface ActivityPorts {
   log(message: string): void;
   /**
    * `checklists` holds each agent read this round whose tail has a todo item, `[]` when all its
-   * steps are finished; an agent whose read failed, or whose tail has none, is absent.
+   * steps are finished; an agent whose read failed, or whose tail has none, is absent. An agent
+   * that stopped since the last round is read for this alone, once.
    */
   onChange(activity: ActivityLines, doing: ActivitySteps, checklists: Readonly<Checklists>): void;
 }
@@ -325,6 +326,7 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
   let previous: ActivityLines = {};
   let previousSteps: ActivitySteps = {};
   let previousChecklists = "{}";
+  let wasRunning: readonly string[] = [];
   // The calls each agent's last read saw, kept while the poller runs: an agent's next turn is
   // read against them too. A prompt ends the look back, so an old turn's call is never told.
   const seenCalls = new Map<string, ReadonlySet<string>>();
@@ -358,14 +360,31 @@ export function startActivityPoller(ports: ActivityPorts): ActivityPoller {
     }
   }
 
+  // An agent often ticks its last step and stops between two reads: it is read once more after
+  // it stopped, for its checklist alone. A failed read leaves the checklist it had.
+  async function readStopped(agentId: string, checklists: Checklists): Promise<void> {
+    try {
+      const checklist = readChecklist(await ports.tail(agentId));
+      if (checklist !== null) checklists[agentId] = checklist;
+    } catch (error) {
+      if (!stopped) ports.log(`[office] activity of ${agentId}: ${errorMessage(error)}`);
+    }
+  }
+
   async function tick(): Promise<void> {
     const next: Record<string, string> = {};
     const steps: Record<string, ActivityStep> = {};
     const checklists: Checklists = {};
-    for (const agentId of ports.running()) {
+    const running = [...ports.running()];
+    for (const agentId of running) {
       if (stopped) return;
       await readOne(agentId, next, steps, checklists);
     }
+    for (const agentId of wasRunning) {
+      if (stopped) return;
+      if (!running.includes(agentId)) await readStopped(agentId, checklists);
+    }
+    wasRunning = running;
     const checklistsText = JSON.stringify(checklists);
     const unchanged =
       sameLines(previous, next) &&
