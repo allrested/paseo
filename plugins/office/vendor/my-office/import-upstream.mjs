@@ -25,8 +25,10 @@ if (!FROM || !THREE) {
 }
 
 /**
- * Not taken: upstream's panels, chat, replay, demo, sounds, the street, and the daily-life scenes. The lounge's four
- * games are taken (people/billiards.js, gaming.js, foosball.js, karaoke.js).
+ * Not taken: upstream's panels, chat, replay, demo, every sound but the siren, the street, and the daily-life scenes.
+ * The lounge's four games are taken (people/billiards.js, gaming.js, foosball.js, karaoke.js). The siren's
+ * audio/sfx.js and life/incidents.js are taken trimmed by hand, so they stay denied here and only their exports are
+ * checked.
  */
 const DENY = [
   /^office\/ui\/(?!event-text\.js$|icons\.js$)/,
