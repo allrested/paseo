@@ -269,3 +269,51 @@ test("a zoom clears the pressed view, and a resize then does not refit", () => {
   click("#zoom-out");
   expect(pressed()).toEqual([]);
 });
+
+test("a start in a frame with no size still fits the floor, so the views and the percent read from it", () => {
+  // scene/renderer.js's resize sizes a stage of 0 x 0 as 1 x 1 (`clientWidth || 1`): a square frustum,
+  // never an empty one.
+  const frustum = [camera.left, camera.right, camera.top, camera.bottom] as const;
+  const s = Math.max(8.8, 12 / 1);
+  camera.left = -s;
+  camera.right = s;
+  camera.top = s;
+  camera.bottom = -s;
+  try {
+    open();
+    const fitted = camera.zoom;
+    expect(fitted).toBeGreaterThan(controls.minZoom);
+    vi.advanceTimersByTime(200);
+    expect(page("zoom-val").textContent).toBe("100%");
+    click("[data-view=desks]");
+    expect(state.zoomGoal).toBeCloseTo(Math.min(controls.maxZoom, fitted * 1.9));
+  } finally {
+    [camera.left, camera.right, camera.top, camera.bottom] = frustum;
+    camera.updateProjectionMatrix();
+  }
+});
+
+/** The text of the style blocks the page has. */
+function styles(): string {
+  return [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+}
+
+test("the tools' tooltips are not drawn in a frame too narrow to hold the last one", () => {
+  // At 390 px the last tool's name ran past the frame's right edge.
+  build();
+  expect(styles()).toMatch(
+    /@media \(max-width: 520px\) \{[^{]*\.tb-zoom button::after, \.tb-full::after \{ display: none; \}/,
+  );
+});
+
+test("photo mode's bar keeps upstream's focus ring, its round exit, and drops the hint on a phone", () => {
+  build();
+  const css = styles();
+  expect(css).toContain(
+    ".pb-tgl:focus-visible, .pb-seg button:focus-visible, .pb-shoot:focus-visible, .pb-exit:focus-visible { outline: 2px solid #F2B33D; outline-offset: 2px; }",
+  );
+  expect(css).toContain(".pb-exit { display: inline-grid; place-items: center; padding: 7px; }");
+  expect(css).toContain(
+    "@media (max-width: 720px) { .photo-hint { display: none; } .pb-sep { display: none; } }",
+  );
+});

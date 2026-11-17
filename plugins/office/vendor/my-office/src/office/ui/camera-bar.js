@@ -96,6 +96,8 @@ const STYLE = `
 /* Paseo's svg.ic carries no size (each label sets its own); the bar's icons are upstream's 16 px. */
 .toolbar .ic, .photo-bar .ic { width: 16px; height: 16px; flex: none; }
 @media (max-width: 520px) { .seg-btn > span:last-child { display: none; } }
+/* (a narrow frame has no room for the last tool's name: at 390 px it ran past the right edge) */
+@media (max-width: 520px) { .tb-zoom button::after, .tb-full::after { display: none; } }
 body.is-photo .toolbar { display: none; }
 /* Photo mode: the office alone, with one bar to frame and take the picture */
 body.is-photo #stage-wrap > :not(#stage):not(#photo-bar) { display: none !important; }
@@ -111,6 +113,9 @@ body.is-photo.photo-nonames .labels { display: none !important; }
 .pb-seg { display: flex; gap: 4px; }
 .pb-shoot { display: inline-flex; align-items: center; gap: 7px; font: 700 .84rem/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1A1206; background: #F2B33D; border: 0; border-radius: 11px; padding: 10px 16px; cursor: pointer; }
 .pb-shoot:disabled { opacity: .6; cursor: progress; }
+.pb-exit { display: inline-grid; place-items: center; padding: 7px; }
+.pb-tgl:focus-visible, .pb-seg button:focus-visible, .pb-shoot:focus-visible, .pb-exit:focus-visible { outline: 2px solid #F2B33D; outline-offset: 2px; }
+@media (max-width: 720px) { .photo-hint { display: none; } .pb-sep { display: none; } }
 `;
 
 /** Marks the view the camera is on; `null` when it left it (a drag, a zoom, a person, a place's card). */

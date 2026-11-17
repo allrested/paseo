@@ -297,7 +297,7 @@ const api = {
     cameraBar.setup();
     // Escape closes the place card and gives the keyboard back to the chip that opened it.
     document.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || document.getElementById('plc').hidden) return;
+      if (event.key !== 'Escape' || document.getElementById('plc').hidden || document.body.classList.contains('is-photo')) return;
       const chip = document.querySelector('.zone--open');
       closePlace();
       chip?.focus({ preventScroll: true });
