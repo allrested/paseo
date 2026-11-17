@@ -5,6 +5,7 @@
 // its stand-in, with where it comes from.
 import { beforeEach, expect, test, vi } from "vitest";
 import { state } from "../../vendor/my-office/src/office/core/state.js";
+import { WORLD_API_VERSION } from "./world-api.js";
 import { openWorldFrame } from "./world-frame.web.js";
 
 const h = vi.hoisted(() => ({
@@ -410,6 +411,54 @@ test("the frame's page lets the office go full screen", () => {
 
   expect(container.querySelector("iframe")?.getAttribute("allow")).toBe("fullscreen");
   frame.dispose();
+});
+
+/**
+ * Opens a frame whose script is a world the frame accepts, and returns the frame's page and how
+ * often a press in it gave the keyboard back to Paseo's page.
+ */
+async function openFrame() {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const script = `window.PaseoOfficeWorld = { version: ${WORLD_API_VERSION}, start() {}, stop() {}, setSessions() {}, event() {}, select() {}, setMachine() {} };`;
+  const frame = openWorldFrame({ container, script, title: "Office in 3D" });
+  await frame.api;
+  const doc = container.querySelector("iframe")?.contentDocument;
+  const view = doc?.defaultView;
+  if (!doc || !view) throw new Error("The frame has no page");
+  // (jsdom's window.focus only reports that it has none)
+  const focused = vi.spyOn(window, "focus").mockImplementation(() => {});
+  const press = () => doc.body.dispatchEvent(new view.Event("pointerup", { bubbles: true }));
+  return {
+    doc,
+    press,
+    focused,
+    close() {
+      focused.mockRestore();
+      frame.dispose();
+      container.remove();
+    },
+  };
+}
+
+test("a press on the floor gives the keyboard back to Paseo's page", async () => {
+  const frame = await openFrame();
+  frame.press();
+  expect(frame.focused).toHaveBeenCalledTimes(1);
+  frame.close();
+});
+
+test("while walking, a press on the floor leaves the keyboard in the frame", async () => {
+  const frame = await openFrame();
+  frame.doc.body.classList.add("is-fp");
+  frame.press();
+  expect(frame.focused).not.toHaveBeenCalled();
+
+  // out of the walk, a press gives it back again
+  frame.doc.body.classList.remove("is-fp");
+  frame.press();
+  expect(frame.focused).toHaveBeenCalledTimes(1);
+  frame.close();
 });
 
 test("onOpen is what the scene calls to open a person's session", async () => {

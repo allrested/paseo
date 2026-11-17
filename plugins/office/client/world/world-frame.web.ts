@@ -71,6 +71,10 @@ export function openWorldFrame({ container, script, title }: WorldFrameInput): W
         // A press on the scene itself hands the keyboard back; one on a control of the frame
         // (a chip, the place card) leaves it there for that control.
         doc.addEventListener("pointerup", () => {
+          // Not while walking (first-person.js marks the body `is-fp`): the walk needs the keys, so a
+          // drag to look or a press on the floor keeps them here, and brings them back after E
+          // opened a session beside the floor.
+          if (doc.body.classList.contains("is-fp")) return;
           if (doc.activeElement === null || doc.activeElement === doc.body) focusApp();
         });
         loaded = world;
