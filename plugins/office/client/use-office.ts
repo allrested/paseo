@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useSubscription, type PluginSubscriptionState } from "@getpaseo/plugin/client";
 import {
   officeStateSubscription,
@@ -6,6 +6,7 @@ import {
   type OfficeSnapshot,
 } from "../shared/contracts.js";
 import { EMPTY_OFFICE, applyOfficeEvent } from "./office-state.js";
+import { recordOfficeState } from "./activity-feed.js";
 
 const NO_INPUT = {};
 
@@ -19,8 +20,16 @@ export interface OfficeState {
 export function useOffice(): OfficeState {
   const [state, setState] = useState<OfficeSnapshot>(EMPTY_OFFICE);
   const [loaded, setLoaded] = useState(false);
+  // The state the next event applies to. React may call a state updater while rendering, so the
+  // event is applied here, where the feed's store may safely be told.
+  const latest = useRef<OfficeSnapshot>(EMPTY_OFFICE);
   const onEvent = useCallback((event: OfficeEvent) => {
-    setState((current) => applyOfficeEvent(current, event));
+    const next = applyOfficeEvent(latest.current, event);
+    latest.current = next;
+    // The feed is fed the state after the change, never the event. Every subscription of this hook
+    // feeds the one store, and the dedup by event id makes a repeated call harmless.
+    recordOfficeState(next);
+    setState(next);
     if (event.type === "snapshot") setLoaded(true);
   }, []);
   const subscription = useSubscription(officeStateSubscription, NO_INPUT, onEvent);
