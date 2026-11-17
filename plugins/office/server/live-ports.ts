@@ -133,11 +133,16 @@ export function liveScriptLogPorts(
 
 type AgentConfig = Parameters<Paseo["agents"]["create"]>[0]["config"];
 
+// Claude's "Accept File Edits", which a provider extending Claude lists too. The owner's call:
+// nobody watches the 8:00 writer, so it edits the notes without asking.
+const ACCEPT_EDITS_MODE = "acceptEdits";
+
 /**
  * The host's default provider, as the host can tell it. The app's new-agent form starts from the
  * provider the device chose last, which the host never sees; so this takes the first enabled,
- * ready provider in the daemon's order, with the model and mode the form gives that provider:
- * its default model (else its first selectable one) and its default mode.
+ * ready provider in the daemon's order, with the model the form gives that provider: its default
+ * (else its first selectable one). The mode is the provider's that accepts edits, else its
+ * default: Codex's and OpenCode's default modes edit in the workspace without asking already.
  */
 async function defaultAgentConfig(paseo: Paseo, cwd: string): Promise<AgentConfig> {
   const { entries } = await paseo.providers.waitForReady({ cwd });
@@ -148,9 +153,11 @@ async function defaultAgentConfig(paseo: Paseo, cwd: string): Promise<AgentConfi
   if (model === undefined) {
     throw new Error(`The provider ${entry.label ?? entry.provider} offers no model`);
   }
+  const acceptsEdits = (entry.modes ?? []).some((mode) => mode.id === ACCEPT_EDITS_MODE);
+  const modeId = acceptsEdits ? ACCEPT_EDITS_MODE : entry.defaultModeId;
   return {
     provider: `${entry.provider}/${model.id}`,
-    ...(entry.defaultModeId ? { modeId: entry.defaultModeId } : {}),
+    ...(modeId ? { modeId } : {}),
   };
 }
 
