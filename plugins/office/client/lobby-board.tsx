@@ -147,12 +147,14 @@ function TodoHeading({ board, done, actions, styles }: TodoHeadingProps) {
     await actions.clearDone(board);
     if (mounted.current) setAsking(false);
   }, [actions, board, mounted]);
-  // The count follows the board; once another hand has cleared them there is nothing to ask.
-  const showsQuestion = asking && done > 0;
+  // The count follows the board; once another hand has cleared them there is nothing to ask, and
+  // the next done to-do does not bring the question back. Reset during render (React's "state
+  // from the previous render"), so the question never shows for a frame with nothing to clear.
+  if (asking && done === 0) setAsking(false);
   return (
     <View style={styles.boardTitleRow}>
       <Text style={styles.sheetLabel}>To-do</Text>
-      {showsQuestion ? (
+      {asking ? (
         <View style={styles.sheetActions}>
           <DeleteQuestion
             question={clearQuestion(done)}

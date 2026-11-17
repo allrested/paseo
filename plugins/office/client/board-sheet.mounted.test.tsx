@@ -525,6 +525,20 @@ test("Clear finished asks with the live count and clears the lobby", async () =>
   byLabel("Clear finished");
 });
 
+test("the clear question ends when nothing is done, and the next done to-do does not bring it back", async () => {
+  const open = post(1, { text: "Rotate keys" });
+  await mount({ rooms: lobbyRooms([open, post(2, { state: "done" })]), roomId: "lobby" });
+  await press("Clear finished");
+  expect(container.textContent).toContain("Delete 1 finished to-do?");
+
+  // Another hand clears it, then an agent ticks another to-do.
+  await mount({ rooms: lobbyRooms([open]), roomId: "lobby" });
+  await mount({ rooms: lobbyRooms([open, post(3, { state: "done" })]), roomId: "lobby" });
+
+  expect(container.textContent).not.toContain("finished to-do?");
+  expect(isOff("Clear finished")).toBe(false);
+});
+
 test("a to-do arriving while typing keeps the typed text", async () => {
   const agents = [agent("2", { title: "Builder", workspaceId: null })];
   const first = post(1, { text: "Rotate keys" });
