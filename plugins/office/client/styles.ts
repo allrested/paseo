@@ -221,6 +221,39 @@ export interface OfficeStyles {
   panelTime: TextStyle;
   /** An alert card's Open session, on the card's text rail. */
   panelActions: ViewStyle;
+  /** The team chat: its list, a message's row, its avatar and bubble, and the lines in it. */
+  chatList: ViewStyle;
+  chatRow: ViewStyle;
+  /** Yours, on the right. */
+  chatRowMine: ViewStyle;
+  /** The disc's colour is the sender's, from avatarOf. */
+  chatAvatar: ViewStyle;
+  chatAvatarText: TextStyle;
+  chatBubble: ViewStyle;
+  chatBubbleMine: ViewStyle;
+  chatName: TextStyle;
+  chatMeta: TextStyle;
+  chatText: TextStyle;
+  /** The message a reply answers, above the reply and above the box. */
+  chatQuote: ViewStyle;
+  chatSystem: TextStyle;
+  /** A sticker. */
+  chatChip: ViewStyle;
+  /** A message's reactions, and a reaction: yours has the heavier outline. */
+  chatReactions: ViewStyle;
+  chatReaction: ViewStyle;
+  chatReactionOn: ViewStyle;
+  /** React, Reply and Recall: on a wide web screen they keep their place while hidden. */
+  chatActions: ViewStyle;
+  chatActionsHidden: ViewStyle;
+  /** The typing line keeps its height while nobody types, so the list does not move. */
+  chatTyping: TextStyle;
+  chatBox: ViewStyle;
+  /** The @ list under the box. */
+  chatMentions: ViewStyle;
+  /** The count on the header's Chat button: white on the accent, as a badge is. */
+  chatBadge: ViewStyle;
+  chatBadgeText: TextStyle;
 }
 
 // The app's two control sizes (packages/app/src/components/ui/control-geometry.ts).
@@ -388,6 +421,31 @@ export function useOfficeStyles(
       backgroundColor: colors.surface1,
       color: colors.foreground,
     };
+    const chatRow: ViewStyle = { flexDirection: "row", gap: 8, alignItems: "flex-start" };
+    const chatBubble: ViewStyle = {
+      flexShrink: 1,
+      maxWidth: "80%",
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface1,
+      gap: 4,
+    };
+    // Clips the hover fill to the pill.
+    const chatReaction: ViewStyle = {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 28,
+      paddingHorizontal: 8,
+      borderRadius: 9999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: "hidden",
+    };
+    const chatActions: ViewStyle = { flexDirection: "row", gap: 8 };
     return {
       screen: { flex: 1, backgroundColor: colors.surface0 },
       // No side padding here: the strip scrolls to the screen edge, and each row pads itself.
@@ -794,6 +852,82 @@ export function useOfficeStyles(
       panelFeed: { paddingBottom: 24 },
       panelTime: { ...small, flexShrink: 0, color: colors.foregroundMuted },
       panelActions: { paddingLeft: pad + TEXT_RAIL, paddingRight: pad, paddingBottom: 12 },
+      chatList: { paddingHorizontal: pad, paddingVertical: 12, gap: 8 },
+      chatRow,
+      chatRowMine: { ...chatRow, justifyContent: "flex-end" },
+      chatAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      // Every shirt is 3.2:1 or better against white at 12 px bold.
+      chatAvatarText: { ...small, fontWeight: "500", color: "#FFFFFF" },
+      chatBubble,
+      chatBubbleMine: { ...chatBubble, backgroundColor: colors.surface2 },
+      chatName: { ...small, fontWeight: "500", color: colors.foreground },
+      chatMeta: { ...small, color: colors.foregroundMuted },
+      chatText: { ...base, color: colors.foreground },
+      chatQuote: {
+        flexShrink: 1,
+        borderLeftWidth: 2,
+        borderLeftColor: colors.border,
+        paddingLeft: 8,
+      },
+      chatSystem: {
+        ...small,
+        textAlign: "center",
+        color: colors.foregroundMuted,
+        paddingVertical: 4,
+      },
+      chatChip: {
+        alignSelf: "flex-start",
+        justifyContent: "center",
+        minHeight: 28,
+        paddingHorizontal: 12,
+        borderRadius: 9999,
+        borderWidth: 1,
+        borderColor: colors.border,
+        overflow: "hidden",
+      },
+      chatReactions: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+      chatReaction,
+      // The segment's chosen fill is a layer of its own, which a style cannot add: the outline.
+      chatReactionOn: { ...chatReaction, borderColor: colors.foreground },
+      chatActions,
+      chatActionsHidden: { ...chatActions, opacity: 0 },
+      chatTyping: {
+        ...small,
+        minHeight: small.lineHeight,
+        color: colors.foregroundMuted,
+        paddingHorizontal: pad,
+      },
+      chatBox: { padding: pad, gap: 8, borderTopWidth: 1, borderTopColor: colors.border },
+      chatMentions: {
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 8,
+        backgroundColor: colors.surface1,
+        maxHeight: 224,
+      },
+      chatBadge: {
+        position: "absolute",
+        top: -4,
+        right: -4,
+        minWidth: 16,
+        height: 16,
+        borderRadius: 8,
+        paddingHorizontal: 4,
+        backgroundColor: colors.accent,
+      },
+      chatBadgeText: {
+        fontSize: 10,
+        lineHeight: 16,
+        fontWeight: "500",
+        textAlign: "center",
+        color: "#FFFFFF",
+      },
     };
   }, [theme, compact, touchScreen]);
 }
