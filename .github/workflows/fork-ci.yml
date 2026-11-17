@@ -215,4 +215,4 @@ jobs:
         with:
           node-version: "22"
       - name: Run docker script and compose tests
-        run: node --test scripts/vpn-overlay.test.mjs
+        run: node --test scripts/vpn-overlay.test.mjs scripts/fork-android-apk.test.mjs

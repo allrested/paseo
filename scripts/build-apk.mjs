@@ -74,7 +74,7 @@ if (isFork) {
     process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? path.join(homedir(), "Android/Sdk");
   const tools = path.join(sdk, "build-tools", "35.0.0");
   const aligned = path.join(path.dirname(built), "app-release-aligned.apk");
-  run(path.join(tools, "zipalign"), ["-f", "-p", "4", built, aligned], root);
+  run(path.join(tools, "zipalign"), ["-f", "-P", "16", "4", built, aligned], root);
   run(
     path.join(tools, "apksigner"),
     ["sign", "--ks", forkKey, "--ks-pass", `file:${forkPassword}`, "--out", destination, aligned],
