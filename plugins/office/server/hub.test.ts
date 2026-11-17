@@ -349,6 +349,14 @@ test("with no office open, a read opens the directory for itself and closes it",
   await subscriber.done;
 });
 
+test("with no office open, a read names a numbered sub-agent after its parent", async () => {
+  const parent = { ...agent("p", "idle"), title: "Mjd" };
+  const numbered = { ...agent("c1", "running"), parentAgentId: "p", number: 1 };
+  const harness = startHarness({ agents: [parent, numbered], workspaces: [] });
+  const { agents } = await harness.hub.read();
+  expect(agents.find((one) => one.id === "c1")?.name).toBe("Mjd-1");
+});
+
 test("with an office open, a read is what its subscribers see, and opens nothing more", async () => {
   const harness = startHarness({ agents: [agent("a", "running")], workspaces: [] });
   const subscriber = subscribe(harness.hub);
