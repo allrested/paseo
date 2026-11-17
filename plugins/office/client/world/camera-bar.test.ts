@@ -367,6 +367,43 @@ test("the tools' tooltips are not drawn in a frame too narrow to hold the last o
   );
 });
 
+/** The rules inside the style's `@media (max-width: <px>px)` blocks, in order. */
+function narrow(px: number): string {
+  const css = styles();
+  const head = `@media (max-width: ${px}px) {`;
+  const found: string[] = [];
+  for (let at = css.indexOf(head); at !== -1; at = css.indexOf(head, at + 1)) {
+    let depth = 1;
+    let end = at + head.length;
+    for (; depth > 0 && end < css.length; end += 1) {
+      if (css[end] === "{") depth += 1;
+      if (css[end] === "}") depth -= 1;
+    }
+    found.push(css.slice(at + head.length, end - 1));
+  }
+  return found.join("\n");
+}
+
+test("from 720 px down Walk in drops its name and the pressed view its wider padding, as upstream has it", () => {
+  // At 530 px the bar with both names ran past the frame's right edge (upstream's styles/stage.css, its 720 px rule).
+  build();
+  expect(narrow(720)).toContain(".tb-fp span:last-child { display: none; }");
+  expect(narrow(720)).toContain(".tb-fp { padding: 0 11px; }");
+  expect(narrow(720)).toContain(
+    '.seg-btn, .seg-btn:hover, .seg-btn[aria-pressed="true"] { padding: 0 10px; }',
+  );
+});
+
+test("at 520 px and narrower the bar's buttons and groups sit closer, so Walk in still fits at 390 px", () => {
+  // At 390 px with a mouse, Walk in still ran 30 px past the frame's right edge with the 720 px rule alone.
+  build();
+  expect(narrow(520)).toContain(".toolbar { gap: 4px; }");
+  expect(narrow(520)).toContain(
+    '.seg-btn, .seg-btn:hover, .seg-btn:focus-visible, .seg-btn[aria-pressed="true"] { padding: 0 7px; }',
+  );
+  expect(narrow(520)).toContain(".tb-zoom button, .tb-full { width: 30px; }");
+});
+
 test("photo mode's bar keeps upstream's focus ring, its round exit, and drops the hint on a phone", () => {
   build();
   const css = styles();
