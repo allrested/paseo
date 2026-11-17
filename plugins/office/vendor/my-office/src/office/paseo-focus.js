@@ -16,6 +16,8 @@ export function hostFocused(own, parentWin) {
 
 /** Makes `doc.hasFocus()` answer for the page the frame is in. Once per document. */
 export function followHostFocus(doc, parentWin) {
+  // PASEO: a top-level page (Android's WebView) is its own parent: patching it would make hasFocus call itself
+  if (!parentWin || parentWin === doc.defaultView) return;
   const own = doc.hasFocus.bind(doc);
   doc.hasFocus = () => hostFocused(own, parentWin);
 }
