@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
   useRpc,
@@ -15,6 +15,7 @@ import {
   type PluginScreenProps,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import { notesReadRpc, type IncidentsState, type Machine } from "../shared/contracts.js";
 import {
   OFFICE_VIEWS,
@@ -36,6 +37,7 @@ import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
 import { hostNote, namedMachine, type HostNote } from "../shared/machine-text.js";
+import { ACTIVITY_SCREEN, SESSIONS_SCREEN, useOfficeLink } from "./office-link.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
@@ -437,6 +439,95 @@ function SceneProblem({ message, onRetry, styles }: SceneProblemProps) {
   );
 }
 
+interface PanelButtonProps {
+  /** What it opens, and what a screen reader calls it. */
+  label: string;
+  /** A Lucide name. */
+  icon: string;
+  screenId: string;
+  size: number;
+  /** The theme's foreground: an icon-only control's glyph, not a label's muted one. */
+  color: string;
+  onOpen(screenId: string): void;
+  styles: OfficeStyles;
+}
+
+/**
+ * A panel's button in the header: a segment's pill with the kit's icon in it. It shows a screen
+ * beside the floor, so it has no chosen state: the side area's header says what is shown.
+ */
+function PanelButton({ label, icon, screenId, size, color, onOpen, styles }: PanelButtonProps) {
+  const press = useCallback(() => onOpen(screenId), [onOpen, screenId]);
+  const [hovered, setHovered] = useState(false);
+  const hoverIn = useCallback(() => setHovered(true), []);
+  const hoverOut = useCallback(() => setHovered(false), []);
+  const [pressed, setPressed] = useState(false);
+  const pressIn = useCallback(() => setPressed(true), []);
+  const pressOut = useCallback(() => setPressed(false), []);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={press}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      onHoverIn={hoverIn}
+      onHoverOut={hoverOut}
+      style={styles.segment}
+    >
+      {hovered || pressed ? <View style={styles.segmentHoverFill} /> : null}
+      <Icon name={icon} size={size} color={color} />
+    </Pressable>
+  );
+}
+
+interface PanelButtonsProps {
+  /** Null, or with no `showBeside`, on an app without a side area: the panels are not offered. */
+  navigation: PluginScreenProps["navigation"];
+  /** The app's two control sizes: touch-sized in the compact layout or on a touch screen. */
+  compact: boolean;
+  touchScreen: boolean;
+  /** The theme's foreground, which an icon-only control's glyph rests at. */
+  color: string;
+  styles: OfficeStyles;
+}
+
+/** The header's two ways to the panels, after the view switch. */
+function PanelButtons({ navigation, compact, touchScreen, color, styles }: PanelButtonsProps) {
+  const showBeside = navigation?.showBeside;
+  const open = useCallback(
+    (screenId: string) => {
+      showBeside?.({ kind: "screen", pluginId: "office", screenId });
+    },
+    [showBeside],
+  );
+  if (showBeside === undefined) return null;
+  // The glyph at the app's icon sizes (control-geometry.ts iconSizeFor("md")).
+  const size = compact || touchScreen ? 20 : 16;
+  return (
+    <>
+      <PanelButton
+        label="Sessions"
+        icon="Users"
+        screenId={SESSIONS_SCREEN}
+        size={size}
+        color={color}
+        onOpen={open}
+        styles={styles}
+      />
+      <PanelButton
+        label="Activity"
+        icon="Activity"
+        screenId={ACTIVITY_SCREEN}
+        size={size}
+        color={color}
+        onOpen={open}
+        styles={styles}
+      />
+    </>
+  );
+}
+
 interface SurfaceBodyProps {
   office: OfficeState;
   model: OfficeModel;
@@ -691,6 +782,10 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     (agentId: string) => openSessionWith(navigation, agentId),
     [navigation],
   );
+  // The panels beside the floor reach this surface through the link: a row press opens the card,
+  // as a List row does, and "Open session" shows the session in the area the panel was in.
+  const link = useMemo(() => ({ select: setSelectedId, openSession }), [openSession]);
+  useOfficeLink(link);
   const openResources = useMemo(
     () => resourcesOpener(navigation, openMachine),
     [navigation, openMachine],
@@ -768,6 +863,13 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
             options={viewChoice.options}
             value={viewChoice.choice}
             onChange={changeView}
+            styles={styles}
+          />
+          <PanelButtons
+            navigation={navigation}
+            compact={layout.compact}
+            touchScreen={touchScreen}
+            color={theme.colors.foreground}
             styles={styles}
           />
         </HostSwitches>
