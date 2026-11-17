@@ -137,7 +137,10 @@ const STYLE = `
 .fp-joy i { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: var(--o-accent, #EF8A5F); opacity: .9; }
 .is-fp .team-tag { display: none; }
 .is-fp .zone { display: none; }
-@media (max-width: 520px) { .tb-fp span:last-child { display: none; } .tb-fp { padding: 0 11px; } .fp-help { top: 56px; max-width: calc(100% - 24px); } }
+/* (upstream's 720 px rule for Walk in and the pressed view: with Walk in's name the bar ran past the right edge at 530 px) */
+@media (max-width: 720px) { .tb-fp span:last-child { display: none; } .tb-fp { padding: 0 11px; } .seg-btn, .seg-btn:hover, .seg-btn[aria-pressed="true"] { padding: 0 10px; } }
+/* (with it, at 390 px with a mouse Walk in still ran 30 px past the right edge: the buttons and the groups sit closer) */
+@media (max-width: 520px) { .toolbar { gap: 4px; } .seg-btn, .seg-btn:hover, .seg-btn:focus-visible, .seg-btn[aria-pressed="true"] { padding: 0 7px; } .tb-zoom button, .tb-full { width: 30px; } .fp-help { top: 56px; max-width: calc(100% - 24px); } }
 body.is-photo .toolbar { display: none; }
 /* Photo mode: the office alone, with one bar to frame and take the picture */
 body.is-photo #stage-wrap > :not(#stage):not(#photo-bar) { display: none !important; }
