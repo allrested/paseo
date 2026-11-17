@@ -14,12 +14,15 @@ import {
   switchUnsaved,
   viewOnDevice,
   viewOptions,
+  worldViewFor,
   type PointerFacts,
   type StoredSwitch,
   type SwitchEvent,
   type SwitchStep,
   type SwitchSync,
 } from "./office-surface.js";
+import { WorldView } from "./world/world-view.js";
+import { WorldViewNative } from "./world/world-view-native.js";
 
 function agents(...ids: string[]): ReadonlyMap<string, unknown> {
   return new Map(ids.map((id): [string, unknown] => [id, { id }]));
@@ -99,6 +102,12 @@ test("the browser is not asked on a phone, and the kit is not asked in a browser
   expect(webgl2).not.toHaveBeenCalled();
   canDraw3D("web", webgl2, scriptFrame);
   expect(scriptFrame).toHaveBeenCalledTimes(1);
+});
+
+test("a browser draws the 3D office in the web's view, and an app in ScriptFrame's", () => {
+  expect(worldViewFor("web")).toBe(WorldView);
+  expect(worldViewFor("android")).toBe(WorldViewNative);
+  expect(worldViewFor("ios")).toBe(WorldViewNative);
 });
 
 test("the surface shows the chosen view", () => {

@@ -248,13 +248,13 @@ const api = {
   version: VERSION,
   /**
    * Builds the office. `options`: plan ('pro' | 'cozy'), dark, colors (the app theme), brand
-   * ({ name, logoUrl }, for the lobby's sign), and what
+   * ({ name, logoUrl }, for the lobby's sign), photo (false hides Photo mode), and what
    * the scene tells Paseo: onSelect(id | null), onBoard(project | null) (a team's chip, or the
    * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
    * (the server racks), onResources() (the server room's wall screen), onLibrary() (the library's
    * chip and the bookshelf), onBell() (a click on the meeting table's bell), onNotes() (the label over
    * the meeting room's screen, on the company floor), onOpen(id) (E by a person while walking: their
-   * session), onIncidents() (the incidents' banner) and onToast(text), and `photo` (false hides Photo mode).
+   * session), onIncidents() (the incidents' banner) and onToast(text).
    * Throws when the world cannot be built (no WebGL, a module failed).
    */
   start(options = {}) {

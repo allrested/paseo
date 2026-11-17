@@ -518,3 +518,10 @@ test("without onOpen the scene has nothing to open a session with", async () => 
 
   expect(fresh.open).toBeNull();
 });
+
+test("a start that says photo: false turns the host's photo switch off", async () => {
+  await startPage({ photo: false });
+  const { host: fresh } = await import("../../vendor/my-office/src/office/paseo-host.js");
+
+  expect(fresh.photo).toBe(false);
+});

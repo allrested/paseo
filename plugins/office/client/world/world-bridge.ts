@@ -16,6 +16,21 @@ export interface WorldBridge {
 
 type Handler = (...args: unknown[]) => void;
 
+/** The page's reply in `text`, or null for text that is not one. */
+function parseReply(text: string): BridgeReply | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const { callback, args, problem } = value as Record<string, unknown>;
+  if (typeof problem === "string") return { problem };
+  if (typeof callback === "string" && Array.isArray(args)) return { callback, args };
+  return null;
+}
+
 /** The sign shows a logo only from a `data:` URL: the page's policy refuses any other image. */
 function brandForPage(brand: WorldStartOptions["brand"]): WorldStartOptions["brand"] {
   if (brand === undefined) return undefined;
@@ -32,11 +47,11 @@ function brandForPage(brand: WorldStartOptions["brand"]): WorldStartOptions["bra
  */
 export function createWorldBridge(post: (text: string) => void): WorldBridge {
   const handlers = new Map<string, Handler>();
-  const send = (call: string, args: unknown[]) => post(JSON.stringify({ call, args }));
+  const send = (message: BridgeCall) => post(JSON.stringify(message));
   const sender =
     (call: string) =>
     (...args: unknown[]) =>
-      send(call, args);
+      send({ call, args });
 
   const api: WorldApi = {
     version: WORLD_API_VERSION,
@@ -53,7 +68,10 @@ export function createWorldBridge(post: (text: string) => void): WorldBridge {
         }
       }
       const brand = brandForPage(options.brand);
-      send("start", [{ ...data, ...(brand === undefined ? {} : { brand }), callbacks }]);
+      send({
+        call: "start",
+        args: [{ ...data, ...(brand === undefined ? {} : { brand }), callbacks }],
+      });
     },
     stop: sender("stop"),
     setTheme: sender("setTheme"),
@@ -71,19 +89,10 @@ export function createWorldBridge(post: (text: string) => void): WorldBridge {
   return {
     api,
     receive(text) {
-      let reply: unknown;
-      try {
-        reply = JSON.parse(text);
-      } catch {
-        return;
-      }
-      if (typeof reply !== "object" || reply === null) return;
-      const { callback, args, problem } = reply as Record<string, unknown>;
-      if (typeof problem === "string") {
-        handlers.get("onProblem")?.(problem);
-        return;
-      }
-      if (typeof callback === "string" && Array.isArray(args)) handlers.get(callback)?.(...args);
+      const reply = parseReply(text);
+      if (reply === null) return;
+      if ("problem" in reply) handlers.get("onProblem")?.(reply.problem);
+      else handlers.get(reply.callback)?.(...reply.args);
     },
   };
 }

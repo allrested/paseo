@@ -66,7 +66,33 @@ beforeEach(() => {
 afterEach(() => act(() => root.unmount()));
 
 test("sends nothing while there is no scene", async () => {
+  const { calls } = fakeScene();
   await act(async () => root.render(<Probe api={null} feed={input()} />));
+  await act(async () =>
+    root.render(<Probe api={null} feed={input({ selectedAgentId: "a1", meeting: true })} />),
+  );
+  expect(note).toBeNull();
+  expect(calls).toEqual([]);
+});
+
+test("sends nothing once the scene is gone, whatever changes after", async () => {
+  const { api, calls } = fakeScene();
+  await act(async () => root.render(<Probe api={api} feed={input()} />));
+  await act(async () => root.render(<Probe api={null} feed={input()} />));
+  calls.length = 0;
+  await act(async () =>
+    root.render(
+      <Probe
+        api={null}
+        feed={input({
+          selectedAgentId: "a1",
+          meeting: true,
+          focusRequest: { agentId: "a2", nonce: 1 },
+        })}
+      />,
+    ),
+  );
+  expect(calls).toEqual([]);
   expect(note).toBeNull();
 });
 

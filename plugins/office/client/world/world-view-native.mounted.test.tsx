@@ -124,9 +124,12 @@ test("start is the first message; photo is off; the feed follows in order", asyn
   );
   expect(options.callbacks).not.toContain("onOpen");
   expect(options.callbacks).not.toContain("onResources");
-  expect(rest.map((message) => message.call)).toEqual(
+  const names = rest.map((message) => message.call);
+  expect(names).toEqual(
     expect.arrayContaining(["setTheme", "setSessions", "setBoardRows", "setMachine", "select"]),
   );
+  // the people are seated before the view looks at any
+  expect(names.indexOf("setSessions")).toBeLessThan(names.indexOf("select"));
 });
 
 test("onOpen is given where the office can open a session", async () => {
@@ -134,7 +137,7 @@ test("onOpen is given where the office can open a session", async () => {
   expect((calls()[0].args[0] as { callbacks: string[] }).callbacks).toContain("onOpen");
 });
 
-test("a person chosen in the scene opens their card; no keyboard moves", async () => {
+test("a person chosen in the scene opens their card", async () => {
   const onSelectAgent = vi.fn();
   await mount({ onSelectAgent });
   act(() => h.props?.onMessage(JSON.stringify({ callback: "onSelect", args: ["a1"] })));
