@@ -6,10 +6,10 @@ const MIN_WIDTH = 240;
 
 /**
  * The wide side area's width: the dragged width, or the start width before any drag, never
- * narrower than its minimum and never so wide that the plugin's content drops below the workspace
- * body's minimum.
+ * narrower than its minimum and never so wide that the plugin's content, which shares the
+ * container's width with it (the frame around both), drops below the workspace body's minimum.
  */
-export function clampBesideWidth(width: number | null, windowWidth: number): number {
-  const widest = windowWidth - MIN_WORKSPACE_BODY_WIDTH;
+export function clampBesideWidth(width: number | null, containerWidth: number): number {
+  const widest = containerWidth - MIN_WORKSPACE_BODY_WIDTH;
   return Math.max(MIN_WIDTH, Math.min(widest, width ?? START_WIDTH));
 }
