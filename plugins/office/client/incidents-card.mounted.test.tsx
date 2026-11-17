@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-// The Incidents card, mounted. The sheet is the host's, so a plain stand-in shows what the card
-// passed it; the dismiss call and the link opener are the props the card was given.
-import { act, createElement, type ReactNode } from "react";
+// The Incidents card, mounted. The sheet and the link are the host's, so plain stand-ins show
+// what the card passed them; the dismiss call is the prop the card was given.
+import { act, createElement, type MouseEvent, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -15,7 +15,26 @@ vi.mock("@getpaseo/plugin/client/ui", async () => {
   const Modal = (props: { title: string; open: boolean; children: ReactNode }) =>
     props.open ? createElement("section", { "aria-label": props.title }, props.children) : null;
   Modal.Content = (props: { children: ReactNode }) => createElement("div", null, props.children);
-  return { Modal };
+  // The host's link opens the address itself and hands a failure to onError.
+  const ExternalLink = (props: {
+    href: string;
+    accessibilityLabel?: string;
+    onError?: (error: unknown) => void;
+    children: ReactNode;
+  }) =>
+    createElement(
+      "a",
+      {
+        href: props.href,
+        "aria-label": props.accessibilityLabel,
+        onClick: (event: MouseEvent) => {
+          event.preventDefault();
+          if (linkFailure) props.onError?.(linkFailure);
+        },
+      },
+      props.children,
+    );
+  return { ExternalLink, Modal };
 });
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -50,17 +69,12 @@ const TWO_OPEN: IncidentsState = {
 
 let dismissed: (string[] | undefined)[];
 let dismissFailure: Error | null;
-let opened: string[];
-let openFailure: Error | null;
+/** Set to make the host's link fail to open. */
+let linkFailure: Error | null;
 
 async function dismiss(ids?: string[]): Promise<void> {
   dismissed.push(ids);
   if (dismissFailure) throw dismissFailure;
-}
-
-async function openUrl(url: string): Promise<void> {
-  opened.push(url);
-  if (openFailure) throw openFailure;
 }
 
 const ignore = () => undefined;
@@ -73,7 +87,6 @@ function Harness({ state }: { state: IncidentsState | undefined }) {
       open
       now={NOW}
       onDismiss={dismiss}
-      onOpenUrl={openUrl}
       styles={styles}
       onClose={ignore}
     />
@@ -86,8 +99,7 @@ let root: Root;
 beforeEach(() => {
   dismissed = [];
   dismissFailure = null;
-  opened = [];
-  openFailure = null;
+  linkFailure = null;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -126,18 +138,19 @@ test("Dismiss sends the incident's id; Dismiss all sends no ids; a failed dismis
   expect(card()?.textContent).toContain("TypeError in /orders");
 });
 
-test("the title opens the issue's url", async () => {
+test("the title links to the issue's url", async () => {
   await mount(TWO_OPEN);
   expect(card()?.textContent).toContain("Jira SHOP-12 · 12 min ago");
   expect(card()?.textContent).toContain("Sentry API-7 · 3 h ago");
-  await press('[aria-label="Open SHOP-12 in Jira"]');
-  expect(opened).toEqual(["https://example.atlassian.net/browse/SHOP-12"]);
+  const link = container.querySelector('a[aria-label="Open SHOP-12 in Jira"]');
+  expect(link?.getAttribute("href")).toBe("https://example.atlassian.net/browse/SHOP-12");
+  expect(link?.textContent).toBe("Checkout fails on Safari");
 });
 
 test("a link that does not open says so under its row", async () => {
-  openFailure = new Error("No app can open it");
+  linkFailure = new Error("No app can open it");
   await mount(TWO_OPEN);
-  await press('[aria-label="Open API-7 in Sentry"]');
+  await press('a[aria-label="Open API-7 in Sentry"]');
   expect(alerts()).toEqual(["Unable to open API-7: No app can open it"]);
 });
 
