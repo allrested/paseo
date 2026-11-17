@@ -18,6 +18,7 @@ import {
   type Machine,
 } from "../../shared/contracts.js";
 import { failureText } from "../action-button.js";
+import { onChatAct } from "../chat-acts.js";
 import type { FocusRequest } from "../focus-request.js";
 import type { OfficeModel } from "../../shared/model.js";
 import { NO_RESTS, restsAfter, type Rests } from "../pixel/actors.js";
@@ -333,6 +334,14 @@ export function WorldView({
   useEffect(() => {
     if (meeting) world.current?.meet?.();
   }, [meeting, started]);
+
+  useEffect(
+    () =>
+      onChatAct((what) => {
+        if (what === "meeting") world.current?.gather?.();
+      }),
+    [],
+  );
 
   // A request that was already there when this view appeared was made for the list view.
   const handledNonce = useRef(focusRequest?.nonce ?? 0);

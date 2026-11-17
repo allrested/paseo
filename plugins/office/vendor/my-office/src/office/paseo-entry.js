@@ -408,6 +408,16 @@ const api = {
     try { ringWithEveryone(() => ringBell(tr('people.meet.standup'))); } finally { host.toast = toast; }
   },
   /**
+   * A meeting a chat word called: upstream's bell as `meet()` rings it, but with upstream's own opening line, and
+   * without host.bell, which has Paseo's stand-up notes written. Nobody free is not toasted: the chat's reply is the answer.
+   */
+  gather() {
+    if (!started || stopped) return;
+    const toast = host.toast;
+    host.toast = () => {};
+    try { ringWithEveryone(() => ringBell()); } finally { host.toast = toast; }
+  },
+  /**
    * The open incidents, newest first: [{ id, key, title, ring }]. The banner shows while any is open. One that rings
    * (this device has not rung for it) starts upstream's alarm: 25 s of red, a fail bubble over everyone at work and the
    * siren. Several that ring at once ring once.
