@@ -195,10 +195,10 @@ signed with it.
 
 `.github/workflows/fork-android-apk.yml` builds the APK on GitHub Actions when you push a tag
 `fork-android-<version>-<n>`, for example `fork-android-0.16.0-1`. A tag push runs the workflow
-file of the tagged commit, so tag a commit that has it; the fork's `main` does not need it. The run
-fails, and uploads nothing, unless the APK is `sh.paseo.fork` for arm64, signed by `CN=Paseo Fork`,
-aligned for 16 KB pages and carrying ScriptFrame. Then it creates the tag's prerelease if it is
-missing and attaches `paseo-fork-arm64.apk`.
+file of the tagged commit, so tag a commit that has it. For a tag push, the file does not have to
+be on the fork's `main`. The run fails, and uploads nothing, unless the APK is `sh.paseo.fork` for
+arm64, signed by `CN=Paseo Fork`, aligned for 16 KB pages and carrying ScriptFrame. Then it creates
+the tag's prerelease if it is missing and attaches `paseo-fork-arm64.apk`.
 
 A pushed tag publishes the APK. Push one only after the owner agrees to that upload.
 
@@ -217,8 +217,16 @@ git tag fork-android-0.16.0-1 <commit>
 git push origin fork-android-0.16.0-1
 ```
 
-To build an existing tag again with its own workflow file:
-`gh workflow run fork-android-apk.yml --repo allrested/paseo --ref <tag> -f tag=<tag>`.
+To build an existing tag again, re-run its run: `gh run rerun <run-id> --repo allrested/paseo`
+runs the tag's own workflow file again. Or push the next tag, `fork-android-<version>-<n+1>`.
+GitHub fires `workflow_dispatch` only for a workflow file on the default branch, so once this file
+is on the fork's `main` you can also start a build by hand, with the same tag for `--ref` and
+`-f tag`:
+
+```bash
+gh workflow run fork-android-apk.yml --repo allrested/paseo \
+  --ref fork-android-0.16.0-1 -f tag=fork-android-0.16.0-1
+```
 
 ### A local build
 

@@ -1,9 +1,11 @@
 # The fork's Android app: build the arm64 APK of the `fork` variant, sign it with the fork's key,
 # check it, and attach it to a prerelease named after the tag.
 #
-# A pushed fork-android-<version>-<n> tag runs the workflow file of the tagged commit, so the
-# fork's main never needs this file. workflow_dispatch builds an existing tag again. Pushing a
-# tag publishes a release: push one only after the owner agrees to the upload.
+# A pushed fork-android-<version>-<n> tag runs the workflow file of the tagged commit, so a tag
+# push works without this file on the fork's main. workflow_dispatch, which builds an existing tag
+# again, fires only once this file is on the fork's main (GitHub's rule for dispatch). Until then,
+# rebuild a tag with `gh run rerun <run-id>` or push the next tag. Pushing a tag publishes a
+# release: push one only after the owner agrees to the upload.
 # docs/android.md, "The fork's app", has the key, the two secrets and the commands.
 # scripts/fork-android-apk.test.mjs tests this file in fork-ci.yml's docker-tests job.
 name: Fork Android APK
