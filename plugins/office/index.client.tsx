@@ -2,7 +2,8 @@ import { useCallback } from "react";
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { ActivityPanel } from "./client/activity-panel.js";
-import { ACTIVITY_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
+import { ChatPanel } from "./client/chat-panel.js";
+import { ACTIVITY_SCREEN, CHAT_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
 import { OfficeSurface } from "./client/office-surface.js";
 import { SessionsPanel } from "./client/sessions-panel.js";
 
@@ -30,6 +31,7 @@ export default function contribute(client: PluginClientContext) {
       title: "Activity",
       Component: ActivityPanel,
     }),
+    client.addScreen({ id: CHAT_SCREEN, title: "Chat", Component: ChatPanel }),
     client.addSidebarHeaderItem({ id: SCREEN_ID, title: "Office", Component: OfficeItem }),
     client.addWorkspacePanel({
       id: PANEL_ID,

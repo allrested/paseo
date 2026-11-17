@@ -6,6 +6,7 @@ type Navigation = PluginSurfaceProps["navigation"];
 /** The screens the office's header buttons open beside the floor. */
 export const SESSIONS_SCREEN = "office-sessions";
 export const ACTIVITY_SCREEN = "office-activity";
+export const CHAT_SCREEN = "office-chat";
 
 /** What a panel asks of the office surface it was opened beside. */
 export interface OfficeLink {

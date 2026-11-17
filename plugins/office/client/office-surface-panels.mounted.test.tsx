@@ -1,20 +1,32 @@
 /**
  * @vitest-environment jsdom
  */
-// The office's header, mounted as the app mounts the screen: the two panel buttons open their
-// panels beside the floor, and are not there on an app without a side area. Everything the
-// header and its cards take from the host is stood in here; the subscription never speaks, so
-// the body stays on "Loading...".
+// The office's header, mounted as the app mounts the screen: the panel buttons open their panels
+// beside the floor, and are not there on an app without a side area. Everything the header and
+// its cards take from the host is stood in here; the office's subscription speaks only when a
+// test delivers an event, so the body stays on "Loading..." until then.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps, SettingsState } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { ChatMessage, OfficeEvent } from "../shared/contracts.js";
+import { buildOfficeModel } from "../shared/model.js";
 import { officeHostSettings, officeDeviceSettings } from "../shared/settings.js";
-import { ACTIVITY_SCREEN, SESSIONS_SCREEN, claimOfficeLink, linkSelect } from "./office-link.js";
+import { markChatSeen, resetChatSeen } from "./chat-seen.js";
+import {
+  ACTIVITY_SCREEN,
+  CHAT_SCREEN,
+  SESSIONS_SCREEN,
+  claimOfficeLink,
+  linkSelect,
+} from "./office-link.js";
+import { EMPTY_OFFICE } from "./office-state.js";
 
 /** The view the device holds; every other device value is the office's default. */
 let view: "3d" | "2d" | "list";
+/** The office's events, once its subscription is drawn. */
+let deliver: ((event: OfficeEvent) => void) | null;
 
 const DEVICE: SettingsState<typeof officeDeviceSettings.schema> = {
   status: "ready",
@@ -37,8 +49,16 @@ vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
           ...DEVICE,
           values: officeHostSettings.schema.parse({}),
         },
-  // Live, and silent: no snapshot arrives, so the body shows what it shows before one.
-  useSubscription: () => ({ status: "live" }),
+  // Live, and silent until a test delivers: the body shows what it shows before a snapshot. The
+  // machine's subscription never speaks.
+  useSubscription: (
+    contract: { name: string },
+    _input: unknown,
+    onEvent: (event: OfficeEvent) => void,
+  ) => {
+    if (contract.name === "office.state") deliver = onEvent;
+    return { status: "live" };
+  },
   useRpc: () => async () => {
     throw new Error("The header asks for nothing");
   },
@@ -75,6 +95,12 @@ vi.mock("@getpaseo/plugin/client/ui", async () => {
   };
 });
 
+// The real model, counted: a chat change must not build it again.
+vi.mock("../shared/model.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../shared/model.js")>();
+  return { ...real, buildOfficeModel: vi.fn(real.buildOfficeModel) };
+});
+
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 // A test browser draws no 3D: the surface asks for WebGL2 as it loads, and the answer is no.
 vi.mock("./web-env.web.js", async (importOriginal) => ({
@@ -85,6 +111,7 @@ vi.mock("./web-env.web.js", async (importOriginal) => ({
 const THEME = { colors: new Proxy({}, { get: () => "#808080" }) } as unknown as PluginTheme;
 const SESSIONS = { kind: "screen", pluginId: "office", screenId: SESSIONS_SCREEN };
 const ACTIVITY = { kind: "screen", pluginId: "office", screenId: ACTIVITY_SCREEN };
+const CHAT = { kind: "screen", pluginId: "office", screenId: CHAT_SCREEN };
 
 /** What the app's navigation saw, and whether its side area takes what it is asked for. */
 let shown: unknown[];
@@ -133,8 +160,27 @@ async function press(label: string): Promise<void> {
   await act(async () => button.click());
 }
 
+/** What each button says to a screen reader, in the order they are drawn. */
+function buttonLabels(): (string | null)[] {
+  return [...container.querySelectorAll('[role="button"]')].map((button) =>
+    button.getAttribute("aria-label"),
+  );
+}
+
+/** Chat, whose label carries its count. */
+function chatButton(): HTMLElement {
+  const button = container.querySelector<HTMLElement>('[aria-label^="Chat"]');
+  if (!button) throw new Error("There is no Chat button");
+  return button;
+}
+
+function chatMessage(at: number, from: string | undefined, kind = "text"): ChatMessage {
+  return { id: `m${at}`, at, kind, from, name: from, text: "Hi", reacts: {} };
+}
+
 beforeEach(() => {
   view = "list";
+  deliver = null;
   shown = [];
   opened = [];
   sideArea = true;
@@ -217,4 +263,68 @@ test("the buttons are there in every view", async () => {
     expect(labelled("Sessions")).not.toBeNull();
     expect(labelled("Activity")).not.toBeNull();
   }
+});
+
+test("the header has Chat after Activity, and a press opens the chat beside the floor", async () => {
+  await mount();
+
+  // A test browser has no WebGL, so the view switch offers 2D and the List.
+  expect(buttonLabels()).toEqual(["2D view", "List view", "Sessions", "Activity", "Chat"]);
+  await press("Chat");
+  expect(shown).toEqual([CHAT]);
+  expect(opened).toEqual([]);
+});
+
+test("Chat shows the messages since the chat was last open, and none at zero", async () => {
+  resetChatSeen(1000);
+  await mount();
+  expect(chatButton().getAttribute("aria-label")).toBe("Chat");
+
+  // Seen, then two agents' messages after the mark; yours and a system line do not count.
+  const messages = [
+    chatMessage(500, "a1"),
+    chatMessage(2000, "a1"),
+    chatMessage(3000, "me"),
+    chatMessage(4000, undefined, "sys"),
+    chatMessage(5000, "a2"),
+  ];
+  await act(async () =>
+    deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, chat: { messages, typing: [] } } }),
+  );
+  expect(chatButton().textContent).toContain("2");
+  expect(chatButton().getAttribute("aria-label")).toBe("Chat, 2 new");
+
+  // The chat was open up to the newest: the count goes.
+  await act(async () => markChatSeen(5000));
+  expect(chatButton().getAttribute("aria-label")).toBe("Chat");
+  expect(chatButton().textContent).toBe("");
+});
+
+test("without showBeside Chat is not there either", async () => {
+  sideArea = false;
+  await mount();
+
+  expect(labelled("List view")).not.toBeNull();
+  expect(container.querySelector('[aria-label^="Chat"]')).toBeNull();
+});
+
+test("a chat change does not rebuild the floor's model", async () => {
+  resetChatSeen(1000);
+  await mount();
+  await act(async () =>
+    deliver?.({
+      type: "snapshot",
+      state: { ...EMPTY_OFFICE, chat: { messages: [], typing: [] } },
+    }),
+  );
+  const built = vi.mocked(buildOfficeModel).mock.calls.length;
+  expect(built).toBeGreaterThan(0);
+
+  await act(async () => deliver?.({ type: "chat", change: { op: "typing", names: ["Ali"] } }));
+  await act(async () =>
+    deliver?.({ type: "chat", change: { op: "add", message: chatMessage(6000, "a1") } }),
+  );
+  // The surface drew the change (its count moved), and built no model for it.
+  expect(chatButton().getAttribute("aria-label")).not.toBe("Chat");
+  expect(vi.mocked(buildOfficeModel).mock.calls.length).toBe(built);
 });

@@ -30,6 +30,8 @@ import { AttentionStrip, type StripCard } from "./attention-strip.js";
 import { openSessionWith, resourcesOpener } from "./beside.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
+import { useChatSeen } from "./chat-seen.js";
+import { unreadCount, unreadLabel } from "./chat-text.js";
 import { HostSwitches } from "./host-switches.js";
 import { IncidentsCard } from "./incidents-card.js";
 import { incidentsEntry } from "./incidents-text.js";
@@ -39,6 +41,7 @@ import { MachineCard } from "./machine-card.js";
 import { hostNote, namedMachine, type HostNote } from "../shared/machine-text.js";
 import {
   ACTIVITY_SCREEN,
+  CHAT_SCREEN,
   SESSIONS_SCREEN,
   claimOfficeLink,
   useOfficeLink,
@@ -454,6 +457,8 @@ interface PanelButtonProps {
   size: number;
   /** The theme's foreground: an icon-only control's glyph, not a label's muted one. */
   color: string;
+  /** What is new behind it, shown over the icon; null when nothing is. */
+  count?: string | null;
   onOpen(screenId: string): void;
   styles: OfficeStyles;
 }
@@ -462,7 +467,16 @@ interface PanelButtonProps {
  * A panel's button in the header: a segment's pill with the kit's icon in it. It shows a screen
  * beside the floor, so it has no chosen state: the side area's header says what is shown.
  */
-function PanelButton({ label, icon, screenId, size, color, onOpen, styles }: PanelButtonProps) {
+function PanelButton({
+  label,
+  icon,
+  screenId,
+  size,
+  color,
+  count,
+  onOpen,
+  styles,
+}: PanelButtonProps) {
   const press = useCallback(() => onOpen(screenId), [onOpen, screenId]);
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
@@ -473,7 +487,7 @@ function PanelButton({ label, icon, screenId, size, color, onOpen, styles }: Pan
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={count ? `${label}, ${count} new` : label}
       onPress={press}
       onPressIn={pressIn}
       onPressOut={pressOut}
@@ -482,7 +496,15 @@ function PanelButton({ label, icon, screenId, size, color, onOpen, styles }: Pan
       style={styles.segment}
     >
       {hovered || pressed ? <View style={styles.segmentHoverFill} /> : null}
-      <Icon name={icon} size={size} color={color} />
+      {/* The count sits on the icon's corner, inside the pill that clips. */}
+      <View>
+        <Icon name={icon} size={size} color={color} />
+        {count ? (
+          <View style={styles.chatBadge}>
+            <Text style={styles.chatBadgeText}>{count}</Text>
+          </View>
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -497,16 +519,25 @@ interface PanelButtonsProps {
   touchScreen: boolean;
   /** The theme's foreground, which an icon-only control's glyph rests at. */
   color: string;
+  /** The chat's messages since it was last open on this device; null at none. */
+  unread: string | null;
   styles: OfficeStyles;
 }
 
-/** The header's two ways to the panels, after the view switch. */
+/** The Chat button's count: the chat's messages since it was last open on this device. */
+function useUnread(chat: OfficeState["chat"]): string | null {
+  const seenAt = useChatSeen();
+  return unreadLabel(unreadCount(chat?.messages ?? [], seenAt));
+}
+
+/** The header's ways to the panels, after the view switch. */
 function PanelButtons({
   navigation,
   link,
   compact,
   touchScreen,
   color,
+  unread,
   styles,
 }: PanelButtonsProps) {
   const showBeside = navigation?.showBeside;
@@ -537,6 +568,16 @@ function PanelButtons({
         screenId={ACTIVITY_SCREEN}
         size={size}
         color={color}
+        onOpen={open}
+        styles={styles}
+      />
+      <PanelButton
+        label="Chat"
+        icon="MessageCircle"
+        screenId={CHAT_SCREEN}
+        size={size}
+        color={color}
+        count={unread}
         onOpen={open}
         styles={styles}
       />
@@ -746,6 +787,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const notesTimeZone = useNotesTimeZone();
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
+  const unread = useUnread(office.chat);
   const machine = useMemo(() => namedMachine(reading, model.agents), [reading, model.agents]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
@@ -890,6 +932,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
             compact={layout.compact}
             touchScreen={touchScreen}
             color={theme.colors.foreground}
+            unread={unread}
             styles={styles}
           />
         </HostSwitches>

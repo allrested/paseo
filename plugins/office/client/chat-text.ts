@@ -22,7 +22,7 @@ const ME = "me";
 const DIRECTOR = "__director";
 const SHOWN_KINDS: ReadonlySet<string> = new Set(["text", "sticker", "poll", "remind", "sys"]);
 /** The server refuses a recall after this long. */
-const RECALL_MS = 2 * 60_000;
+export const RECALL_MS = 2 * 60_000;
 /** The characters a clipped line holds, for an answer without line breaks. */
 const LINE_CHARS = 60;
 const MENTION_QUERY_MAX = 40;
