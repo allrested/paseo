@@ -326,8 +326,9 @@ export const feedStore = {
  * Feeds one subscription's change to the store: the state it came from and the state it has now.
  * Each caller brings its own pair, because two subscriptions to the office's state do not share
  * an order, and a pair diffed against another caller's state could run backwards. A first state
- * (`before === null`) says nothing: opening the office is no news. The dedup by id makes the same
- * change seen by two callers one event.
+ * (`before === null`) says nothing: opening the office is no news. The store makes the same change
+ * seen by two callers one event: a step or a permission by its id, a status change by its agent,
+ * kind and the `STATUS_SAME_MS` window.
  */
 export function recordOfficeState(
   before: OfficeSnapshot | null,

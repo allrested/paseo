@@ -12,7 +12,7 @@ import {
   type FeedChip,
   type FeedTab,
 } from "./activity-feed.js";
-import { FEED_EMPTY } from "./activity-feed-text.js";
+import { FEED_EMPTY, FEED_NO_MATCH } from "./activity-feed-text.js";
 import { linkOpenSession, linkSelect } from "./office-link.js";
 import { problemText } from "./office-surface.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
@@ -257,6 +257,9 @@ export function ActivityPanel({ theme, layout, navigation }: PluginScreenProps) 
           </View>
         )}
         {events.length === 0 ? <Text style={styles.sceneStatus}>{FEED_EMPTY}</Text> : null}
+        {events.length > 0 && cards.length === 0 ? (
+          <Text style={styles.sceneStatus}>{FEED_NO_MATCH}</Text>
+        ) : null}
         {cards.map((card, index) => (
           <CardRow
             // A card has no id, and two alerts of one agent can share a moment and a text.

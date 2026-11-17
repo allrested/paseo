@@ -1,6 +1,6 @@
 # Sessions and Activity beside the office's floor: design
 
-Date: 2026-11-17. Status: built, with two known defects. Piece 3 of sub-project 7 ("Upstream's
+Date: 2026-11-17. Status: built, with one known defect. Piece 3 of sub-project 7 ("Upstream's
 controls") of [the office after the owner's review](2026-11-16-office-owner-review-design.md). The
 owner's answers on how sub-project 7 splits are in
 [piece 1's design](2026-11-17-office-list-mode-design.md#the-owners-answers). It builds on
@@ -70,13 +70,14 @@ same events.
 
 ### The panels and the floor
 
-| Question                | Decision                                                                                                                                                                                                                    |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| One channel             | `client/office-link.ts`, a module-level store: the mounted office surface registers `select(agentId)` and `openSession(agentId)`; the panels call them. The plugin's client modules are one bundle, so both trees share it. |
-| A row press             | Selects the agent in the office: its agent card opens and, in 3D, the camera flies to it, as a press on a List row does today.                                                                                              |
-| "Open session" on a row | Calls the surface's `openSession`, which shows the session in the side area and so replaces the panel. My call: one thing at a time, as sub-project 4 decided.                                                              |
-| No surface registered   | On the screen's own route: a row press and "Open session" call `navigation.openAgent`, which opens the agent's workspace.                                                                                                   |
-| The state               | Each panel reads the office's state with the hook the surface uses (`use-office.ts`). A second subscription is one more stream while a panel shows. My call.                                                                |
+| Question                | Decision                                                                                                                                                                                                                                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One channel             | `client/office-link.ts`, a module-level store: the mounted office surface registers `select(agentId)` and `openSession(agentId)`; the panels call them. The plugin's client modules are one bundle, so both trees share it.                                                                           |
+| A row press             | Selects the agent in the office: its agent card opens and, in 3D, the camera flies to it, as a press on a List row does today.                                                                                                                                                                        |
+| "Open session" on a row | Calls the surface's `openSession`, which shows the session in the side area and so replaces the panel. My call: one thing at a time, as sub-project 4 decided.                                                                                                                                        |
+| Who registers           | A surface registers its link as it mounts, and a header button press registers its own surface's link again before calling `showBeside`. With two offices mounted (a retained deck or panel), the one that opened the panel is the one beside it, since the area closes when its surface leaves view. |
+| No surface beside it    | On the screen's own route, whose navigation has `showBeside` (a screen in the area gets none): a row press and "Open session" call `navigation.openAgent`, which opens the agent's workspace, also when the office is still mounted under the route.                                                  |
+| The state               | Each panel reads the office's state with the hook the surface uses (`use-office.ts`). A second subscription is one more stream while a panel shows. My call.                                                                                                                                          |
 
 ### Sessions
 
@@ -89,17 +90,18 @@ same events.
 
 ### Activity
 
-| Question           | Decision                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Its events         | Derived by `client/activity-feed.ts` from each new office state: a new step key (the step's kind: read, edit, command, test, deploy…), started working, finished (running to idle), needs permission, stopped on an error, a sub-agent started. Words in `client/activity-feed-text.ts`.                                                                    |
-| What it keeps      | The newest 300 events in a module-level store, from when the office's state first loaded in this app run. Cleared on a reload of the app. Not saved.                                                                                                                                                                                                        |
-| Who keeps it       | The derivation runs in the surface's `use-office` and in the panels' own, into one store, deduplicated by agent and key. A status line (started, finished, error) of one agent within 2 s of the same one is the same event, since the two subscriptions stamp it a few milliseconds apart. So the feed fills while either the office or the panel is open. |
-| The top            | A "Live" tag while the office's stream runs. All and Needs you tabs, Needs you with its count. Five kind chips as upstream: Commands, Edits, Reads, Web, Agents; any number on, none means all.                                                                                                                                                             |
-| Grouping           | Upstream's: consecutive events of one agent within four minutes share a card (dot, title, "Working" while it runs, the time of its newest event (its top line), up to four lines, "+N more"). Needs permission and stopped on an error stand alone.                                                                                                         |
-| A card's press     | Selects the agent, as a Sessions row. An alert card has "Open session".                                                                                                                                                                                                                                                                                     |
-| Empty              | "Nothing yet since the office opened."                                                                                                                                                                                                                                                                                                                      |
-| Today's numbers    | Not shown. My call: upstream's are the day's, and the feed starts when the office opened.                                                                                                                                                                                                                                                                   |
-| What it never says | A file's name, a command or a prompt: the office receives none (`shared/names.ts`).                                                                                                                                                                                                                                                                         |
+| Question            | Decision                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Its events          | Derived by `client/activity-feed.ts` from each new office state: a new step key (the step's kind: read, edit, command, test, deploy…), started working, finished (running to idle), needs permission, stopped on an error, a sub-agent started. Words in `client/activity-feed-text.ts`.                                                                    |
+| What it keeps       | The newest 300 events in a module-level store, from when the office's state first loaded in this app run. Cleared on a reload of the app. Not saved.                                                                                                                                                                                                        |
+| Who keeps it        | The derivation runs in the surface's `use-office` and in the panels' own, into one store, deduplicated by agent and key. A status line (started, finished, error) of one agent within 2 s of the same one is the same event, since the two subscriptions stamp it a few milliseconds apart. So the feed fills while either the office or the panel is open. |
+| The top             | A "Live" tag while the office's stream runs. All and Needs you tabs, Needs you with its count. Five kind chips as upstream: Commands, Edits, Reads, Web, Agents; any number on, none means all.                                                                                                                                                             |
+| Grouping            | Upstream's: consecutive events of one agent within four minutes share a card (dot, title, "Working" while it runs, the time of its newest event (its top line), up to four lines, "+N more"). Needs permission and stopped on an error stand alone.                                                                                                         |
+| A card's press      | Selects the agent, as a Sessions row. An alert card has "Open session".                                                                                                                                                                                                                                                                                     |
+| Empty               | "Nothing yet since the office opened." with no events; "No activity matches." when the tab and the chips hide every card.                                                                                                                                                                                                                                   |
+| Today's numbers     | Not shown. My call: upstream's are the day's, and the feed starts when the office opened.                                                                                                                                                                                                                                                                   |
+| What it never says  | A file's name, a command or a prompt: the office receives none (`shared/names.ts`).                                                                                                                                                                                                                                                                         |
+| A permission's line | "Needs permission: " and the title for a `tool` or `mode` permission, whose title is a short name. A `question` says "Has a question", a `plan` "Has a plan to review", and `other` "Needs permission": a question's title is the question itself (Claude's AskUserQuestion), model prose, and the feed never shows a prompt.                               |
 
 ### Layouts
 
@@ -160,18 +162,11 @@ without the side area.
 
 ## Known defects
 
-- **A row on the full route can open the office's card instead of the workspace.** The area's
-  "Open Sessions" pushes the screen's route over the office screen, which stays mounted under it
-  and stays registered in `office-link`. A row press on that route then opens the agent's card
-  from the hidden office, over the Sessions screen, rather than the agent's workspace. A cold load
-  of the route has no surface and opens the workspace, as designed. Activity's route goes through
-  the same link (no card was there to press). A fix needs the link to know when its surface is
-  not the focused screen.
 - **At 390 px, a header button pressed right after the area's sheet closes does nothing.** Pressed
   1.5 s after Close it did nothing three times out of three; a second press opened the sheet, and a
-  press 5 s after Close opened it on both tries. The browser tab throttled timers to about 1 s, so the window
-  is likely shorter in a foreground tab. The race is in the side area's sheet (sub-project 4); the
-  office's press only calls `showBeside`.
+  press 5 s after Close opened it on both tries. The browser tab throttled timers to about 1 s, so
+  the window is likely shorter in a foreground tab. The race is in the side area's sheet
+  (sub-project 4); the office's press only calls `showBeside`.
 
 ## Not verified
 
