@@ -1,6 +1,6 @@
 # The office's incidents: design
 
-Date: 2026-11-17. Status: designed. Sub-project 8 of
+Date: 2026-11-17. Status: built. Sub-project 8 of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects.
 
@@ -163,3 +163,98 @@ change a token; the most work).
 - On a dev daemon, never the one on 6767: the real Jira read with the host's `ATLASSIAN_*`, read only,
   with the saved time set back so existing bugs count as new (nothing is filed in Jira); the alarm and siren seen and heard
   in the 3D view after a click on it. Sentry only if a token is provided for the test.
+
+## Verified
+
+What the daemon does was seen on a separate dev daemon reading the real Jira. The strip, the card
+and the 3D alarm were seen on a static page fed by that daemon's state.
+
+### On a dev daemon
+
+A dev daemon of this checkout on `127.0.0.1:6768`, started with `npm run dev` in `packages/server`,
+with its own `PASEO_HOME` under `/tmp`, the container's `PASEO_*` variables unset and the three
+`ATLASSIAN_*` variables passed through. `SENTRY_AUTH_TOKEN` was not set. The daemon at 6767 was not
+touched. The office was driven through its RPCs with the CLI's client, and its state read from its
+`office.state` subscription, the schedule's file and `incidents.json`. On 17 November 2026 from
+07:56 to 08:14 in Asia/Riyadh:
+
+- The project: a read-only search beforehand found 42 bugs created in the last week in `FP`, more
+  than one check opens, so "Jira projects" was set to `FP`. The office's Jira reader sends only
+  GET requests, to `/myself` and `/search/jql`: nothing was filed or changed in Jira.
+- Before the save the snapshot had `jiraReady` true, `sentryReady` false and no incidents. After
+  it, one schedule in the daemon's store: `incidents`, cadence `every` 300000 ms, targeting the
+  office's `incidents` handler. Its first run started when it was saved, at 07:57:30, not 5
+  minutes later: the daemon runs a new `every` schedule at once. It succeeded and opened nothing:
+  Jira's mark was the run's time with no keys seen, since no bug came in the 10 minutes before.
+- The daemon stopped, the mark set back a week with `seen` emptied, and started again. The
+  schedule kept its next run, 08:02:30. That run opened 20 incidents, from `FP-1369` to `FP-1407`,
+  created from 10 November 22:18 to 16 November 09:48, the oldest first, each with its title and
+  `<ATLASSIAN_BASE_URL>/browse/<key>`; the mark moved to the 20th's `created`. The run at 08:07:30
+  opened 20 more, and the one at 08:12:30 the last 2, with the mark back at the run's time: 42 in
+  all, the search's count. The 40 dismissed by then did not open again, though the last read's
+  window held at least one of them, `FP-1435`.
+- Dismiss, from the card through the page below: one id answered `{ dismissed: 1 }` and the next
+  snapshot had 39; none answered `{ dismissed: 39 }` and the snapshot had none. With the CLI's
+  client on the last 2: one id answered 1, the same id again 0, all answered 1, and all again 0.
+  The 42 keys stayed seen in `incidents.json`, which is mode 600.
+- "Jira projects" cleared: the schedule left the daemon's store, Jira's mark stayed, and no
+  problem was set.
+- No log line of the daemon held the token or the Basic header made from it, checked by count.
+
+### On a static page
+
+The plugin's real `OfficeSurface`, bundled with the repo's esbuild with `react-native` aliased to
+`react-native-web`, as sub-project 3's pages were. The plugin kit was a stand-in, except that the
+`office.state` events and two RPCs, `office.world.request` and `office.incidents.dismiss.request`,
+went to the dev daemon above through a small bridge on `127.0.0.1` using the CLI's client. The 3D
+view ran the script the dev daemon served. The browser was a local headless Chromium 145 driven by
+Playwright, with WebGL on SwiftShader, at 1280 x 800. Its clicks are trusted pointer events. A
+spy recorded each `AudioContext` and oscillator in every frame.
+
+- Opened after the 08:02:30 run, light: the strip's Incidents entry read "20 open", the stage
+  was red (`is-incident`), and the banner read "Incident: FP-1407 <its title> · +19 more", the
+  newest created first. One save of `office-device` added the 20 ids. No `AudioContext` was made.
+- A pointer click at the middle of the banner, inside the scene's frame, opened the Incidents
+  card: 20 rows, "Jira FP-1407 · just now" first and FP-1369 last, each title a link. Focus went
+  back to the page, and the click made the frame's `AudioContext`, running.
+- Reloaded, the office opened again on that device: no red and no save; the banner stayed.
+- Left open through the 08:07:30 run: "40 open", the stage red again, "Incident: FP-1435 <its
+  title> · +39 more", one save adding the 20 new ids, and six square-wave oscillators: one siren
+  for 20 new incidents. The spy did not read their pitch: the siren sets it on a timeline.
+- The card from the strip: 40 rows, the earlier 20 "5 min ago". Dismiss on the first row, then
+  "Dismiss all", as above. Then the card read "No open incidents", the strip entry was gone and
+  the banner hidden.
+- Reduced motion, dark, a second device, on the scene bundled from the same source with a probe
+  for the light: the light read 14 at each of six reads, and the red edge's animation was `none`.
+  Without reduced motion the light read 19.6 and 21.7, and the animation was `incident-blink`.
+
+What did not come out as the check was written:
+
+- Jira does not refuse a project key it does not know. Read only, `project in ("FP", "ZZNOPE")`
+  answered 200 with FP's issues, and `"ZZNOPE"` alone 200 with none. A mistyped key rings nothing
+  and shows no problem, and no failed check could be caused against the real Jira.
+- The stage stayed red after "Dismiss all" until its 25 s ran out: a dismiss does not end a ring.
+  In this browser the scene drew a few frames a second, so the 25 s of scene time took longer.
+- Nobody was at work on the dev daemon, so no fail bubble was drawn.
+
+## Not verified
+
+Tests cover each of these; the live check did not reach them:
+
+- Sentry: `SENTRY_AUTH_TOKEN` was not given for the test.
+  `plugins/office/server/incidents-sentry.test.ts` runs the reader against a local server.
+- A failed check: its problem on the card and in the strip, the mark kept, the problem cleared by
+  the next success. `plugins/office/server/incidents-check.test.ts`,
+  `plugins/office/server/incidents-jira.test.ts`, `plugins/office/client/incidents-card.mounted.test.tsx`,
+  `plugins/office/client/incidents-text.test.ts`.
+- An incident closing 24 hours after it was found: `incidents-check.test.ts`. The daemon ran for
+  less than 20 minutes.
+
+Not seen for other reasons:
+
+- The siren heard: the browser was headless, and the spy only counted its oscillators.
+- The click on the banner in Paseo's app, on the web or on desktop, and a click with a mouse in a
+  headed browser. The click above was Playwright's mouse in headless Chromium.
+- The host's sheet around the card, the app around the office, the settings screen saving the
+  fields, the 2D floor and the Android app: the page had stand-ins, and the settings were saved
+  with the CLI's client through the same RPC.
