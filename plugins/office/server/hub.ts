@@ -322,6 +322,7 @@ export function createHub(ports: HubPorts): Hub {
     const stop = await ports.openDirectory(onDirectory, () => onDirectoryEnd(mine));
     if (subscribers.size === 0 || mine !== generation) {
       view = EMPTY_VIEW;
+      tell(null);
       try {
         await stop();
       } catch (error) {
