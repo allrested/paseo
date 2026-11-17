@@ -59,6 +59,7 @@ export function useWorldFeed(
     incidents,
   }: WorldFeedInput,
 ): { note: string | null } {
+  // (a ref for useIncidentAlarm's RefObject; the [api] effect below must stay the first effect)
   const world = useRef<WorldApi | null>(null);
   const memory = useRef<WorldMemory | null>(null);
   // Since when each person rests: the scene sends home whoever rested 30 minutes after 21:00.

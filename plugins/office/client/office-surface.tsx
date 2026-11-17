@@ -190,6 +190,11 @@ export function canDraw3D(
   return platform === "web" ? webgl2() : scriptFrame();
 }
 
+/** The view that draws the 3D office: its frame in a browser, ScriptFrame in an app. */
+export function worldViewFor(platform: Platform): typeof WorldView | typeof WorldViewNative {
+  return platform === "web" ? WorldView : WorldViewNative;
+}
+
 /** A device setting as a switch's saves see it; null while it is read or unreadable. */
 export interface StoredSwitch<Value> {
   /** Null when the store holds no choice or no valid setting: any tap overwrites it. */
@@ -685,7 +690,7 @@ function SurfaceBody({
     return <Text style={styles.sceneStatus}>Loading...</Text>;
   }
   if (view === "3d") {
-    const World = platform === "web" ? WorldView : WorldViewNative;
+    const World = worldViewFor(platform);
     return (
       <World
         model={model}

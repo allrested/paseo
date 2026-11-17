@@ -7,7 +7,7 @@ type KitScriptFrame = ForwardRefExoticComponent<
 >;
 
 /**
- * Whether this app's kit has `ScriptFrame`. The store app and apps older than 0.16.0 do not, and
+ * Whether this app's kit has `ScriptFrame`. The store build does not, whatever its version, and
  * the key is absent there. Ask with `in`, never by reading the property.
  */
 export function hasScriptFrame(): boolean {
