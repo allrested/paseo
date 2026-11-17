@@ -1923,6 +1923,41 @@ navigation disabled. Where the platform cannot show the document inline, such as
 Inline PDF rendering needs a daemon from Paseo 0.13.0 or later; older daemons report PDFs as
 `application/octet-stream`.
 
+### ScriptFrame
+
+Import `ScriptFrame` from `@getpaseo/plugin/client/ui` to run your own script in an isolated page
+and pass text to it and back. Use it for what React Native cannot draw, such as a WebGL scene.
+
+| Prop        | Required | Meaning                                                                |
+| ----------- | -------- | ---------------------------------------------------------------------- |
+| `script`    | Yes      | JavaScript, run once after an empty standards-mode page loads.         |
+| `onMessage` | Yes      | Called with each string the page posts.                                |
+| `onError`   | No       | Called with a message when the script throws or the page cannot start. |
+| `title`     | Yes      | What a screen reader calls the frame.                                  |
+| `testID`    | No       | Test identifier for the frame.                                         |
+
+A ref gives `post(text)`, which sends a string to the page. Posts made before the page is ready
+wait and are delivered in order. In the page, `window.paseoFrame.post(text)` sends and
+`window.paseoFrame.onMessage = (text) => { ... }` receives. Only strings cross, so send JSON for
+anything structured.
+
+The page has no network: its policy is `default-src 'none'; script-src 'unsafe-inline';
+style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:;
+form-action 'none'`. It has no files and no new windows, and on Android the frame allows only its
+first load. Run only your own script in the frame: the policy does not cover WebRTC, on the web the
+page can navigate its own frame to another address, and on Android a navigation goes through when
+the app does not answer the frame's load check within 250 ms (react-native-webview's default).
+
+| Platform | The page                                                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Android  | A WebView with JavaScript and `localStorage` on, under an origin of its own that never resolves. Tested.                     |
+| Web      | A sandboxed `iframe` without `allow-same-origin`. `localStorage` throws there, so a script that needs it must check. Tested. |
+| iOS      | The same WebView component as Android. Not tested.                                                                           |
+
+Check for it before you render it: `"ScriptFrame" in ui`, with `import * as ui from
+"@getpaseo/plugin/client/ui"`. The store build does not have it, whatever its version, so keep
+another view for apps without it.
+
 ### Version requirement and examples
 
 File panels, `DocumentFrame`, and `Loading` require Paseo 0.13.0 or later. Declare

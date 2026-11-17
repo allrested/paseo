@@ -1589,6 +1589,30 @@ hook 的重新读取会采用磁盘上的版本，因此下一次写入会覆盖
 
 内联 PDF 渲染需要 Paseo 0.13.0 或更高版本的 daemon；更早的 daemon 会把 PDF 报告为 `application/octet-stream`。
 
+### ScriptFrame {#scriptframe}
+
+从 `@getpaseo/plugin/client/ui` 导入 `ScriptFrame`，在隔离的页面中运行你自己的脚本，并与它互传文本。React Native 画不出来的内容（例如 WebGL 场景）可以用它。
+
+| 属性        | 必填 | 含义                                           |
+| ----------- | ---- | ---------------------------------------------- |
+| `script`    | 是   | JavaScript，在空的标准模式页面加载后运行一次。 |
+| `onMessage` | 是   | 页面每发送一个字符串就调用一次。               |
+| `onError`   | 否   | 脚本抛出错误或页面无法启动时，以消息调用。     |
+| `title`     | 是   | 屏幕阅读器对该框架的称呼。                     |
+| `testID`    | 否   | 该框架的测试标识。                             |
+
+通过 ref 可以调用 `post(text)`，向页面发送字符串。页面就绪之前的 `post` 会等待，并按顺序送达。在页面中，`window.paseoFrame.post(text)` 用于发送，`window.paseoFrame.onMessage = (text) => { ... }` 用于接收。只有字符串能够跨越边界，需要结构化数据时请发送 JSON。
+
+页面没有网络，其策略为 `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'`。页面没有文件访问，也不能打开新窗口；在 Android 上，框架只允许首次加载。请只在框架中运行你自己的脚本：该策略不涵盖 WebRTC；在 Web 上，页面可以把自己的框架导航到其他地址；在 Android 上，如果应用没有在 250 ms 内（react-native-webview 的默认值）回应框架的加载检查，导航就会照常进行。
+
+| 平台    | 页面                                                                                                       |
+| ------- | ---------------------------------------------------------------------------------------------------------- |
+| Android | 启用 JavaScript 和 `localStorage` 的 WebView，使用一个永远无法解析的自有来源。已测试。                     |
+| Web     | 不带 `allow-same-origin` 的沙箱 `iframe`。其中 `localStorage` 会抛出错误，需要它的脚本必须先检查。已测试。 |
+| iOS     | 与 Android 相同的 WebView 组件。未测试。                                                                   |
+
+渲染之前先检查：`"ScriptFrame" in ui`，其中 `import * as ui from "@getpaseo/plugin/client/ui"`。商店版本的应用无论版本号是多少都没有它，因此请为没有它的应用保留其他视图。
+
 ### 版本要求与示例 {#version-requirement-and-examples}
 
 文件面板、`DocumentFrame` 和 `Loading` 需要 Paseo 0.13.0 或更高版本。请在 `paseo-plugin.json` 中声明 `"requirements": { "paseo": ">=0.13.0" }`。daemon 和应用都会检查[版本要求](#requirements)；更早的应用会在执行客户端包之前跳过它。用 `writeBytes` 写入需要 Paseo 0.13.0 或更高版本的 daemon。
