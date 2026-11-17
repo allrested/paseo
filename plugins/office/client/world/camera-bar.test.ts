@@ -13,6 +13,9 @@ const h = vi.hoisted(() => ({
   toast: vi.fn(),
   set: vi.fn(),
   copy: vi.fn(),
+  exitFp: vi.fn(),
+  /** The walk's state: a test turns `on` to be walking. */
+  fp: { on: false },
 }));
 
 vi.mock("../../vendor/my-office/src/office/scene/renderer.js", async () => {
@@ -27,6 +30,7 @@ vi.mock("../../vendor/my-office/src/office/scene/renderer.js", async () => {
   return {
     camera,
     controls: { target: new THREE.Vector3(0, 0, 0), minZoom: 0.5, maxZoom: 3.4, update() {} },
+    fpCam: { fov: 70, updateProjectionMatrix() {} },
   };
 });
 vi.mock("../../vendor/my-office/src/office/core/loop.js", () => ({
@@ -38,13 +42,17 @@ vi.mock("../../vendor/my-office/src/office/ui/session-drawer.js", () => ({
 vi.mock("../../vendor/my-office/src/office/paseo-host.js", () => ({ host: { toast: h.toast } }));
 vi.mock("../../vendor/my-office/src/office/interact/first-person.js", () => ({
   floorBounds: () => ({ x0: -7.85, x1: 15.3, z0: -7.85, z1: 11.3 }),
-  fp: { on: false },
-  exitFp() {},
+  fp: h.fp,
+  exitFp: h.exitFp,
 }));
 
 import { build, goView, setView, setup } from "../../vendor/my-office/src/office/ui/camera-bar.js";
 
-const { camera, controls } = await import("../../vendor/my-office/src/office/scene/renderer.js");
+const { camera, controls, fpCam } =
+  await import("../../vendor/my-office/src/office/scene/renderer.js");
+
+/** The document outlives each test's page: the listeners setup() puts on it are taken off after the test. */
+const onDocument = vi.spyOn(document, "addEventListener");
 
 /** The frame's browser: no ResizeObserver, so the bar's observer is this one, and a test can resize. */
 let resized: (() => void) | null = null;
@@ -76,14 +84,35 @@ function pressed(): (string | undefined)[] {
   );
 }
 
-/** Builds the bar and wires it, as paseo-entry.js does; `fullscreen` is what the frame's browser offers. */
-function open({ fullscreen = true, refuse = false } = {}): void {
+/** The pointer media query: `change(fine)` is the device's pointer changing. */
+function pointer(fine: boolean) {
+  const listeners = new Set<() => void>();
+  const query = {
+    matches: fine,
+    addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+  };
+  vi.stubGlobal("matchMedia", () => query);
+  return {
+    change(next: boolean) {
+      query.matches = next;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+/**
+ * Builds the bar and wires it, as paseo-entry.js does; `fullscreen` is what the frame's browser offers,
+ * `fine` whether its pointer is fine (a mouse). Returns the pointer, to change it.
+ */
+function open({ fullscreen = true, refuse = false, fine = true } = {}) {
   Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: fullscreen });
   document.documentElement.requestFullscreen = refuse
     ? vi.fn(() => Promise.reject(new Error("not allowed")))
     : vi.fn(() => Promise.resolve());
+  const handle = pointer(fine);
   build();
   setup();
+  return handle;
 }
 
 beforeEach(() => {
@@ -102,10 +131,17 @@ beforeEach(() => {
   state.selectedId = null;
   state.zoomGoal = null;
   camera.zoom = 1;
+  h.fp.on = false;
+  h.exitFp.mockReset();
+  fpCam.fov = 70;
   document.body.innerHTML = '<div id="stage-wrap"><div id="stage"></div></div>';
 });
 
 afterEach(() => {
+  for (const [type, listener, options] of onDocument.mock.calls) {
+    document.removeEventListener(type, listener, options);
+  }
+  onDocument.mockClear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   delete (document.documentElement as { requestFullscreen?: unknown }).requestFullscreen;
@@ -341,4 +377,61 @@ test("photo mode's bar keeps upstream's focus ring, its round exit, and drops th
   expect(css).toContain(
     "@media (max-width: 720px) { .photo-hint { display: none; } .pb-sep { display: none; } }",
   );
+});
+
+test("Walk in is shown for a fine pointer and hidden for a coarse one, and follows a change", () => {
+  const fine = open({ fine: false });
+  expect(page("btn-fp").hidden).toBe(true);
+  fine.change(true);
+  expect(page("btn-fp").hidden).toBe(false);
+  fine.change(false);
+  expect(page("btn-fp").hidden).toBe(true);
+});
+
+test("a view press leaves walk-in first", () => {
+  open();
+  h.fp.on = true;
+  click("[data-view=desks]");
+  expect(h.exitFp).toHaveBeenCalledTimes(1);
+});
+
+test("zoom while walking changes the field of view by 8, within 40 and 90", () => {
+  open();
+  h.fp.on = true;
+  click("#zoom-in");
+  expect(fpCam.fov).toBe(62);
+  for (let i = 0; i < 6; i += 1) click("#zoom-in");
+  expect(fpCam.fov).toBe(40);
+  for (let i = 0; i < 8; i += 1) click("#zoom-out");
+  expect(fpCam.fov).toBe(90);
+  expect(state.zoomGoal).toBeNull();
+});
+
+test("the percent while walking is the field of view's zoom over 70", () => {
+  open();
+  h.fp.on = true;
+  vi.advanceTimersByTime(200);
+  expect(page("zoom-val").textContent).toBe("100%");
+  click("#zoom-in");
+  vi.advanceTimersByTime(200);
+  expect(page("zoom-val").textContent).toBe("113%");
+});
+
+test("Escape leaves walk-in, but not while the place card is open", () => {
+  open();
+  document.body.insertAdjacentHTML("beforeend", '<div id="plc"></div>');
+  h.fp.on = true;
+  page("plc").hidden = false;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.exitFp).not.toHaveBeenCalled();
+
+  page("plc").hidden = true;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.exitFp).toHaveBeenCalledTimes(1);
+});
+
+test("Escape does nothing while not walking", () => {
+  open();
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.exitFp).not.toHaveBeenCalled();
 });

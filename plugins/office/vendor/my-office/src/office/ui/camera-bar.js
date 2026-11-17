@@ -7,9 +7,9 @@
 // FirstPersonHud.tsx are React, and ui/photo.js and interact/first-person.js find their elements by id.
 import * as THREE from '../../../three/three.module.min.js';
 import { state } from '../core/state.js';
-import { camera, controls } from '../scene/renderer.js';
+import { camera, controls, fpCam } from '../scene/renderer.js';
 import { focusTarget } from '../core/loop.js';
-import { floorBounds } from '../interact/first-person.js';
+import { exitFp, floorBounds, fp } from '../interact/first-person.js';
 import { closeSession } from './session-drawer.js';
 import { host } from '../paseo-host.js';
 
@@ -225,18 +225,37 @@ export function setup() {
   bar.addEventListener('pointerleave', () => { clearTimeout(unpin); unpin = setTimeout(() => { bar.classList.remove('tb-pinned'); bar.style.right = ''; }, 340); });
   document.querySelector('.tb-seg').addEventListener('click', (e) => {
     const b = e.target.closest('[data-view]'); if (!b) return;
+    if (fp.on) exitFp();
     if (state.selectedId) closeSession();
     goView(b.dataset.view);
   });
-  $('zoom-in').addEventListener('click', () => { setView(null); state.zoomGoal = Math.min(controls.maxZoom, (state.zoomGoal ?? camera.zoom) * 1.2); });
-  $('zoom-out').addEventListener('click', () => { setView(null); state.zoomGoal = Math.max(controls.minZoom, (state.zoomGoal ?? camera.zoom) / 1.2); });
+  $('zoom-in').addEventListener('click', () => {
+    if (fp.on) { fpCam.fov = Math.max(40, fpCam.fov - 8); fpCam.updateProjectionMatrix(); return; }
+    setView(null); state.zoomGoal = Math.min(controls.maxZoom, (state.zoomGoal ?? camera.zoom) * 1.2);
+  });
+  $('zoom-out').addEventListener('click', () => {
+    if (fp.on) { fpCam.fov = Math.min(90, fpCam.fov + 8); fpCam.updateProjectionMatrix(); return; }
+    setView(null); state.zoomGoal = Math.max(controls.minZoom, (state.zoomGoal ?? camera.zoom) / 1.2);
+  });
   if (!document.fullscreenEnabled) $('btn-full').hidden = true;
   $('btn-full').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen?.();
     else document.documentElement.requestFullscreen?.().catch(() => host.toast("This browser won't go full screen."));
   });
   document.addEventListener('fullscreenchange', () => $('btn-full').setAttribute('aria-pressed', String(!!document.fullscreenElement)));
-  setInterval(() => { const v = `${Math.round((camera.zoom / (fitZoom || 1)) * 100)}%`, z = $('zoom-val'); if (z.textContent !== v) z.textContent = v; }, 200);   // (written only when it changes: a write costs a style pass)
+  // (while walking, the percent is the field of view's zoom over the start's 70)
+  setInterval(() => { const v = `${Math.round((fp.on ? 70 / fpCam.fov : camera.zoom / (fitZoom || 1)) * 100)}%`, z = $('zoom-val'); if (z.textContent !== v) z.textContent = v; }, 200);   // (written only when it changes: a write costs a style pass)
   // (made after the renderer's own observer, so the frustum already has the frame's new shape)
   new ResizeObserver(() => { if (home && !state.selectedId) fitFloor(); }).observe(document.getElementById('stage'));
+  // Walk in needs keys: shown for a fine pointer only (a phone could only look around)
+  const fine = matchMedia('(pointer: fine)');
+  const showWalk = () => { $('btn-fp').hidden = !fine.matches; };
+  showWalk(); fine.addEventListener('change', showWalk);
+  // upstream leaves walk-in from ui/topbar.js, which is not taken: the place card goes first, as there
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !fp.on) return;
+    const card = $('plc');
+    if (card && !card.hidden) return;
+    exitFp();
+  });
 }
