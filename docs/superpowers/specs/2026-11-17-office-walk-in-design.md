@@ -51,13 +51,13 @@ Point 13 of the owner's review, the part piece 2 left out:
 
 ### The button
 
-| Question | Decision                                                                                                                                                                                                                                                                                                                                                       |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Where    | The camera bar's end, after Photo mode, in its own group: upstream's `btn-fp`, icon `walk`, `aria-label` and `title` "Walk in", `aria-pressed` while on. Built by the stand-in `camera-bar.js`'s `build()` with the rest of the bar.                                                                                                                           |
-| Phones   | Shown only when `matchMedia('(pointer: fine)')` matches, and hidden when it stops matching. My call: upstream's walk needs keys; on touch it would only look around.                                                                                                                                                                                           |
-| Views    | A view press, Photo mode and the List (the office's view switch) leave walk-in first, as upstream.                                                                                                                                                                                                                                                             |
-| Zoom     | While walking, zoom in and out change `fpCam.fov` within 40 to 90 by 8, as upstream; the percent shows the field of view's zoom over 70.                                                                                                                                                                                                                       |
-| Narrow   | From 720 px down Walk in and the views show no names, and the pressed view loses its wider padding: upstream's 720 px rule, so a view under the mouse or the keyboard's focus does not slide its name out and push Walk in past the edge. From 520 px down the buttons are 30 px wide and the groups 4 px apart, so the whole bar fits at 390 px with a mouse. |
+| Question | Decision                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where    | The camera bar's end, after Photo mode, in its own group: upstream's `btn-fp`, icon `walk`, `aria-label` and `title` "Walk in", `aria-pressed` while on. Built by the stand-in `camera-bar.js`'s `build()` with the rest of the bar.                                                                                                                                                                                        |
+| Phones   | Shown only when `matchMedia('(pointer: fine)')` matches, and hidden when it stops matching. My call: upstream's walk needs keys; on touch it would only look around.                                                                                                                                                                                                                                                        |
+| Views    | A view press, Photo mode and the List (the office's view switch) leave walk-in first, as upstream.                                                                                                                                                                                                                                                                                                                          |
+| Zoom     | While walking, zoom in and out change `fpCam.fov` within 40 to 90 by 8, as upstream; the percent shows the field of view's zoom over 70.                                                                                                                                                                                                                                                                                    |
+| Narrow   | From 720 px down Walk in and the views show no names, and the pressed view loses its wider padding: upstream's 720 px rule, so a view under the mouse or the keyboard's focus does not slide its name out and push Walk in past the edge. From 520 px down the view, zoom and tool buttons are 30 px wide (Walk in stays 38 px, the percent 42 px) and the groups 4 px apart, so the whole bar fits at 390 px with a mouse. |
 
 ### Walking
 
@@ -139,11 +139,11 @@ WebGL (llvmpipe), about five frames a second. One page runs the script in the pa
 with the `pro` plan, the app's light colours, and an `onSelect`, `onToast` and `onOpen` that record
 their calls, then `setSessions` with five made-up agents. A second page opens the script in a frame
 with the app's own `world-frame.web.ts`, its `onOpen` and `onSelect` calling `focusApp()` first, as
-`world-view.tsx` does. To go from one spot to the next, a second entry imported the scene's modules
+`world-view.tsx` did then. To go from one spot to the next, a second entry imported the scene's modules
 once more and set the walker's position; the scene's code was the same. For the check after the
 fixes below it also read what a pixel lands on through either camera. Keys and the mouse were real
 input: the browser tool's key presses, and Chrome DevTools Protocol input for held keys, Shift and
-drags. No page error came up in the page itself.
+drags. The one exception is the Shift speed in m/s below, which came from synthetic key events. No page error came up in the page itself.
 
 The app was then reached through a dev daemon of this worktree on port 6768, with its own home under
 `/tmp`, listening on the build container's address with a password of its own, and serving the
@@ -158,7 +158,8 @@ What the scene alone showed:
   The overlay comes up (the help line, Exit, the crosshair), the team chips go, and the views and the
   zoom dim, as upstream. You stand inside the lobby door, facing the floor.
 - W, A, S and D move you along the expected axis; the up and down arrows walk and the side arrows
-  turn. Shift with W runs at 3.6 m/s of scene time against 2.0. A mouse drag turns 0.0042 rad a pixel,
+  turn. Shift with W runs at 3.6 m/s of scene time against 2.0, with synthetic key events; with real
+  CDP keys it moved 0.36 m a frame against 0.20. A mouse drag turns 0.0042 rad a pixel,
   upstream's mouse speed.
 - V shows your own chibi from behind with its "You" tag; V again goes back and hides both.
 - Zoom in goes 70, 62, 54, 46 and 40 degrees (113% to 175%) and stops; zoom out goes to 90 (78%) and
@@ -225,4 +226,8 @@ What did not come out as written:
 
 Pool, foosball and karaoke were not tried, only the games TV; nor were a sub-agent's E, a person
 leaving while you stand by them, or dark colours. In the app, touch was emulated at 1280 x 800, not at
-a phone's size, and the app was the installed 0.16.0 web build, not this branch's.
+a phone's size, and the app was the installed 0.16.0 web build, not this branch's. Escape was tried
+with the scene alone, never in the app: not to leave the walk, not at a game, not with the place card
+open. The last fixes (Walk in with an agent's card open keeps the keys in the frame; a press on a
+control of the frame leaves the keys there, whatever has focus; the help line goes under the incident
+banner) were checked by unit tests only, not in a browser.

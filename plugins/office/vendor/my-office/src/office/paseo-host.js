@@ -23,7 +23,10 @@ export const host = {
   bell: null,
   /** The label over the meeting room's screen was chosen; null while Paseo has nothing to open for it. */
   notes: null,
-  /** A person's session was asked for (E by them while walking); null while Paseo has nowhere to open it. */
+  /**
+   * A person's session was asked for (E by them while walking); null only where the office has no navigation. With
+   * navigation but no side area it opens the agent's workspace, leaving the office, as the card's Open session does.
+   */
   open: null,
   /** A short line the office says once. */
   toast() {},
