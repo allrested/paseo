@@ -52,8 +52,16 @@ export interface WorldViewProps {
   onSelectBoard(roomId: string): void;
   /** The host's readings; null when the host has none, and then the server room is furniture. */
   machine: Machine | null;
-  /** A tap on the server room: its chip, the racks, the wall screen or a server box. */
+  /**
+   * A tap on the server room: its chip, the racks or a server box, and the wall screen while
+   * `onOpenResources` is absent.
+   */
   onOpenMachine(): void;
+  /**
+   * A tap on the server room's wall screen where Paseo can show Resources beside the floor;
+   * absent where it cannot. Read when the office starts.
+   */
+  onOpenResources: (() => void) | undefined;
   /** A tap on the library: its chip or the bookshelf. */
   onOpenLibrary(): void;
   /** A tap on the label over the meeting room's screen. */
@@ -89,6 +97,7 @@ export function WorldView({
   onSelectBoard,
   machine,
   onOpenMachine,
+  onOpenResources,
   onOpenLibrary,
   onOpenNotes,
   meeting,
@@ -123,6 +132,7 @@ export function WorldView({
     onSelectAgent,
     onSelectBoard,
     onOpenMachine,
+    onOpenResources,
     onOpenLibrary,
     onOpenNotes,
     onBell,
@@ -137,6 +147,7 @@ export function WorldView({
       onSelectAgent,
       onSelectBoard,
       onOpenMachine,
+      onOpenResources,
       onOpenLibrary,
       onOpenNotes,
       onBell,
@@ -150,6 +161,7 @@ export function WorldView({
     onSelectAgent,
     onSelectBoard,
     onOpenMachine,
+    onOpenResources,
     onOpenLibrary,
     onOpenNotes,
     onBell,
@@ -226,6 +238,16 @@ export function WorldView({
             focusApp();
             latest.current.onOpenLibrary();
           },
+          // Given only where Paseo can show Resources: otherwise the scene keeps the wall screen
+          // on onMachine, the Host card.
+          ...(latest.current.onOpenResources === undefined
+            ? {}
+            : {
+                onResources: () => {
+                  focusApp();
+                  latest.current.onOpenResources?.();
+                },
+              }),
           // The bell opens nothing of Paseo's: the keyboard stays in the office.
           onBell: () => void latest.current.onBell(),
           onNotes: () => {
