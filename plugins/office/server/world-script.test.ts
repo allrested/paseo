@@ -87,6 +87,7 @@ describe("the vendored entry", () => {
     expect(photo).toContain("PASEO:");
     expect(photo).toContain("host.brandName");
     expect(photo).toMatch(/office-\$\{/);
+    expect(photo).not.toContain("my-office-");
     expect(bundle).toContain("ph-shoot");
   }, 60_000);
 
