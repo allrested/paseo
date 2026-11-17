@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import { Text, View } from "react-native";
 import type { Post } from "../shared/contracts.js";
 import { ActionButton } from "./action-button.js";
-import { boardPreview, postMeta } from "./board-text.js";
+import { boardPreview, postMeta, todoPreview } from "./board-text.js";
 import type { OfficeRoom } from "../shared/model.js";
 import type { OfficeStyles } from "./styles.js";
 
@@ -36,17 +36,23 @@ export interface RoomBoardProps {
 
 /**
  * The room's board under its agents: the first open tasks, claimed tasks and notes, and how many
- * more the board holds. An empty board is one line, so a list of quiet rooms stays short.
+ * more the board holds. The lobby's shows its unfinished to-dos instead. An empty board is one
+ * line, so a list of quiet rooms stays short.
  */
 export function RoomBoard({ room, name, styles, onOpenBoard }: RoomBoardProps) {
   const open = useCallback(() => onOpenBoard(room.id), [onOpenBoard, room.id]);
-  const preview = useMemo(() => boardPreview(room.posts), [room.posts]);
+  const preview = useMemo(
+    () => (room.lobby ? todoPreview(room.todos) : boardPreview(room.posts)),
+    [room.lobby, room.todos, room.posts],
+  );
   return (
     <View style={styles.boardSection}>
       <View style={styles.boardTitleRow}>
         <View style={styles.boardHeading}>
-          <Text style={styles.boardTitle}>Board</Text>
-          {room.posts.length === 0 ? <Text style={styles.postMeta}>No posts</Text> : null}
+          <Text style={styles.boardTitle}>{room.lobby ? "To-do" : "Board"}</Text>
+          {preview.shown.length === 0 ? (
+            <Text style={styles.postMeta}>{room.lobby ? "No to-dos" : "No posts"}</Text>
+          ) : null}
         </View>
         <ActionButton label="Open board" pendingLabel="Opening..." onPress={open} styles={styles} />
       </View>
