@@ -1,6 +1,6 @@
 # The office as one page: design
 
-Date: 2026-11-17. Status: designed, not built. Sub-project 4 of
+Date: 2026-11-17. Status: built, with two known defects. Sub-project 4 of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects.
 
@@ -35,8 +35,8 @@ It is out of scope here, and nothing here may block it.
   `usePluginHostNavigation` (`packages/app/src/plugins/host-navigation-model.ts`): `openAgent`,
   `openWorkspace`, and `openBrowser` on Electron.
 - `navigation.openAgent` calls `navigateToAgent`, which leaves the office for the agent's
-  workspace. The office calls it from the agent card's "Open session", the permission actions'
-  "Answer in the session", and the structure view's rows (`client/office-surface.tsx`
+  workspace. The office calls it from the agent card's "Open session" and from the permission
+  actions' "Answer in the session" in the structure view's rows (`client/office-surface.tsx`
   `openSession`).
 - The agent pane (`packages/app/src/panels/agent-panel.tsx`) reads its server, workspace, tab and
   target from `usePaneContext()`, and its composer, drafts and attachments are keyed by them. The
@@ -78,27 +78,27 @@ It is out of scope here, and nothing here may block it.
 
 ### The side area
 
-| Question        | Decision                                                                                                                                                                                                          |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Who draws it    | The app, around a plugin screen and around a plugin workspace panel. A surface that never calls `showBeside` looks as today.                                                                                      |
-| Wide layouts    | A panel on the right of the plugin's content with a drag handle between them. The plugin's content keeps the rest of the width and stays live.                                                                    |
-| Its width       | Starts at the Explorer's default width; dragging is kept in memory for the rest of the app's run. It does not read or write the panel store's `explorerWidth`. My call: not persisted, as the sheet stack is not. |
-| Compact layouts | A sheet over the plugin's content, an `IsolatedBottomSheetModal` on the app-wide stack, with `SheetPane`'s header. Drag down, Close, the backdrop and Android Back close it, as the compact sheets do.            |
-| One at a time   | A new call replaces what is shown. The same target again keeps it and does not remount it.                                                                                                                        |
-| Closing         | Close in its header. Leaving the plugin's screen or panel closes it. It is not restored on the next visit.                                                                                                        |
-| The header      | The target's icon and title, a second line, the leading action, and Close. On compact layouts the header drags the sheet, as `SheetDragArea` does.                                                                |
-| Point 15        | The area holds an agent or a plugin screen. A later sub-project can add a kind for the plugin's own contributions (Sessions, Activity) without changing the call's shape.                                         |
+| Question        | Decision                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Who draws it    | The app, around a plugin screen and around a plugin workspace panel. A surface that never calls `showBeside` looks as today.                                                                                                                                                                                                                                                                            |
+| Wide layouts    | A panel on the right of the plugin's content with a drag handle between them. The plugin's content keeps the rest of the width and stays live.                                                                                                                                                                                                                                                          |
+| Its width       | Starts at the Explorer's default width; dragging is kept in memory for the rest of the app's run. It does not read or write the panel store's `explorerWidth`. It stays between 240 and the frame's own width less 360 for the plugin's content, measured on the frame and not the window, because the left sidebar or a split can share the window. My call: not persisted, as the sheet stack is not. |
+| Compact layouts | A sheet over the plugin's content, an `IsolatedBottomSheetModal` on the app-wide stack, with `SheetPane`'s header. Drag down, Close, the backdrop and Android Back close it, as the compact sheets do.                                                                                                                                                                                                  |
+| One at a time   | A new call replaces what is shown. The same target again keeps it and does not remount it.                                                                                                                                                                                                                                                                                                              |
+| Closing         | Close in its header. Leaving the plugin's screen or panel closes it. It is not restored on the next visit.                                                                                                                                                                                                                                                                                              |
+| The header      | The target's icon and title, a second line, the action, and Close. The action is an icon button beside Close whose label is its accessible name and tooltip, as Open as tab is in the sheet header, so the title keeps its width. On compact layouts the header drags the sheet, as `SheetDragArea` does.                                                                                               |
+| Point 15        | The area holds an agent or a plugin screen. A later sub-project can add a kind for the plugin's own contributions (Sessions, Activity) without changing the call's shape.                                                                                                                                                                                                                               |
 
 ### The session in the area
 
-| Question         | Decision                                                                                                                                                                                                                                                                                                                            |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What runs        | The app's agent pane, with a pane context the area builds for the agent's own server and workspace and a tab id of the area's own. Reading, replying, permission prompts and stopping work as in the workspace.                                                                                                                     |
-| The header       | The agent's title; under it the workspace's name. "Open in workspace" calls today's `navigateToAgent` and closes the area.                                                                                                                                                                                                          |
-| Links            | Opening a file, a diff or another tab from inside the pane (`openTab`, `openFileInWorkspace`, `openPreferredTarget`) goes to the agent's workspace with that target, which leaves the office. `openTargetToSide` is left out, as the field is optional and the pane already handles its absence. `closeCurrentTab` closes the area. |
-| Its draft        | The composer's draft is keyed by server and agent (`buildDraftStoreKey`), not by tab, so what is typed in the area is what the workspace's tab shows, and the reverse. The area's tab id only has to differ from any workspace tab's id.                                                                                            |
-| The agent leaves | An archived agent shows the pane's archived state. An agent that is gone from the host, or whose workspace is gone, closes the area. My call: there is no workspace to send "Open in workspace" to.                                                                                                                                 |
-| Focus            | The area is a focused pane while it has the keyboard; the plugin's content is not a pane and the app's pane shortcuts do not reach it.                                                                                                                                                                                              |
+| Question         | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What runs        | The app's agent pane, with a pane context the area builds for the agent's own server and workspace and a tab id of the area's own. Reading, replying, permission prompts and stopping work as in the workspace. The pane runs as a main pane in the sheet too ([why](../../plugins.md#the-side-area)).                                                                                                                                                                                                                                                     |
+| The header       | The agent's title; under it the workspace's name. "Open in workspace" calls today's `navigateToAgent` and closes the area.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Links            | Opening a file, a diff or another tab from inside the pane (`openTab`, `openFileInWorkspace`, `openPreferredTarget`) goes to the agent's workspace with that target, which leaves the office. The agent's tracks do not go through the pane context: a subagent row or the Changes pill writes into the agent workspace's layout and stays on the office, so the press shows nothing until that workspace is opened. `openTargetToSide` is left out, as the field is optional and the pane already handles its absence. `closeCurrentTab` closes the area. |
+| Its draft        | The composer's draft is keyed by server and agent (`buildDraftStoreKey`), not by tab, so what is typed in the area is what the workspace's tab shows, and the reverse. The area's tab id only has to differ from any workspace tab's id.                                                                                                                                                                                                                                                                                                                   |
+| The agent leaves | An archived agent shows the pane's archived state. An agent that is gone from the host, or whose workspace is gone, closes the area. My call: there is no workspace to send "Open in workspace" to.                                                                                                                                                                                                                                                                                                                                                        |
+| Focus            | The area is a focused pane while it has the keyboard; the plugin's content is not a pane and the app's pane shortcuts do not reach it.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### Resources in the area
 
@@ -111,14 +111,14 @@ It is out of scope here, and nothing here may block it.
 
 ### The office
 
-| Question             | Decision                                                                                                                                                                                                                                                            |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Open session"       | The agent card, "Answer in the session" and the structure view's rows call `showBeside({ kind: "agent", agentId })`. When it is absent or answers `false`, they call `openAgent` as today.                                                                          |
-| The agent card       | It stays open beside the session on wide layouts. My call: it is the office's own sheet and the user closes it.                                                                                                                                                     |
-| The wall screen      | The `tv` prop calls a new `onResources()` start option. The office passes it when `showBeside` exists, and it calls `showBeside({ kind: "screen", pluginId: "resource-manager", screenId: "resources" })`. On `false` it opens the Host card.                       |
-| The rest of the room | The racks, the server room's chip and the dev box keep calling `onMachine()`.                                                                                                                                                                                       |
-| The scene            | `world-api.ts` gains `onResources?()`, optional, so the contract's version stays. `paseo-host.js` gains `resources`; `paseo-entry.js` replaces the `tv` prop's `act` after the props are built, as it sets the library's opening. Upstream's files are not changed. |
-| The 2D office        | It has no wall screen; Resources is not reached from it.                                                                                                                                                                                                            |
+| Question             | Decision                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| "Open session"       | The agent card's "Open session", and the "Open session" a structure view's row shows beside a plan or a question ("Answer in the session"), call `showBeside({ kind: "agent", agentId })`. When it is absent or answers `false`, they call `openAgent` as today.                                                                                             |
+| The agent card       | It stays open beside the session. My call: it is the office's own sheet and the user closes it. On wide web it is the app's modal over a full-window backdrop, so the first press outside it, the area included, closes it and does nothing else. On compact layouts the session's sheet goes on top of the card, and closing the session uncovers the card. |
+| The wall screen      | The `tv` prop calls a new `onResources()` start option. The office passes it when `showBeside` exists, and it calls `showBeside({ kind: "screen", pluginId: "resource-manager", screenId: "resources" })`. On `false` it opens the Host card.                                                                                                                |
+| The rest of the room | The racks, the server room's chip and the dev box keep calling `onMachine()`.                                                                                                                                                                                                                                                                                |
+| The scene            | `world-api.ts` gains `onResources?()`, optional, so the contract's version stays. `paseo-host.js` gains `resources`; `paseo-entry.js` replaces the `tv` prop's `act` after the props are built, as it sets the library's opening. Upstream's files are not changed.                                                                                          |
+| The 2D office        | It has no wall screen; Resources is not reached from it.                                                                                                                                                                                                                                                                                                     |
 
 ## Errors
 
@@ -159,3 +159,48 @@ Browser, with software WebGL: the `tv` prop calls `onResources`, and the racks s
 Live, against a dev daemon: "Open session" from the card and from "Answer in the session" on the
 office screen and on the office panel, at 1280 px and 390 px; a reply and a permission answer from
 the area; the wall screen opening Resources, and the Host card with the plugin disabled.
+
+## Known defects
+
+Found in the look at it and not fixed here:
+
+- On the office panel, the area closes when the window crosses the compact breakpoint. After that,
+  "Open session" at compact width shows no sheet: `showBeside` answers `true` and the store holds
+  the target, so the card stays open over nothing. A cold load at compact width works, and the
+  office screen keeps its area across the same change.
+- Each visit to the office from the sidebar pushes another office screen, and every office screen
+  still mounted has the same surface key, so each draws the area. Wide, a hidden copy of the agent
+  pane sits under the visible one; compact, one session sheet per office screen opens, stacked.
+  Close in one closes all of them.
+
+## Not verified
+
+The look ran on 2026-11-17 in the Paseo browser (Chromium) against a dev daemon of this branch on
+its own port, with a copy of the host's agents and no agent prompted, and Expo web, at 1280 and
+390 px, light and dark. Presses, drags and focus changes were DOM events sent from the page, not a
+mouse. Not seen, or seen only in part:
+
+- A live agent. No agent was prompted, so a reply and a permission answer from the area, "Answer in
+  the session" (it shows only beside a pending plan or question), Stop, and Escape on a running
+  agent in the area were not seen. `beside.test.ts` covers the office's calls, and
+  `agent-pane-context.test.ts` and `agent-beside.mounted.test.tsx` cover the pane context with a
+  stand-in pane; the real pane does not load under jsdom.
+- Android Back on the sheet, and every native layout. Close, a drag down on the header and the
+  backdrop were seen closing the sheet on web.
+- The Host card with resource-manager disabled. A built-in plugin has no row in Settings → Plugins
+  and cannot be disabled, so the wall screen could not be made to fall back. `beside.test.ts`
+  covers `openMachine` on `false`, and `screen-beside.mounted.test.tsx` covers `false` for a plugin
+  the host lacks.
+- The archived state and the pane's load error in the area. No agent shown there was archived or
+  failed to load. `agent-beside.mounted.test.tsx` covers the archived state with the stand-in pane;
+  no test covers the load error in the area.
+- A subagent row in the area: opening an agent with subagents would have resumed another real
+  session. The Changes pill was pressed in the area, and nothing changed on the office (see Links).
+- The dev box. The racks and the server room's chip were seen opening the Host card.
+- Focus with a real mouse. A press in the composer gave the area the keyboard, and a 120 ms press
+  on the 3D scene took it away. A press and release sent in one task left the keyboard with the
+  area, because the scene's release hands the keyboard back to the page before the area's blur
+  check runs. Electron and Firefox were not tried.
+- The office panel in dark, and the 2D office with the area open.
+- The header actions' tooltips. Their accessible names were read and both actions were pressed;
+  no tooltip was hovered.
