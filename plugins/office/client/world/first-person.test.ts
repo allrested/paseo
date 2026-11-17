@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   openSession: vi.fn(),
   petCat: vi.fn(),
   activateProp: vi.fn(),
+  props: new Map<string, Record<string, unknown>>(),
 }));
 
 vi.mock("../../vendor/my-office/src/office/scene/renderer.js", async () => {
@@ -50,10 +51,11 @@ vi.mock("../../vendor/my-office/src/office/world/entrance.js", () => ({
   LIFT_X: -7.5,
   lift: null,
 }));
-vi.mock("../../vendor/my-office/src/office/world/backdrops/index.js", () => ({
-  THEME: undefined,
-  THEMES: undefined,
-}));
+// A live city outside, with a street and a way out to it: upstream's street() would return it.
+vi.mock("../../vendor/my-office/src/office/world/backdrops/index.js", () => {
+  const city = { live: { street: { exits: () => [{ x: -9, z: 3, n: [-1, 0] }] } } };
+  return { THEME: city, THEMES: { city } };
+});
 vi.mock("../../vendor/my-office/src/office/ui/activity.js", () => ({ toast() {} }));
 vi.mock("../../vendor/my-office/src/office/audio/sfx.js", () => ({ sfx: { play() {} } }));
 vi.mock("../../vendor/my-office/src/office/people/workers.js", () => ({
@@ -66,7 +68,7 @@ vi.mock("../../vendor/my-office/src/office/ui/session-drawer.js", () => ({
   closeSession() {},
 }));
 vi.mock("../../vendor/my-office/src/office/interact/props.js", () => ({
-  PROPS: new Map(),
+  PROPS: h.props,
   activateProp: h.activateProp,
   propHint: () => "",
 }));
@@ -101,6 +103,8 @@ beforeEach(() => {
   h.sessions.clear();
   h.openSession.mockReset();
   h.petCat.mockReset();
+  h.activateProp.mockReset();
+  h.props.clear();
   build();
   setup();
 });
@@ -156,10 +160,25 @@ test("E by a person opens their session and keeps walking", () => {
 });
 
 test("the door has no E action: the street is not taken", () => {
+  // the door, within reach ahead of where the walk starts, with a city outside it
+  const door = {
+    id: "door",
+    name: "Door",
+    meshes: [],
+    box: { min: { x: -5.0, z: 2.6 }, max: { x: -4.9, z: 3.4 } },
+  };
+  h.props.set("door", door);
   page("btn-fp").click();
   fpUpdate(0.016);
+  expect(page("fp-near").hidden).toBe(false);
+  expect(page("fp-near").textContent).toContain("Door");
+  expect(page("fp-near").textContent).not.toContain("street");
+
   key("KeyE");
+  expect(h.activateProp).toHaveBeenCalledWith(door);
   expect(h.openSession).not.toHaveBeenCalled();
+  // (toStreet would have started its fade to black at once)
+  expect(document.querySelector(".fp-fade")?.classList.contains("on")).toBe(false);
   expect(walk.fp.street).toBe(false);
   page("fp-exit").click();
 });
