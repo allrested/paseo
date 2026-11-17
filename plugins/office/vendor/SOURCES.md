@@ -57,6 +57,14 @@ them under `standIns`). Each cut or change starts with `// PASEO:`. `paseo-entry
   every other sound, so every other name the kept modules play makes no sound. `sfx.on` reads off,
   because `people/karaoke.js` sings through its own audio while it is on.
 
+The team chat's engine (`src/shared/chat-engine.js`, unchanged) and the English `chat` area are
+taken for the office's server, which imports them (`server/chat-service.ts`). The scene does not
+run the engine; its bundle carries the `chat` words through the locale index. Nothing in the
+start-up list reaches the engine, so the import tool visits it by name. The plugin compiles with
+`allowJs` off, so three `.d.ts` files beside the JavaScript type what the server calls:
+`src/shared/chat-engine.d.ts`, `src/i18n/locales/en/chat.d.ts` and `src/i18n/index.d.ts` (the
+stand-in's `t`). The import tool never writes a `.d.ts`.
+
 ### What is not taken
 
 Upstream's own interface (panels, the session drawer, the chat, settings, the top bar), its server
@@ -94,6 +102,14 @@ upstream's own moves and starts upstream's games through their starters). The st
 
 The library's place card is not shown: `paseo-entry.js` gives the place an `open`, so its chip
 and the bookshelf open Paseo's Library card.
+
+Of the team chat, only the engine and its words are taken. Its window (`ui/group-chat*.js`; the
+games' `ui/group-chat.js` stays a stand-in), its CI, loop and denied cards, voice, push
+notifications and prompt rewriting are not. Of the staff the engine names, only the director has a
+name (upstream's English "Director"); reception, HR, the cleaner, the guard, the courier and the
+accountant stay silent. So the engine's morning hello, its Monday stand-up and Friday tea
+reminders, and HR's line when you write about a meeting never come. The lunch poll still comes,
+from an agent. The engine's `tea` act does nothing.
 
 ### What the scene is told
 

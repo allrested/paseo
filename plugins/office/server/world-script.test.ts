@@ -103,8 +103,9 @@ describe("the vendored entry", () => {
     // Upstream's red light over the floor.
     expect(script).toContain("#FF2A2A");
     // Upstream's sound engine, muted by its switch, with the siren alone: the Mixue shop's tune
-    // was one of the sounds left out.
+    // was one of the sounds left out. (The chat's words name the shop too, as `mixueAsk` and
+    // the like, so the tune's name is matched as a whole word.)
     expect(script).toContain("office-sound");
-    expect(script).not.toContain("mixue");
+    expect(script).not.toMatch(/\bmixue\b/);
   }, 60_000);
 });
