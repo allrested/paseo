@@ -147,6 +147,11 @@ export interface WorldStartOptions {
   onBell?(): void;
   /** The label over the meeting room's screen was chosen. Absent: the scene shows no label. */
   onNotes?(): void;
+  /**
+   * A person's session was asked for: E by them while walking in. Absent where Paseo has no way to
+   * open a session beside the floor; the scene then chooses the person, as a click does.
+   */
+  onOpen?(agentId: string): void;
   /** The incidents' banner was chosen. */
   onIncidents?(): void;
   /** A short line the office says once. */

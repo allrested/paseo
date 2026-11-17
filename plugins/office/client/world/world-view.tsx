@@ -68,6 +68,11 @@ export interface WorldViewProps {
    * absent where it cannot. Read when the office starts.
    */
   onOpenResources: (() => void) | undefined;
+  /**
+   * E by a person while walking in: the agent card's "Open session", where Paseo can open a session
+   * beside the floor; absent where it cannot. Read when the office starts.
+   */
+  onOpenSession: ((agentId: string) => void) | undefined;
   /** A tap on the library: its chip or the bookshelf. */
   onOpenLibrary(): void;
   /** A tap on the label over the meeting room's screen. */
@@ -108,6 +113,7 @@ export function WorldView({
   machine,
   onOpenMachine,
   onOpenResources,
+  onOpenSession,
   onOpenLibrary,
   onOpenNotes,
   meeting,
@@ -145,6 +151,7 @@ export function WorldView({
     onSelectBoard,
     onOpenMachine,
     onOpenResources,
+    onOpenSession,
     onOpenLibrary,
     onOpenNotes,
     onOpenIncidents,
@@ -161,6 +168,7 @@ export function WorldView({
       onSelectBoard,
       onOpenMachine,
       onOpenResources,
+      onOpenSession,
       onOpenLibrary,
       onOpenNotes,
       onOpenIncidents,
@@ -176,6 +184,7 @@ export function WorldView({
     onSelectBoard,
     onOpenMachine,
     onOpenResources,
+    onOpenSession,
     onOpenLibrary,
     onOpenNotes,
     onOpenIncidents,
@@ -261,6 +270,17 @@ export function WorldView({
                 onResources: () => {
                   focusApp();
                   latest.current.onOpenResources?.();
+                },
+              }),
+          // Given only where the office can open a session (the agent card's "Open session"):
+          // otherwise a person under E is chosen, as a click does. The keyboard goes with the
+          // session.
+          ...(latest.current.onOpenSession === undefined
+            ? {}
+            : {
+                onOpen: (agentId: string) => {
+                  focusApp();
+                  latest.current.onOpenSession?.(agentId);
                 },
               }),
           // The bell opens nothing of Paseo's: the keyboard stays in the office.

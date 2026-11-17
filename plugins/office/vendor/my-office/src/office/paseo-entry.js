@@ -253,8 +253,8 @@ const api = {
    * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
    * (the server racks), onResources() (the server room's wall screen), onLibrary() (the library's
    * chip and the bookshelf), onBell() (a click on the meeting table's bell), onNotes() (the label over
-   * the meeting room's screen, on the company floor), onIncidents() (the incidents' banner) and
-   * onToast(text).
+   * the meeting room's screen, on the company floor), onOpen(id) (E by a person while walking: their
+   * session), onIncidents() (the incidents' banner) and onToast(text).
    * Throws when the world cannot be built (no WebGL, a module failed).
    */
   start(options = {}) {
@@ -271,6 +271,7 @@ const api = {
     host.resources = typeof options.onResources === 'function' ? () => options.onResources() : null;
     host.bell = typeof options.onBell === 'function' ? () => options.onBell() : null;
     host.notes = typeof options.onNotes === 'function' ? () => options.onNotes() : null;
+    host.open = typeof options.onOpen === 'function' ? (id) => options.onOpen(id) : null;
     host.limits = () => limits;
     host.boardRows = () => boardRows;
     problem = (message) => options.onProblem?.(message);

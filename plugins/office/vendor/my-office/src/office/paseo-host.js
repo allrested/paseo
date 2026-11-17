@@ -23,6 +23,8 @@ export const host = {
   bell: null,
   /** The label over the meeting room's screen was chosen; null while Paseo has nothing to open for it. */
   notes: null,
+  /** A person's session was asked for (E by them while walking); null while Paseo has nowhere to open it. */
+  open: null,
   /** A short line the office says once. */
   toast() {},
   /** Usage windows, as upstream's plan card has them: [{ key, pct, resetsAt }]. */

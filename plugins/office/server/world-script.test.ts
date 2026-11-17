@@ -46,6 +46,8 @@ describe("the vendored entry", () => {
     expect(script).toContain("PaseoOfficeWorld");
     // The library's chip and the bookshelf tell Paseo, which opens its Library card.
     expect(script).toContain("onLibrary");
+    // E by a person while walking in tells Paseo, which opens their session.
+    expect(script).toContain("onOpen");
     // The bell tells Paseo, which has the stand-up notes written, and the label over the meeting
     // room's screen opens them.
     expect(script).toContain("onBell");

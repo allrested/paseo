@@ -411,3 +411,19 @@ test("the frame's page lets the office go full screen", () => {
   expect(container.querySelector("iframe")?.getAttribute("allow")).toBe("fullscreen");
   frame.dispose();
 });
+
+test("onOpen is what the scene calls to open a person's session", async () => {
+  const open = vi.fn();
+  await startPage({ onOpen: open });
+  const { host: fresh } = await import("../../vendor/my-office/src/office/paseo-host.js");
+
+  fresh.open?.("ada");
+  expect(open).toHaveBeenCalledWith("ada");
+});
+
+test("without onOpen the scene has nothing to open a session with", async () => {
+  await startPage({});
+  const { host: fresh } = await import("../../vendor/my-office/src/office/paseo-host.js");
+
+  expect(fresh.open).toBeNull();
+});

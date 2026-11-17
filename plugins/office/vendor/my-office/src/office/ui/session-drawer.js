@@ -10,9 +10,14 @@ import { setView } from './camera-bar.js';
 /** The camera's place before someone was chosen: it goes back there when nobody is. */
 let before = null;
 
-/** Marks the person in the scene; `tell` is false when Paseo itself made the choice. */
+/**
+ * Marks the person in the scene; `tell` is false when Paseo itself made the choice. With `open`,
+ * Paseo opens their session instead, where it can (`host.open`).
+ */
 export function openSession(id, opts = {}) {
   if (!sessions.has(id)) return;
+  // PASEO: walking in (interact/first-person.js) opens the session beside the floor and stays where it is.
+  if (opts.open && host.open) { host.open(id); return; }
   const same = state.selectedId === id;
   if (!state.selectedId && focusTarget) before = { target: focusTarget.clone(), zoom: state.zoomGoal ?? camera.zoom };
   state.selectedId = id;
