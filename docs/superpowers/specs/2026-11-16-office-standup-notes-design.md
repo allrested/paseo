@@ -133,10 +133,42 @@ Points 3 and 4 of the owner's review:
 
 ## Verified
 
-No daemon was started for this check. Registering this checkout's workspace on the daemon at port
-6767 would change the user's Paseo, and the owner's rule is to ask first and never start a daemon
-by hand. The office was looked at on static pages instead, in Paseo's browser, the way sub-project
-1 was:
+What the daemon does was seen on a separate dev daemon. The cards and the 3D view were seen earlier
+on static pages.
+
+### On a dev daemon
+
+The owner's call: a dev daemon of this checkout on `127.0.0.1:6768`, with its own `PASEO_HOME`
+under `/tmp` and the container's `PASEO_*` variables unset. The daemon at 6767 was not touched. The
+notes folder was a copy of `/workspace/QFlavours/docs` under `/tmp`, with the workspace's
+`CLAUDE.md` copied beside it so the writer had the stand-up rules. Nothing was written to
+`/workspace/QFlavours/docs`: its November file's checksum did not change. The only enabled
+provider extended Claude with Haiku as its default model. The office was driven through its RPCs
+with the CLI's client, as the settings fields and the bell send them, and its state was read from
+its `office.state` subscription. On 17 November 2026 at 03:22 in Asia/Riyadh:
+
+- The settings: `notesFolder` set to the copy and `notesTimeZone` to "Asia/Riyadh" were saved and
+  read back, and the pushed notes state went from `folderSet` false to true.
+- The schedule: one in the daemon's store, `standup-notes`, cron `0 8 * * 0-4` in Asia/Riyadh,
+  targeting the office's `standup-notes` handler, next run at 08:00 Riyadh that day. `schedule ls`
+  listed nothing, and `schedule ls --json` gave `[]`.
+- Two `office.notes.write.request` a second apart: the first answered `started: true`, the second
+  `started: false`. One agent, "Stand-up notes", started in the copy's folder on
+  `notes-haiku/haiku`, in the mode `acceptEdits`, with no permission asked.
+- About a minute later its turn ended. The copy's November file had a `## 17 November 2026` entry
+  after 16 November's, in the voice of the others and ending with blockers and a "Next:" line, and
+  a Contents line for it. No other file in the copy changed. The office recorded the time and
+  archived the writer, and it left the office's agents.
+- The Stand-up card's line, worked out by the client's `notesLine` from each notes state the
+  subscription pushed: left out with no folder, then "No entry today yet", "Writing today's
+  entry…" and "Today's entry written at 03:23". The card itself was not drawn.
+- `office.notes.read.request` read November with `previous` 202610, `next` null and "17 November
+  2026" as its last header, and October with both neighbours.
+
+### On static pages
+
+Before the dev daemon was allowed, the office was looked at on static pages, in Paseo's browser,
+the way sub-project 1 was:
 
 - The page mounted the plugin's real `OfficeSurface` (the header, the strip, the cards, the list
   and the 3D view), bundled with the repo's esbuild, `react-native` aliased to
@@ -237,21 +269,20 @@ What did not come out as the check was written:
 
 ## Not verified
 
-Nothing the daemon does was seen, since no daemon ran. Tests cover each:
+Tests cover each of these; the dev daemon did not reach them:
 
-- The settings stored by the daemon, and the 8:00 schedule the office saves, updates and removes
-  with them: `plugins/office/server/notes-schedule.test.ts`, `plugins/office/index.server.test.ts`,
-  `plugins/office/shared/settings.test.ts`, `plugins/office/client/host-switches.mounted.test.tsx`.
 - The 8:00 run itself calling the office's handler:
   `packages/server/src/server/schedule/service.test.ts` ("plugin schedules") and
-  `packages/server/src/server/plugins/plugin-schedules.e2e.test.ts`.
-- The bell starting one `Stand-up notes` agent in the notes folder's workspace, a second click
-  starting none, the writer recorded and archived at its end only when the day's header is in the
-  month's file (else left with "it ended without writing today's entry"), and the line's time:
-  `plugins/office/server/notes-writer.test.ts`, `plugins/office/server/live-ports.test.ts`,
-  `plugins/office/index.server.test.ts`.
+  `packages/server/src/server/plugins/plugin-schedules.e2e.test.ts`. The dev daemon was stopped
+  before 08:00.
+- The schedule updated when the folder or zone changes, and removed when the folder is cleared:
+  `plugins/office/server/notes-schedule.test.ts`, `plugins/office/index.server.test.ts`,
+  `plugins/office/shared/settings.test.ts`, `plugins/office/client/host-switches.mounted.test.tsx`.
+- A writer that ends without the day's header (left with "it ended without writing today's
+  entry"), stops on an error or is closed: `plugins/office/server/notes-writer.test.ts`,
+  `plugins/office/server/live-ports.test.ts`, `plugins/office/index.server.test.ts`.
 - The daemon serving the scene's script: `plugins/office/server/world-script.test.ts`.
-- `schedule ls` and the app's schedule screens leaving the office's schedule out:
+- The app's schedule screens leaving the office's schedule out:
   `packages/server/src/server/session/schedule/schedule-session.test.ts`.
 - A restart while a writer runs, and a schedule due while the daemon starts: the restart cases of
   `notes-writer.test.ts`, `packages/server/src/server/plugins/index.posix.test.ts` and
@@ -259,10 +290,20 @@ Nothing the daemon does was seen, since no daemon ran. Tests cover each:
 
 Not seen for other reasons:
 
+- The bell's own click against a daemon: the RPC it sends stood in for it. The static pages showed
+  that a click sends one.
 - The host's sheet around the cards, Escape on it, and the host's Markdown: the page had
-  stand-ins.
+  stand-ins, and no card was drawn against the dev daemon.
 - The 2D office, the app around the office, and the Android app.
-- A real model writing an entry, and an open card reloading when a real writer ends: the reload
-  was seen only from a pushed `writtenAt`.
+- An open card reloading when a real writer ends: no card was open on the dev daemon, and the
+  reload was seen only from a pushed `writtenAt` on the static pages.
 - The daemon's answer to a notes read that fails: the card's raw error text ("ENOENT: no such
   file or directory, scandir ...") came from the stand-in, which passed the reader's error on.
+
+A limit the owner accepted as is:
+
+- An entry counts as written when the day's header is in the month's file after the writer's turn,
+  not when the turn changed the file. So on an update run, a bell click after the day's entry
+  exists, a writer that writes nothing is still recorded and archived, and an owner's turn on such
+  a stopped writer archives it under them. Closing it means comparing with the file as it was when
+  the writer started.
