@@ -70,7 +70,7 @@ describe("the page's side of the bridge", () => {
     ]);
   });
 
-  it("says ready once the page calls the ready hook, and the hook is private to the host's own script", () => {
+  it("says ready once the page calls the ready hook", () => {
     const { win, posted } = pageWindow();
     (win.__paseoFrameReady as () => void)();
     expect(posted.map((data) => JSON.parse(data))).toEqual([{ paseoFrame: "ready" }]);

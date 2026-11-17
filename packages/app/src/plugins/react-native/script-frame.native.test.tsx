@@ -158,4 +158,18 @@ describe("ScriptFrame on Android", () => {
     fromPage({ paseoFrame: "ready" });
     expect(webview.injected).toHaveLength(1);
   });
+
+  it("keeps one post for its life, so a post kept from the first render still reaches the page", () => {
+    const handle = createRef<ScriptFrameHandle>();
+    const onMessage = vi.fn();
+    const { rerender } = render(
+      <ScriptFrame ref={handle} script="a" title="t" onMessage={onMessage} />,
+    );
+    const post = handle.current!.post;
+    rerender(<ScriptFrame ref={handle} script="b" title="t" onMessage={onMessage} />);
+    fromPage({ paseoFrame: "ready" });
+    act(() => post("kept"));
+    expect(handle.current?.post).toBe(post);
+    expect(webview.injected).toHaveLength(1);
+  });
 });
