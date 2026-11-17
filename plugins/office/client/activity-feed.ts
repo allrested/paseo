@@ -87,7 +87,10 @@ function permissionEvents(before: OfficeAgent, after: OfficeAgent, at: number): 
   return after.permissions
     .filter((permission) => !seen.has(permission.id))
     .map((permission) =>
-      eventOf(after, at, "permission", permission.id, { title: permission.title }),
+      eventOf(after, at, "permission", permission.id, {
+        title: permission.title,
+        permissionKind: permission.kind,
+      }),
     );
 }
 
