@@ -5,6 +5,7 @@ import { Modal, TextInput } from "@getpaseo/plugin/client/ui";
 import type { AgentStatus, OfficeAgent } from "../shared/contracts.js";
 import { ActionButton, failureText } from "./action-button.js";
 import { reasonLabel } from "./attention-strip.js";
+import { openSessionWith } from "./beside.js";
 import { contextLine } from "./context-text.js";
 import { agentMeta, agentTask, agentTitle, answerableInOffice, attentionReason } from "./model.js";
 import { PermissionActions } from "./permission-actions.js";
@@ -78,9 +79,10 @@ function AgentCardBody({
   onClose,
 }: AgentCardBodyProps) {
   const [text, setText] = useState("");
+  // Beside the floor the card stays open: it is the office's own sheet, and the user closes it.
+  // A session opened in its workspace leaves the office, and the card goes with it.
   const openSession = useCallback(() => {
-    navigation?.openAgent({ agentId: agent.id });
-    onClose();
+    if (!openSessionWith(navigation, agent.id)) onClose();
   }, [navigation, agent.id, onClose]);
   const mounted = useRef(true);
   useEffect(() => {
