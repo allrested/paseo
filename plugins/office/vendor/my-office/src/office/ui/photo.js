@@ -22,6 +22,7 @@ const _v = new THREE.Vector3();
 
 export const photoOn = () => on;
 export function enterPhoto() {
+  if (host.photo === false) return; // PASEO: a host that cannot keep a picture has no Photo mode
   if (on) return;
   if (fp.on) exitFp();
   on = true; state.photo = true;
@@ -122,6 +123,7 @@ function flash() {
 }
 
 export function setup() {
+  if (host.photo === false) $('btn-photo').hidden = true; // PASEO: (the P key goes through enterPhoto, which refuses)
   $('btn-photo').addEventListener('click', () => (on ? exitPhoto() : enterPhoto()));
   $('ph-exit').addEventListener('click', exitPhoto);
   $('ph-shoot').addEventListener('click', shoot);

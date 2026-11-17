@@ -350,6 +350,11 @@ test("the photo's mark carries the brand's name", () => {
   expect(host.brandName).toBe("Acme");
 });
 
+test("the host's photo switch is on unless the start said false", () => {
+  // The entry started once, above, without the option.
+  expect(host.photo).toBe(true);
+});
+
 test("Escape in photo mode leaves the place card under it alone", () => {
   page("plc").hidden = false;
   document.body.classList.add("is-photo");
