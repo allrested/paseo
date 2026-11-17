@@ -20,6 +20,7 @@ import { ActionButton } from "./action-button.js";
 import { AgentCard } from "./agent-card.js";
 import { sheetLeavesFirstOn } from "./agent-picker-text.js";
 import { AttentionStrip, type StripCard } from "./attention-strip.js";
+import { openSessionWith, resourcesOpener } from "./beside.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { HostSwitches } from "./host-switches.js";
@@ -433,6 +434,8 @@ interface SurfaceBodyProps {
   onOpenBoard(roomId: string): void;
   machine: Machine | null;
   onOpenMachine(): void;
+  /** The 3D wall screen's: absent on an app that cannot show Resources beside the floor. */
+  onOpenResources: (() => void) | undefined;
   onOpenLibrary(): void;
   janitor: HostNote | null;
   onOpenJanitor(): void;
@@ -458,6 +461,7 @@ function SurfaceBody({
   onOpenBoard,
   machine,
   onOpenMachine,
+  onOpenResources,
   onOpenLibrary,
   janitor,
   onOpenJanitor,
@@ -496,6 +500,7 @@ function SurfaceBody({
         onSelectBoard={onOpenBoard}
         machine={machine}
         onOpenMachine={onOpenMachine}
+        onOpenResources={onOpenResources}
         onOpenLibrary={onOpenLibrary}
         meeting={meeting}
         onProblem={onSceneProblem}
@@ -609,8 +614,12 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     setFocusRequest((previous) => nextFocusRequest(previous, agentId));
   }, []);
   const openSession = useCallback(
-    (agentId: string) => navigation?.openAgent({ agentId }),
+    (agentId: string) => openSessionWith(navigation, agentId),
     [navigation],
+  );
+  const openResources = useMemo(
+    () => resourcesOpener(navigation, openMachine),
+    [navigation, openMachine],
   );
   const retryScene = useCallback(() => setSceneProblem(null), []);
   // Choosing a view asks for 3D anew, so an old failure does not stand in its way.
@@ -697,6 +706,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onOpenBoard={board.open}
         machine={machine}
         onOpenMachine={openMachine}
+        onOpenResources={openResources}
         onOpenLibrary={library.show}
         janitor={janitorEntry?.note ?? null}
         onOpenJanitor={openJanitor}
