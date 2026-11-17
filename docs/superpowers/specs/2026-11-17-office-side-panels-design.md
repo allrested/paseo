@@ -1,6 +1,6 @@
 # Sessions and Activity beside the office's floor: design
 
-Date: 2026-11-17. Status: designed, not built. Piece 3 of sub-project 7 ("Upstream's controls") of
+Date: 2026-11-17. Status: approved, not built. Piece 3 of sub-project 7 ("Upstream's controls") of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md). The owner's answers
 on how sub-project 7 splits are in [piece 1's design](2026-11-17-office-list-mode-design.md#the-owners-answers).
 It builds on [the office as one page](2026-11-17-office-one-page-design.md) (sub-project 4), whose
@@ -25,7 +25,7 @@ Point 15 of the owner's review:
   alerts stand alone. A press opens the session. Upstream's events come from its own server.
 - Neither is taken: `ui/activity.js` in the vendored scene is a stand-in that keeps only the rings
   and name tags.
-- Sub-project 4 is built on `feat/office-one-page`, not merged. It gives plugin screens and panels
+- Sub-project 4 is built and on `main`. It gives plugin screens and panels
   `navigation.showBeside(target)`, with a target of `{ kind: "agent" }` or
   `{ kind: "screen", pluginId, screenId, params? }`. The area holds one thing; a new call replaces
   it; its header has the screen's title, "Open {title}" and Close. A screen shown in the area gets
@@ -121,8 +121,7 @@ same events.
 
 ## Dependencies
 
-- Built on `feat/office-one-page` (sub-project 4), since it needs `showBeside`. If that branch is
-  merged first, from main.
+- Built from `main`, which has sub-project 4's `showBeside`.
 - Uses piece 1's `client/list-text.ts` for the tabs and the search. Piece 1's plan writes that
   module first; this piece's Sessions panel starts after it is merged in.
 
