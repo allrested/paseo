@@ -36,12 +36,22 @@ export function useOfficeLink(link: OfficeLink): void {
 }
 
 /**
- * A panel's row press: the office beside it selects the agent, and where no office is mounted —
- * the screen on its own route — the agent's workspace opens instead.
+ * The surface a panel may reach, if any. A screen shown in the side area gets a navigation with no
+ * `showBeside`, and on its own route it gets one. On its own route the office it came from can
+ * still be mounted (and registered) under the route, hidden, so the panel must not reach it.
+ */
+function reachable(navigation: Navigation): OfficeLink | null {
+  return navigation?.showBeside === undefined ? registered : null;
+}
+
+/**
+ * A panel's row press: the office beside it selects the agent, and where there is none beside
+ * it — the screen on its own route — the agent's workspace opens instead.
  */
 export function linkSelect(agentId: string, navigation: Navigation): void {
-  if (registered !== null) {
-    registered.select(agentId);
+  const surface = reachable(navigation);
+  if (surface !== null) {
+    surface.select(agentId);
     return;
   }
   navigation?.openAgent({ agentId });
@@ -49,8 +59,9 @@ export function linkSelect(agentId: string, navigation: Navigation): void {
 
 /** A panel's "Open session", as `linkSelect` is its row press. */
 export function linkOpenSession(agentId: string, navigation: Navigation): void {
-  if (registered !== null) {
-    registered.openSession(agentId);
+  const surface = reachable(navigation);
+  if (surface !== null) {
+    surface.openSession(agentId);
     return;
   }
   navigation?.openAgent({ agentId });
