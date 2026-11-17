@@ -724,12 +724,13 @@ Server code of a plugin cannot import from its `client/` folder (the compiler re
 Each room has a board, and the lobby has one for the host: posts are tasks (open, claimed, done) or
 notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days).
 The lobby's board is the office's to-do list: a to-do is a lobby task, and "Clear finished" deletes
-the done ones. It also shows each agent's unfinished checklist steps, text included, read with the
-"doing now" line from the newest `todo` item in the agent's timeline. The steps stay after the agent
-stops and go when it is archived or closed. The server keeps them in memory only: after a daemon
-restart an agent's steps are back when it next updates its checklist. A
-board is removed when its workspace is archived while the daemon runs; a board left from a workspace
-archived otherwise stays until its posts are deleted. Interactive agent sessions get three tools,
+the done ones. It also shows each agent's unfinished checklist steps, text included, which the
+"doing now" read takes from the newest `todo` item among the agent's newest timeline items. The
+steps stay after the agent stops and go when it is archived or closed. The server keeps them in
+memory, and only while an office surface is open: after the last one closes or the daemon restarts,
+an agent's steps are back when it next updates its checklist. A board is removed when its workspace
+is archived while the daemon runs; a board left from a workspace archived otherwise stays until its
+posts are deleted. Interactive agent sessions get three tools,
 `office_read`, `office_post` and `office_update`, unless the host's "Agent tools" switch is off when
 the session opens. Plugin tools reach an agent through Paseo's own agent tools and are filtered by
 name like them: a provider with Paseo's tools off gets none, and a provider that lists
