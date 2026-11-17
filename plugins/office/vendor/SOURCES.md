@@ -28,7 +28,7 @@ taken: their stand-ins export what the games import and do nothing. The sounds a
 (below). So a game is seen and not heard, nobody plays it in first person, and a karaoke song has
 no sound.
 
-Three copied files are changed by hand, and each change starts with `// PASEO:`:
+Four copied files are changed by hand, and each change starts with `// PASEO:`:
 
 - `src/office/core/env.js`: the build flag upstream reads from `process.env` is a constant, and
   the floor plan comes from Paseo, not from the page's address and storage.
@@ -37,6 +37,8 @@ Three copied files are changed by hand, and each change starts with `// PASEO:`:
   repository state).
 - `src/office/life/tests.js`: `clearRun` puts out the lamp of a test run whose end Paseo never
   learns.
+- `src/office/ui/photo.js`: the mark painted into a photo is the host's brand name (Paseo's when
+  there is none), and the file is named `office-YYYY-MM-DD-HHMM.png`.
 
 Two files are taken trimmed. Their paths stay in the import tool's `DENY`, so it never writes them
 and only checks that they export what the kept modules import (which is why `MANIFEST.json` lists

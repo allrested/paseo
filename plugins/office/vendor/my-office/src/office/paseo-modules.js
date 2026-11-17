@@ -60,6 +60,7 @@ import * as worldRoomUpdate from './world/room-update.js';
 import * as interactProps from './interact/props.js';
 import * as interactPlaceChips from './interact/place-chips.js';
 import * as interactPlaceCards from './interact/place-cards.js';
+import * as uiPhoto from './ui/photo.js';
 import * as netLive from './net/live.js';
 import * as lifeYourTurn from './life/your-turn.js';
 import * as coreLoop from './core/loop.js';
@@ -127,6 +128,7 @@ export const MODULES = [
   ['interactProps', interactProps],
   ['interactPlaceChips', interactPlaceChips],
   ['interactPlaceCards', interactPlaceCards],
+  ['uiPhoto', uiPhoto],
   ['netLive', netLive],
   ['lifeYourTurn', lifeYourTurn],
   ['coreLoop', coreLoop],
