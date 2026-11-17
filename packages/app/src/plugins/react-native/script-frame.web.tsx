@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { ScriptFrameHandle, ScriptFrameProps } from "@getpaseo/plugin/client/ui";
 import {
   createPostQueue,
@@ -26,12 +26,11 @@ export const ScriptFrame = forwardRef<ScriptFrameHandle, ScriptFrameProps>(funct
   ref,
 ) {
   const element = useRef<HTMLIFrameElement | null>(null);
-  const queue = useMemo(
-    () =>
-      createPostQueue((text) =>
-        element.current?.contentWindow?.postMessage({ paseoFrame: "call", text }, "*"),
-      ),
-    [],
+  // (state, not a memo: a caller may keep the first handle's `post` for the frame's life)
+  const [queue] = useState(() =>
+    createPostQueue((text) =>
+      element.current?.contentWindow?.postMessage({ paseoFrame: "call", text }, "*"),
+    ),
   );
   const html = useMemo(() => scriptFrameHtml(script, "web"), [script]);
   const handlers = useRef({ onMessage, onError });

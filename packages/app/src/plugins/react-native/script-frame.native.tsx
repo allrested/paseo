@@ -1,4 +1,12 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import type { ScriptFrameHandle, ScriptFrameProps } from "@getpaseo/plugin/client/ui";
 import {
@@ -25,9 +33,9 @@ export const ScriptFrame = forwardRef<ScriptFrameHandle, ScriptFrameProps>(funct
   ref,
 ) {
   const webView = useRef<WebView | null>(null);
-  const queue = useMemo(
-    () => createPostQueue((text) => webView.current?.injectJavaScript(deliverScript(text))),
-    [],
+  // (state, not a memo: a caller may keep the first handle's `post` for the frame's life)
+  const [queue] = useState(() =>
+    createPostQueue((text) => webView.current?.injectJavaScript(deliverScript(text))),
   );
   const html = useMemo(() => scriptFrameHtml(script, "native"), [script]);
   const source = useMemo(() => ({ html, baseUrl: SCRIPT_FRAME_BASE_URL }), [html]);
