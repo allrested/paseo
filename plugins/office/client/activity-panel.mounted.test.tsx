@@ -10,7 +10,7 @@ import type { PluginScreenProps, PluginSubscriptionState } from "@getpaseo/plugi
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { OfficeAgent, OfficeEvent } from "../shared/contracts.js";
 import { feedStore, type FeedEvent, type FeedKind } from "./activity-feed.js";
-import { FEED_EMPTY } from "./activity-feed-text.js";
+import { FEED_EMPTY, FEED_NO_MATCH } from "./activity-feed-text.js";
 import { useOfficeLink, type OfficeLink } from "./office-link.js";
 import { EMPTY_OFFICE } from "./office-state.js";
 
@@ -227,6 +227,18 @@ test("Needs you and the chips filter the cards", async () => {
   expect(maybe("C, 09:20")).not.toBeNull();
   expect(maybe("A, 09:00")).toBeNull();
   expect(maybe("D, 09:30")).toBeNull();
+});
+
+test("a filter that hides every card says so", async () => {
+  act(() => feedStore.push([ev("a", at(9, 0), "read", "Reading")]));
+  await mount();
+  expect(container.textContent).not.toContain(FEED_NO_MATCH);
+
+  await press("Commands");
+  expect(maybe("A, 09:00")).toBeNull();
+  expect(container.textContent).toContain(FEED_NO_MATCH);
+  // The feed has events, so it is not the empty feed's line.
+  expect(container.textContent).not.toContain(FEED_EMPTY);
 });
 
 test("the Live tag shows while the subscription is live", async () => {

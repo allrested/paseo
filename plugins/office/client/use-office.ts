@@ -29,8 +29,9 @@ export function useOffice(): OfficeState {
   const onEvent = useCallback((event: OfficeEvent) => {
     const next = applyOfficeEvent(latest.current, event);
     // The feed is fed the pair this subscription came from and has now, never the event. Its first
-    // state has no before it, so opening the office does not fill the feed; the dedup by id makes
-    // the same change seen by two subscriptions one event.
+    // state has no before it, so opening the office does not fill the feed. The store makes the
+    // same change seen by two subscriptions one event: a step or a permission by its id, a status
+    // change by its agent, kind and the STATUS_SAME_MS window.
     recordOfficeState(recorded.current, next);
     latest.current = next;
     recorded.current = next;

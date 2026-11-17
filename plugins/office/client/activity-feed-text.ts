@@ -19,6 +19,9 @@ export type FeedKind =
 /** The feed's first line, before the office has changed under it. */
 export const FEED_EMPTY = "Nothing yet since the office opened.";
 
+/** The feed has events, but the tab and the chips hide every card. */
+export const FEED_NO_MATCH = "No activity matches.";
+
 /** A step's word: what the agent is at, in the office's own kind and no detail of the call. */
 const STEP_WORDS: Readonly<Record<ActivityKind, string>> = {
   read: "Reading",
