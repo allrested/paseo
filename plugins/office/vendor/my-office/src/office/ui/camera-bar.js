@@ -107,7 +107,6 @@ const STYLE = `
 #zoom-val { min-width: 42px; text-align: center; font-size: .76rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 /* Paseo's svg.ic carries no size (each label sets its own); the bar's icons are upstream's 16 px. */
 .toolbar .ic, .photo-bar .ic, .fp-hud .ic { width: 16px; height: 16px; flex: none; }
-@media (max-width: 520px) { .seg-btn > span:last-child { display: none; } }
 /* (a narrow frame has no room for the last tool's name: at 390 px it ran past the right edge) */
 @media (max-width: 520px) { .tb-zoom button::after, .tb-full::after { display: none; } }
 /* Walk in: the button at the bar's end, and the overlay while walking (upstream's touch line and its fade to the
@@ -137,8 +136,9 @@ const STYLE = `
 .fp-joy i { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: var(--o-accent, #EF8A5F); opacity: .9; }
 .is-fp .team-tag { display: none; }
 .is-fp .zone { display: none; }
-/* (upstream's 720 px rule for Walk in and the pressed view: with Walk in's name the bar ran past the right edge at 530 px) */
-@media (max-width: 720px) { .tb-fp span:last-child { display: none; } .tb-fp { padding: 0 11px; } .seg-btn, .seg-btn:hover, .seg-btn[aria-pressed="true"] { padding: 0 10px; } }
+/* (upstream's 720 px rule for Walk in and the views: with Walk in's name, or a view's sliding out on hover or focus, the bar
+   ran past the right edge at 530 px) */
+@media (max-width: 720px) { .tb-fp span:last-child, .seg-btn > span:last-child { display: none !important; } .tb-fp { padding: 0 11px; } .seg-btn, .seg-btn:hover, .seg-btn[aria-pressed="true"] { padding: 0 10px; } }
 /* (with it, at 390 px with a mouse Walk in still ran 30 px past the right edge: the buttons and the groups sit closer) */
 @media (max-width: 520px) { .toolbar { gap: 4px; } .seg-btn, .seg-btn:hover, .seg-btn:focus-visible, .seg-btn[aria-pressed="true"] { padding: 0 7px; } .tb-zoom button, .tb-full { width: 30px; } .fp-help { top: 56px; max-width: calc(100% - 24px); } }
 body.is-photo .toolbar { display: none; }

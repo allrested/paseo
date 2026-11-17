@@ -384,10 +384,13 @@ function narrow(px: number): string {
   return found.join("\n");
 }
 
-test("from 720 px down Walk in drops its name and the pressed view its wider padding, as upstream has it", () => {
-  // At 530 px the bar with both names ran past the frame's right edge (upstream's styles/stage.css, its 720 px rule).
+test("from 720 px down Walk in and the views keep their names hidden, with upstream's narrower padding", () => {
+  // At 530 px the bar with both names ran past the frame's right edge, and a view's name sliding out on
+  // hover or focus still did (upstream's styles/stage.css, its 720 px rule).
   build();
-  expect(narrow(720)).toContain(".tb-fp span:last-child { display: none; }");
+  expect(narrow(720)).toContain(
+    ".tb-fp span:last-child, .seg-btn > span:last-child { display: none !important; }",
+  );
   expect(narrow(720)).toContain(".tb-fp { padding: 0 11px; }");
   expect(narrow(720)).toContain(
     '.seg-btn, .seg-btn:hover, .seg-btn[aria-pressed="true"] { padding: 0 10px; }',
