@@ -598,7 +598,8 @@ test("a watcher added while a directory is open gets the current view at once, a
 });
 
 test("a watcher hears null after a start whose subscriber left before the directory opened", async () => {
-  const first: DirectoryView = { agents: [agent("a", "idle")], workspaces: [] };
+  const full = { ...agent("a", "idle"), context: { usedTokens: 1_000, maxTokens: 200_000 } };
+  const first: DirectoryView = { agents: [full], workspaces: [] };
   const harness = startHarness(first);
   const gate = deferred();
   harness.directory.openGate = gate.promise;
@@ -613,6 +614,10 @@ test("a watcher hears null after a start whose subscriber left before the direct
   // The leave says null; the stale directory's first report follows it, and its close says null again.
   expect(seen).toEqual([null, first, null]);
   expect(harness.directory.stops).toBe(1);
+  // The closed directory's view is gone: a reset has nothing to replay.
+  harness.hub.contextReset("a");
+  await settle();
+  expect(seen).toEqual([null, first, null]);
 });
 
 test("a watcher that throws is logged and does not stop the others", async () => {
