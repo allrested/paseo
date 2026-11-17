@@ -1938,21 +1938,23 @@ and pass text to it and back. Use it for what React Native cannot draw, such as 
 
 A ref gives `post(text)`, which sends a string to the page. Posts made before the page is ready
 wait and are delivered in order. In the page, `window.paseoFrame.post(text)` sends and
-`window.paseoFrame.onMessage = (text) => { ... }` receives. Only strings cross, so send JSON for
-anything structured.
+`window.paseoFrame.onMessage = (text) => { ... }` receives. Set `window.paseoFrame.onMessage`
+before your script's first run ends; posts that arrive while it is unset are dropped. Only strings
+cross, so send JSON for anything structured.
 
 The page has no network: its policy is `default-src 'none'; script-src 'unsafe-inline';
 style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:;
 form-action 'none'`. It has no files and no new windows, and on Android the frame allows only its
 first load. Run only your own script in the frame: the policy does not cover WebRTC, on the web the
-page can navigate its own frame to another address, and on Android a navigation goes through when
-the app does not answer the frame's load check within 250 ms (react-native-webview's default).
+page can navigate its own frame to another address, where the policy no longer applies, and on
+Android a navigation goes through when the app does not answer the frame's load check within 250 ms
+(react-native-webview's default).
 
-| Platform | The page                                                                                                                     |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Android  | A WebView with JavaScript and `localStorage` on, under an origin of its own that never resolves. Tested.                     |
-| Web      | A sandboxed `iframe` without `allow-same-origin`. `localStorage` throws there, so a script that needs it must check. Tested. |
-| iOS      | The same WebView component as Android. Not tested.                                                                           |
+| Platform | The page                                                                                                                                                                                                    |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Android  | A WebView with JavaScript and `localStorage` on. Every `ScriptFrame` shares one origin that never resolves, `script-frame.invalid`, so `localStorage` there is shared across plugins and outlives a plugin. |
+| Web      | A sandboxed `iframe` without `allow-same-origin`. `localStorage` throws there, so a script that needs it must check. Tested.                                                                                |
+| iOS      | The same WebView component as Android. Not tested.                                                                                                                                                          |
 
 Check for it before you render it: `"ScriptFrame" in ui`, with `import * as ui from
 "@getpaseo/plugin/client/ui"`. The store build does not have it, whatever its version, so keep

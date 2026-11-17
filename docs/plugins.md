@@ -1560,10 +1560,11 @@ The handle checks every write against the version it last read or wrote, so two 
 and an agent cannot silently overwrite each other. The daemon reports the file's kind (text,
 image, binary) with its stat from a bounded sniff, which is how Source claims text files without a
 read. See the [public file panel reference](../public-docs/plugins/reference.md#file-panels) for
-the author API, selection, `DocumentFrame`, `ScriptFrame`, and the version requirement. The examples live in
-`plugin-examples/pdf-panel` and `plugin-examples/markdown-panel`; the `viewers` built-in
-(`plugins/viewers`) holds three read-only panels, with a mounted test for each that stands a
-fake `PluginFile` in for the host's (`client/testing.ts`).
+the author API, selection, `DocumentFrame`, and the version requirement, and the [`ScriptFrame`
+reference](../public-docs/plugins/reference.md#scriptframe) for a script of your own in an isolated
+page. The examples live in `plugin-examples/pdf-panel` and `plugin-examples/markdown-panel`; the
+`viewers` built-in (`plugins/viewers`) holds three read-only panels, with a mounted test for each
+that stands a fake `PluginFile` in for the host's (`client/testing.ts`).
 
 ## Contribute buttons
 
