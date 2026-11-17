@@ -9,6 +9,15 @@ import { createWorldScript, worldEntryPath, type WorldScript } from "./server/wo
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { errorMessage } from "./server/errors.js";
 import { createHub } from "./server/hub.js";
+import { createIncidentsCheck, type IncidentsCheckState } from "./server/incidents-check.js";
+import { jiraEnv } from "./server/incidents-jira.js";
+import {
+  createIncidentsSchedule,
+  INCIDENTS_SCHEDULE,
+  incidentsReaders,
+} from "./server/incidents-schedule.js";
+import { sentryToken } from "./server/incidents-sentry.js";
+import { createIncidentsStore, type IncidentsStore } from "./server/incidents-store.js";
 import { tidyAgent } from "./server/janitor.js";
 import {
   liveAgentPorts,
@@ -23,21 +32,24 @@ import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.
 import { createMachineReader } from "./server/machine/machine.js";
 import { createMachineWatch } from "./server/machine/watch.js";
 import { nodeNotesFs, readMonthNotes } from "./server/notes-files.js";
-import {
-  createNotesSchedule,
-  NOTES_SCHEDULE,
-  type NotesSettings,
-} from "./server/notes-schedule.js";
+import { createNotesSchedule, NOTES_SCHEDULE } from "./server/notes-schedule.js";
 import { createNotesStore, createNotesWriter, type NotesStore } from "./server/notes-writer.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
-import { boardsFile, hostSkillFolders, notesWriterFile, type SkillFolder } from "./server/paths.js";
+import {
+  boardsFile,
+  hostSkillFolders,
+  incidentsFile,
+  notesWriterFile,
+  type SkillFolder,
+} from "./server/paths.js";
 import { readScriptLog } from "./server/script-log.js";
 import { readSkills } from "./server/skills.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
   cleanupRpc,
   deleteRpc,
+  incidentsDismissRpc,
   janitorRpc,
   machineSubscription,
   notesReadRpc,
@@ -64,6 +76,10 @@ export interface OfficePluginDeps {
   store: BoardStore;
   /** Where the stand-up notes writer keeps its state. */
   notesStore: NotesStore;
+  /** Where the incidents check keeps the open incidents and what each tracker has shown. */
+  incidentsStore: IncidentsStore;
+  /** The daemon's environment: the trackers' tokens are read from it. */
+  env: NodeJS.ProcessEnv;
   clock: Clock;
   log(message: string): void;
   /** The 3D office's page script; null when the daemon cannot build one. */
@@ -146,7 +162,7 @@ export function createOfficePlugin(
     hostTimeZone: deps.hostTimeZone,
     log,
   });
-  async function readNotesSettings(): Promise<NotesSettings> {
+  async function readHostSettings() {
     const state = await settings.read();
     if (state.status !== "ready") {
       throw new Error(`The office's settings cannot be read: ${state.error}`);
@@ -156,7 +172,7 @@ export function createOfficePlugin(
   // One writer of the day's stand-up entry at a time, started at 8:00 and by the bell.
   const writer = createNotesWriter({
     ...liveNotesPorts(holder, hub),
-    settings: readNotesSettings,
+    settings: readHostSettings,
     hostTimeZone: deps.hostTimeZone,
     now: () => deps.clock.now(),
     load: () => deps.notesStore.load(),
@@ -164,6 +180,34 @@ export function createOfficePlugin(
     changed: (state) => hub.setNotes({ ...state, scheduleError: notesSchedule.error() }),
     log,
   });
+  // Every 5 minutes while a tracker is on; it follows the settings as the 8:00 schedule does.
+  const incidentsSchedule = createIncidentsSchedule({ schedules: server.schedules, log });
+  // The check's last state, kept so a save that changes the schedule's error pushes it again.
+  // Null until the store was read: the snapshot has no incidents before then.
+  let checked: IncidentsCheckState | null = null;
+  function pushIncidents(): void {
+    if (checked === null) return;
+    hub.setIncidents({
+      ...checked,
+      jiraReady: jiraEnv(deps.env) !== null,
+      sentryReady: sentryToken(deps.env) !== null,
+      scheduleError: incidentsSchedule.error(),
+    });
+  }
+  // The settings are read at each run, so a save holds from the next check.
+  const incidents = createIncidentsCheck({
+    readers: async () => incidentsReaders(await readHostSettings(), deps.env),
+    store: deps.incidentsStore,
+    now: () => deps.clock.now(),
+    log,
+    changed: (state) => {
+      checked = state;
+      pushIncidents();
+    },
+  });
+  incidents
+    .start()
+    .catch((error: unknown) => log(`[office] incidents load failed: ${errorMessage(error)}`));
   async function followSettings(
     state: PluginSettingsState<typeof officeHostSettings.schema>,
   ): Promise<void> {
@@ -173,6 +217,9 @@ export function createOfficePlugin(
     await writer
       .settingsChanged()
       .catch((error: unknown) => log(`[office] notes state failed: ${errorMessage(error)}`));
+    const trackersOn = Object.keys(incidentsReaders(state.values, deps.env)).length > 0;
+    await incidentsSchedule.sync(trackersOn);
+    pushIncidents();
   }
   const stopFollowingSettings = settings.subscribe(followSettings);
   settings
@@ -268,6 +315,14 @@ export function createOfficePlugin(
     holder.remember(paseo);
     await writer.start();
   });
+  server.handle(incidentsDismissRpc, ({ ids }) =>
+    guarded("incidents dismiss", async () => ({ dismissed: await incidents.dismiss(ids) })),
+  );
+  // A check never rejects: a tracker that fails shows its problem on the Incidents card.
+  const stopIncidentsRuns = server.handleSchedule(INCIDENTS_SCHEDULE, ({ paseo }) => {
+    holder.remember(paseo);
+    return incidents.check();
+  });
 
   const removeHooks = [
     server.addHook("agent.open.before", async ({ request }, context) => {
@@ -332,6 +387,7 @@ export function createOfficePlugin(
   return async () => {
     stopFollowingSettings();
     stopNotesRuns();
+    stopIncidentsRuns();
     for (const remove of removeHooks) remove();
     machine.stop();
     office.stop();
@@ -352,6 +408,8 @@ export default function contribute(
       log,
     }),
     notesStore: createNotesStore({ file: notesWriterFile(process.env, homedir()), log }),
+    incidentsStore: createIncidentsStore({ file: incidentsFile(process.env, homedir()), log }),
+    env: process.env,
     clock: nodeClock,
     log,
     world: builtin?.bundleBrowserScript

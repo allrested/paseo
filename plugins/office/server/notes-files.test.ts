@@ -38,7 +38,15 @@ function ready(notesFolder: string, notesTimeZone: string): SettingsState {
   return {
     status: "ready",
     revision: "1",
-    values: { agentTools: true, notesFolder, notesTimeZone },
+    values: {
+      agentTools: true,
+      notesFolder,
+      notesTimeZone,
+      jiraProjects: "",
+      sentryOrg: "",
+      sentryProjects: "",
+      sentryUrl: "https://sentry.io",
+    },
   };
 }
 

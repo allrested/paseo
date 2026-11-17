@@ -1,4 +1,5 @@
 import type {
+  IncidentsState,
   NotesState,
   OfficeAgent,
   OfficeEvent,
@@ -57,6 +58,8 @@ export interface Hub {
   setWake(wake: WakeState): void;
   /** The stand-up notes writer's state; the same state again sends nothing. */
   setNotes(notes: NotesState): void;
+  /** The open incidents and the trackers' state; the same state again sends nothing. */
+  setIncidents(incidents: IncidentsState): void;
   /**
    * The office now, for the stand-up report. While an office is open it is what its subscribers
    * see; while none is, a directory is opened for this read alone and closed again, so the read
@@ -103,6 +106,8 @@ export function createHub(ports: HubPorts): Hub {
   let wake: WakeState = { paused: false, queued: {} };
   let notes: NotesState | null = null;
   let sentNotes = "";
+  let incidents: IncidentsState | null = null;
+  let sentIncidents = "";
   let starting: Promise<void> | null = null;
   let stopDirectory: (() => Promise<void>) | null = null;
   let stopActivity: (() => void) | null = null;
@@ -123,6 +128,7 @@ export function createHub(ports: HubPorts): Hub {
       boards: copy,
       wake: { paused: wake.paused, queued: { ...wake.queued } },
       ...(notes === null ? {} : { notes: { ...notes } }),
+      ...(incidents === null ? {} : { incidents: { ...incidents } }),
     };
   }
 
@@ -390,6 +396,13 @@ export function createHub(ports: HubPorts): Hub {
       if (text === sentNotes) return;
       sentNotes = text;
       notes = { ...next };
+      broadcast({ type: "snapshot", state: snapshot() });
+    },
+    setIncidents(next) {
+      const text = JSON.stringify(next);
+      if (text === sentIncidents) return;
+      sentIncidents = text;
+      incidents = { ...next };
       broadcast({ type: "snapshot", state: snapshot() });
     },
     async read() {
