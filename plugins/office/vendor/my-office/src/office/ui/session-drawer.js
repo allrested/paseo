@@ -5,6 +5,7 @@ import { BASE_ZOOM, camera } from '../scene/renderer.js';
 import { focusTarget } from '../core/loop.js';
 import { sessions, workers } from '../people/workers.js';
 import { host } from '../paseo-host.js';
+import { setView } from './camera-bar.js';
 
 /** The camera's place before someone was chosen: it goes back there when nobody is. */
 let before = null;
@@ -15,6 +16,7 @@ export function openSession(id, opts = {}) {
   const same = state.selectedId === id;
   if (!state.selectedId && focusTarget) before = { target: focusTarget.clone(), zoom: state.zoomGoal ?? camera.zoom };
   state.selectedId = id;
+  setView(null);
   const waver = workers.get(id);
   if (waver && !same) waver.waveUntil = state.sim + 1.8;
   if (waver && focusTarget) focusTarget.set(waver.pos.x, 0.9, waver.pos.y);

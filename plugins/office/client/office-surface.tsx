@@ -555,6 +555,7 @@ interface SurfaceBodyProps {
   /** Whose card is open. */
   selectedAgentId: string | null;
   styles: OfficeStyles;
+  compact: boolean;
   actions: AgentActions;
   name(author: string): string;
   /** Null from the 3D office, when the chosen person is tapped again. */
@@ -588,6 +589,7 @@ function SurfaceBody({
   focusRequest,
   selectedAgentId,
   styles,
+  compact,
   actions,
   name,
   onSelectAgent,
@@ -669,6 +671,7 @@ function SurfaceBody({
     <StructureView
       rooms={rooms}
       styles={styles}
+      compact={compact}
       actions={actions}
       name={name}
       onSelectAgent={onSelectAgent}
@@ -913,6 +916,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         focusRequest={focusRequest}
         selectedAgentId={kept}
         styles={styles}
+        compact={layout.compact}
         actions={actions}
         name={name}
         onSelectAgent={setSelectedId}

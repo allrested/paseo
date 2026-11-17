@@ -40,6 +40,28 @@ export function focusById(elementId: string): void {
   element?.focus();
 }
 
+/** Where a key typed is the field's own: a slash there is text, not a shortcut. */
+const FIELD = 'input, textarea, select, [contenteditable="true"]';
+
+/**
+ * Focuses the element with this id when "/" goes down outside a field and without Ctrl, Meta or
+ * Alt, and returns what stops it. Without a document (native) nothing is listened to.
+ */
+export function listenForSlash(inputId: string): () => void {
+  if (typeof document === "undefined") return () => undefined;
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+    const { target } = event;
+    if (target instanceof Element && target.closest(FIELD) !== null) return;
+    const input = document.getElementById(inputId);
+    if (input === null) return;
+    event.preventDefault();
+    input.focus();
+  };
+  document.addEventListener("keydown", onKeyDown);
+  return () => document.removeEventListener("keydown", onKeyDown);
+}
+
 /** The host's brand, as the daemon wrote it into this page; null on a page without one. */
 export function readBrand(): OfficeBrand | null {
   if (typeof document === "undefined") return null;

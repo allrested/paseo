@@ -587,6 +587,7 @@ question says to answer it in the session), or stops the running turn with the S
 The server keeps one directory from subscribed `agents.list` and `workspaces.list` calls (the
 first 200 of each) and streams a compact projection over the `office.state` subscription; the
 directory and the 5 s "doing now" reads run only while an office surface is open.
+The List view's bar filters the room cards by tab (All, Needs you, Working, Resting) and by a search that `/` focuses on the web, and each row adds its context, its turn's clock or how long it has rested, and its cost (`plugins/office/client/list-text.ts`).
 
 An agent whose own turn has ended is not idle while an agent it started, or one those started,
 runs, starts or waits for you: it waits on them (`waitingOnOf` in

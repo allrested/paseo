@@ -275,6 +275,7 @@ const api = {
     host.boardRows = () => boardRows;
     problem = (message) => options.onProblem?.(message);
     buildPage();
+    cameraBar.build();
     // (the frame counts as focused while Paseo's page is: upstream's loop draws full rate then, see paseo-focus.js)
     followHostFocus(document, window.parent);
     applyColors(options.colors || {}, host.night);
@@ -296,7 +297,7 @@ const api = {
     cameraBar.setup();
     // Escape closes the place card and gives the keyboard back to the chip that opened it.
     document.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || document.getElementById('plc').hidden) return;
+      if (event.key !== 'Escape' || document.getElementById('plc').hidden || document.body.classList.contains('is-photo')) return;
       const chip = document.querySelector('.zone--open');
       closePlace();
       chip?.focus({ preventScroll: true });
@@ -321,6 +322,7 @@ const api = {
     everyFrame(updateLeisure);
     showMachine(false);
     showBrand(options.brand);
+    host.brandName = options.brand?.name || '';
     // (the tag over the boxes left behind opens the panel; upstream listens for its click already)
     if (lostObj) asButton(lostObj.element, () => host.machine?.());
     renderer.domElement.addEventListener('webglcontextlost', () => { if (!stopped) problem('the graphics context was lost'); });

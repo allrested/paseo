@@ -5,6 +5,7 @@
 // its stand-in, with where it comes from.
 import { beforeEach, expect, test, vi } from "vitest";
 import { state } from "../../vendor/my-office/src/office/core/state.js";
+import { openWorldFrame } from "./world-frame.web.js";
 
 const h = vi.hoisted(() => ({
   sessions: new Map<string, Record<string, unknown>>(),
@@ -12,9 +13,25 @@ const h = vi.hoisted(() => ({
   applauded: [] as string[],
   played: [] as string[],
   incidentsOpened: 0,
+  /** The camera bar's markup is in the page. */
+  built: false,
+  /** Whether it was when the first of the scene's modules started (ui/photo.js wires it then). */
+  builtBeforeModules: null as boolean | null,
+  closePlace: vi.fn(),
 }));
 
-vi.mock("../../vendor/my-office/src/office/paseo-modules.js", () => ({ MODULES: [] }));
+vi.mock("../../vendor/my-office/src/office/paseo-modules.js", () => ({
+  MODULES: [
+    [
+      "probe",
+      {
+        setup() {
+          h.builtBeforeModules ??= h.built;
+        },
+      },
+    ],
+  ],
+}));
 vi.mock("../../vendor/my-office/src/office/scene/renderer.js", () => ({
   renderer: { domElement: document.createElement("canvas"), dispose() {}, forceContextLoss() {} },
 }));
@@ -32,7 +49,12 @@ vi.mock("../../vendor/my-office/src/office/world/backdrops/index.js", () => ({
   setup() {},
   applyNight() {},
 }));
-vi.mock("../../vendor/my-office/src/office/ui/camera-bar.js", () => ({ setup() {} }));
+vi.mock("../../vendor/my-office/src/office/ui/camera-bar.js", () => ({
+  build() {
+    h.built = true;
+  },
+  setup() {},
+}));
 vi.mock("../../vendor/my-office/src/office/ui/event-text.js", () => ({
   ACT: { other: {} },
   bubbleText: () => "",
@@ -47,7 +69,9 @@ vi.mock("../../vendor/my-office/src/office/ui/session-drawer.js", () => ({
 }));
 vi.mock("../../vendor/my-office/src/office/interact/place-chips.js", () => ({ PLACES: {} }));
 vi.mock("../../vendor/my-office/src/office/interact/props.js", () => ({ PROPS: new Map() }));
-vi.mock("../../vendor/my-office/src/office/interact/place-cards.js", () => ({ closePlace() {} }));
+vi.mock("../../vendor/my-office/src/office/interact/place-cards.js", () => ({
+  closePlace: h.closePlace,
+}));
 vi.mock("../../vendor/my-office/src/office/world/pro/pieces.js", () => ({
   OFFICE_MARK: "",
   PRO_FX: {},
@@ -99,6 +123,7 @@ vi.mock("../../vendor/my-office/src/office/audio/sfx.js", () => ({
 // The entry sets the API on the window as it loads.
 await import("../../vendor/my-office/src/office/paseo-entry.js");
 const { updateIncident } = await import("../../vendor/my-office/src/office/life/incidents.js");
+const { host } = await import("../../vendor/my-office/src/office/paseo-host.js");
 
 interface World {
   start(options?: object): void;
@@ -109,6 +134,7 @@ interface World {
 }
 const world = (globalThis as unknown as { PaseoOfficeWorld: World }).PaseoOfficeWorld;
 world.start({
+  brand: { name: "Acme" },
   onIncidents: () => {
     h.incidentsOpened += 1;
   },
@@ -297,6 +323,27 @@ interface Prop {
   hint: string;
 }
 
+test("the camera bar is built before the scene's modules start", () => {
+  // ui/photo.js, one of the modules, wires the bar's photo button as it starts.
+  expect(h.builtBeforeModules).toBe(true);
+});
+
+test("the photo's mark carries the brand's name", () => {
+  expect(host.brandName).toBe("Acme");
+});
+
+test("Escape in photo mode leaves the place card under it alone", () => {
+  page("plc").hidden = false;
+  document.body.classList.add("is-photo");
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.closePlace).not.toHaveBeenCalled();
+
+  document.body.classList.remove("is-photo");
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(h.closePlace).toHaveBeenCalledTimes(1);
+  page("plc").hidden = true;
+});
+
 /**
  * A page of its own, started with `options`, and its props. The page has a reading of the host, as `openMac()` reaches
  * Paseo's `onMachine` only then. A click on a prop runs its `act` (upstream's `activateProp`); a test calls it directly,
@@ -355,4 +402,12 @@ test("the wall screen's tooltip says what it opens", async () => {
 
   const without = await startPage({ onMachine() {} });
   expect(without.get("tv")?.hint).toBe("Open the Host panel");
+});
+
+test("the frame's page lets the office go full screen", () => {
+  const container = document.createElement("div");
+  const frame = openWorldFrame({ container, script: "", title: "Office in 3D" });
+
+  expect(container.querySelector("iframe")?.getAttribute("allow")).toBe("fullscreen");
+  frame.dispose();
 });
