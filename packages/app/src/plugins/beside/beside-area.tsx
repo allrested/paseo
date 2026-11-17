@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -92,7 +93,7 @@ function useRouteFocused(): boolean {
 }
 
 interface BesideFrameProps {
-  /** The surface's own key: a screen's route, or a panel's tab. One area per key. */
+  /** The surface's own key, a screen's route or a panel's tab: it names the area's tab. */
   surfaceKey: string;
   children: ReactNode;
 }
@@ -105,7 +106,10 @@ interface BesideFrameProps {
  */
 export function BesideFrame({ surfaceKey, children }: BesideFrameProps) {
   const compact = useIsCompactFormFactor();
-  const area = useBesideStore((state) => state.areas[surfaceKey]);
+  // One area per mounted frame: a frame that remounts (a layout flip moves a panel to another tree)
+  // or another copy of the same screen on the stack never inherits an area it did not open.
+  const areaKey = `${surfaceKey}#${useId()}`;
+  const area = useBesideStore((state) => state.areas[areaKey]);
   // The area shares the frame's own width with the content, which a sidebar or the panes of a
   // split can make narrower than the window. The window stands in until the frame is measured.
   const { width: windowWidth } = useWindowDimensions();
@@ -124,14 +128,14 @@ export function BesideFrame({ surfaceKey, children }: BesideFrameProps) {
   const accepting = useRef(shown);
   useEffect(() => {
     accepting.current = shown;
-    if (!shown) useBesideStore.getState().close(surfaceKey);
-  }, [shown, surfaceKey]);
+    if (!shown) useBesideStore.getState().close(areaKey);
+  }, [shown, areaKey]);
   useEffect(
     () => () => {
       accepting.current = false;
-      useBesideStore.getState().close(surfaceKey);
+      useBesideStore.getState().close(areaKey);
     },
-    [surfaceKey],
+    [areaKey],
   );
 
   const showBeside = useCallback<ShowBeside>(
@@ -139,12 +143,12 @@ export function BesideFrame({ surfaceKey, children }: BesideFrameProps) {
       // Plugins call this at runtime with whatever kind they name.
       const kind = kinds.get(target.kind);
       if (!accepting.current || !kind?.available(target)) return false;
-      useBesideStore.getState().show(surfaceKey, target);
+      useBesideStore.getState().show(areaKey, target);
       return true;
     },
-    [surfaceKey],
+    [areaKey],
   );
-  const close = useCallback(() => useBesideStore.getState().close(surfaceKey), [surfaceKey]);
+  const close = useCallback(() => useBesideStore.getState().close(areaKey), [areaKey]);
 
   return (
     <ShowBesideContext.Provider value={showBeside}>

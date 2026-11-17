@@ -324,11 +324,11 @@ describe("an agent's session beside the office's own screen", () => {
 
     setAgent(agent({ archivedAt: new Date("2026-11-17T09:00:00.000Z") }));
     expect(text("probe-composer")).toBe("archived");
-    expect(useBesideStore.getState().areas[OFFICE_SCREEN]).toBeDefined();
+    expect(screen.getByText("Fix the checkout")).toBeTruthy();
 
     setAgent(agent({ archivedAt: null }));
     expect(text("probe-composer")).toBe("composer");
-    expect(useBesideStore.getState().areas[OFFICE_SCREEN]).toBeDefined();
+    expect(screen.getByText("Fix the checkout")).toBeTruthy();
     expect(probeMounts).toBe(1);
   });
 
@@ -391,7 +391,7 @@ describe("an agent's session beside the office's own screen", () => {
 
     expect(viewedTimelineSync.replaceVisibleAgentIds).toHaveBeenLastCalledWith(tabId, [AGENT]);
 
-    act(() => useBesideStore.getState().close(OFFICE_SCREEN));
+    fireEvent.click(screen.getByLabelText("Close"));
     expect(viewedTimelineSync.replaceVisibleAgentIds).toHaveBeenLastCalledWith(tabId, []);
   });
 
