@@ -1,6 +1,6 @@
 # The office's camera toolbar: design
 
-Date: 2026-11-17. Status: approved, not built. Piece 2 of sub-project 7 ("Upstream's controls") of
+Date: 2026-11-17. Status: built. Piece 2 of sub-project 7 ("Upstream's controls") of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md). The owner's answers
 on how sub-project 7 splits are in [piece 1's design](2026-11-17-office-list-mode-design.md#the-owners-answers).
 Walk in is piece 4 and is not in this one.
@@ -152,6 +152,71 @@ on web and in Electron.
 
 ## Not verified
 
-A download from inside the `srcdoc` frame in Electron was not tried; Electron may need its
-download handler to save it. The builder tries it and reports; if it does not save, photo mode is
-left on web only, and Electron hides the button.
+The app itself was not run, on web or in Electron. Its workspace scripts start the dev daemon and
+the app only for a checkout that has a workspace on the daemon on port 6767, and this one has
+none; registering one would change that daemon's state. A daemon started by hand on port 6768
+was not tried either: the owner's standing note for this checkout is never to start a daemon by
+hand. So the bar was not seen on the office screen or in the office panel, and a download from
+inside the `srcdoc` frame in Electron was not tried. Photo mode's button stays on Electron: the
+`host.photo === false` option is built only if that download is shown to fail, and it was not
+tried.
+
+The scene's own script was looked at alone instead. It was bundled with the options the app uses
+(IIFE, es2020, minified, 1.10 MB), served as a static page from the build container, and opened in
+Paseo's browser at 1280 x 800 and 390 x 844, light and dark colours. The browser drew with software
+WebGL (llvmpipe), and the scene showed its own "drawing 3D without a GPU" toast. Two pages were
+used. One runs the script in an `iframe` with `srcdoc` and `allow="fullscreen"`, as
+`world-frame.web.ts` does, with a text field above it. The other runs it in the page itself,
+because the browser tool's refs and pointer clicks do not reach into a `srcdoc` frame. Both called
+`start` with the `pro` plan, the app's colours, the brand "Flavours Kitchen" and an `onToast` that
+kept the toasts, then `setSessions` with five made-up agents. No page error came up and no
+`problem` call was made.
+
+What the scene alone showed:
+
+- The bar sits at the bottom centre: the dark track, three groups, Overview pressed with its name
+  out and its icon in the app's accent, the percent at 100%. Light and dark look the same.
+- Desks, Meeting room and Servers each fly to their place and are pressed, by pointer and by
+  keyboard (Enter on a focused button). The percent ends at 190%, 200% and 239%. Overview comes
+  back at 100%.
+- Desks pressed and Servers pressed straight after, while the camera was still flying (171%):
+  Servers was pressed, and the camera ended on Servers at 239%.
+- Zoom in by Enter stops at 523%; three more presses leave it at 523%. Zoom out by pointer stops
+  at 77%. Tab reaches every control with a 2 px ring, and the zoom and tool buttons show their
+  name above them on focus and hover.
+- Full screen, by pointer in the page and by Enter in the frame: the browser allowed it. In the
+  frame, the outer page's full screen element was the `iframe`, its header was gone and the floor
+  filled the window; the button was pressed. The button again left it. A `requestFullscreen` made
+  to reject showed "This browser won't go full screen." once. With `document.fullscreenEnabled`
+  false the button was hidden and the bar closed up around the gap.
+- Photo mode, by the button and by P, hides the bar, the chips and the bubbles, shows the photo
+  bar with Take photo focused, and keeps the name tags. Names and Logo turn off and on. Escape and
+  P leave it, and the bar comes back.
+- Take photo, by pointer and by Enter: the download was named `office-2026-11-17-1522.png` and
+  `office-2026-11-17-1523.png`, and "Saved a 1920 × 1200 photo to your Downloads." came up. The
+  picture was opened in the page: the floor, the name tags, and "Flavours Kitchen" with the
+  building mark at the bottom right; with Names and Logo off, neither.
+- P typed into the text field outside the frame went into the field; photo mode did not start.
+- At 390 px the views show their icons only and the bar spans 5 to 385 px; nothing is cut. Photo
+  mode's bar wraps to two rows inside the frame.
+- An incident set with `setIncidents` during photo mode: the banner is hidden, but the red glow
+  around the stage stays on screen. The saved picture has no glow; its walls are pink from the
+  alarm's light.
+
+What did not come out as written:
+
+- The zoom buttons leave the view pressed: Servers stayed pressed at 523% and at 77%, though the
+  Pressed row says a zoom clears it.
+- At 390 px the tooltip of the last button (Photo mode) runs past the frame's right edge and is
+  cut. The tooltips make the page 404 px wide in a 390 px frame. In the page without the frame,
+  after pointer clicks on the bar, the page was found scrolled 14 px to the right and the bar's
+  left edge was cut; what scrolled it was not found. In the frame, keyboard focus did not scroll it.
+- "Full HD" is 1920 px wide at the frame's shape, not 1920 x 1080: 1920 x 1200 at 1280 x 800, and
+  1920 x 3988 at 390 x 844.
+- Escape sent by the browser tool did not leave full screen; the browser's own Escape was not
+  tried. Shift+Tab sent by the tool did not move focus.
+- After Escape out of photo mode, focus goes to the page, not back to the Photo mode button.
+- Whether the downloads reached a Downloads folder was not seen: the browser runs in another
+  container. The download's name, size and picture were read in the page.
+- A pointer click inside the frame was not made; the frame was driven by keyboard and by calls
+  into its page.
