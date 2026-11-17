@@ -1,6 +1,6 @@
 # The office's List view, as upstream's list mode: design
 
-Date: 2026-11-17. Status: designed, not built. Piece 1 of sub-project 7 ("Upstream's controls") of
+Date: 2026-11-17. Status: approved, not built. Piece 1 of sub-project 7 ("Upstream's controls") of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md), which has the
 request, what the code did before, and the list of sub-projects. The other pieces designed with it:
 [the camera toolbar](2026-11-17-office-camera-toolbar-design.md) (piece 2) and

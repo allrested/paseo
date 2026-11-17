@@ -1,6 +1,6 @@
 # The office's camera toolbar: design
 
-Date: 2026-11-17. Status: designed, not built. Piece 2 of sub-project 7 ("Upstream's controls") of
+Date: 2026-11-17. Status: approved, not built. Piece 2 of sub-project 7 ("Upstream's controls") of
 [the office after the owner's review](2026-11-16-office-owner-review-design.md). The owner's answers
 on how sub-project 7 splits are in [piece 1's design](2026-11-17-office-list-mode-design.md#the-owners-answers).
 Walk in is piece 4 and is not in this one.
