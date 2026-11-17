@@ -69,8 +69,9 @@ export interface WorldViewProps {
    */
   onOpenResources: (() => void) | undefined;
   /**
-   * E by a person while walking in: the agent card's "Open session", where Paseo can open a session
-   * beside the floor; absent where it cannot. Read when the office starts.
+   * E by a person while walking in: the agent card's "Open session". Absent only where the office
+   * has no navigation; with navigation but no side area it opens the agent's workspace, leaving the
+   * office, as the card does. Read when the office starts.
    */
   onOpenSession: ((agentId: string) => void) | undefined;
   /** A tap on the library: its chip or the bookshelf. */
