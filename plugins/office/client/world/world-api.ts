@@ -103,6 +103,15 @@ export interface WorldMachine {
   devServers: WorldDevServer[];
 }
 
+/** An open incident, as the scene's banner and alarm read it. */
+export interface WorldIncident {
+  id: string;
+  key: string;
+  title: string;
+  /** This device has not rung for it: the scene rings its alarm. */
+  ring: boolean;
+}
+
 export type WorldColors = PluginTheme["colors"];
 
 /** What the lobby's sign and the reception's plaque show. */
@@ -130,6 +139,8 @@ export interface WorldStartOptions {
   onBell?(): void;
   /** The label over the meeting room's screen was chosen. Absent: the scene shows no label. */
   onNotes?(): void;
+  /** The incidents' banner was chosen. */
+  onIncidents?(): void;
   /** A short line the office says once. */
   onToast?(text: string): void;
 }
@@ -155,6 +166,12 @@ export interface WorldApi {
    * they are on. Nothing happens while another gathering is on, or when nobody is free.
    */
   meet?(): void;
+  /**
+   * The open incidents, newest first. The banner names the newest while any is open. One that
+   * rings starts the alarm: 25 s of red, a fail bubble over everyone at work and the siren. Several
+   * that ring at once ring once.
+   */
+  setIncidents?(incidents: readonly WorldIncident[]): void;
 }
 
 /** The version of the contract above; the page says which it speaks. */

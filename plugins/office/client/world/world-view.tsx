@@ -11,7 +11,12 @@ import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/ui";
-import { notesWriteRpc, worldRpc, type Machine } from "../../shared/contracts.js";
+import {
+  notesWriteRpc,
+  worldRpc,
+  type IncidentsState,
+  type Machine,
+} from "../../shared/contracts.js";
 import { failureText } from "../action-button.js";
 import type { FocusRequest } from "../focus-request.js";
 import type { OfficeModel } from "../../shared/model.js";
@@ -32,6 +37,7 @@ import {
   type WorldMemory,
   type WorldPlan,
 } from "./adapter.js";
+import { useIncidentAlarm } from "./use-incident-alarm.js";
 import type { WorldApi } from "./world-api.js";
 import { readBrand } from "../web-env.web.js";
 import { focusApp, openWorldFrame } from "./world-frame.web.js";
@@ -60,6 +66,10 @@ export interface WorldViewProps {
   onOpenNotes(): void;
   /** The stand-up is open: the bell on the meeting table rings once. */
   meeting: boolean;
+  /** The host's incidents: the banner while any is open, and the alarm for one not rung for here. */
+  incidents: IncidentsState | undefined;
+  /** A tap on the incidents' banner. */
+  onOpenIncidents(): void;
   /** The script could not load, the office could not start, or the WebGL context was lost. */
   onProblem(message: string): void;
 }
@@ -92,6 +102,8 @@ export function WorldView({
   onOpenLibrary,
   onOpenNotes,
   meeting,
+  incidents,
+  onOpenIncidents,
   onProblem,
 }: WorldViewProps) {
   const containerId = useId();
@@ -125,6 +137,7 @@ export function WorldView({
     onOpenMachine,
     onOpenLibrary,
     onOpenNotes,
+    onOpenIncidents,
     onBell,
     onProblem,
   });
@@ -139,6 +152,7 @@ export function WorldView({
       onOpenMachine,
       onOpenLibrary,
       onOpenNotes,
+      onOpenIncidents,
       onBell,
       onProblem,
     };
@@ -152,6 +166,7 @@ export function WorldView({
     onOpenMachine,
     onOpenLibrary,
     onOpenNotes,
+    onOpenIncidents,
     onBell,
     onProblem,
   ]);
@@ -232,6 +247,10 @@ export function WorldView({
             focusApp();
             latest.current.onOpenNotes();
           },
+          onIncidents: () => {
+            focusApp();
+            latest.current.onOpenIncidents();
+          },
           onProblem: (message) => latest.current.onProblem(message),
         });
       } catch (error) {
@@ -271,6 +290,9 @@ export function WorldView({
     for (const event of changes.events) api.event(event);
     memory.current = changes.memory;
   }, [people, model, started]);
+
+  // After the people: the alarm's bubbles go over whoever is seated at work.
+  useIncidentAlarm({ world, started, incidents });
 
   const worldReadings = useMemo(() => worldMachine(machine), [machine]);
   useEffect(() => {

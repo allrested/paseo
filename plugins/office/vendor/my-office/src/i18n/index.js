@@ -54,6 +54,9 @@ const OURS = {
   'paseo.leisure.arcade': 'One round at the arcade',
   'paseo.leisure.cup': 'Making a coffee',
   'paseo.leisure.wc': 'Back in a minute',
+  // (an incident is one Paseo's office found in a tracker, not three failures in five minutes: the newest on the banner)
+  'incident.banner': 'Incident: {key} {title}',
+  'incident.more': '+{n} more',
 };
 const get = (key) => { if (key in OURS) return OURS[key]; let o = en; for (const k of key.split('.')) { if (o == null || typeof o !== 'object') return undefined; o = o[k]; } return o; };
 const EMOJI = /\s*(?![©®™])\p{Extended_Pictographic}[\uFE0F\u200D\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}]*/gu;

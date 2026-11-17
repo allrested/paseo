@@ -23,9 +23,10 @@ billiards.js`, `gaming.js`, `foosball.js`, `karaoke.js`). Upstream's files are c
 except that `'three'` and `'three/addons/...'` imports are rewritten to relative paths, so the
 bundle needs no resolver.
 
-The games call the group chat, the sounds and the first-person walk, which are not taken: their
-stand-ins export what the games import and do nothing, so a game is seen and not heard, nobody
-plays it in first person, and a karaoke song has no sound.
+The games call the group chat, the sounds and the first-person walk. The chat and the walk are not
+taken: their stand-ins export what the games import and do nothing. The sounds are the siren alone
+(below). So a game is seen and not heard, nobody plays it in first person, and a karaoke song has
+no sound.
 
 Three copied files are changed by hand, and each change starts with `// PASEO:`:
 
@@ -37,12 +38,29 @@ Three copied files are changed by hand, and each change starts with `// PASEO:`:
 - `src/office/life/tests.js`: `clearRun` puts out the lamp of a test run whose end Paseo never
   learns.
 
+Two files are taken trimmed. Their paths stay in the import tool's `DENY`, so it never writes them
+and only checks that they export what the kept modules import (which is why `MANIFEST.json` lists
+them under `standIns`). Each cut or change starts with `// PASEO:`. `paseo-entry.js` runs their
+`setup` where upstream's start-up order has them, just before the loop.
+
+- `src/office/life/incidents.js`: upstream's alarm, `startIncident`, `updateIncident` and `setup`:
+  a red light over the floor and a red stage for 25 s, a fail bubble over each person at work, and
+  the siren. Under reduced motion the light holds a steady red. Cut: `fails` and the branch that
+  rang for three failures in five minutes (an incident is one the office found in Jira or Sentry,
+  and the entry's `setIncidents` rings it); `headache()` (the errand for headache pills); `onEvent`
+  (its part that moves people stands in `paseo-entry.js`); and the banner, which is the entry's
+  and shows while an incident is open, not only for the 25 s.
+- `src/office/audio/sfx.js`: upstream's engine (the audio context and its unlock on a click or a
+  key, `tone`, a gap per sound, the `office-sound` switch) with the siren alone. Cut: `noise` and
+  every other sound, so every other name the kept modules play makes no sound. `sfx.on` reads off,
+  because `people/karaoke.js` sings through its own audio while it is on.
+
 ### What is not taken
 
 Upstream's own interface (panels, the session drawer, the chat, settings, the top bar), its server
-connection, the replay, the demo, sounds, other languages, the street outside with its shops, the
-first-person walk, and the daily-life scenes (lunch runs, the midday nap, the seasons, the
-weather and the like). The owner asked for the office floor only.
+connection, the replay, the demo, every sound but the siren, other languages, the street outside
+with its shops, the first-person walk, and the daily-life scenes (lunch runs, the midday nap, the
+seasons, the weather and the like). The owner asked for the office floor only.
 
 The kept modules still import those files, so each has a stand-in at the same path that starts
 with `// PASEO: stand-in`. Most export what is asked of them and do nothing. These do work:
@@ -76,9 +94,10 @@ and the bookshelf open Paseo's Library card.
 ### What the scene is told
 
 Paseo sends the scene who is there and what kind of thing each person does (`client/world/
-world-api.ts`), never a file name, a command or a prompt. The scene runs in upstream's streamer
-mode, which writes "a file" and "a command" where upstream would write the name, and the entry
-keeps the feed and the counts upstream's server would keep, from the moment the office opens.
+world-api.ts`), never a file name, a command or a prompt, and the open incidents' keys and titles
+for the banner. The scene runs in upstream's streamer mode, which writes "a file" and "a command"
+where upstream would write the name, and the entry keeps the feed and the counts upstream's server
+would keep, from the moment the office opens.
 
 The scene writes three things to the app origin's `localStorage`, under keys that start with
 `office-`: which team sits where, the plants, and the graphics level. It reads a few more

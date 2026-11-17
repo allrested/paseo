@@ -18,7 +18,10 @@
 //   the accent falls under 3:1 on the dark theme's surface; under a finger
 //   they take touches 10 px past their edges (44 px in all) and keep their size, because a
 //   bigger chip hides the desks it names; a place's chip shows itself when the keyboard
-//   reaches it.
+//   reaches it;
+// - the incidents' banner is a label with the danger border and dot, at the top of the stage,
+//   clear of the floor's note in the bottom corner; the red over the stage while the alarm rings is
+//   upstream's, the one glow, and it holds still under reduced motion.
 export const STYLE = `
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
 body { font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--o-fg); -webkit-font-smoothing: antialiased; }
@@ -117,5 +120,13 @@ button.pl-chip { cursor: pointer; }
 .btn:hover { border-color: var(--o-muted); }
 .btn[disabled] { cursor: not-allowed; opacity: .5; }
 
-@media (prefers-reduced-motion: reduce) { .tag, .bubble, .zone { transition: none; } }
+.incident { all: unset; box-sizing: border-box; position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2; max-width: calc(100% - 24px); display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 9px; border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; background: var(--o-surface-raised); color: var(--o-fg); border: 1px solid var(--o-danger); }
+.incident::before { content: ""; width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--o-danger); }
+.incident-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.incident:hover { background: var(--o-surface); }
+.incident:focus-visible { outline: 2px solid var(--o-fg); outline-offset: 2px; }
+#stage-wrap.is-incident::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; box-shadow: inset 0 0 120px 30px rgba(255, 30, 30, .45); animation: incident-blink 1s ease-in-out infinite; }
+@keyframes incident-blink { 50% { opacity: .3; } }
+
+@media (prefers-reduced-motion: reduce) { .tag, .bubble, .zone { transition: none; } #stage-wrap.is-incident::after { animation: none; } }
 `;

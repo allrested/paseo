@@ -37,6 +37,8 @@ import { lostObj, syncDevBoxes } from './world/props/dev-servers.js';
 import { shredAction } from './world/props/shredder.js';
 import { clearRun, onTest } from './life/tests.js';
 import { onTurnDone } from './life/your-turn.js';
+import * as lifeIncidents from './life/incidents.js';
+import * as audioSfx from './audio/sfx.js';
 import { t as tr } from '../i18n/index.js';
 
 const VERSION = 1;
@@ -119,6 +121,24 @@ function makeNotesLabel() {
   o.position.set(0.2, 2.525, -7.95);
   o.center.set(0.5, 1);
   scene.add(o);
+}
+/** Paseo's banner over the stage: upstream's `#incident`, a button here, because a click on it opens Paseo's Incidents card. */
+function makeIncidentBanner(open) {
+  const banner = el('button', 'incident');
+  banner.type = 'button';
+  banner.id = 'incident';
+  banner.hidden = true;
+  banner.addEventListener('click', open);
+  document.getElementById('stage-wrap').append(banner);
+}
+/** The banner names the newest open incident and how many more are open; with none open it hides. */
+function showIncidents(open) {
+  const banner = document.getElementById('incident');
+  banner.hidden = open.length === 0;
+  if (open.length === 0) return;
+  const newest = open[0];
+  banner.replaceChildren(el('span', 'incident-text', tr('incident.banner', { key: newest.key, title: newest.title })));
+  if (open.length > 1) banner.append(el('span', null, ` · ${tr('incident.more', { n: open.length - 1 })}`));
 }
 /** The server room's chip, the racks, the wall screen and the dev boxes open Paseo's panel: no reading, no panel. */
 function showMachine(on) {
@@ -229,8 +249,8 @@ const api = {
    * the scene tells Paseo: onSelect(id | null), onBoard(project | null) (a team's chip, or the
    * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
    * (the server racks), onLibrary() (the library's chip and the bookshelf), onBell() (a click on the
-   * meeting table's bell), onNotes() (the label over the meeting room's screen, on the company floor)
-   * and onToast(text).
+   * meeting table's bell), onNotes() (the label over the meeting room's screen, on the company floor),
+   * onIncidents() (the incidents' banner) and onToast(text).
    * Throws when the world cannot be built (no WebGL, a module failed).
    */
   start(options = {}) {
@@ -256,6 +276,8 @@ const api = {
     // what upstream's first message from its server sets
     state.stats = {}; state.todos = []; state.feed = []; state.limits = null; state.world = true;
     for (const [name, module] of MODULES) {
+      // (upstream starts its incidents and its sounds after the live connection; Paseo's trimmed copies are not in MODULES)
+      if (name === 'coreLoop') { lifeIncidents.setup(); audioSfx.setup(); }
       if (name === 'coreLoop') backdrops.setup();   // (upstream sets the backdrop up just before the loop)
       if (typeof module.setup === 'function') module.setup();
       if (name === 'interactPlaceCards') whiteboard.setup();
@@ -286,6 +308,7 @@ const api = {
     const bell = PROPS.get('bell');
     if (bell) { const ring = bell.act; bell.act = () => { ringWithEveryone(ring); host.bell?.(); }; }
     if (host.plan === 'pro' && host.notes) makeNotesLabel();
+    makeIncidentBanner(() => options.onIncidents?.());
     everyFrame(updateLeisure);
     showMachine(false);
     showBrand(options.brand);
@@ -372,6 +395,17 @@ const api = {
     const toast = host.toast;
     host.toast = () => {};
     try { ringWithEveryone(() => ringBell(tr('people.meet.standup'))); } finally { host.toast = toast; }
+  },
+  /**
+   * The open incidents, newest first: [{ id, key, title, ring }]. The banner shows while any is open. One that rings
+   * (this device has not rung for it) starts upstream's alarm: 25 s of red, a fail bubble over everyone at work and the
+   * siren. Several that ring at once ring once.
+   */
+  setIncidents(list) {
+    if (!started || stopped) return;
+    const open = Array.isArray(list) ? list : [];
+    showIncidents(open);
+    if (open.some((incident) => incident.ring)) lifeIncidents.startIncident();
   },
   /** Usage windows of the accounts in use: [{ key, pct, resetsAt }]. */
   setLimits(list) { limits = Array.isArray(list) ? list : []; },
