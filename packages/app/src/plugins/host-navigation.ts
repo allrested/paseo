@@ -7,10 +7,11 @@ import { navigateToAgent } from "@/utils/navigate-to-agent";
 
 import { getIsElectron } from "@/constants/platform";
 import { createWorkspaceBrowser } from "@/desktop/browser/store";
-import { createPluginHostNavigation } from "./host-navigation-model";
+import { createPluginHostNavigation, type ResolvedBesideTarget } from "./host-navigation-model";
 
 export function usePluginHostNavigation(
   serverId: string,
+  showBeside?: (target: ResolvedBesideTarget) => boolean,
 ): NonNullable<PluginSurfaceProps["navigation"]> {
   return useMemo(
     () =>
@@ -24,7 +25,8 @@ export function usePluginHostNavigation(
             workspaces: useSessionStore.getState().sessions[targetServerId]?.workspaces,
             workspaceId,
           }),
+        showBeside,
       }),
-    [serverId],
+    [serverId, showBeside],
   );
 }

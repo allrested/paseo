@@ -1,5 +1,6 @@
 import type {
   IncidentsState,
+  Checklists,
   NotesState,
   OfficeAgent,
   OfficeEvent,
@@ -41,7 +42,11 @@ export interface HubPorts {
   ): Promise<() => Promise<void>>;
   startActivity(
     running: () => readonly string[],
-    onChange: (activity: ActivityLines, doing: ActivitySteps) => void,
+    onChange: (
+      activity: ActivityLines,
+      doing: ActivitySteps,
+      checklists: Readonly<Checklists>,
+    ) => void,
   ): () => void;
   timers: Timers;
   log(message: string): void;
@@ -102,6 +107,8 @@ export function createHub(ports: HubPorts): Hub {
   let sentWorkspaces = "";
   let activity: ActivityLines = {};
   let doing: ActivitySteps = {};
+  // Kept after an agent stops, as the poller reads only running agents; dropped when it leaves.
+  let checklists: Checklists = {};
   let boards: Record<string, readonly Post[]> = {};
   let wake: WakeState = { paused: false, queued: {} };
   let notes: NotesState | null = null;
@@ -125,6 +132,7 @@ export function createHub(ports: HubPorts): Hub {
       workspaces: [...view.workspaces],
       activity: { ...activity },
       doing: { ...doing },
+      checklists: { ...checklists },
       boards: copy,
       wake: { paused: wake.paused, queued: { ...wake.queued } },
       ...(notes === null ? {} : { notes: { ...notes } }),
@@ -216,8 +224,24 @@ export function createHub(ports: HubPorts): Hub {
     });
   }
 
+  function activityEvent(): OfficeEvent {
+    return {
+      type: "activity",
+      activity: { ...activity },
+      doing: { ...doing },
+      checklists: { ...checklists },
+    };
+  }
+
   function onDirectory(next: DirectoryView): void {
     reported = next;
+    const listed = new Set(next.agents.map((agent) => agent.id));
+    const kept = Object.entries(checklists).filter(([agentId]) => listed.has(agentId));
+    if (kept.length < Object.keys(checklists).length) {
+      checklists = Object.fromEntries(kept);
+      // An agent that left the list takes its checklist with it now, not at the next poll round.
+      if (stopDirectory !== null) broadcast(activityEvent());
+    }
     writeNumbers(next.agents);
     const settled = settleResets(next.agents, resets);
     resets = settled.resets;
@@ -236,10 +260,22 @@ export function createHub(ports: HubPorts): Hub {
     }, DIRECTORY_FLUSH_MS);
   }
 
-  function onActivity(next: ActivityLines, steps: ActivitySteps): void {
+  /**
+   * Each report replaces the checklists of the agents it names; one reported empty goes. An agent
+   * that left the list while the round read it stays gone.
+   */
+  function onActivity(
+    next: ActivityLines,
+    steps: ActivitySteps,
+    report: Readonly<Checklists>,
+  ): void {
     activity = next;
     doing = steps;
-    broadcast({ type: "activity", activity: { ...next }, doing: { ...steps } });
+    const listed = new Set(view.agents.map((agent) => agent.id));
+    const fresh = Object.entries(report).filter(([agentId]) => listed.has(agentId));
+    const merged = Object.entries({ ...checklists, ...Object.fromEntries(fresh) });
+    checklists = Object.fromEntries(merged.filter(([, list]) => list.length > 0));
+    broadcast(activityEvent());
   }
 
   function running(): readonly string[] {
@@ -332,6 +368,7 @@ export function createHub(ports: HubPorts): Hub {
     stopActivity = null;
     activity = {};
     doing = {};
+    checklists = {};
     const stop = stopDirectory;
     stopDirectory = null;
     view = EMPTY_VIEW;

@@ -167,6 +167,22 @@ export const ActivityStepSchema = z.object({
   result: z.enum(TEST_RESULTS).optional(),
 });
 
+/** The most steps of one agent's checklist the office sends. */
+export const CHECKLIST_STEP_MAX = 50;
+/** The most characters of a step's text; longer text is cut to one line this long. */
+export const CHECKLIST_TEXT_MAX = 200;
+
+/** An unfinished step of an agent's own checklist; finished steps are not sent. */
+export const ChecklistStepSchema = z.object({
+  text: z.string(),
+  status: z.enum(["pending", "in_progress"]),
+});
+export type ChecklistStep = z.output<typeof ChecklistStepSchema>;
+
+/** Each agent's unfinished steps, by agent id; an agent with none is absent. */
+export const ChecklistsSchema = z.record(z.string(), z.array(ChecklistStepSchema));
+export type Checklists = z.output<typeof ChecklistsSchema>;
+
 /** The stand-up notes writer, and the 8:00 schedule that starts it. */
 export const NotesStateSchema = z.object({
   /** A notes folder is set in the office's settings. */
@@ -221,6 +237,8 @@ export const OfficeSnapshotSchema = z.object({
   activity: z.record(z.string(), z.string()),
   /** The step of each running agent: the tool call it is at, or made since the read before. */
   doing: z.record(z.string(), ActivityStepSchema).optional(),
+  /** Each agent's own checklist, kept after the agent stops. */
+  checklists: ChecklistsSchema.optional(),
   boards: z.record(z.string(), z.array(PostSchema)),
   wake: WakeStateSchema,
   /** Absent until the office's server has read the writer's state. */
@@ -238,6 +256,7 @@ export const OfficeEventSchema = z.discriminatedUnion("type", [
     type: z.literal("activity"),
     activity: z.record(z.string(), z.string()),
     doing: z.record(z.string(), ActivityStepSchema).optional(),
+    checklists: ChecklistsSchema.optional(),
   }),
   z.object({ type: z.literal("board"), board: z.string(), posts: z.array(PostSchema) }),
   z.object({ type: z.literal("board-removed"), board: z.string() }),
@@ -430,6 +449,13 @@ export const updateRpc = defineRpc({
 export const deleteRpc = defineRpc({
   name: "office.delete.request",
   input: z.object({ id: z.string().min(1) }),
+  output: DeleteResultSchema,
+});
+
+/** Deletes every done task of a board. */
+export const clearDoneRpc = defineRpc({
+  name: "office.board.clear_done.request",
+  input: z.object({ board: z.string().min(1) }),
   output: DeleteResultSchema,
 });
 

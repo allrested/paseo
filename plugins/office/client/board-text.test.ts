@@ -3,10 +3,14 @@ import type { OfficeAgent, Post } from "../shared/contracts.js";
 import {
   authorName,
   boardPreview,
+  clearQuestion,
   orderBoardPosts,
   postMeta,
   postStateLabel,
   queuedWakes,
+  stepMark,
+  todoMeta,
+  todoPreview,
   wakeSummary,
 } from "./board-text.js";
 
@@ -105,4 +109,50 @@ test("the wake count says how many posts wait, and nothing when none do", () => 
   // Paused is what the switch beside the count shows; the words say what it cannot.
   expect(wakeSummary({ paused: true, queued: {} })).toBe(null);
   expect(wakeSummary({ paused: true, queued: { a: 1 } })).toBe("1 waiting");
+});
+
+const PEOPLE = new Map([
+  ["a1", "Ali"],
+  ["a2", "Sara"],
+]);
+const person = (author: string) => PEOPLE.get(author) ?? author;
+const open = post(1, {});
+const done = post(2, { state: "done" });
+const claimed = (by: string) => post(3, { state: "claimed", claimedBy: by });
+
+test("a to-do's meta names who claimed it and whom it names", () => {
+  expect(todoMeta(claimed("a1"), person)).toBe("claimed by Ali");
+  expect(todoMeta({ ...open, to: "a2" }, person)).toBe("for Sara");
+  expect(todoMeta({ ...claimed("a1"), to: "a2" }, person)).toBe("claimed by Ali · for Sara");
+  // A done to-do keeps its claimer, but it is no longer claimed.
+  expect(todoMeta({ ...done, claimedBy: "a1" }, person)).toBeNull();
+  expect(todoMeta(open, person)).toBeNull();
+});
+
+test("the clear question counts finished to-dos", () => {
+  expect(clearQuestion(1)).toBe("Delete 1 finished to-do?");
+  expect(clearQuestion(3)).toBe("Delete 3 finished to-dos?");
+});
+
+test("the lobby card counts open and claimed to-dos only", () => {
+  // In to-do order, as room.todos holds them: open and claimed first, then done.
+  const todos = [
+    post(1, {}),
+    post(2, { state: "claimed", claimedBy: "a1" }),
+    post(3, {}),
+    post(4, {}),
+    post(5, {}),
+    post(6, { state: "done" }),
+    post(7, { state: "done" }),
+  ];
+  const preview = todoPreview(todos);
+  expect(preview.shown.map((item) => item.id)).toEqual(["p1", "p2", "p3"]);
+  expect(preview.more).toBe(2);
+  expect(todoPreview(todos.slice(5))).toEqual({ shown: [], more: 0 });
+  expect(todoPreview([])).toEqual({ shown: [], more: 0 });
+});
+
+test("a checklist step is marked in progress or waiting", () => {
+  expect(stepMark("in_progress")).toBe("◐");
+  expect(stepMark("pending")).toBe("○");
 });

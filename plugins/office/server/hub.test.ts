@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import type { OfficeAgent, OfficeEvent, Post } from "../shared/contracts.js";
+import type {
+  ChecklistStep,
+  Checklists,
+  OfficeAgent,
+  OfficeEvent,
+  Post,
+} from "../shared/contracts.js";
 import type { ActivityLines, ActivitySteps } from "./activity.js";
 import { createFakeClock, settle, type FakeClock } from "./fake-clock.js";
 import { newestAgents } from "./paseo-directory.js";
@@ -71,7 +77,7 @@ interface FakeActivity {
   starts: number;
   stops: number;
   running(): readonly string[];
-  emit(activity: ActivityLines, doing?: ActivitySteps): void;
+  emit(activity: ActivityLines, doing?: ActivitySteps, checklists?: Checklists): void;
 }
 
 interface Harness {
@@ -85,7 +91,9 @@ function startHarness(initial: DirectoryView, extra: Partial<HubPorts> = {}): Ha
   const clock = createFakeClock();
   let directoryListener: ((view: DirectoryView) => void) | null = null;
   let endListener: (() => void) | null = null;
-  let activityListener: ((activity: ActivityLines, doing: ActivitySteps) => void) | null = null;
+  let activityListener:
+    | ((activity: ActivityLines, doing: ActivitySteps, checklists: Checklists) => void)
+    | null = null;
   let runningList: () => readonly string[] = () => [];
   const directory: FakeDirectory = {
     opens: 0,
@@ -101,7 +109,7 @@ function startHarness(initial: DirectoryView, extra: Partial<HubPorts> = {}): Ha
     starts: 0,
     stops: 0,
     running: () => runningList(),
-    emit: (next, doing = {}) => activityListener?.(next, doing),
+    emit: (next, doing = {}, checklists = {}) => activityListener?.(next, doing, checklists),
   };
   const ports: HubPorts = {
     async openDirectory(listener, onEnd) {
@@ -166,6 +174,7 @@ test("the first subscriber opens the directory and gets a snapshot; a second sha
       workspaces: [],
       activity: {},
       doing: {},
+      checklists: {},
       boards: {},
       wake: EMPTY_WAKE,
     },
@@ -234,6 +243,7 @@ test("activity covers the running agents and is pushed as it changes", async () 
     type: "activity",
     activity: { a: "Thinking" },
     doing: {},
+    checklists: {},
   });
   // A step travels with the lines, and the next snapshot has both.
   harness.activity.emit({ a: "Running Bash" }, { a: { kind: "deploy", key: "c7" } });
@@ -241,6 +251,7 @@ test("activity covers the running agents and is pushed as it changes", async () 
     type: "activity",
     activity: { a: "Running Bash" },
     doing: { a: { kind: "deploy", key: "c7" } },
+    checklists: {},
   });
   const late = subscribe(harness.hub);
   await settle();
@@ -252,6 +263,116 @@ test("activity covers the running agents and is pushed as it changes", async () 
   await late.done;
   subscriber.controller.abort();
   await subscriber.done;
+});
+
+const STEP: ChecklistStep = { text: "Run typecheck", status: "in_progress" };
+
+test("a checklist stays after its agent stops and goes when the agent leaves", async () => {
+  const harness = startHarness({ agents: [agent("a1", "running")], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.activity.emit({ a1: "Thinking" }, {}, { a1: [STEP] });
+  expect(subscriber.events.slice(1)).toEqual([
+    { type: "activity", activity: { a1: "Thinking" }, doing: {}, checklists: { a1: [STEP] } },
+  ]);
+  const late = subscribe(harness.hub);
+  await settle();
+  expect(late.events).toEqual([
+    {
+      type: "snapshot",
+      state: {
+        agents: [agent("a1", "running")],
+        workspaces: [],
+        activity: { a1: "Thinking" },
+        doing: {},
+        checklists: { a1: [STEP] },
+        boards: {},
+        wake: EMPTY_WAKE,
+      },
+    },
+  ]);
+
+  // a1 stopped: the poller reads it no more, and its checklist stays.
+  harness.directory.emit({ agents: [agent("a1", "idle")], workspaces: [] });
+  harness.activity.emit({}, {}, {});
+  expect(subscriber.events.slice(2)).toEqual([
+    { type: "activity", activity: {}, doing: {}, checklists: { a1: [STEP] } },
+  ]);
+
+  // a1 archived: it leaves the agent list, and its checklist goes before any poll round.
+  harness.directory.emit({ agents: [], workspaces: [] });
+  expect(subscriber.events.slice(3)).toEqual([
+    { type: "activity", activity: {}, doing: {}, checklists: {} },
+  ]);
+  late.controller.abort();
+  subscriber.controller.abort();
+  await Promise.all([late.done, subscriber.done]);
+});
+
+test("an empty report removes the agent's checklist", async () => {
+  const harness = startHarness({
+    agents: [agent("a1", "running"), agent("a2", "running")],
+    workspaces: [],
+  });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.activity.emit({}, {}, { a1: [STEP], a2: [STEP] });
+  // a1 finished every step; a2 was not read this round and keeps its own.
+  harness.activity.emit({}, {}, { a1: [] });
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "activity",
+    activity: {},
+    doing: {},
+    checklists: { a2: [STEP] },
+  });
+  harness.activity.emit({}, {}, { a2: [] });
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "activity",
+    activity: {},
+    doing: {},
+    checklists: {},
+  });
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("a report that names an agent no longer listed does not bring its checklist back", async () => {
+  const harness = startHarness({
+    agents: [agent("a1", "running"), agent("a2", "running")],
+    workspaces: [],
+  });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.activity.emit({}, {}, { a1: [STEP] });
+  // a1 is archived while a round is reading it; that round's report still names it.
+  harness.directory.emit({ agents: [agent("a2", "running")], workspaces: [] });
+  harness.activity.emit({}, {}, { a1: [STEP], a2: [STEP] });
+  expect(subscriber.events.at(-1)).toEqual({
+    type: "activity",
+    activity: {},
+    doing: {},
+    checklists: { a2: [STEP] },
+  });
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("stopping the directory empties the checklists", async () => {
+  const harness = startHarness({ agents: [agent("a1", "running")], workspaces: [] });
+  const first = subscribe(harness.hub);
+  await settle();
+  harness.activity.emit({ a1: "Thinking" }, {}, { a1: [STEP] });
+  first.controller.abort();
+  await first.done;
+  await settle();
+  expect(harness.directory.stops).toBe(1);
+  expect((await harness.hub.read()).checklists).toEqual({});
+
+  const next = subscribe(harness.hub);
+  await settle();
+  expect(next.events).toEqual([officeOf([agent("a1", "running")])]);
+  next.controller.abort();
+  await next.done;
 });
 
 test("boards and wake state reach subscribers and the next snapshot", async () => {
@@ -279,6 +400,7 @@ test("boards and wake state reach subscribers and the next snapshot", async () =
         workspaces: [],
         activity: {},
         doing: {},
+        checklists: {},
         boards: { lobby: [note("p1")] },
         wake: { paused: true, queued: { a: 2 } },
       },
@@ -311,6 +433,7 @@ test("the notes reach subscribers in a snapshot, and the same notes again send n
         workspaces: [],
         activity: {},
         doing: {},
+        checklists: {},
         boards: {},
         wake: EMPTY_WAKE,
         notes: NOTES,
@@ -361,6 +484,7 @@ test("setIncidents broadcasts a snapshot carrying incidents; the same state send
       doing: {},
       boards: {},
       wake: EMPTY_WAKE,
+      checklists: {},
       incidents: INCIDENTS,
     },
   });
@@ -384,6 +508,7 @@ test("with no office open, a read opens the directory for itself and closes it",
     workspaces: [],
     activity: {},
     doing: {},
+    checklists: {},
     boards: { lobby: [note("p1")] },
     wake: EMPTY_WAKE,
   });
@@ -438,7 +563,15 @@ test("a directory that cannot open refuses the subscriber, and the next one trie
 function officeOf(agents: OfficeAgent[]): OfficeEvent {
   return {
     type: "snapshot",
-    state: { agents, workspaces: [], activity: {}, doing: {}, boards: {}, wake: EMPTY_WAKE },
+    state: {
+      agents,
+      workspaces: [],
+      activity: {},
+      doing: {},
+      checklists: {},
+      boards: {},
+      wake: EMPTY_WAKE,
+    },
   };
 }
 
@@ -527,6 +660,7 @@ test("a subscriber gets its snapshot before any change made while the directory 
         workspaces: [],
         activity: {},
         doing: {},
+        checklists: {},
         boards: { lobby: [note("p1")] },
         wake: EMPTY_WAKE,
       },

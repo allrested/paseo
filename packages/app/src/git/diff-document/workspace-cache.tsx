@@ -174,6 +174,17 @@ export function useDiffDocumentWorkspaceCacheBridge() {
   );
 }
 
+/** Carries the workspace's cache across a portal that may also open where there is no workspace. */
+export function useDiffDocumentWorkspaceCacheBridgeIfAny() {
+  const cache = useContext(WorkspaceCacheContext);
+  return useCallback(
+    (children: ReactNode) => (
+      <WorkspaceCacheContext.Provider value={cache}>{children}</WorkspaceCacheContext.Provider>
+    ),
+    [cache],
+  );
+}
+
 export function DiffDocumentWorkspaceCacheProvider({ children }: { children: ReactNode }) {
   const [cache] = useState(createDiffDocumentWorkspaceCache);
   return <WorkspaceCacheContext.Provider value={cache}>{children}</WorkspaceCacheContext.Provider>;

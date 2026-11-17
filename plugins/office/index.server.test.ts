@@ -580,7 +580,7 @@ test("the skills are read from the host's folders, and no workspace's while no o
   await stop();
 });
 
-test("the entry serves the office state, the 3D page script, the machine, the janitor, a script's log, the skills and the four board calls, and stopping removes its hooks and timers", async () => {
+test("the entry serves the office state, the 3D page script, the machine, the janitor, a script's log, the skills and the five board calls, and stopping removes its hooks and timers", async () => {
   const { recorded, clock, stop } = setup(async () => ON);
   await settle();
   expect([...recorded.handlers.keys()]).toEqual([
@@ -595,6 +595,7 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "office.post.request",
     "office.update.request",
     "office.delete.request",
+    "office.board.clear_done.request",
     "office.set_wakes_paused.request",
     "office.notes.write.request",
     "office.incidents.dismiss.request",

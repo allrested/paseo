@@ -722,9 +722,15 @@ stand-up or the lounge, and the janitor stays at the cart. Designs:
 Server code of a plugin cannot import from its `client/` folder (the compiler refuses it).
 
 Each room has a board, and the lobby has one for the host: posts are tasks (open, claimed, done) or
-notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days). A
-board is removed when its workspace is archived while the daemon runs; a board left from a workspace
-archived otherwise stays until its posts are deleted. Interactive agent sessions get three tools,
+notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days).
+The lobby's board is the office's to-do list: a to-do is a lobby task, and "Clear finished" deletes
+the done ones. It also shows each agent's unfinished checklist steps, text included, which the
+"doing now" read takes from the newest `todo` item among the agent's newest timeline items. The
+steps stay after the agent stops and go when it is archived or closed. The server keeps them in
+memory, and only while an office surface is open: after the last one closes or the daemon restarts,
+an agent's steps are back when it next updates its checklist. A board is removed when its workspace
+is archived while the daemon runs; a board left from a workspace archived otherwise stays until its
+posts are deleted. Interactive agent sessions get three tools,
 `office_read`, `office_post` and `office_update`, unless the host's "Agent tools" switch is off when
 the session opens. Plugin tools reach an agent through Paseo's own agent tools and are filtered by
 name like them: a provider with Paseo's tools off gets none, and a provider that lists
@@ -734,7 +740,8 @@ agent. Posts that wait for an agent go out as one prompt per author: an agent's 
 agent as the source, the user's posts arrive as a user prompt. A post naming an agent that has not
 run a turn yet is delivered after that agent's first turn or the next post that names it. The "Wake
 agents" switch holds every wake until it is turned back on; wakes that wait are not kept across a
-daemon restart. Design: [the spec](superpowers/specs/2026-11-11-agent-office-design.md).
+daemon restart. Designs: [the office](superpowers/specs/2026-11-11-agent-office-design.md),
+[the lobby's to-do list](superpowers/specs/2026-11-17-office-lobby-todo-design.md).
 
 The Stand-up entry at the end of the attention strip reports every room with an agent in it: its
 branch, its ticket, its pull request, what blocks it, and what each agent is at, with the agent's
@@ -1254,9 +1261,37 @@ existing agent-context instances, but it cannot create an agent panel without an
 Command Center callbacks use the selected host's existing `PaseoApi` for normal Paseo operations.
 They use typed plugin RPC only for plugin-specific backend work. Surface and panel navigation
 belongs to the app; plugins do not receive Expo Router or workspace-layout store access.
-See the public [navigation fields](../public-docs/plugins/reference.md#screens-and-sidebar-items)
-and [external links and workspace browsers](../public-docs/plugins/reference.md#external-links-and-workspace-browsers)
+See the public [navigation fields](../public-docs/plugins/reference.md#screens-and-sidebar-items),
+[external links and workspace browsers](../public-docs/plugins/reference.md#external-links-and-workspace-browsers)
+and [showBeside](../public-docs/plugins/reference.md#show-a-session-or-a-screen-beside-yours)
 for the author-facing contract.
+
+### The side area
+
+`navigation.showBeside` asks the app to draw a side area beside a plugin screen or workspace panel;
+the plugin never renders it. An agent's pane needs the app's own contexts (composer editing, file
+links, the sheet stack), and one plugin rendering another's screen would run it outside that
+plugin's installation, so the SDK hands out the call and no components
+([design](superpowers/specs/2026-11-17-office-one-page-design.md)).
+
+- `packages/app/src/plugins/beside/` holds it. `BesideFrame` wraps the plugin's content in
+  `surface-screen.tsx` and `workspace-panels/panel.tsx` and owns `showBeside` for that surface.
+  The area belongs to the mounted frame, not to the surface's key (the screen's host, plugin and
+  screen id, or the panel's tab), which only names the area's tab. A panel's frame remounts when
+  the window crosses the compact breakpoint, and the stack can hold several copies of one screen;
+  an area keyed by the surface would reach frames that never opened it.
+- Each target kind registers itself with `registerBesideKind`, and the folder's `index.ts` imports
+  the kind modules. `agent-beside.tsx` imports the panel registry, which imports the panel that
+  imports the barrel, so it calls `ensurePanelsRegistered()` at render time, never at import.
+- The width lives in memory and never touches `explorerWidth`. It clamps against the frame's
+  measured width, not the window's, because the left sidebar or the Explorer can share the window.
+- The area adds no route and is not restored ([expo-router.md](expo-router.md)). Workspace panels
+  stay mounted when their tab is switched away, so the frame closes the area when the tab turns
+  inactive or the route loses focus, not only on unmount.
+- The agent's pane uses host `"main"` in the panel and in the sheet. A `"sheet"` pane hides the
+  composer, Stop and the archived callout, and the area shows the full session.
+- A press inside an iframe, such as the office's 3D scene, reaches no listener in the app's
+  document, so the agent pane gives up the keyboard on the window's blur.
 
 ### Plugin icons
 

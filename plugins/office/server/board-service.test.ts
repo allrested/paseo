@@ -342,6 +342,45 @@ test("deleting a post, removing a board, and the persisted wake pause", async ()
   expect(service.wakesPaused()).toBe(true);
 });
 
+/** lobby: p1 task done, p2 task open, p3 note, p4 task done; w1: p5 task done. */
+function clearable(): Post[] {
+  return [
+    post(1, { board: "lobby", kind: "task", state: "done" }),
+    post(2, { board: "lobby", kind: "task", state: "open" }),
+    post(3, { board: "lobby", kind: "note" }),
+    post(4, { board: "lobby", kind: "task", state: "done" }),
+    post(5, { board: "w1", kind: "task", state: "done" }),
+  ];
+}
+
+test("clearing a board deletes its done tasks in one save and leaves the rest", async () => {
+  const { service, store, events } = await harness(file(clearable()));
+  const saves = store.saved.length;
+  expect(await service.clearDone("lobby")).toEqual({ ok: true });
+  expect(store.saved.length).toBe(saves + 1);
+  expect(service.boards().lobby?.map((item) => item.id)).toEqual(["p2", "p3"]);
+  expect(service.boards().w1?.map((item) => item.id)).toEqual(["p5"]);
+  expect(events.at(-1)).toMatch(/^board lobby /);
+});
+
+test("clearing a board with no done task saves nothing", async () => {
+  const lobbyOpen = clearable().filter((item) => item.board !== "lobby" || item.state !== "done");
+  const { service, store } = await harness(file(lobbyOpen));
+  const saves = store.saved.length;
+  expect(await service.clearDone("lobby")).toEqual({ ok: true });
+  expect(store.saved.length).toBe(saves);
+});
+
+test("a clear that cannot save keeps the posts", async () => {
+  const { service, store } = await harness(file(clearable()));
+  store.failNext = true;
+  expect(await service.clearDone("lobby")).toEqual({
+    ok: false,
+    error: expect.stringMatching(/^Unable to save the board/),
+  });
+  expect(service.boards().lobby).toHaveLength(4);
+});
+
 test("a listener that throws is logged and the change still stands", async () => {
   const { service, events } = await harness(undefined, {
     onBoard: () => {
