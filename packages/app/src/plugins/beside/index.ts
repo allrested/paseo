@@ -6,5 +6,7 @@
 
 // oxlint-disable-next-line import/no-unassigned-import -- The screen kind registers itself on import.
 import "./screen-beside";
+// oxlint-disable-next-line import/no-unassigned-import -- The agent kind registers itself on import.
+import "./agent-beside";
 
 export { BesideFrame, useShowBeside } from "./beside-area";
