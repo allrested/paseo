@@ -5,19 +5,32 @@ import type {
   PluginSessionOpenRequest,
   PluginSettingsState,
 } from "@getpaseo/plugin/server";
-import { expect, test } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, expect, test } from "vitest";
 import { createOfficePlugin } from "./index.server.js";
 import { EMPTY_BOARDS, type BoardStore } from "./server/board-store.js";
 import { createFakeClock, settle } from "./server/fake-clock.js";
+import type { NotesStore, StoredNotes } from "./server/notes-writer.js";
 import type { officeHostSettings } from "./shared/settings.js";
 
 type SettingsState = PluginSettingsState<typeof officeHostSettings.schema>;
 type Handler = (input: object, context: PluginHandlerContext) => unknown;
+type SettingsListener = (state: SettingsState) => void | Promise<void>;
 
 interface Recorded {
   hooks: Map<string, Handler>;
   handlers: Map<string, Handler>;
   reads: number;
+  /** Who follows the settings: the daemon calls each after a save. */
+  listeners: Set<SettingsListener>;
+  /** The office's calls on its schedules, as "upsert <name> <expression> <zone>" or "remove <name>". */
+  schedules: string[];
+  /** When set, a schedule's save rejects with it. */
+  scheduleFailure: Error | null;
+  /** The handlers that answer due schedules, by handler name. */
+  scheduleRuns: Map<string, Handler>;
 }
 
 interface Sent {
@@ -26,8 +39,17 @@ interface Sent {
   options: unknown;
 }
 
-const ON: SettingsState = { status: "ready", revision: "1", values: { agentTools: true } };
-const OFF: SettingsState = { status: "ready", revision: "2", values: { agentTools: false } };
+const NO_NOTES = { notesFolder: "", notesTimeZone: "" };
+const ON: SettingsState = {
+  status: "ready",
+  revision: "1",
+  values: { agentTools: true, ...NO_NOTES },
+};
+const OFF: SettingsState = {
+  status: "ready",
+  revision: "2",
+  values: { agentTools: false, ...NO_NOTES },
+};
 const OWN_TOOL = { name: "other_tool", description: "Another plugin's tool", inputSchema: {} };
 
 /** The parts of the daemon's plugin API that the office calls. */
@@ -38,7 +60,12 @@ function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): Plu
         recorded.reads += 1;
         return read();
       },
-      subscribe: () => () => undefined,
+      subscribe: (listener: SettingsListener) => {
+        recorded.listeners.add(listener);
+        return () => {
+          recorded.listeners.delete(listener);
+        };
+      },
     }),
     handle: (contract: { name: string }, handler: Handler) => {
       recorded.handlers.set(contract.name, handler);
@@ -49,16 +76,99 @@ function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): Plu
         recorded.hooks.delete(name);
       };
     },
+    schedules: {
+      upsert: async ({
+        name,
+        cadence,
+      }: {
+        name: string;
+        cadence: { expression: string; timezone: string };
+      }) => {
+        recorded.schedules.push(`upsert ${name} ${cadence.expression} ${cadence.timezone}`);
+        if (recorded.scheduleFailure) throw recorded.scheduleFailure;
+        return { id: "s1", nextRunAt: null };
+      },
+      remove: async (name: string) => {
+        recorded.schedules.push(`remove ${name}`);
+        return false;
+      },
+      list: async () => [],
+    },
+    handleSchedule: (handler: string, run: Handler) => {
+      recorded.scheduleRuns.set(handler, run);
+      return () => {
+        recorded.scheduleRuns.delete(handler);
+      };
+    },
   };
 }
 
+/** A subscribed list as the client gives it: the snapshot at once, then nothing. */
+function emptyList() {
+  return {
+    entries: [],
+    pageInfo: { hasMore: false, nextCursor: null },
+    subscription: {
+      subscribe: (observer: { snapshot(snapshot: { entries: never[] }): void }) => {
+        observer.snapshot({ entries: [] });
+        return () => undefined;
+      },
+      release: async () => undefined,
+    },
+  };
+}
+
+interface Writers {
+  /** The agents created, as "<folder> <provider> <title>". */
+  created: string[];
+  prompts: string[];
+  archived: string[];
+}
+
 /** The daemon's API as hooks and handlers receive it: every agent exists, with the status given. */
-function fakeContext(statuses: Map<string, string>, sent: Sent[]): PluginHandlerContext {
+function fakeContext(
+  statuses: Map<string, string>,
+  sent: Sent[],
+  writers: Writers,
+): PluginHandlerContext {
   return {
     signal: new AbortController().signal,
     paseo: {
+      providers: {
+        waitForReady: async () => ({
+          entries: [
+            {
+              provider: "claude",
+              status: "ready",
+              enabled: true,
+              defaultModeId: "auto",
+              models: [{ id: "opus", isDefault: true }],
+            },
+          ],
+        }),
+      },
+      workspaces: {
+        list: async () => emptyList(),
+        open: async (cwd: string) => ({
+          id: "wks_notes",
+          directory: cwd,
+          agents: {
+            create: async (options: {
+              config: { provider: string };
+              title: string;
+              prompt: string;
+            }) => {
+              writers.created.push(`${cwd} ${options.config.provider} ${options.title}`);
+              writers.prompts.push(options.prompt);
+              const id = `writer-${writers.created.length}`;
+              statuses.set(id, "running");
+              return { id };
+            },
+          },
+        }),
+      },
       agents: {
-        list: async () => ({ entries: [], pageInfo: { hasMore: false, nextCursor: null } }),
+        list: async () => emptyList(),
         ref: (agentId: string) => ({
           refresh: async () => ({
             agent: {
@@ -81,10 +191,25 @@ function fakeContext(statuses: Map<string, string>, sent: Sent[]): PluginHandler
             error: null,
             requestId: "r",
           }),
+          archive: async () => {
+            writers.archived.push(agentId);
+            return { archivedAt: "2026-11-11T09:05:00.000Z" };
+          },
         }),
       },
     },
   };
+}
+
+function memoryNotesStore(): NotesStore & { kept: StoredNotes | null } {
+  const store = {
+    kept: null as StoredNotes | null,
+    load: async () => store.kept,
+    save: async (state: StoredNotes) => {
+      store.kept = state;
+    },
+  };
+  return store;
 }
 
 function memoryStore(): BoardStore {
@@ -130,15 +255,26 @@ function hookAgent(id: string): PluginHookAgent {
 }
 
 function setup(read: () => Promise<SettingsState>) {
-  const recorded: Recorded = { hooks: new Map(), handlers: new Map(), reads: 0 };
+  const recorded: Recorded = {
+    hooks: new Map(),
+    handlers: new Map(),
+    reads: 0,
+    listeners: new Set(),
+    schedules: [],
+    scheduleFailure: null,
+    scheduleRuns: new Map(),
+  };
   const logs: string[] = [];
   const sent: Sent[] = [];
   const statuses = new Map<string, string>();
   const stopped: number[] = [];
+  const writers: Writers = { created: [], prompts: [], archived: [] };
+  const notesStore = memoryNotesStore();
   const clock = createFakeClock(Date.parse("2026-11-11T09:00:00.000Z"));
-  const context = fakeContext(statuses, sent);
+  const context = fakeContext(statuses, sent, writers);
   const stop = createOfficePlugin(fakeServer(recorded, read), {
     store: memoryStore(),
+    notesStore,
     clock,
     log: (message) => logs.push(message),
     world: null,
@@ -151,13 +287,26 @@ function setup(read: () => Promise<SettingsState>) {
       sleep: async () => undefined,
     },
     skillFolders: [{ label: ".claude", path: "/nonexistent-skills" }],
+    hostTimeZone: "Asia/Riyadh",
   });
   async function open(
     overrides: Partial<PluginSessionOpenRequest> = {},
   ): Promise<PluginSessionOpenRequest | undefined> {
     return recorded.hooks.get("agent.open.before")?.({ request: openRequest(overrides) }, context);
   }
-  return { recorded, logs, sent, statuses, stopped, clock, context, stop, open };
+  return {
+    recorded,
+    logs,
+    sent,
+    statuses,
+    stopped,
+    writers,
+    notesStore,
+    clock,
+    context,
+    stop,
+    open,
+  };
 }
 
 test("an interactive session keeps its own tools and gets the three office tools", async () => {
@@ -187,8 +336,14 @@ test("a session opened before the setting is known waits for it, and gets no too
 });
 
 test("the setting is read at each open, so a change holds from the next session on", async () => {
+  // The office reads the settings at load too, for the notes schedule and the writer.
   const states = [ON, OFF, ON];
-  const { open, stop, recorded } = setup(async () => states[recorded.reads - 1] ?? ON);
+  let atLoad: number | null = null;
+  const { open, stop, recorded } = setup(async () =>
+    atLoad === null ? ON : (states[recorded.reads - atLoad - 1] ?? ON),
+  );
+  await settle();
+  atLoad = recorded.reads;
   const results = [await open(), await open(), await open()];
   expect(results.map((result) => result?.tools.length)).toEqual([4, undefined, 4]);
   await stop();
@@ -196,8 +351,10 @@ test("the setting is read at each open, so a change holds from the next session 
 
 test("a session opened to read history gets no tools, and the setting is not read for it", async () => {
   const { open, stop, recorded } = setup(async () => ON);
+  await settle();
+  const atLoad = recorded.reads;
   expect(await open({ purpose: "history" })).toBeUndefined();
-  expect(recorded.reads).toBe(0);
+  expect(recorded.reads).toBe(atLoad);
   await stop();
 });
 
@@ -206,8 +363,41 @@ test("a setting that cannot be read leaves the session as it is and is logged", 
     throw new Error("settings store is down");
   });
   expect(await open()).toBeUndefined();
-  expect(logs).toEqual(["[office] agent.open.before failed: settings store is down"]);
+  await settle();
+  // The reads at load, for the notes schedule and the writer, fail too.
+  expect([...logs].sort()).toEqual([
+    "[office] agent.open.before failed: settings store is down",
+    "[office] notes schedule failed: settings store is down",
+    "[office] notes writer load failed: settings store is down",
+  ]);
   await stop();
+});
+
+test("the notes schedule follows the host settings from load and on each save, until the office stops", async () => {
+  const notes = (notesFolder: string, notesTimeZone: string): SettingsState => ({
+    status: "ready",
+    revision: notesFolder + notesTimeZone,
+    values: { agentTools: true, notesFolder, notesTimeZone },
+  });
+  const { recorded, stop } = setup(async () => notes("/notes", ""));
+  await settle();
+  expect(recorded.schedules).toEqual(["upsert standup-notes 0 8 * * 0-4 Asia/Riyadh"]);
+
+  const follow = (state: SettingsState) =>
+    Promise.all([...recorded.listeners].map((listener) => listener(state)));
+  await follow(notes("/notes", "Europe/Berlin"));
+  // A document that is not valid leaves the schedule as it is.
+  await follow({ status: "invalid", revision: "x", error: "Expected string" });
+  await follow(notes("", "Europe/Berlin"));
+  await settle();
+  expect(recorded.schedules).toEqual([
+    "upsert standup-notes 0 8 * * 0-4 Asia/Riyadh",
+    "upsert standup-notes 0 8 * * 0-4 Europe/Berlin",
+    "remove standup-notes",
+  ]);
+
+  await stop();
+  expect(recorded.listeners.size).toBe(0);
 });
 
 test("a post made through the board call wakes the agent it names over the daemon's API", async () => {
@@ -247,7 +437,10 @@ test("a post for a running agent goes out when its turn ends", async () => {
   await settle();
   expect(sent).toEqual([]);
   statuses.set("b", "idle");
-  await recorded.hooks.get("agent.turn.after")?.({ agent: hookAgent("b") }, context);
+  await recorded.hooks.get("agent.turn.after")?.(
+    { agent: hookAgent("b"), turnId: "t1", outcome: { kind: "completed" } },
+    context,
+  );
   await settle();
   expect(sent.map((item) => item.agentId)).toEqual(["b"]);
   await stop();
@@ -365,11 +558,14 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
     "office.janitor.request",
     "office.script.log.request",
     "office.skills.request",
+    "office.notes.read.request",
     "office.post.request",
     "office.update.request",
     "office.delete.request",
     "office.set_wakes_paused.request",
+    "office.notes.write.request",
   ]);
+  expect([...recorded.scheduleRuns.keys()]).toEqual(["standup-notes"]);
   expect([...recorded.hooks.keys()]).toEqual([
     "agent.open.before",
     "agent.turn.after",
@@ -381,5 +577,171 @@ test("the entry serves the office state, the 3D page script, the machine, the ja
   expect(clock.pending()).toBe(1);
   await stop();
   expect(recorded.hooks.size).toBe(0);
+  expect(recorded.scheduleRuns.size).toBe(0);
   expect(clock.pending()).toBe(0);
+});
+
+const NOTES_FOLDER = await mkdtemp(join(tmpdir(), "office-notes-"));
+afterAll(() => rm(NOTES_FOLDER, { recursive: true, force: true }));
+
+/** Host settings with the notes folder set to a directory that exists. */
+const NOTES: SettingsState = {
+  status: "ready",
+  revision: "notes",
+  values: { agentTools: true, notesFolder: NOTES_FOLDER, notesTimeZone: "" },
+};
+
+/** The writer leaves the day's entry in the notes: the fake clock's day in Asia/Riyadh. */
+function writeEntry(): Promise<void> {
+  const text = "# Notes\n\n---\n\n## 11 November 2026\n\nB\n";
+  return writeFile(join(NOTES_FOLDER, "daily-standup-202611.md"), text, "utf8");
+}
+
+test("the bell's request starts one writer in the notes folder, and its good end with the entry archives it", async () => {
+  const { recorded, writers, notesStore, context, clock, stop } = setup(async () => NOTES);
+  const write = recorded.handlers.get("office.notes.write.request");
+  expect(await write?.({}, context)).toEqual({ started: true });
+  expect(await write?.({}, context)).toEqual({ started: false });
+  expect(writers.created).toEqual([`${NOTES_FOLDER} claude/opus Stand-up notes`]);
+  expect(writers.prompts[0]).toContain("daily-standup-202611.md");
+  expect(notesStore.kept?.writerId).toBe("writer-1");
+
+  await writeEntry();
+  await recorded.hooks.get("agent.turn.after")?.(
+    { agent: hookAgent("writer-1"), turnId: "t1", outcome: { kind: "completed" } },
+    context,
+  );
+  expect(writers.archived).toEqual(["writer-1"]);
+  expect(notesStore.kept).toEqual({
+    writerId: null,
+    writtenAt: clock.now(),
+    failedAgentId: null,
+    problem: null,
+  });
+  await stop();
+});
+
+test("the 8:00 run starts the writer with the run's Paseo API", async () => {
+  const { recorded, writers, context, stop } = setup(async () => NOTES);
+  await settle();
+  const run = recorded.scheduleRuns.get("standup-notes");
+  // A schedule handler receives the run's context alone.
+  await run?.({ paseo: context.paseo, scheduleId: "s1", runId: "r1" }, undefined as never);
+  expect(writers.created).toHaveLength(1);
+  await stop();
+});
+
+test("a writer whose turn fails or is stopped is left, and its reason kept", async () => {
+  const { recorded, writers, notesStore, statuses, context, stop } = setup(async () => NOTES);
+  const write = recorded.handlers.get("office.notes.write.request");
+  const turnEnded = recorded.hooks.get("agent.turn.after");
+  await write?.({}, context);
+  await turnEnded?.(
+    {
+      agent: hookAgent("writer-1"),
+      turnId: "t1",
+      outcome: { kind: "failed", error: { message: "Rate limited" } },
+    },
+    context,
+  );
+  expect(notesStore.kept).toMatchObject({ failedAgentId: "writer-1", problem: "Rate limited" });
+
+  // A failed turn leaves the agent idle, so a new writer may start.
+  statuses.set("writer-1", "idle");
+  await write?.({}, context);
+  await turnEnded?.(
+    {
+      agent: hookAgent("writer-2"),
+      turnId: "t2",
+      outcome: { kind: "canceled", reason: "interrupted" },
+    },
+    context,
+  );
+  expect(notesStore.kept).toMatchObject({ failedAgentId: "writer-2", problem: "interrupted" });
+  expect(writers.archived).toEqual([]);
+  await stop();
+});
+
+test("a writer closed by a graceful restart stays the office's: resumed it blocks the bell, and its end with the entry is recorded", async () => {
+  const { recorded, writers, notesStore, statuses, context, clock, stop } = setup(
+    async () => NOTES,
+  );
+  const write = recorded.handlers.get("office.notes.write.request");
+  await write?.({}, context);
+  // The daemon closes every agent as it shuts down.
+  statuses.set("writer-1", "closed");
+  await recorded.hooks.get("agent.close.after")?.({ agent: hookAgent("writer-1") }, context);
+  expect(notesStore.kept).toMatchObject({
+    writerId: null,
+    failedAgentId: "writer-1",
+    problem: "it was closed before it finished",
+  });
+
+  // Started again, the daemon resumes the writer's turn.
+  statuses.set("writer-1", "running");
+  expect(await write?.({}, context)).toEqual({ started: false });
+  expect(writers.created).toHaveLength(1);
+  await writeEntry();
+  await recorded.hooks.get("agent.turn.after")?.(
+    { agent: hookAgent("writer-1"), turnId: "t2", outcome: { kind: "completed" } },
+    context,
+  );
+  expect(writers.archived).toEqual(["writer-1"]);
+  expect(notesStore.kept).toEqual({
+    writerId: null,
+    writtenAt: clock.now(),
+    failedAgentId: null,
+    problem: null,
+  });
+  await stop();
+});
+
+test("a writer archived by someone else frees the bell", async () => {
+  const { recorded, writers, context, stop } = setup(async () => NOTES);
+  const write = recorded.handlers.get("office.notes.write.request");
+  await write?.({}, context);
+  await recorded.hooks.get("agent.archive.after")?.(
+    { agent: hookAgent("writer-1"), archivedAt: "2026-11-11T09:01:00.000Z" },
+    context,
+  );
+  expect(await write?.({}, context)).toEqual({ started: true });
+  expect(writers.created).toHaveLength(2);
+  await stop();
+});
+
+test("an open office gets the notes state in its snapshot, and a schedule that fails after a save", async () => {
+  const { recorded, context, stop } = setup(async () => NOTES);
+  await settle();
+  const events: { type: string; state?: { notes?: unknown } }[] = [];
+  const leaving = new AbortController();
+  const done = recorded.handlers.get("office.state")?.({}, {
+    ...context,
+    signal: leaving.signal,
+    push: async (event: { type: string }) => void events.push(event),
+  } as never);
+  await settle();
+  expect(events.at(-1)?.state?.notes).toEqual({
+    folderSet: true,
+    writing: false,
+    writtenAt: null,
+    failedAgentId: null,
+    problem: null,
+    scheduleError: null,
+  });
+
+  recorded.scheduleFailure = new Error("Invalid cron time zone: Mars/Base");
+  const zone = {
+    ...NOTES,
+    revision: "zone",
+    values: { ...NOTES.values, notesTimeZone: "Mars/Base" },
+  } as SettingsState;
+  await Promise.all([...recorded.listeners].map((listener) => listener(zone)));
+  await settle();
+  expect(events.at(-1)?.state?.notes).toMatchObject({
+    scheduleError: "Invalid cron time zone: Mars/Base",
+  });
+
+  leaving.abort();
+  await done;
+  await stop();
 });

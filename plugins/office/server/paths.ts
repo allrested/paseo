@@ -21,6 +21,11 @@ export function boardsFile(env: NodeJS.ProcessEnv, home: string): string {
   return join(officeDir(env, home), "boards.json");
 }
 
+/** The stand-up notes writer's state: the writer at work and how the last write went. */
+export function notesWriterFile(env: NodeJS.ProcessEnv, home: string): string {
+  return join(officeDir(env, home), "notes-writer.json");
+}
+
 /** A folder skills are read from, and the name the card gives it. */
 export interface SkillFolder {
   label: string;

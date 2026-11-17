@@ -1,5 +1,6 @@
 import type { JsonValue } from "@getpaseo/protocol/agent-types";
-import type { PluginHookAgent } from "@getpaseo/plugin/server";
+import type { PluginHookAgent, PluginSchedule, PluginScheduleInput } from "@getpaseo/plugin/server";
+import { ScheduleCadenceSchema } from "@getpaseo/protocol/schedule/types";
 import { UsageScopeSchema, type UsageScope } from "@getpaseo/plugin/server/usage";
 import type {
   ProviderConnectRequest,
@@ -32,6 +33,12 @@ export interface PluginUsageSourceMetadata {
   icon?: string;
 }
 
+/** A plugin's call on its own schedules. The daemon adds the plugin id. */
+export type PluginSchedulesCall =
+  | { method: "upsert"; input: PluginScheduleInput }
+  | { method: "remove"; name: string }
+  | { method: "list" };
+
 export type PluginProcessRequest =
   | { type: "tool.call"; requestId: string; agent: PluginHookAgent; name: string; input: unknown }
   | { type: "tool.cancel"; requestId: string }
@@ -61,6 +68,9 @@ export type PluginProcessRequest =
   | { type: "usage.fetch"; requestId: string; sourceId: string; input: unknown }
   | { type: "usage.discover"; requestId: string; sourceId: string; scope: UsageScope }
   | { type: "invoke"; requestId: string; method: string; input: unknown }
+  | { type: "schedule.run"; requestId: string; handler: string; scheduleId: string; runId: string }
+  | { type: "schedules.result"; requestId: string; output: unknown }
+  | { type: "schedules.error"; requestId: string; error: string }
   | {
       type: "subscribe";
       requestId: string;
@@ -99,6 +109,7 @@ export type PluginProcessMessage =
     }
   | { type: "result"; requestId: string; output: unknown }
   | { type: "error"; requestId: string; error: string }
+  | { type: "schedules.call"; requestId: string; call: PluginSchedulesCall }
   | { type: "fatal"; error: string }
   | { type: "subscription.event"; subscriptionId: string; event: unknown }
   | { type: "subscription.closed"; subscriptionId: string; error?: string }
@@ -149,6 +160,37 @@ const providerConnectRequestSchema = z
     capabilities: z.array(z.string()),
   })
   .strict();
+export const PluginSchedulesCallSchema: z.ZodType<PluginSchedulesCall> = z.discriminatedUnion(
+  "method",
+  [
+    z
+      .object({
+        method: z.literal("upsert"),
+        input: z.object({
+          name: z.string(),
+          handler: z.string().min(1),
+          prompt: z.string(),
+          cadence: ScheduleCadenceSchema,
+        }),
+      })
+      .strict(),
+    z.object({ method: z.literal("remove"), name: z.string() }).strict(),
+    z.object({ method: z.literal("list") }).strict(),
+  ],
+);
+export const PluginScheduleKeptSchema = z.object({
+  id: z.string(),
+  nextRunAt: z.string().nullable(),
+});
+export const PluginScheduleListSchema: z.ZodType<PluginSchedule[]> = z.array(
+  z.object({
+    id: z.string(),
+    name: z.string(),
+    handler: z.string(),
+    cadence: ScheduleCadenceSchema,
+    nextRunAt: z.string().nullable(),
+  }),
+);
 const frameFields = {
   data: z.union([z.string(), z.instanceof(Uint8Array)]),
   isBinary: z.boolean(),
@@ -256,6 +298,29 @@ export const PluginProcessRequestSchema: z.ZodType<PluginProcessRequest> = z.dis
       .strict(),
     z
       .object({
+        type: z.literal("schedule.run"),
+        requestId: z.string().min(1),
+        handler: z.string().min(1),
+        scheduleId: z.string().min(1),
+        runId: z.string().min(1),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("schedules.result"),
+        requestId: z.string().min(1),
+        output: z.unknown(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("schedules.error"),
+        requestId: z.string().min(1),
+        error: z.string(),
+      })
+      .strict(),
+    z
+      .object({
         type: z.literal("subscribe"),
         requestId: z.string().min(1),
         subscriptionId: z.string().min(1),
@@ -307,6 +372,13 @@ export const PluginProcessMessageSchema: z.ZodType<PluginProcessMessage> = z.dis
       .strict(),
     z
       .object({ type: z.literal("error"), requestId: z.string().min(1), error: z.string() })
+      .strict(),
+    z
+      .object({
+        type: z.literal("schedules.call"),
+        requestId: z.string().min(1),
+        call: PluginSchedulesCallSchema,
+      })
       .strict(),
     z.object({ type: z.literal("fatal"), error: z.string() }).strict(),
     z

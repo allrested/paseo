@@ -289,6 +289,88 @@ test("boards and wake state reach subscribers and the next snapshot", async () =
   await Promise.all([first.done, second.done]);
 });
 
+const NOTES = {
+  folderSet: true,
+  writing: true,
+  writtenAt: null,
+  failedAgentId: null,
+  problem: null,
+  scheduleError: null,
+};
+
+test("the notes reach subscribers in a snapshot, and the same notes again send nothing", async () => {
+  const harness = startHarness({ agents: [], workspaces: [] });
+  harness.hub.setNotes(NOTES);
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(subscriber.events).toEqual([
+    {
+      type: "snapshot",
+      state: {
+        agents: [],
+        workspaces: [],
+        activity: {},
+        doing: {},
+        boards: {},
+        wake: EMPTY_WAKE,
+        notes: NOTES,
+      },
+    },
+  ]);
+  harness.hub.setNotes({ ...NOTES });
+  expect(subscriber.events).toHaveLength(1);
+  harness.hub.setNotes({ ...NOTES, writing: false, writtenAt: 1 });
+  expect(subscriber.events.at(-1)).toMatchObject({
+    type: "snapshot",
+    state: { notes: { writing: false, writtenAt: 1 } },
+  });
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("with no office open, a read opens the directory for itself and closes it", async () => {
+  const harness = startHarness({ agents: [agent("a", "idle")], workspaces: [] });
+  harness.hub.setBoard("lobby", [note("p1")]);
+  expect(await harness.hub.read()).toEqual({
+    agents: [agent("a", "idle")],
+    workspaces: [],
+    activity: {},
+    doing: {},
+    boards: { lobby: [note("p1")] },
+    wake: EMPTY_WAKE,
+  });
+  expect(harness.directory.opens).toBe(1);
+  expect(harness.directory.stops).toBe(1);
+  // The hub stays idle: the next subscriber opens its own directory.
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  expect(harness.directory.opens).toBe(2);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
+test("with no office open, a read names a numbered sub-agent after its parent", async () => {
+  const parent = { ...agent("p", "idle"), title: "Mjd" };
+  const numbered = { ...agent("c1", "running"), parentAgentId: "p", number: 1 };
+  const harness = startHarness({ agents: [parent, numbered], workspaces: [] });
+  const { agents } = await harness.hub.read();
+  expect(agents.find((one) => one.id === "c1")?.name).toBe("Mjd-1");
+});
+
+test("with an office open, a read is what its subscribers see, and opens nothing more", async () => {
+  const harness = startHarness({ agents: [agent("a", "running")], workspaces: [] });
+  const subscriber = subscribe(harness.hub);
+  await settle();
+  harness.activity.emit({ a: "Thinking" });
+  expect(await harness.hub.read()).toMatchObject({
+    agents: [agent("a", "running")],
+    activity: { a: "Thinking" },
+  });
+  expect(harness.directory.opens).toBe(1);
+  subscriber.controller.abort();
+  await subscriber.done;
+});
+
 test("a directory that cannot open refuses the subscriber, and the next one tries again", async () => {
   const harness = startHarness({ agents: [], workspaces: [] });
   harness.directory.failure = new Error("directory down");

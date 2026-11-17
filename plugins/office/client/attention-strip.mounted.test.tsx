@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AttentionStrip, fadeShown, type StripCard } from "./attention-strip.js";
-import type { AttentionEntry } from "./model.js";
+import type { AttentionEntry } from "../shared/model.js";
 import { useOfficeStyles } from "./styles.js";
 
 vi.mock("@getpaseo/plugin/client/ui", async () => {

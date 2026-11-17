@@ -2,7 +2,13 @@ import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import { stateLabel } from "./agent-card.js";
-import { agentMeta, agentTitle, dotTone, type OfficeRoom, type OfficeRow } from "./model.js";
+import {
+  agentMeta,
+  agentTitle,
+  dotTone,
+  type OfficeRoom,
+  type OfficeRow,
+} from "../shared/model.js";
 import { PermissionActions } from "./permission-actions.js";
 import { RoomBoard } from "./room-board.js";
 import type { OfficeStyles } from "./styles.js";

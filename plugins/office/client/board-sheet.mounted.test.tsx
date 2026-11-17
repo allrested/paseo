@@ -9,7 +9,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { OfficeAgent, OfficeSnapshot } from "../shared/contracts.js";
 import { BoardSheet } from "./board-sheet.js";
-import { buildOfficeModel, type OfficeRoom } from "./model.js";
+import { buildOfficeModel, type OfficeRoom } from "../shared/model.js";
 import { useOfficeStyles } from "./styles.js";
 import type { BoardActions } from "./use-board-actions.js";
 

@@ -10,9 +10,11 @@ import {
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
-import { worldRpc, type Machine } from "../../shared/contracts.js";
+import { useToast } from "@getpaseo/plugin/client/ui";
+import { notesWriteRpc, worldRpc, type Machine } from "../../shared/contracts.js";
+import { failureText } from "../action-button.js";
 import type { FocusRequest } from "../focus-request.js";
-import type { OfficeModel } from "../model.js";
+import type { OfficeModel } from "../../shared/model.js";
 import { NO_RESTS, restsAfter, type Rests } from "../pixel/actors.js";
 import type { OfficeStyles } from "../styles.js";
 import {
@@ -62,6 +64,8 @@ export interface WorldViewProps {
   onOpenResources: (() => void) | undefined;
   /** A tap on the library: its chip or the bookshelf. */
   onOpenLibrary(): void;
+  /** A tap on the label over the meeting room's screen. */
+  onOpenNotes(): void;
   /** The stand-up is open: the bell on the meeting table rings once. */
   meeting: boolean;
   /** The script could not load, the office could not start, or the WebGL context was lost. */
@@ -95,12 +99,24 @@ export function WorldView({
   onOpenMachine,
   onOpenResources,
   onOpenLibrary,
+  onOpenNotes,
   meeting,
   onProblem,
 }: WorldViewProps) {
   const containerId = useId();
   const loadState = useSyncExternalStore(subscribe, read, read);
   const fetchWorld = useRpc(worldRpc);
+  const writeNotes = useRpc(notesWriteRpc);
+  const toast = useToast();
+  // A click on the bell has the stand-up notes written. Whether a writer started is not waited
+  // for: the Stand-up card's line says what the writer does.
+  const onBell = useCallback(async () => {
+    try {
+      await writeNotes({});
+    } catch (error) {
+      toast.error(failureText("Write the stand-up notes", error));
+    }
+  }, [writeNotes, toast]);
   const world = useRef<WorldApi | null>(null);
   const memory = useRef<WorldMemory | null>(null);
   // Since when each person rests: the scene sends home whoever rested 30 minutes after 21:00.
@@ -118,6 +134,8 @@ export function WorldView({
     onOpenMachine,
     onOpenResources,
     onOpenLibrary,
+    onOpenNotes,
+    onBell,
     onProblem,
   });
   useEffect(() => {
@@ -131,6 +149,8 @@ export function WorldView({
       onOpenMachine,
       onOpenResources,
       onOpenLibrary,
+      onOpenNotes,
+      onBell,
       onProblem,
     };
   }, [
@@ -143,6 +163,8 @@ export function WorldView({
     onOpenMachine,
     onOpenResources,
     onOpenLibrary,
+    onOpenNotes,
+    onBell,
     onProblem,
   ]);
 
@@ -226,6 +248,12 @@ export function WorldView({
                   latest.current.onOpenResources?.();
                 },
               }),
+          // The bell opens nothing of Paseo's: the keyboard stays in the office.
+          onBell: () => void latest.current.onBell(),
+          onNotes: () => {
+            focusApp();
+            latest.current.onOpenNotes();
+          },
           onProblem: (message) => latest.current.onProblem(message),
         });
       } catch (error) {

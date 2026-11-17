@@ -134,6 +134,10 @@ export interface WorldStartOptions {
    * screen can be chosen only while `onMachine` is given and the host has a reading (`setMachine`).
    */
   onResources?(): void;
+  /** The bell on the meeting table was clicked. `meet()` rings it without telling. */
+  onBell?(): void;
+  /** The label over the meeting room's screen was chosen. Absent: the scene shows no label. */
+  onNotes?(): void;
   /** A short line the office says once. */
   onToast?(text: string): void;
 }

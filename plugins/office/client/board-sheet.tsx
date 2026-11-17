@@ -7,7 +7,7 @@ import { textAfterSend } from "./agent-card.js";
 import { AgentPicker } from "./agent-picker.js";
 import { NOBODY, choiceLabel, closeStep, keptChoice } from "./agent-picker-text.js";
 import { orderBoardPosts } from "./board-text.js";
-import type { OfficeRoom } from "./model.js";
+import type { OfficeRoom } from "../shared/model.js";
 import { PostRow } from "./room-board.js";
 import { focusById, listenForSpace } from "./web-env.web.js";
 import type { OfficeStyles } from "./styles.js";

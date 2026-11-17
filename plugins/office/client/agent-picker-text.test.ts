@@ -9,7 +9,7 @@ import {
   sheetLeavesFirstOn,
   showsSearch,
 } from "./agent-picker-text.js";
-import { buildOfficeModel, type OfficeRoom } from "./model.js";
+import { buildOfficeModel, type OfficeRoom } from "../shared/model.js";
 
 function agent(id: string, patch: Partial<OfficeAgent> = {}): OfficeAgent {
   return {

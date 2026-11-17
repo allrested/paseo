@@ -5,7 +5,7 @@ import type {
   OfficeWorkspace,
   Post,
   WorkspacePullRequest,
-} from "../shared/contracts.js";
+} from "./contracts.js";
 import { buildOfficeModel } from "./model.js";
 import {
   askHint,

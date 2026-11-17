@@ -167,6 +167,23 @@ export const ActivityStepSchema = z.object({
   result: z.enum(TEST_RESULTS).optional(),
 });
 
+/** The stand-up notes writer, and the 8:00 schedule that starts it. */
+export const NotesStateSchema = z.object({
+  /** A notes folder is set in the office's settings. */
+  folderSet: z.boolean(),
+  /** A writer is at work. */
+  writing: z.boolean(),
+  /** Epoch ms of the last finished write; null before the first. */
+  writtenAt: z.number().nullable(),
+  /** The writer that stopped on an error, left for the owner. */
+  failedAgentId: z.string().nullable(),
+  /** Why the last write could not start or stopped; null when it went well. */
+  problem: z.string().nullable(),
+  /** Why the 8:00 schedule could not follow the settings; null once it does. */
+  scheduleError: z.string().nullable(),
+});
+export type NotesState = z.output<typeof NotesStateSchema>;
+
 export const OfficeSnapshotSchema = z.object({
   agents: z.array(OfficeAgentSchema),
   workspaces: z.array(OfficeWorkspaceSchema),
@@ -176,6 +193,8 @@ export const OfficeSnapshotSchema = z.object({
   doing: z.record(z.string(), ActivityStepSchema).optional(),
   boards: z.record(z.string(), z.array(PostSchema)),
   wake: WakeStateSchema,
+  /** Absent until the office's server has read the writer's state. */
+  notes: NotesStateSchema.optional(),
 });
 export type OfficeSnapshot = z.output<typeof OfficeSnapshotSchema>;
 
@@ -329,6 +348,29 @@ export const skillsRpc = defineRpc({
   output: SkillsResultSchema,
 });
 
+/**
+ * A month of the stand-up notes, `YYYYMM`, read from the notes folder; this month in the notes
+ * time zone when none is asked for. Only six digits are taken, so a month cannot name a path.
+ */
+export const notesReadRpc = defineRpc({
+  name: "office.notes.read.request",
+  input: z.object({
+    month: z
+      .string()
+      .regex(/^\d{6}$/)
+      .optional(),
+  }),
+  output: z.object({
+    folderSet: z.boolean(),
+    month: z.string(),
+    /** The file's text; null when the month has no file. */
+    text: z.string().nullable(),
+    /** The nearest earlier and later months that have a file; null where none. */
+    previous: z.string().nullable(),
+    next: z.string().nullable(),
+  }),
+});
+
 /** A snapshot, then changes. */
 export const officeStateSubscription = defineSubscription({
   name: "office.state",
@@ -363,6 +405,16 @@ export const setWakesPausedRpc = defineRpc({
   name: "office.set_wakes_paused.request",
   input: z.object({ paused: z.boolean() }),
   output: WakeStateSchema,
+});
+
+/**
+ * Starts the stand-up notes writer, as the bell does. `started` is false when none started: one
+ * is at work, no folder is set, or it could not start (the snapshot's `notes.problem` says why).
+ */
+export const notesWriteRpc = defineRpc({
+  name: "office.notes.write.request",
+  input: z.object({}),
+  output: z.object({ started: z.boolean() }),
 });
 
 /**

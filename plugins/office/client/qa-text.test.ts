@@ -8,7 +8,7 @@ import type {
   WorkspacePullRequest,
   WorkspaceScript,
 } from "../shared/contracts.js";
-import { buildOfficeModel } from "./model.js";
+import { buildOfficeModel } from "../shared/model.js";
 import { logCaption, qaNote, qaSummary, qaTeams } from "./qa-text.js";
 
 function agent(id: string, patch: Partial<OfficeAgent> = {}): OfficeAgent {

@@ -1,7 +1,7 @@
 import type { WorkspaceCheck, WorkspaceScript } from "../shared/contracts.js";
-import type { HostNote } from "./machine-text.js";
-import { agentTitle, type OfficeModel, type OfficeRoom } from "./model.js";
-import { pullRequestRef, teamName } from "./standup-text.js";
+import type { HostNote } from "../shared/machine-text.js";
+import { agentTitle, type OfficeModel, type OfficeRoom } from "../shared/model.js";
+import { pullRequestRef, teamName } from "../shared/standup-text.js";
 
 /** A check that fails or runs: the ones a pipeline is watched for. */
 export interface QaCheck {

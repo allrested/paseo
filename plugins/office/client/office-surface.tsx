@@ -10,12 +10,18 @@ import {
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
+  useRpc,
   useSettings,
   type PluginScreenProps,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
-import type { Machine } from "../shared/contracts.js";
-import { OFFICE_VIEWS, officeDeviceSettings, type OfficeViewChoice } from "../shared/settings.js";
+import { notesReadRpc, type Machine } from "../shared/contracts.js";
+import {
+  OFFICE_VIEWS,
+  officeDeviceSettings,
+  officeHostSettings,
+  type OfficeViewChoice,
+} from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
 import { AgentCard } from "./agent-card.js";
 import { sheetLeavesFirstOn } from "./agent-picker-text.js";
@@ -27,13 +33,13 @@ import { HostSwitches } from "./host-switches.js";
 import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
-import { hostNote, namedMachine, type HostNote } from "./machine-text.js";
+import { hostNote, namedMachine, type HostNote } from "../shared/machine-text.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
   type OfficeModel,
   type OfficeRoom,
-} from "./model.js";
+} from "../shared/model.js";
 import type { FocusRequest } from "./focus-request.js";
 import { PixelOffice } from "./pixel/pixel-office.js";
 import { StructureView } from "./structure-view.js";
@@ -41,6 +47,8 @@ import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
 import { LibraryCard } from "./library-card.js";
+import { NotesCard } from "./notes-card.js";
+import { todayZone } from "./notes-text.js";
 import { QaCard } from "./qa-card.js";
 import { ReviewCard } from "./review-card.js";
 import { StandupCard } from "./standup-card.js";
@@ -374,6 +382,13 @@ function useViewChoice(platform: Platform): ViewChoiceState {
   };
 }
 
+/** The zone the stand-up notes' "today" is judged in, from the host's notes time zone. */
+function useNotesTimeZone(): string {
+  const settings = useSettings(officeHostSettings);
+  const setting = settings.status === "ready" ? settings.values.notesTimeZone : "";
+  return useMemo(() => todayZone(setting), [setting]);
+}
+
 interface SceneProblemProps {
   message: string;
   onRetry(): void;
@@ -437,6 +452,8 @@ interface SurfaceBodyProps {
   /** The 3D wall screen's: absent on an app that cannot show Resources beside the floor. */
   onOpenResources: (() => void) | undefined;
   onOpenLibrary(): void;
+  /** The 3D office's label over the meeting room's screen. */
+  onOpenNotes(): void;
   janitor: HostNote | null;
   onOpenJanitor(): void;
   /** The stand-up is open. */
@@ -463,6 +480,7 @@ function SurfaceBody({
   onOpenMachine,
   onOpenResources,
   onOpenLibrary,
+  onOpenNotes,
   janitor,
   onOpenJanitor,
   meeting,
@@ -502,6 +520,7 @@ function SurfaceBody({
         onOpenMachine={onOpenMachine}
         onOpenResources={onOpenResources}
         onOpenLibrary={onOpenLibrary}
+        onOpenNotes={onOpenNotes}
         meeting={meeting}
         onProblem={onSceneProblem}
       />
@@ -556,6 +575,26 @@ function useBoardSheet(model: OfficeModel, live: boolean): BoardSheetState {
   return { room, open: setRoomId, close };
 }
 
+interface NotesCardState {
+  open: boolean;
+  /** When the card last opened: its line's "today". */
+  openedAt: number;
+  show(): void;
+  close(): void;
+}
+
+/** Whether the stand-up notes card is open: never while the data is frozen. */
+function useNotesCard(live: boolean): NotesCardState {
+  const [opened, setOpened] = useState(false);
+  const [openedAt, setOpenedAt] = useState(0);
+  const show = useCallback(() => {
+    setOpenedAt(Date.now());
+    setOpened(true);
+  }, []);
+  const close = useCallback(() => setOpened(false), []);
+  return { open: opened && live, openedAt, show, close };
+}
+
 /** One surface for both places: the sidebar screen and a workspace tab. */
 export function OfficeSurface(props: OfficeSurfaceProps) {
   const { theme, layout, navigation } = props;
@@ -578,6 +617,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const [janitorOpen, setJanitorOpen] = useState(false);
   const openJanitor = useCallback(() => setJanitorOpen(true), []);
   const closeJanitor = useCallback(() => setJanitorOpen(false), []);
+  const readNotes = useRpc(notesReadRpc);
+  const notesTimeZone = useNotesTimeZone();
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const machine = useMemo(() => namedMachine(reading, model.agents), [reading, model.agents]);
@@ -589,7 +630,23 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   // In error or closed the data is frozen: no strip, no card and no board sheet to act on it.
   const live = office.subscription.status !== "error" && office.subscription.status !== "closed";
   const board = useBoardSheet(model, live);
+  const notesCard = useNotesCard(live);
+  const { show: openNotes, close: closeNotes } = notesCard;
   const standup = useStandup(model, boardActions.post, live);
+  const { close: closeStandup } = standup;
+  // One card at a time: the Stand-up card leaves for the notes, and either leaves for the writer.
+  const notesFromStandup = useCallback(() => {
+    closeStandup();
+    openNotes();
+  }, [closeStandup, openNotes]);
+  const openWriter = useMemo(() => {
+    if (navigation === undefined) return undefined;
+    return (agentId: string) => {
+      closeStandup();
+      closeNotes();
+      navigation.openAgent({ agentId });
+    };
+  }, [navigation, closeStandup, closeNotes]);
   const showWorkspace = useMemo(() => {
     if (navigation === undefined) return undefined;
     return (workspaceId: string) => navigation.openWorkspace({ workspaceId });
@@ -668,6 +725,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           actions={boardActions}
           styles={styles}
           deviceProblem={viewChoice.unsaved ? UNSAVED_VIEW : null}
+          scheduleError={office.state.notes?.scheduleError ?? null}
         >
           <ViewSwitch
             options={viewChoice.options}
@@ -708,6 +766,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onOpenMachine={openMachine}
         onOpenResources={openResources}
         onOpenLibrary={library.show}
+        onOpenNotes={openNotes}
         janitor={janitorEntry?.note ?? null}
         onOpenJanitor={openJanitor}
         meeting={standup.open}
@@ -740,8 +799,23 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         open={standup.open}
         ask={standup.ask}
         wakesPaused={office.state.wake.paused}
+        notes={office.state.notes}
+        now={standup.at}
+        timeZone={notesTimeZone}
+        onOpenAgent={openWriter}
+        onOpenNotes={notesFromStandup}
         styles={styles}
         onClose={standup.close}
+      />
+      <NotesCard
+        open={notesCard.open}
+        notes={office.state.notes}
+        now={notesCard.openedAt}
+        timeZone={notesTimeZone}
+        read={readNotes}
+        onOpenAgent={openWriter}
+        styles={styles}
+        onClose={closeNotes}
       />
       <ReviewCard
         rows={reviews.rows}

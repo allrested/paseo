@@ -7,12 +7,17 @@ export type {
 } from "./usage.js";
 export type {
   PluginHandlerContext,
+  PluginSchedule,
+  PluginScheduleInput,
+  PluginScheduleRunContext,
+  PluginSchedules,
   PluginServerContext,
   PluginServerContribution,
   PluginSettings,
   PluginSettingsState,
   PluginSubscriptionContext,
 } from "./contracts.js";
+export type { ScheduleCadence } from "@getpaseo/protocol/schedule/types";
 export type {
   PluginHooks,
   PluginHookEvents,

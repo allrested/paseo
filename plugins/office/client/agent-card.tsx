@@ -7,7 +7,13 @@ import { ActionButton, failureText } from "./action-button.js";
 import { reasonLabel } from "./attention-strip.js";
 import { openSessionWith } from "./beside.js";
 import { contextLine } from "./context-text.js";
-import { agentMeta, agentTask, agentTitle, answerableInOffice, attentionReason } from "./model.js";
+import {
+  agentMeta,
+  agentTask,
+  agentTitle,
+  answerableInOffice,
+  attentionReason,
+} from "../shared/model.js";
 import { PermissionActions } from "./permission-actions.js";
 import type { OfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";

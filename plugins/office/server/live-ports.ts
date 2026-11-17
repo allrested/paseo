@@ -1,10 +1,13 @@
+import { stat } from "node:fs/promises";
 import { ACTIVITY_TAIL_LIMIT, startActivityPoller } from "./activity.js";
 import type { Hub, HubPorts } from "./hub.js";
 import type { JanitorPorts } from "./janitor.js";
 import { wakeTargetOf } from "./mention-queue.js";
+import { entryWritten, nodeNotesFs } from "./notes-files.js";
+import type { NotesPorts } from "./notes-writer.js";
 import type { OfficeAgentPorts } from "./office.js";
 import { openPaseoDirectory } from "./paseo-directory.js";
-import type { PaseoHolder } from "./paseo-holder.js";
+import type { Paseo, PaseoHolder } from "./paseo-holder.js";
 import type { SkillFolder } from "./paths.js";
 import type { ScriptLogPorts } from "./script-log.js";
 import { nodeSkillFiles, type SkillsPorts } from "./skills.js";
@@ -125,5 +128,66 @@ export function liveScriptLogPorts(
       return { lines: captured.lines, total: captured.totalLines };
     },
     now,
+  };
+}
+
+type AgentConfig = Parameters<Paseo["agents"]["create"]>[0]["config"];
+
+// Claude's "Accept File Edits", which a provider extending Claude lists too. The owner's call:
+// nobody watches the 8:00 writer, so it edits the notes without asking.
+const ACCEPT_EDITS_MODE = "acceptEdits";
+
+/**
+ * The host's default provider, as the host can tell it. The app's new-agent form starts from the
+ * provider the device chose last, which the host never sees; so this takes the first enabled,
+ * ready provider in the daemon's order, with the model the form gives that provider: its default
+ * (else its first selectable one). The mode is the provider's that accepts edits, else its
+ * default: Codex's and OpenCode's default modes edit in the workspace without asking already.
+ */
+async function defaultAgentConfig(paseo: Paseo, cwd: string): Promise<AgentConfig> {
+  const { entries } = await paseo.providers.waitForReady({ cwd });
+  const entry = entries.find((candidate) => candidate.enabled && candidate.status === "ready");
+  if (entry === undefined) throw new Error("No agent provider is ready on this host");
+  const models = (entry.models ?? []).filter((model) => model.isSelectable !== false);
+  const model = models.find((candidate) => candidate.isDefault) ?? models[0];
+  if (model === undefined) {
+    throw new Error(`The provider ${entry.label ?? entry.provider} offers no model`);
+  }
+  const acceptsEdits = (entry.modes ?? []).some((mode) => mode.id === ACCEPT_EDITS_MODE);
+  const modeId = acceptsEdits ? ACCEPT_EDITS_MODE : entry.defaultModeId;
+  return {
+    provider: `${entry.provider}/${model.id}`,
+    ...(modeId ? { modeId } : {}),
+  };
+}
+
+/** The notes writer's ports on the daemon's own API and disk; the caller adds the rest. */
+export function liveNotesPorts(
+  holder: PaseoHolder,
+  hub: Pick<Hub, "read">,
+): Pick<NotesPorts, "snapshot" | "isDirectory" | "startAgent" | "archive" | "alive" | "hasEntry"> {
+  return {
+    snapshot: () => hub.read(),
+    isDirectory: (path) =>
+      stat(path).then(
+        (found) => found.isDirectory(),
+        () => false,
+      ),
+    async startAgent({ cwd, title, prompt }) {
+      const paseo = holder.require();
+      const config = await defaultAgentConfig(paseo, cwd);
+      const workspace = await paseo.workspaces.open(cwd);
+      const agent = await workspace.agents.create({ config, title, prompt });
+      return agent.id;
+    },
+    async archive(agentId) {
+      await holder.require().agents.ref(agentId).archive();
+    },
+    async alive(agentId) {
+      const result = await holder.require().agents.ref(agentId).refresh();
+      if (result === null || result.agent.archivedAt) return false;
+      return result.agent.status === "running" || result.agent.status === "initializing";
+    },
+    hasEntry: ({ folder, ...day }) => entryWritten(folder, day, nodeNotesFs),
   };
 }

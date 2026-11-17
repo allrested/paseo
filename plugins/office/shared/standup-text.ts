@@ -1,4 +1,4 @@
-import type { Post, WorkspacePullRequest, WorkspaceTicket } from "../shared/contracts.js";
+import type { Post, WorkspacePullRequest, WorkspaceTicket } from "./contracts.js";
 import type { HostNote } from "./machine-text.js";
 import {
   agentTitle,

@@ -1,4 +1,5 @@
 import type { PaseoApi } from "@getpaseo/client";
+import type { ScheduleCadence } from "@getpaseo/protocol/schedule/types";
 import type { ZodType, input as ZodInput, output as ZodOutput } from "zod";
 import type { PluginRpcContract, PluginSubscriptionContract, PluginWireInput } from "../rpc.js";
 import type { PluginCleanup } from "../contracts.js";
@@ -39,6 +40,40 @@ export interface PluginSettings<Schema extends ZodType> {
   subscribe(listener: (state: PluginSettingsState<Schema>) => void | Promise<void>): PluginCleanup;
 }
 
+/** What `server.schedules.upsert` keeps. */
+export interface PluginScheduleInput {
+  /** Picks the schedule among this plugin's own. */
+  name: string;
+  /** The `handleSchedule` name that answers the schedule when it is due. */
+  handler: string;
+  /** A label for the schedule. */
+  prompt: string;
+  cadence: ScheduleCadence;
+}
+
+export interface PluginSchedule {
+  id: string;
+  name: string;
+  handler: string;
+  cadence: ScheduleCadence;
+  nextRunAt: string | null;
+}
+
+/** This plugin's schedules. The daemon stores them, so they keep running after a restart. */
+export interface PluginSchedules {
+  /** Creates or updates this plugin's schedule of that name. */
+  upsert(input: PluginScheduleInput): Promise<{ id: string; nextRunAt: string | null }>;
+  /** Resolves `false` when this plugin has no schedule of that name. */
+  remove(name: string): Promise<boolean>;
+  list(): Promise<PluginSchedule[]>;
+}
+
+/** What a schedule handler receives for one run. */
+export interface PluginScheduleRunContext extends PluginHandlerContext {
+  scheduleId: string;
+  runId: string;
+}
+
 export interface PluginServerContext extends PluginLifecycleRegistration {
   registerSettings<Schema extends ZodType>(
     definition: import("../settings.js").SettingsDefinition<Schema>,
@@ -64,6 +99,15 @@ export interface PluginServerContext extends PluginLifecycleRegistration {
   ): void;
   registerProvider(provider: ProviderRegistration): void;
   registerUsageSource(source: UsageSourceRegistration): void;
+  schedules: PluginSchedules;
+  /**
+   * Answers a due schedule that names `handler`. The returned promise ends the run; a rejection
+   * fails it. Returns a function that stops answering.
+   */
+  handleSchedule(
+    handler: string,
+    run: (context: PluginScheduleRunContext) => Promise<void>,
+  ): () => void;
 }
 
 export type PluginServerContribution = (server: PluginServerContext) => PluginCleanup;
