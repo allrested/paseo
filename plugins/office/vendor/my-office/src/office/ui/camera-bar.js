@@ -70,7 +70,7 @@ const BAR = `
  * accent is the app's, where it stays legible on it.
  */
 const STYLE = `
-.toolbar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px; background: rgba(15, 20, 28, .84); -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); border: 1px solid rgba(255, 255, 255, .13); border-radius: 15px; box-shadow: 0 12px 32px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .05); z-index: 2; max-width: calc(100% - 24px); }
+.toolbar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px; color: #E8ECF4; background: rgba(15, 20, 28, .84); -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); border: 1px solid rgba(255, 255, 255, .13); border-radius: 15px; box-shadow: 0 12px 32px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .05); z-index: 2; max-width: calc(100% - 24px); }
 .toolbar.tb-pinned { left: auto; transform: none; }
 .tb-seg, .tb-zoom, .tb-tools { display: flex; align-items: center; gap: 2px; height: 40px; padding: 3px; box-sizing: border-box; border-radius: 11px; background: rgba(255, 255, 255, .045); }
 .seg-btn { all: unset; position: relative; height: 34px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 8px; font-size: .8rem; font-weight: 600; color: #8D97AA; cursor: pointer; white-space: nowrap; transition: background .18s, color .18s, padding .22s ease; }

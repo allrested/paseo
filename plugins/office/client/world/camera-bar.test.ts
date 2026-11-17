@@ -245,3 +245,11 @@ test("every element ui/photo.js wires is built before the modules run", () => {
     expect(document.getElementById(id), id).not.toBeNull();
   }
 });
+
+test("the bar's text stays light on its dark track in either theme", () => {
+  // Paseo's page colours its text with the theme's foreground, near-black in the light theme: the
+  // bar sets upstream's light ink itself so nothing in it inherits that.
+  build();
+  const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  expect(css).toMatch(/\.toolbar \{[^}]*color: #E8ECF4;/);
+});
