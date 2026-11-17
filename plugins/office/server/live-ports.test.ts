@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { liveAgentPorts, liveNotesPorts } from "./live-ports.js";
+import { liveAgentPorts, liveChatPorts, liveNotesPorts } from "./live-ports.js";
 import type { PaseoHolder } from "./paseo-holder.js";
 
 interface FakeAgent {
@@ -88,6 +88,46 @@ test("a wake names its source agent; a wake as from the user names none and neve
       options: { activeTurnBehavior: "steer" },
     },
   ]);
+});
+
+test("a chat prompt steers a running turn", async () => {
+  const sent: Sent[] = [];
+  const ports = liveChatPorts(fakeHolder(sent));
+  await ports.send("run", "Team chat message from you: hi");
+  expect(sent).toEqual([
+    {
+      agentId: "run",
+      text: "Team chat message from you: hi",
+      options: { activeTurnBehavior: "steer" },
+    },
+  ]);
+});
+
+test("the answer is the last assistant message of the turn the hook names", async () => {
+  let options: unknown = null;
+  const entries = [
+    { turnId: "t0", item: { type: "assistant_message", text: "Earlier." } },
+    { turnId: "t1", item: { type: "user_message", text: "hi" } },
+    { turnId: "t1", item: { type: "assistant_message", text: "Done." } },
+  ];
+  const paseo = {
+    agents: {
+      ref: () => ({
+        timeline: {
+          refetch: async (given: unknown) => {
+            options = given;
+            return { entries };
+          },
+        },
+      }),
+    },
+  };
+  const holder = { remember: () => undefined, require: () => paseo } as unknown as PaseoHolder;
+  const ports = liveChatPorts(holder);
+  expect(await ports.lastAnswer("a", "t1")).toBe("Done.");
+  expect(options).toEqual({ direction: "tail", limit: 1, wholeTurns: true });
+  expect(await ports.lastAnswer("a", null)).toBeNull();
+  expect(await ports.lastAnswer("a", "t9")).toBeNull();
 });
 
 interface Created {

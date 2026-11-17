@@ -7,6 +7,8 @@ import type {
 } from "@getpaseo/plugin/server";
 import { createWorldScript, worldEntryPath, type WorldScript } from "./server/world-script.js";
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
+import { createChatService, type ChatService } from "./server/chat-service.js";
+import { createChatStore, type ChatStore } from "./server/chat-store.js";
 import { errorMessage } from "./server/errors.js";
 import { createHub } from "./server/hub.js";
 import { createIncidentsCheck, type IncidentsCheckState } from "./server/incidents-check.js";
@@ -21,6 +23,7 @@ import { createIncidentsStore, type IncidentsStore } from "./server/incidents-st
 import { tidyAgent } from "./server/janitor.js";
 import {
   liveAgentPorts,
+  liveChatPorts,
   liveHubPorts,
   liveJanitorPorts,
   liveNotesPorts,
@@ -38,6 +41,7 @@ import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import {
   boardsFile,
+  chatFile,
   hostSkillFolders,
   incidentsFile,
   notesWriterFile,
@@ -47,6 +51,7 @@ import { readScriptLog } from "./server/script-log.js";
 import { readSkills } from "./server/skills.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
+  chatRpc,
   cleanupRpc,
   clearDoneRpc,
   deleteRpc,
@@ -63,6 +68,7 @@ import {
   updateRpc,
   worldRpc,
 } from "./shared/contracts.js";
+import { chatT } from "./shared/chat-words.js";
 import { officeHostSettings } from "./shared/settings.js";
 
 /** What the daemon passes a built-in beside the server context (as in plugins/default-skills). */
@@ -79,6 +85,8 @@ export interface OfficePluginDeps {
   notesStore: NotesStore;
   /** Where the incidents check keeps the open incidents and what each tracker has shown. */
   incidentsStore: IncidentsStore;
+  /** Where the team chat keeps its conversation. */
+  chatStore: ChatStore;
   /** The daemon's environment: the trackers' tokens are read from it. */
   env: NodeJS.ProcessEnv;
   clock: Clock;
@@ -209,6 +217,26 @@ export function createOfficePlugin(
   incidents
     .start()
     .catch((error: unknown) => log(`[office] incidents load failed: ${errorMessage(error)}`));
+  // One service for the office's life, made as the server starts. Its file is read first; until
+  // then the chat call waits, and a snapshot has no chat.
+  let chat: ChatService | null = null;
+  let stopWatching: (() => void) | null = null;
+  async function startChat(): Promise<void> {
+    const service = await createChatService({
+      store: deps.chatStore,
+      clock: deps.clock,
+      tr: chatT,
+      ...liveChatPorts(holder),
+      emit: (change) => hub.chatChange(change),
+      log,
+    });
+    chat = service;
+    stopWatching = hub.watch((view) => service.view(view));
+    hub.setChat(() => service.snapshot());
+  }
+  const chatReady = startChat().catch((error: unknown) =>
+    log(`[office] chat unavailable: ${errorMessage(error)}`),
+  );
   async function followSettings(
     state: PluginSettingsState<typeof officeHostSettings.schema>,
   ): Promise<void> {
@@ -326,6 +354,14 @@ export function createOfficePlugin(
   server.handle(incidentsDismissRpc, ({ ids }) =>
     guarded("incidents dismiss", async () => ({ dismissed: await incidents.dismiss(ids) })),
   );
+  server.handle(chatRpc, (input, context) => {
+    holder.remember(context.paseo);
+    return guarded("chat", async () => {
+      await chatReady;
+      if (chat === null) throw new Error("The team chat did not start");
+      return chat.request(input);
+    });
+  });
   // A check never rejects: a tracker that fails shows its problem on the Incidents card.
   const stopIncidentsRuns = server.handleSchedule(INCIDENTS_SCHEDULE, ({ paseo }) => {
     holder.remember(paseo);
@@ -352,11 +388,14 @@ export function createOfficePlugin(
         return undefined;
       }
     }),
-    server.addHook("agent.turn.after", async ({ agent, outcome }, context) => {
+    server.addHook("agent.turn.after", async ({ agent, outcome, turnId }, context) => {
       try {
         holder.remember(context.paseo);
         office.noteAgent(agent);
         office.turnEnded(agent.id);
+        void chat
+          ?.turnEnded(agent, outcome, turnId)
+          .catch((error: unknown) => log(`[office] chat turn end failed: ${errorMessage(error)}`));
       } catch (error) {
         log(`[office] agent.turn.after failed: ${errorMessage(error)}`);
       }
@@ -378,6 +417,7 @@ export function createOfficePlugin(
     server.addHook("agent.archive.after", async ({ agent }) => {
       try {
         office.agentGone(agent.id);
+        chat?.archived(agent.id);
         await writer.agentArchived(agent.id);
       } catch (error) {
         log(`[office] agent.archive.after failed: ${errorMessage(error)}`);
@@ -399,6 +439,10 @@ export function createOfficePlugin(
     for (const remove of removeHooks) remove();
     machine.stop();
     office.stop();
+    // A chat still loading would start its clock after this stop.
+    await chatReady;
+    stopWatching?.();
+    await chat?.stop();
     await hub.stop();
   };
 }
@@ -417,6 +461,11 @@ export default function contribute(
     }),
     notesStore: createNotesStore({ file: notesWriterFile(process.env, homedir()), log }),
     incidentsStore: createIncidentsStore({ file: incidentsFile(process.env, homedir()), log }),
+    chatStore: createChatStore({
+      file: chatFile(process.env, homedir()),
+      now: () => Date.now(),
+      log,
+    }),
     env: process.env,
     clock: nodeClock,
     log,
