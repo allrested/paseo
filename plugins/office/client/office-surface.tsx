@@ -10,12 +10,13 @@ import {
 import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
+  openExternalUrl,
   useRpc,
   useSettings,
   type PluginScreenProps,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
-import { notesReadRpc, type Machine } from "../shared/contracts.js";
+import { incidentsDismissRpc, notesReadRpc, type Machine } from "../shared/contracts.js";
 import {
   OFFICE_VIEWS,
   officeDeviceSettings,
@@ -29,6 +30,8 @@ import { AttentionStrip, type StripCard } from "./attention-strip.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { HostSwitches } from "./host-switches.js";
+import { IncidentsCard, type DismissIncidents } from "./incidents-card.js";
+import { incidentsEntry } from "./incidents-text.js";
 import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
@@ -594,6 +597,35 @@ function useNotesCard(live: boolean): NotesCardState {
   return { open: opened && live, openedAt, show, close };
 }
 
+interface IncidentsCardState {
+  open: boolean;
+  /** When the card last opened: its ages are counted to it. */
+  openedAt: number;
+  /** Opens the card: from the strip's entry, or from anywhere else on the surface. */
+  show(): void;
+  close(): void;
+  dismiss: DismissIncidents;
+}
+
+/** Whether the Incidents card is open, never while the data is frozen, and its Dismiss. */
+function useIncidentsCard(live: boolean): IncidentsCardState {
+  const [opened, setOpened] = useState(false);
+  const [openedAt, setOpenedAt] = useState(0);
+  const show = useCallback(() => {
+    setOpenedAt(Date.now());
+    setOpened(true);
+  }, []);
+  const close = useCallback(() => setOpened(false), []);
+  const call = useRpc(incidentsDismissRpc);
+  const dismiss = useCallback(
+    async (ids?: string[]) => {
+      await call(ids === undefined ? {} : { ids });
+    },
+    [call],
+  );
+  return { open: opened && live, openedAt, show, close, dismiss };
+}
+
 /** One surface for both places: the sidebar screen and a workspace tab. */
 export function OfficeSurface(props: OfficeSurfaceProps) {
   const { theme, layout, navigation } = props;
@@ -631,6 +663,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const board = useBoardSheet(model, live);
   const notesCard = useNotesCard(live);
   const { show: openNotes, close: closeNotes } = notesCard;
+  const incidentsCard = useIncidentsCard(live);
+  const { show: openIncidents } = incidentsCard;
   const standup = useStandup(model, boardActions.post, live);
   const { close: closeStandup } = standup;
   // One card at a time: the Stand-up card leaves for the notes, and either leaves for the writer.
@@ -702,13 +736,32 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     const note = janitorNote(contexts);
     return note === null ? null : { title: "Janitor", note, onOpen: openJanitor };
   }, [contexts, openJanitor]);
-  // The strip's cards, each only while it has something to say.
+  const incidents = office.state.incidents;
+  const incidentsStripEntry = useMemo(
+    () => incidentsEntry(incidents, openIncidents),
+    [incidents, openIncidents],
+  );
+  // The strip's cards, each only while it has something to say. An incident comes first.
   const cards = useMemo(
     () =>
-      [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry, library.entry].filter(
-        (card) => card !== null,
-      ),
-    [hostEntry, janitorEntry, standup.entry, reviews.entry, qa.entry, library.entry],
+      [
+        incidentsStripEntry,
+        hostEntry,
+        janitorEntry,
+        standup.entry,
+        reviews.entry,
+        qa.entry,
+        library.entry,
+      ].filter((card) => card !== null),
+    [
+      incidentsStripEntry,
+      hostEntry,
+      janitorEntry,
+      standup.entry,
+      reviews.entry,
+      qa.entry,
+      library.entry,
+    ],
   );
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
@@ -721,6 +774,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
           styles={styles}
           deviceProblem={viewChoice.unsaved ? UNSAVED_VIEW : null}
           scheduleError={office.state.notes?.scheduleError ?? null}
+          incidents={incidents}
         >
           <ViewSwitch
             options={viewChoice.options}
@@ -787,6 +841,15 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         tidy={tidy}
         styles={styles}
         onClose={closeJanitor}
+      />
+      <IncidentsCard
+        state={incidents}
+        open={incidentsCard.open}
+        now={incidentsCard.openedAt}
+        onDismiss={incidentsCard.dismiss}
+        onOpenUrl={openExternalUrl}
+        styles={styles}
+        onClose={incidentsCard.close}
       />
       <StandupCard
         teams={standup.teams}

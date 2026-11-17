@@ -8,7 +8,8 @@ import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { SettingsState } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { officeHostSettings } from "../shared/settings.js";
+import type { IncidentsState } from "../shared/contracts.js";
+import { officeHostSettings } from "../shared/settings.js";
 import { HostSwitches } from "./host-switches.js";
 import { useOfficeStyles } from "./styles.js";
 import type { BoardActions } from "./use-board-actions.js";
@@ -41,7 +42,13 @@ vi.mock("@getpaseo/plugin/client", () => ({
     values: stored,
     saving: false,
     saveError,
+    // As the app's hook: values the schema refuses are not sent, and its messages are the error.
     save: async (values: HostValues, revision: string) => {
+      const checked = officeHostSettings.schema.safeParse(values);
+      if (!checked.success) {
+        saveError = checked.error.issues.map((issue) => issue.message).join("\n");
+        return false;
+      }
       saved.push({ values, revision });
       return answer ?? true;
     },
@@ -63,7 +70,14 @@ const ACTIONS = {
 } as unknown as BoardActions;
 const WAKE = { paused: false, queued: {} };
 
-function Harness({ scheduleError }: { scheduleError: string | null }) {
+type Trackers = Pick<IncidentsState, "jiraReady" | "sentryReady" | "scheduleError">;
+
+interface HarnessProps {
+  scheduleError: string | null;
+  incidents: Trackers | undefined;
+}
+
+function Harness({ scheduleError, incidents }: HarnessProps) {
   const styles = useOfficeStyles(THEME, false, false);
   return (
     <HostSwitches
@@ -72,6 +86,7 @@ function Harness({ scheduleError }: { scheduleError: string | null }) {
       styles={styles}
       deviceProblem={null}
       scheduleError={scheduleError}
+      incidents={incidents}
     />
   );
 }
@@ -94,8 +109,8 @@ afterEach(() => {
   container.remove();
 });
 
-const mount = (scheduleError: string | null = null) =>
-  act(async () => root.render(<Harness scheduleError={scheduleError} />));
+const mount = (scheduleError: string | null = null, incidents?: Trackers) =>
+  act(async () => root.render(<Harness scheduleError={scheduleError} incidents={incidents} />));
 
 function field(label: string): HTMLInputElement {
   const found = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
@@ -200,4 +215,48 @@ test("a refused save shows under the field it was for", async () => {
     "Unable to save the Notes folder setting: Settings changed on another client. Reload before saving again.",
   ]);
   expect(fieldBlock("Notes folder")).toContain("Unable to save the Notes folder setting");
+});
+
+test("a bad key shows the schema's message and is not saved", async () => {
+  await mount();
+  await type("Jira projects", "SHOP, shop");
+  await leave("Jira projects");
+  expect(saved).toEqual([]);
+  // The hook reports the refusal on its next render.
+  await mount();
+  expect(fieldBlock("Jira projects")).toContain(
+    'Unable to save the Jira projects setting: jiraProjects: "shop" is not a Jira project key',
+  );
+  expect(field("Jira projects").value).toBe("");
+});
+
+const JIRA_HINT =
+  "Project keys, comma separated. Needs ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL and ATLASSIAN_API_TOKEN on the host.";
+const JIRA_UNSET =
+  "ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL or ATLASSIAN_API_TOKEN is not set on this host";
+const SENTRY_UNSET = "SENTRY_AUTH_TOKEN is not set on this host";
+
+test("a tracker's field set while its variables are not names them under it", async () => {
+  stored = { ...stored, jiraProjects: "SHOP", sentryOrg: "acme" };
+  await mount(null, { jiraReady: false, sentryReady: false, scheduleError: null });
+  expect(fieldBlock("Jira projects")).toBe("Jira projects" + JIRA_HINT + JIRA_UNSET);
+  expect(fieldBlock("Sentry organisation")).toContain(SENTRY_UNSET);
+  // An empty field says nothing, and the address always has one, so it says nothing either.
+  expect(fieldBlock("Sentry projects")).not.toContain(SENTRY_UNSET);
+  expect(fieldBlock("Sentry address")).not.toContain(SENTRY_UNSET);
+
+  await mount(null, { jiraReady: true, sentryReady: false, scheduleError: null });
+  expect(fieldBlock("Jira projects")).toBe("Jira projects" + JIRA_HINT);
+  // Before the host has said, nothing is claimed.
+  await mount(null, undefined);
+  expect(fieldBlock("Sentry organisation")).not.toContain(SENTRY_UNSET);
+});
+
+test("the incidents schedule's failure shows under the incidents fields", async () => {
+  await mount(null, { jiraReady: true, sentryReady: true, scheduleError: "Unknown handler" });
+  expect(alerts()).toEqual(["Unable to schedule the incidents check: Unknown handler"]);
+  const alert = container.querySelector('[role="alert"]');
+  if (!alert) throw new Error("No alert");
+  const after = field("Sentry address").compareDocumentPosition(alert);
+  expect(after & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });
