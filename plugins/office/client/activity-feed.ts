@@ -251,8 +251,6 @@ function sameEvent(left: FeedEvent, right: FeedEvent): boolean {
 }
 
 let store: readonly FeedEvent[] = [];
-/** The state the feed last saw; null until the office's first state of this app run. */
-let lastState: OfficeSnapshot | null = null;
 const listeners = new Set<() => void>();
 
 function tell(): void {
@@ -294,21 +292,24 @@ export const feedStore = {
   getSnapshot(): readonly FeedEvent[] {
     return store;
   },
-  /** Tests only: an empty feed and no state before, as at the start of an app run. */
+  /** Tests only: an empty feed, as at the start of an app run. Changes no caller's own state. */
   reset(): void {
     store = [];
-    lastState = null;
     tell();
   },
 };
 
 /**
- * Feeds one office state to the store, against the state before it. Every subscription to the
- * office's state calls this; one last state is enough, because the dedup by id absorbs the case
- * where two of them derive the same events. The first call has nothing before it and says nothing.
+ * Feeds one subscription's change to the store: the state it came from and the state it has now.
+ * Each caller brings its own pair, because two subscriptions to the office's state do not share
+ * an order, and a pair diffed against another caller's state could run backwards. A first state
+ * (`before === null`) says nothing: opening the office is no news. The dedup by id makes the same
+ * change seen by two callers one event.
  */
-export function recordOfficeState(state: OfficeSnapshot, now: number = Date.now()): void {
-  const derived = feedEvents(lastState, state, now);
-  lastState = state;
-  feedStore.push(derived);
+export function recordOfficeState(
+  before: OfficeSnapshot | null,
+  after: OfficeSnapshot,
+  now: number = Date.now(),
+): void {
+  feedStore.push(feedEvents(before, after, now));
 }

@@ -222,28 +222,84 @@ test("the store tells its subscribers, and only when it changed", () => {
   expect(told).toBe(2);
 });
 
-test("two subscriptions recording the same state push it once", () => {
+test("two subscriptions recording the same pair push it once", () => {
   feedStore.reset();
   const first = s({ ali: "idle" });
   const next = s({ ali: "running" });
-  recordOfficeState(first, t0);
+  recordOfficeState(null, first, t0);
   expect(feedStore.getSnapshot()).toEqual([]);
-  recordOfficeState(next, t0);
+  recordOfficeState(first, next, t0);
   expect(ids(feedStore.getSnapshot())).toEqual([`ali:running@${t0}`]);
-  // The other subscription's own view of the same state, and an equal state in a new object.
-  recordOfficeState(next, t0);
-  recordOfficeState({ ...next }, t0);
+  // The other subscription's own view of the same change, and an equal state in a new object.
+  recordOfficeState(first, next, t0);
+  recordOfficeState(first, { ...next }, t0);
+  expect(feedStore.getSnapshot()).toHaveLength(1);
+});
+
+test("each subscription diffs the pair it came from, so a late first state says nothing", () => {
+  feedStore.reset();
+  const idle = s({ ali: "idle" });
+  const running = s({ ali: "running" });
+  // The surface's own stream: its first state, then the change.
+  recordOfficeState(null, idle, t0);
+  recordOfficeState(idle, running, t0);
+  // A panel mounts late. Its snapshot is the idle state, read before the surface's change landed,
+  // and then it sees the same change. Neither call may diff the idle state as if the panel had
+  // come from the running one: that reversed pair says the agent finished.
+  recordOfficeState(null, idle, t0 + 1000);
+  recordOfficeState(idle, running, t0);
+  expect(feedStore.getSnapshot().map((event) => [event.id, event.text])).toEqual([
+    [`ali:running@${t0}`, "Started working"],
+  ]);
+});
+
+test("a failure one subscription saw is not undone by one that had not seen it", () => {
+  feedStore.reset();
+  const step = s({ ali: "running" }, { ali: { kind: "test", key: "t1" } });
+  const failed = s({ ali: "running" }, { ali: { kind: "test", key: "t1", result: "failed" } });
+  // The surface sees the step, then its end.
+  recordOfficeState(null, step, t0);
+  recordOfficeState(step, failed, t0 + 5000);
+  // The panel's own snapshot was the step before the end, then this same end. Its pair is the one
+  // the surface used, so the dedup keeps the single failed line where it happened.
+  recordOfficeState(null, step, t0 + 6000);
+  recordOfficeState(step, failed, t0 + 5000);
+  expect(feedStore.getSnapshot().map((event) => [event.id, event.text, event.at])).toEqual([
+    ["ali:t1", "Running tests failed", t0 + 5000],
+  ]);
+});
+
+test("one subscription's change is not diffed against another's state", () => {
+  feedStore.reset();
+  const idle = s({ ali: "idle" });
+  const running = s({ ali: "running" });
+  let told = 0;
+  feedStore.subscribe(() => {
+    told += 1;
+  });
+  // The surface came from idle and is now running.
+  recordOfficeState(idle, running, t0);
+  // A panel that came from its own first state, which is created while the agent already runs,
+  // and then the same running state: nothing changed for it.
+  recordOfficeState(null, running, t0 + 1000);
+  recordOfficeState(running, { ...running }, t0 + 2000);
+  // A global last state would diff the panel's own state against the surface's and see the same
+  // change twice: two tells, two lines. The pair each caller brings says nothing changed.
+  expect(told).toBe(1);
   expect(feedStore.getSnapshot()).toHaveLength(1);
 });
 
 test("an event keeps the agent's title after the agent leaves", () => {
   feedStore.reset();
-  recordOfficeState(s({ ali: { status: "running", title: "Ali One" } }), t0);
-  recordOfficeState(
-    s({ ali: { status: "running", title: "Ali One" } }, { ali: { kind: "edit", key: "k1" } }),
-    t0,
+  const alive = s({ ali: { status: "running", title: "Ali One" } });
+  const working = s(
+    { ali: { status: "running", title: "Ali One" } },
+    { ali: { kind: "edit", key: "k1" } },
   );
-  recordOfficeState(s({}, { ali: { kind: "edit", key: "k1" } }), t0);
+  const gone = s({}, { ali: { kind: "edit", key: "k1" } });
+  recordOfficeState(null, alive, t0);
+  recordOfficeState(alive, working, t0);
+  recordOfficeState(working, gone, t0);
   expect(feedStore.getSnapshot().map((event) => [event.title, event.text])).toEqual([
     ["Ali One", "Editing"],
   ]);
