@@ -21,7 +21,7 @@ The board sheet (`plugins/office/client/board-sheet.tsx`) is the same for every 
 chips, a text box, "Wake an agent with it", Post, then the posts with "Mark done" and "Delete".
 The 3D scene, the 2D floor and the structure view's room cards all open it. The room card
 (`plugins/office/client/room-board.tsx`) previews three posts. The office's room model drops done
-tasks before any view sees them (`visiblePosts` in `plugins/office/client/model.ts`).
+tasks before any view sees them (`visiblePosts` in `plugins/office/shared/model.ts`).
 
 The activity poller (`plugins/office/server/activity.ts`) reads the newest 10 timeline items of
 each running agent every 5 s for the "doing now" line and the step. Providers that keep a
@@ -141,7 +141,7 @@ Calls made in the design and shown to the owner with it:
 - `server/board-service.ts`: `clearDone(board)` deletes the board's done tasks in one commit. No
   change to the file's shape, the 200-post cap or the 7-day drop.
 - `index.server.ts`: the new RPC's handler, beside the delete handler.
-- `client/office-state.ts` and `client/model.ts`: carry the checklists; give the lobby room its
+- `client/office-state.ts` and `shared/model.ts`: carry the checklists; give the lobby room its
   to-dos with done ones included. `room.posts` keeps hiding done tasks for every other view
   (the stand-up reads it).
 - `client/board-sheet.tsx`: when the room is the lobby, the to-do body instead of the posts body.
@@ -176,7 +176,7 @@ Follow `docs/testing.md`; run only the touched test files.
   checklist kept after its item left the tail and after the agent stopped, dropped when the agent
   leaves; `clearDone` deleting only the board's done tasks in one save; the lobby room's to-dos
   in the model with done ones, other rooms unchanged; to-do order, labels and the preview.
-- Mounted (`board-sheet.mounted.test.tsx`): add with Enter and with Add, tick and untick, Clear
+- Mounted (`client/board-sheet.mounted.test.tsx`): add with Enter and with Add, tick and untick, Clear
   finished with its question, Delete, the Notes section, the agent tasks section and its empty
   line, another room's board still showing posts.
 - Live against a dev daemon with fixtures, at 390 px and 1280 px, light and dark: the lobby board
