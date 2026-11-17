@@ -59,6 +59,10 @@ export const OfficeAgentSchema = z.object({
    * earliest. Absent for any other status: a running agent's time moves with every step.
    */
   idleSince: z.string().optional(),
+  /** What the agent's turns have cost so far; absent when its provider says no cost. */
+  costUsd: z.number().nonnegative().optional(),
+  /** When the agent was last prompted; on a running or starting agent only. */
+  promptedAt: z.string().optional(),
 });
 export type OfficeAgent = z.output<typeof OfficeAgentSchema>;
 
