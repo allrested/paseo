@@ -120,6 +120,9 @@ const STYLE = `
 .fp-cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255, 255, 255, .85); box-shadow: 0 0 0 2px rgba(0, 0, 0, .35); }
 .fp-help { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; max-width: calc(100% - 140px); padding: 8px 14px; border-radius: 12px; background: rgba(17, 23, 32, .8); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, .13); font-size: .76rem; color: #8D97AA; }
 .fp-help b { color: #F2B544; white-space: nowrap; }
+/* (Paseo's incident banner is at the stage's top too, 12 px down and about 30 px tall: while it shows, the help line
+   goes under it; at 520 px and narrower it is at 56 px already) */
+@media (min-width: 521px) { #stage-wrap:has(> #incident:not([hidden])) .fp-help { top: 52px; } }
 .fp-exit { all: unset; pointer-events: auto; position: absolute; right: 14px; top: 12px; height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 10px; background: rgba(17, 23, 32, .86); border: 1px solid rgba(255, 255, 255, .13); color: #E8ECF4; font-size: .78rem; font-weight: 700; cursor: pointer; }
 .fp-exit:hover { background: #1E2734; }
 .fp-near { all: unset; pointer-events: auto; position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: rgba(17, 23, 32, .9); border: 1px solid #3DDC84; color: #E8ECF4; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap; max-width: 80%; overflow: hidden; text-overflow: ellipsis; }

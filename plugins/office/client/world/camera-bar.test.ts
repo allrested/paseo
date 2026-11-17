@@ -307,6 +307,16 @@ test("the overlay's style keeps upstream's light ink and hides the chips while w
   expect(css).toMatch(/\.bil-hud \{/);
 });
 
+test("while the incident banner shows, the walk's help line sits under it above 520 px", () => {
+  // The banner (paseo-style.js `.incident`) is at the stage's top, 12 px down and about 30 px tall;
+  // at 520 px and narrower the help line is at 56 px already.
+  build();
+  const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  expect(css).toMatch(
+    /@media \(min-width: 521px\) \{ #stage-wrap:has\(> #incident:not\(\[hidden\]\)\) \.fp-help \{ top: 52px; \} \}/,
+  );
+});
+
 test("the bar's text stays light on its dark track in either theme", () => {
   // Paseo's page colours its text with the theme's foreground, near-black in the light theme: the
   // bar sets upstream's light ink itself so nothing in it inherits that.
