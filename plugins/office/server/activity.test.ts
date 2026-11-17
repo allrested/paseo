@@ -1,10 +1,12 @@
 import { expect, test } from "vitest";
+import type { Checklists } from "../shared/contracts.js";
 import {
   ACTIVITY_INTERVAL_MS,
   callsIn,
   describeActivity,
   describeStep,
   nextStep,
+  readChecklist,
   startActivityPoller,
   type ActivityItem,
   type ActivityPoller,
@@ -378,6 +380,55 @@ test("a test run or a deploy that came and went between two reads says how it en
   ).toEqual({ ...running, result: "passed" });
 });
 
+test("a checklist is the newest todo item's unfinished steps", () => {
+  const items = [
+    { type: "todo", items: [{ text: "Old", completed: false }] },
+    { type: "tool_call", name: "Edit", status: "completed" },
+    {
+      type: "todo",
+      items: [
+        { text: "Write the test", completed: true },
+        { text: "Lint", completed: true, status: "in_progress" },
+        { text: "Run typecheck", completed: false, status: "in_progress" },
+        { text: "Commit", completed: false, status: "completed" },
+        { text: "Open the PR", completed: false },
+      ],
+    },
+  ];
+  expect(readChecklist(items)).toEqual([
+    { text: "Run typecheck", status: "in_progress" },
+    { text: "Open the PR", status: "pending" },
+  ]);
+});
+
+test("a tail without a todo item has no checklist; an all-finished one is empty", () => {
+  expect(readChecklist([{ type: "assistant_message" }])).toBeNull();
+  expect(readChecklist([{ type: "todo", items: [{ text: "x", completed: true }] }])).toEqual([]);
+});
+
+test("bad steps are skipped, text is one line of 200 at most, 50 steps at most", () => {
+  const long = "a".repeat(5000);
+  const steps = readChecklist([
+    {
+      type: "todo",
+      items: [
+        { text: 7, completed: false },
+        null,
+        { text: "  \n second line", completed: false },
+        { text: "First\nSecond", completed: false },
+        { text: long, completed: false },
+        ...Array.from({ length: 80 }, (_, i) => ({ text: `s${i}`, completed: false })),
+      ],
+    },
+  ]);
+  expect(steps?.[0]).toEqual({ text: "First", status: "pending" });
+  expect(steps?.[1].text).toBe(`${"a".repeat(199)}…`);
+  expect(steps).toHaveLength(50);
+  // The cap counts the steps kept: the two cut ones and the first 48 short ones.
+  expect(steps?.at(-1)).toEqual({ text: "s47", status: "pending" });
+  expect(readChecklist([{ type: "todo", items: "nope" }])).toEqual([]);
+});
+
 interface PollerHarness {
   clock: FakeClock;
   running: string[];
@@ -385,6 +436,7 @@ interface PollerHarness {
   reads: string[];
   changes: Record<string, string>[];
   steps: Record<string, ActivityStep>[];
+  checklists: Checklists[];
   logs: string[];
   poller: ActivityPoller;
 }
@@ -394,6 +446,7 @@ function startHarness(running: string[], tails: Map<string, ActivityItem[]>): Po
   const reads: string[] = [];
   const changes: Record<string, string>[] = [];
   const steps: Record<string, ActivityStep>[] = [];
+  const checklists: Checklists[] = [];
   const logs: string[] = [];
   const poller = startActivityPoller({
     running: () => running,
@@ -405,12 +458,13 @@ function startHarness(running: string[], tails: Map<string, ActivityItem[]>): Po
     },
     timers: clock,
     log: (message) => logs.push(message),
-    onChange: (activity, doing) => {
+    onChange: (activity, doing, report) => {
       changes.push({ ...activity });
       steps.push({ ...doing });
+      checklists.push({ ...report });
     },
   });
-  return { clock, running, tails, reads, changes, steps, logs, poller };
+  return { clock, running, tails, reads, changes, steps, checklists, logs, poller };
 }
 
 test("reads each running agent once per interval and reports only changes", async () => {
@@ -546,6 +600,72 @@ test("a failed read keeps the agent's last line and is logged", async () => {
   await settle();
   expect(harness.changes).toEqual([{ a: "Thinking" }]);
   expect(harness.logs).toEqual(["[office] activity of a: no timeline for a"]);
+  harness.poller.stop();
+});
+
+test("the poller reports checklists, and a checklist change alone is a change", async () => {
+  const todo = (texts: string[], completed = false): ActivityItem => ({
+    type: "todo",
+    items: texts.map((text) => ({ text, completed })),
+  });
+  const tails = new Map<string, ActivityItem[]>([
+    ["a", [todo(["Write the test"]), { type: "reasoning" }]],
+    ["c", [{ type: "reasoning" }]],
+  ]);
+  // b has no timeline: its read rejects. c's tail has no todo item.
+  const harness = startHarness(["a", "b", "c"], tails);
+  await settle();
+  // The same steps read again are no change.
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  tails.set("a", [todo(["Write the test", "Commit"]), { type: "reasoning" }]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  // Every step finished: the agent is reported with none.
+  tails.set("a", [todo(["Write the test", "Commit"], true), { type: "reasoning" }]);
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+
+  const lines = { a: "Thinking", c: "Thinking" };
+  expect(harness.changes).toEqual([lines, lines, lines]);
+  expect(harness.steps).toEqual([{}, {}, {}]);
+  expect(harness.checklists).toEqual([
+    { a: [{ text: "Write the test", status: "pending" }] },
+    {
+      a: [
+        { text: "Write the test", status: "pending" },
+        { text: "Commit", status: "pending" },
+      ],
+    },
+    { a: [] },
+  ]);
+  harness.poller.stop();
+});
+
+test("an agent that stopped since the last round is read once more, for its checklist only", async () => {
+  const todo = (completed: boolean): ActivityItem => ({
+    type: "todo",
+    items: [{ text: "Write the test", completed }],
+  });
+  const running = ["a"];
+  const tails = new Map<string, ActivityItem[]>([["a", [todo(false), { type: "reasoning" }]]]);
+  const harness = startHarness(running, tails);
+  await settle();
+  // a ticked its last step, ran one more call and stopped, all between two reads.
+  tails.set("a", [todo(true), call({ type: "shell", command: "ls" }), wrote]);
+  running.length = 0;
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+  harness.clock.advance(ACTIVITY_INTERVAL_MS);
+  await settle();
+
+  expect(harness.reads).toEqual(["a", "a"]);
+  expect(harness.changes.slice(0, 2)).toEqual([{ a: "Thinking" }, {}]);
+  expect(harness.steps.slice(0, 2)).toEqual([{}, {}]);
+  expect(harness.checklists.slice(0, 2)).toEqual([
+    { a: [{ text: "Write the test", status: "pending" }] },
+    { a: [] },
+  ]);
   harness.poller.stop();
 });
 

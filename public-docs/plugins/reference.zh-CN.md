@@ -581,19 +581,52 @@ export default function contribute(client: PluginClientContext) {
 
 `PluginScreenProps` 包含：
 
-| 字段         | 含义                                                                                                                                                                                                                                                                                   |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme`      | 当前 Paseo 主题的带类型 `PluginTheme` 颜色令牌。                                                                                                                                                                                                                                       |
-| `host`       | 所选主机的 `id` 和显示用的 `label`。                                                                                                                                                                                                                                                   |
-| `layout`     | `compact` 以及 `ios`、`android` 或 `web` 平台。                                                                                                                                                                                                                                        |
-| `params`     | 打开界面时传入的参数，键和值都是字符串。没有参数时为 `{}`。                                                                                                                                                                                                                            |
-| `navigation` | 可选的客户端导航。`openAgent({ agentId, serverId? })` 和 `openWorkspace({ workspaceId, serverId? })` 在 `serverId` 上打开目标，省略时在所选主机上打开。`openBrowser({ url, workspaceId, serverId? })` 仅在 Electron 上可用；见[链接和浏览器](#external-links-and-workspace-browsers)。 |
+| 字段         | 含义                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`      | 当前 Paseo 主题的带类型 `PluginTheme` 颜色令牌。                                                                                                                                                                                                                                                                                                                                                                              |
+| `host`       | 所选主机的 `id` 和显示用的 `label`。                                                                                                                                                                                                                                                                                                                                                                                          |
+| `layout`     | `compact` 以及 `ios`、`android` 或 `web` 平台。                                                                                                                                                                                                                                                                                                                                                                               |
+| `params`     | 打开界面时传入的参数，键和值都是字符串。没有参数时为 `{}`。                                                                                                                                                                                                                                                                                                                                                                   |
+| `navigation` | 可选的客户端导航。`openAgent({ agentId, serverId? })` 和 `openWorkspace({ workspaceId, serverId? })` 在 `serverId` 上打开目标，省略时在所选主机上打开。`openBrowser({ url, workspaceId, serverId? })` 仅在 Electron 上可用；见[链接和浏览器](#external-links-and-workspace-browsers)。`showBeside(target)` 在你的界面旁边显示一个会话或一个界面；见[在你的界面旁边显示会话或界面](#show-a-session-or-a-screen-beside-yours)。 |
 
 路由、标题栏、关闭操作、主机选择器、错误边界和 query client 由 Paseo 负责。界面主体由插件负责。
 
 `addScreen({ id, title, Component })` 注册一个界面。`title` 是界面标题栏的[显示文本](#runtime-translations)，也可以是接收界面参数并返回显示文本的函数。参数或语言变化时，该函数会再次运行。无效标题和空字符串标题会被拒绝。如果标题函数抛出错误或解析为空字符串，会改为显示界面 ID；界面仍然会渲染。
 
 `openScreen({ screenId, params })` 以参数打开一个界面，例如机器人界面要显示的那个机器人。参数保存在界面 URL 的查询字符串中，因此重新加载、前进后退以及指向该界面的链接都会保留它们。任何字符串键都可以；值必须是字符串，其他类型会抛出错误。用其他参数打开同一个界面会显示新的参数。
+
+### 在你的界面旁边显示会话或界面 {#show-a-session-or-a-screen-beside-yours}
+
+`navigation.showBeside(target): boolean` 在你的界面或面板旁边的侧边区域中显示一个 Agent 的会话或一个插件界面，让用户留在你的页面上。界面、工作区面板和 Agent 面板会收到它；设置界面、文件面板和侧边栏项不会。没有侧边区域的应用不提供它，所以要先检查，再退回其他方式。下面这一行在你的界面旁边打开会话，否则在 Agent 的工作区中打开：
+
+```tsx
+import type { PluginScreenProps } from "@getpaseo/plugin/client";
+import { Pressable, Text } from "react-native";
+
+type SessionRowProps = Pick<PluginScreenProps, "navigation" | "theme"> & { agentId: string };
+
+export function SessionRow({ agentId, navigation, theme }: SessionRowProps) {
+  if (!navigation) return null;
+  const open = () => {
+    if (navigation.showBeside?.({ kind: "agent", agentId })) return;
+    navigation.openAgent({ agentId });
+  };
+  return (
+    <Pressable accessibilityRole="button" onPress={open}>
+      <Text style={{ color: theme.colors.foreground }}>Open session</Text>
+    </Pressable>
+  );
+}
+```
+
+| 目标                                                         | 显示内容                                                                                                                                                                                      |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{ kind: "agent", agentId, serverId? }`                      | 该 Agent 的完整会话，与它在工作区中一样。标题栏中有 **Open in workspace** 和 **关闭**。从会话中的链接打开文件或标签页会进入该 Agent 的工作区；从 Composer 标签打开**更改**或子 Agent 则不会。 |
+| `{ kind: "screen", pluginId, screenId, params?, serverId? }` | 该插件的界面，带上它的参数、`layout.compact: true`，自身没有 `showBeside`，调用的是它自己插件的 RPC。标题栏中有 **Open {title}** 和 **关闭**。                                                |
+
+`serverId` 默认为你的界面的 `host.id`。显示了目标时，调用返回 `true`。主机不认识该 Agent、没有安装该插件或该插件没有这个界面时，它返回 `false`，不会抛出错误。
+
+侧边区域一次只显示一个目标：新的目标会替换它，再次传入同一个目标则保持原样。宽布局中它是右侧带拖动手柄的面板；紧凑布局中它是盖在你的内容上的底部面板。它可以从标题栏关闭，用户离开你的界面或面板时也会关闭，下次访问时不会恢复。
 
 ### 侧边栏项 {#sidebar-items}
 

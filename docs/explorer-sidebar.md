@@ -3,11 +3,12 @@
 The Explorer sidebar and the side pane share panel implementations, but they have different shell
 contracts.
 
-| Surface          | Purpose                      | Lifecycle                                  |
-| ---------------- | ---------------------------- | ------------------------------------------ |
-| Explorer sidebar | Files and Changes navigation | Cmd+E shows or hides the dedicated dock    |
-| Side pane        | Ordinary workspace content   | Created and closed like any workspace pane |
-| Sheets           | Compact look-ups             | One tab each, on the app-wide sheet stack  |
+| Surface          | Purpose                                                      | Lifecycle                                                                     |
+| ---------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Explorer sidebar | Files and Changes navigation                                 | Cmd+E shows or hides the dedicated dock                                       |
+| Side pane        | Ordinary workspace content                                   | Created and closed like any workspace pane                                    |
+| Sheets           | Compact look-ups                                             | One tab each, on the app-wide sheet stack                                     |
+| Plugin side area | A session or plugin screen beside a plugin's screen or panel | Opened by `navigation.showBeside`; see [plugins.md](plugins.md#the-side-area) |
 
 ## Panel host contract
 
@@ -59,7 +60,9 @@ it. Its trailing rail holds icon buttons only (`SheetHeaderIconButton`): Open as
 full-screen glyph beside Close, so the title keeps its width. Compact sheets use the app overlay
 host: a workspace-local host sits behind the app-level left sidebar. The sheet pane bridge
 (`useSheetPaneBridge`) preserves existing editing sessions, caches, file-link resolution and
-supported navigation context without moving their providers. Keep this capability at the workspace
+supported navigation context without moving their providers. The plugin side area's sheet can
+open outside a workspace, so it uses `useSheetPaneBridgeAnywhere`, which carries the workspace host
+and the diff cache only when they are present. Keep this capability at the workspace
 boundary; new sheet callers must not assemble provider internals. Wide layouts retain local hosting
 and pane geometry. Both hosts forward the same Gorhom modal queue; neither creates another stack.
 See

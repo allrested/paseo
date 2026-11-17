@@ -140,7 +140,10 @@ function showIncidents(open) {
   banner.replaceChildren(el('span', 'incident-text', tr('incident.banner', { key: newest.key, title: newest.title })));
   if (open.length > 1) banner.append(el('span', null, ` · ${tr('incident.more', { n: open.length - 1 })}`));
 }
-/** The server room's chip, the racks, the wall screen and the dev boxes open Paseo's panel: no reading, no panel. */
+/**
+ * The server room's chip, the racks, the dev boxes, and the wall screen without Resources open Paseo's panel: no
+ * reading, no panel, and the wall screen is furniture then too (ui/whiteboard.js).
+ */
 function showMachine(on) {
   host.machine = on && onMachine ? () => onMachine() : null;
   document.querySelector('.zone[data-place="server"]')?.toggleAttribute('hidden', !host.machine);
@@ -248,9 +251,10 @@ const api = {
    * ({ name, logoUrl }, for the lobby's sign), and what
    * the scene tells Paseo: onSelect(id | null), onBoard(project | null) (a team's chip, or the
    * whiteboard), onProblem(message), and, when Paseo has something to show for them, onMachine()
-   * (the server racks), onLibrary() (the library's chip and the bookshelf), onBell() (a click on the
-   * meeting table's bell), onNotes() (the label over the meeting room's screen, on the company floor),
-   * onIncidents() (the incidents' banner) and onToast(text).
+   * (the server racks), onResources() (the server room's wall screen), onLibrary() (the library's
+   * chip and the bookshelf), onBell() (a click on the meeting table's bell), onNotes() (the label over
+   * the meeting room's screen, on the company floor), onIncidents() (the incidents' banner) and
+   * onToast(text).
    * Throws when the world cannot be built (no WebGL, a module failed).
    */
   start(options = {}) {
@@ -264,6 +268,7 @@ const api = {
     host.machine = null;
     host.toast = (text) => options.onToast?.(text);
     host.library = typeof options.onLibrary === 'function' ? () => options.onLibrary() : null;
+    host.resources = typeof options.onResources === 'function' ? () => options.onResources() : null;
     host.bell = typeof options.onBell === 'function' ? () => options.onBell() : null;
     host.notes = typeof options.onNotes === 'function' ? () => options.onNotes() : null;
     host.limits = () => limits;
@@ -309,6 +314,10 @@ const api = {
     if (bell) { const ring = bell.act; bell.act = () => { ringWithEveryone(ring); host.bell?.(); }; }
     if (host.plan === 'pro' && host.notes) makeNotesLabel();
     makeIncidentBanner(() => options.onIncidents?.());
+    // (the wall screen opens Paseo's Resources when Paseo has it, and its tooltip says so; the racks and the server
+    // room's chip keep the panel)
+    const tv = PROPS.get('tv');
+    if (tv && host.resources) { tv.act = () => host.resources(); tv.hint = tr('paseo.tv.resources'); }
     everyFrame(updateLeisure);
     showMachine(false);
     showBrand(options.brand);

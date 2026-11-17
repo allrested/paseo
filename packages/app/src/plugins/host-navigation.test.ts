@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPluginHostNavigation } from "./host-navigation-model";
+import { createPluginHostNavigation, type ResolvedBesideTarget } from "./host-navigation-model";
 
 describe("plugin host navigation", () => {
   function setup(electron = true) {
@@ -86,5 +86,51 @@ describe("plugin host navigation", () => {
       "workspaceId",
     );
     expect(browsers).toEqual([]);
+  });
+
+  describe("showBeside", () => {
+    function besideSetup(serverId: string, answers: boolean[]) {
+      const targets: ResolvedBesideTarget[] = [];
+      const navigation = createPluginHostNavigation(serverId, {
+        browserAvailable: false,
+        resolveWorkspace: () => null,
+        openAgent: () => {},
+        openWorkspace: () => {},
+        createBrowser: () => ({ browserId: "unused" }),
+        showBeside: (target) => {
+          targets.push(target);
+          return answers[targets.length - 1] ?? false;
+        },
+      });
+      return { navigation, targets };
+    }
+
+    it("exposes no showBeside when the owner has none", () => {
+      const { navigation } = setup();
+      expect(navigation.showBeside).toBeUndefined();
+    });
+
+    it("fills the surface's host into a showBeside target", () => {
+      const { navigation, targets } = besideSetup("s1", [true, false]);
+      expect(navigation.showBeside!({ kind: "agent", agentId: "a1" })).toBe(true);
+      expect(navigation.showBeside!({ kind: "agent", agentId: "a1" })).toBe(false);
+      expect(targets).toEqual([
+        { kind: "agent", agentId: "a1", serverId: "s1" },
+        { kind: "agent", agentId: "a1", serverId: "s1" },
+      ]);
+    });
+
+    it("keeps an explicit serverId", () => {
+      const { navigation, targets } = besideSetup("s1", [true]);
+      navigation.showBeside!({
+        kind: "screen",
+        pluginId: "resource-manager",
+        screenId: "resources",
+        serverId: "s2",
+      });
+      expect(targets).toEqual([
+        { kind: "screen", pluginId: "resource-manager", screenId: "resources", serverId: "s2" },
+      ]);
+    });
   });
 });

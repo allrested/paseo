@@ -1,15 +1,16 @@
 /**
  * @vitest-environment jsdom
  */
-// A board's sheet, mounted: its form, the page that chooses who a post wakes, and what is posted.
+// A board's sheet, mounted: its form, the page that chooses who a post wakes, and what is posted;
+// on the lobby, the to-do list and the agents' tasks.
 // The sheet, the inputs and the icon are the host's, so plain stand-ins show what they were given.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { OfficeAgent, OfficeSnapshot } from "../shared/contracts.js";
+import type { OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
 import { BoardSheet } from "./board-sheet.js";
-import { buildOfficeModel, type OfficeRoom } from "../shared/model.js";
+import { buildOfficeModel, type AgentTaskGroup, type OfficeRoom } from "../shared/model.js";
 import { useOfficeStyles } from "./styles.js";
 import type { BoardActions } from "./use-board-actions.js";
 
@@ -53,7 +54,7 @@ function agent(id: string, patch: Partial<OfficeAgent> = {}): OfficeAgent {
   };
 }
 
-function officeRooms(agents: OfficeAgent[]): OfficeRoom[] {
+function officeRooms(agents: OfficeAgent[], boards: OfficeSnapshot["boards"] = {}): OfficeRoom[] {
   const snapshot: OfficeSnapshot = {
     agents,
     workspaces: [
@@ -62,24 +63,57 @@ function officeRooms(agents: OfficeAgent[]): OfficeRoom[] {
     ],
     activity: {},
     doing: {},
-    boards: {},
+    boards,
     wake: { paused: false, queued: {} },
   };
   return buildOfficeModel(snapshot).rooms;
 }
 
+function post(seq: number, fields: Partial<Post>): Post {
+  const at = `2026-11-17T09:00:${String(seq).padStart(2, "0")}.000Z`;
+  return {
+    id: `p${seq}`,
+    seq,
+    board: "lobby",
+    kind: "task",
+    text: `To-do ${seq}`,
+    author: "user",
+    state: "open",
+    createdAt: at,
+    updatedAt: at,
+    ...fields,
+  };
+}
+
+/** The office with these posts on the lobby's board. */
+function lobbyRooms(posts: Post[], agents: OfficeAgent[] = []): OfficeRoom[] {
+  return officeRooms(agents, { lobby: posts });
+}
+
 let posted: Array<Parameters<BoardActions["post"]>[0]>;
-/** Set to make the host refuse the post. */
+/** The board changes asked of the host, in order: "markDone p2", "clearDone lobby". */
+let asked: string[];
+/** Set to make the host refuse the post or the change. */
 let refusal: Error | null;
+/** While set, a change waits for it: the host has not answered yet. */
+let answer: Promise<void> | null;
 let closed: number;
+
+async function change(request: string): Promise<void> {
+  asked.push(request);
+  await answer;
+  if (refusal) throw refusal;
+}
 
 const ACTIONS: BoardActions = {
   post: async (input) => {
     if (refusal) throw refusal;
     posted.push(input);
   },
-  markDone: async () => undefined,
-  remove: async () => undefined,
+  markDone: (id) => change(`markDone ${id}`),
+  reopen: (id) => change(`reopen ${id}`),
+  remove: (id) => change(`remove ${id}`),
+  clearDone: (board) => change(`clearDone ${board}`),
   setWakesPaused: async () => undefined,
 };
 const nameOf = (author: string) => author;
@@ -87,8 +121,13 @@ const onClose = () => {
   closed += 1;
 };
 
+const NO_TASKS: AgentTaskGroup[] = [];
+
 interface HarnessProps {
   rooms: OfficeRoom[];
+  /** The room whose board is open. */
+  roomId?: string;
+  agentTasks?: AgentTaskGroup[];
   compact?: boolean;
   /** The host's sheet has left by the time it reports a close: a phone's, or any on native. */
   sheetLeavesFirst?: boolean;
@@ -97,6 +136,8 @@ interface HarnessProps {
 
 function Harness({
   rooms,
+  roomId = "w1",
+  agentTasks = NO_TASKS,
   compact = false,
   sheetLeavesFirst = false,
   wakesPaused = false,
@@ -104,8 +145,9 @@ function Harness({
   const styles = useOfficeStyles(THEME, compact, false);
   return (
     <BoardSheet
-      room={rooms.find((room) => room.id === "w1") ?? null}
+      room={rooms.find((room) => room.id === roomId) ?? null}
       rooms={rooms}
+      agentTasks={agentTasks}
       name={nameOf}
       actions={ACTIONS}
       wakesPaused={wakesPaused}
@@ -121,7 +163,9 @@ let root: Root;
 
 beforeEach(() => {
   posted = [];
+  asked = [];
   refusal = null;
+  answer = null;
   closed = 0;
   container = document.createElement("div");
   document.body.append(container);
@@ -148,6 +192,19 @@ async function press(label: string): Promise<void> {
   await settle();
 }
 
+/** Enter in the field, with the focus in it. */
+async function enter(label: string): Promise<void> {
+  const field = byLabel(label);
+  await act(async () => {
+    field.focus();
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  await settle();
+}
+
+const isOff = (label: string) => byLabel(label).getAttribute("aria-disabled") === "true";
+const fieldText = (label: string) => (byLabel(label) as HTMLInputElement).value;
+
 async function type(label: string, text: string): Promise<void> {
   const field = byLabel(label);
   const prototype =
@@ -159,6 +216,22 @@ async function type(label: string, text: string): Promise<void> {
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+
+/** Every line of text the sheet shows, in order; a button's hidden width spacer is left out. */
+function lines(): string[] {
+  return [...container.querySelectorAll("*")]
+    .filter((element) => element.childElementCount === 0 && element.textContent !== "")
+    .filter((element) => element.closest('[aria-hidden="true"]') === null)
+    .map((element) => element.textContent ?? "");
+}
+
+/** The lines from this heading on. */
+function linesFrom(heading: string): string[] {
+  const all = lines();
+  return all.slice(all.indexOf(heading));
+}
+
+const checkboxes = () => [...container.querySelectorAll<HTMLElement>('[role="checkbox"]')];
 
 const radios = () =>
   [...container.querySelectorAll('[role="radio"]')].map((row) => row.getAttribute("aria-label"));
@@ -337,4 +410,234 @@ test("with wakes off the form says that a named agent waits", async () => {
   expect(container.textContent).toContain(
     "Wake agents is off. The agent gets this post when you turn it on.",
   );
+});
+
+test("the lobby adds a to-do with Enter and with Add, and keeps the agent choice to the form", async () => {
+  await mount({
+    rooms: lobbyRooms([], [agent("2", { title: "Builder", workspaceId: null })]),
+    roomId: "lobby",
+  });
+  expect(title()).toBe("Lobby board");
+  // The field adds to-dos only: no Task/Note choice.
+  expect(container.querySelector('[aria-label="Kind of post"]')).toBeNull();
+  expect(radios()).toEqual([]);
+  expect(isOff("Add")).toBe(true);
+  await type("Add a to-do", "   ");
+  expect(isOff("Add")).toBe(true);
+
+  await type("Add a to-do", "Rotate keys");
+  expect(isOff("Add")).toBe(false);
+  await enter("Add a to-do");
+
+  expect(posted).toEqual([{ board: "lobby", kind: "task", text: "Rotate keys" }]);
+  expect(fieldText("Add a to-do")).toBe("");
+  // The next to-do is typed straight after: the field keeps the focus.
+  expect(document.activeElement).toBe(byLabel("Add a to-do"));
+
+  await type("Add a to-do", "Check the build");
+  await press("Wake an agent with it: Nobody");
+  await press("Builder: Lobby · Idle");
+  expect(title()).toBe("Lobby board");
+  expect(fieldText("Add a to-do")).toBe("Check the build");
+  await press("Add");
+
+  expect(posted).toEqual([
+    { board: "lobby", kind: "task", text: "Rotate keys" },
+    { board: "lobby", kind: "task", text: "Check the build", to: "2" },
+  ]);
+  expect(fieldText("Add a to-do")).toBe("");
+  byLabel("Wake an agent with it: Nobody");
+});
+
+test("a to-do the host refuses keeps its text and says why", async () => {
+  await mount({ rooms: lobbyRooms([]), roomId: "lobby" });
+  await type("Add a to-do", "Rotate keys");
+  refusal = new Error("the board is full");
+
+  await enter("Add a to-do");
+
+  expect(posted).toEqual([]);
+  expect(container.textContent).toContain("Unable to add: the board is full");
+  expect(fieldText("Add a to-do")).toBe("Rotate keys");
+});
+
+test("ticking sends done, unticking sends reopen, and a pending box takes no second tap", async () => {
+  await mount({
+    rooms: lobbyRooms([
+      post(1, { text: "Update the README", state: "done" }),
+      post(2, { text: "Rotate keys" }),
+    ]),
+    roomId: "lobby",
+  });
+  // Open ones first, then done ones.
+  expect(checkboxes().map((box) => box.getAttribute("aria-label"))).toEqual([
+    "Rotate keys",
+    "Update the README",
+  ]);
+  expect(byLabel("Rotate keys").getAttribute("aria-checked")).toBe("false");
+  expect(byLabel("Update the README").getAttribute("aria-checked")).toBe("true");
+
+  let release: () => void = () => undefined;
+  answer = new Promise((resolve) => {
+    release = resolve;
+  });
+  await press("Rotate keys");
+  expect(isOff("Rotate keys")).toBe(true);
+  await press("Rotate keys");
+  expect(asked).toEqual(["markDone p2"]);
+  await act(async () => release());
+  await settle();
+  expect(isOff("Rotate keys")).toBe(false);
+  answer = null;
+
+  await press("Update the README");
+  expect(asked).toEqual(["markDone p2", "reopen p1"]);
+
+  refusal = new Error("Unable to finish p2: it is a note");
+  await press("Rotate keys");
+  // Under its own row, and the box still shows the board's state.
+  expect(byLabel("Rotate keys").parentElement?.textContent).toContain(
+    "Unable to finish p2: it is a note",
+  );
+  expect(byLabel("Rotate keys").getAttribute("aria-checked")).toBe("false");
+});
+
+test("Clear finished asks with the live count and clears the lobby", async () => {
+  const open = post(1, { text: "Rotate keys" });
+  await mount({ rooms: lobbyRooms([open]), roomId: "lobby" });
+  expect(isOff("Clear finished")).toBe(true);
+
+  const twoDone = [open, post(2, { state: "done" }), post(3, { state: "done" })];
+  await mount({ rooms: lobbyRooms(twoDone), roomId: "lobby" });
+  expect(isOff("Clear finished")).toBe(false);
+  await press("Clear finished");
+  expect(container.textContent).toContain("Delete 2 finished to-dos?");
+
+  // An agent finishes another one while the question shows.
+  await mount({ rooms: lobbyRooms([...twoDone, post(4, { state: "done" })]), roomId: "lobby" });
+  expect(container.textContent).toContain("Delete 3 finished to-dos?");
+
+  await press("Keep");
+  expect(container.textContent).not.toContain("finished to-dos?");
+  await press("Clear finished");
+  await press("Delete");
+  expect(asked).toEqual(["clearDone lobby"]);
+  byLabel("Clear finished");
+});
+
+test("the clear question ends when nothing is done, and the next done to-do does not bring it back", async () => {
+  const open = post(1, { text: "Rotate keys" });
+  await mount({ rooms: lobbyRooms([open, post(2, { state: "done" })]), roomId: "lobby" });
+  await press("Clear finished");
+  expect(container.textContent).toContain("Delete 1 finished to-do?");
+
+  // Another hand clears it, then an agent ticks another to-do.
+  await mount({ rooms: lobbyRooms([open]), roomId: "lobby" });
+  await mount({ rooms: lobbyRooms([open, post(3, { state: "done" })]), roomId: "lobby" });
+
+  expect(container.textContent).not.toContain("finished to-do?");
+  expect(isOff("Clear finished")).toBe(false);
+});
+
+test("a to-do arriving while typing keeps the typed text", async () => {
+  const agents = [agent("2", { title: "Builder", workspaceId: null })];
+  const first = post(1, { text: "Rotate keys" });
+  await mount({ rooms: lobbyRooms([first], agents), roomId: "lobby" });
+  await type("Add a to-do", "half");
+  await press("Wake an agent with it: Nobody");
+  await press("Builder: Lobby · Idle");
+
+  // An agent ticks the first to-do and adds another.
+  const ticked = { ...first, state: "done" as const };
+  const added = post(2, { text: "Check the build", author: "2" });
+  await mount({ rooms: lobbyRooms([ticked, added], agents), roomId: "lobby" });
+
+  expect(checkboxes().map((box) => box.getAttribute("aria-label"))).toEqual([
+    "Check the build",
+    "Rotate keys",
+  ]);
+  expect(byLabel("Rotate keys").getAttribute("aria-checked")).toBe("true");
+  expect(fieldText("Add a to-do")).toBe("half");
+  byLabel("Wake an agent with it: Builder");
+});
+
+test("a to-do's Delete asks first", async () => {
+  await mount({ rooms: lobbyRooms([post(1, { text: "Rotate keys" })]), roomId: "lobby" });
+
+  await press("Delete");
+  expect(asked).toEqual([]);
+  expect(container.textContent).toContain("Delete this post?");
+  await press("Delete");
+
+  expect(asked).toEqual(["remove p1"]);
+});
+
+test("notes show under the list only when there are notes", async () => {
+  const todo = post(1, { text: "Rotate keys", state: "claimed", claimedBy: "a1", to: "a1" });
+  await mount({ rooms: lobbyRooms([todo]), roomId: "lobby" });
+  expect(lines()).not.toContain("Notes");
+
+  const note = post(2, { kind: "note", state: undefined, text: "The demo is on Thursday" });
+  await mount({ rooms: lobbyRooms([todo, note]), roomId: "lobby" });
+
+  expect(linesFrom("To-do")).toEqual([
+    "To-do",
+    "Clear finished",
+    "Rotate keys",
+    "claimed by a1 · for a1",
+    "Delete",
+    "Notes",
+    "Note · user",
+    "The demo is on Thursday",
+    "Delete",
+    "Agent tasks",
+    "No agent tasks",
+  ]);
+});
+
+test("agent tasks show each agent's steps, or say there are none", async () => {
+  const agentTasks: AgentTaskGroup[] = [
+    {
+      agentId: "a1",
+      steps: [
+        { text: "Run typecheck", status: "in_progress" },
+        { text: "Commit", status: "pending" },
+      ],
+    },
+    {
+      agentId: "a2",
+      steps: [
+        { text: "Run tests", status: "pending" },
+        { text: "Draft the release notes", status: "pending" },
+        { text: "Run tests", status: "pending" },
+      ],
+    },
+  ];
+  await mount({ rooms: lobbyRooms([]), roomId: "lobby", agentTasks });
+  expect(container.textContent).toContain("No to-dos");
+  expect(linesFrom("Agent tasks")).toEqual([
+    "Agent tasks",
+    "a1",
+    "◐ Run typecheck",
+    "○ Commit",
+    "a2",
+    "○ Run tests",
+    "○ Draft the release notes",
+    "○ Run tests",
+  ]);
+
+  await mount({ rooms: lobbyRooms([]), roomId: "lobby", agentTasks: [] });
+  expect(linesFrom("Agent tasks")).toEqual(["Agent tasks", "No agent tasks"]);
+});
+
+test("another room's board still shows the posts form", async () => {
+  await mount({ rooms: officeRooms([], { w1: [post(1, { board: "w1" })] }) });
+
+  expect(title()).toBe("shop-api board");
+  const kinds = byLabel("Kind of post").querySelectorAll('[role="radio"]');
+  expect([...kinds].map((chip) => chip.textContent)).toEqual(["Task", "Note"]);
+  byLabel("Post");
+  expect(container.querySelector('[aria-label="Clear finished"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Add a to-do"]')).toBeNull();
+  expect(checkboxes()).toEqual([]);
 });

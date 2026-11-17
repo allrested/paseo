@@ -48,6 +48,7 @@ import { readSkills } from "./server/skills.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
   cleanupRpc,
+  clearDoneRpc,
   deleteRpc,
   incidentsDismissRpc,
   janitorRpc,
@@ -303,6 +304,10 @@ export function createOfficePlugin(
   server.handle(deleteRpc, (input, context) => {
     holder.remember(context.paseo);
     return guarded("delete", () => office.remove(input.id));
+  });
+  server.handle(clearDoneRpc, (input, context) => {
+    holder.remember(context.paseo);
+    return guarded("clear", () => office.clearDone(input.board));
   });
   server.handle(setWakesPausedRpc, (input, context) => {
     holder.remember(context.paseo);

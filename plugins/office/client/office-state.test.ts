@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
+import type { ChecklistStep, OfficeAgent, OfficeSnapshot, Post } from "../shared/contracts.js";
 import { EMPTY_OFFICE, applyOfficeEvent } from "./office-state.js";
 
 function agent(id: string): OfficeAgent {
@@ -57,7 +57,19 @@ test("a snapshot replaces the state and each change replaces its part", () => {
     workspaces: [{ id: "w1", name: "main", projectName: "paseo" }],
     activity: { b: "Thinking" },
     doing: { b: { kind: "read", key: "c1" } },
+    checklists: {},
     boards: { lobby: [] },
     wake: { paused: true, queued: { b: 1 } },
   });
+});
+
+test("an activity event replaces the checklists, and one without them clears them", () => {
+  const step: ChecklistStep = { text: "Run typecheck", status: "pending" };
+  const withSteps = applyOfficeEvent(EMPTY_OFFICE, {
+    type: "activity",
+    activity: {},
+    checklists: { a1: [step] },
+  });
+  expect(withSteps.checklists).toEqual({ a1: [step] });
+  expect(applyOfficeEvent(withSteps, { type: "activity", activity: {} }).checklists).toEqual({});
 });

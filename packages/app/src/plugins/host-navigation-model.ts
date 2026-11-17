@@ -1,6 +1,8 @@
-import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { PluginBesideTarget, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import type { NavigateToWorkspaceInput } from "@/stores/navigation-active-workspace-store";
 import { isHttpUrl } from "@/utils/http-url";
+
+export type ResolvedBesideTarget = PluginBesideTarget & { readonly serverId: string };
 
 interface HostNavigationOwner {
   browserAvailable: boolean;
@@ -8,6 +10,7 @@ interface HostNavigationOwner {
   openWorkspace(input: NavigateToWorkspaceInput): void;
   resolveWorkspace(input: { serverId: string; workspaceId: string }): string | null;
   createBrowser(input: { initialUrl: string }): { browserId: string };
+  showBeside?(target: ResolvedBesideTarget): boolean;
 }
 
 export function createPluginHostNavigation(
@@ -37,6 +40,9 @@ export function createPluginHostNavigation(
             target: { kind: "browser", browserId },
           });
         }
+      : undefined,
+    showBeside: owner.showBeside
+      ? (target) => owner.showBeside!({ ...target, serverId: target.serverId ?? serverId })
       : undefined,
   };
 }

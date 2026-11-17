@@ -163,6 +163,11 @@ export interface OfficeStyles {
   post: ViewStyle;
   postMeta: TextStyle;
   postText: TextStyle;
+  /** A to-do: its checkbox and its words are one target, dimmed while a change is on its way. */
+  todoRow: ViewStyle;
+  todoRowDisabled: ViewStyle;
+  /** A finished to-do's words. */
+  todoTextDone: TextStyle;
   chips: ViewStyle;
   /** A row of chips that scrolls sideways: its scroller, and the row inside it. */
   chipScroll: ViewStyle;
@@ -336,6 +341,14 @@ export function useOfficeStyles(
       borderColor: "transparent",
       // Clips the pressed fill to the rounded corners.
       overflow: "hidden",
+    };
+    // A to-do of one line is a touch target tall; the box sits on its first line.
+    const todoRow: ViewStyle = {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 8,
+      minHeight: TOUCH_CONTROL,
+      paddingVertical: 12,
     };
     const lineInput: TextStyle = {
       ...prompt,
@@ -641,6 +654,9 @@ export function useOfficeStyles(
       post: { gap: 4, paddingVertical: 4 },
       postMeta: { ...small, color: colors.foregroundMuted },
       postText: { ...base, color: colors.foreground },
+      todoRow,
+      todoRowDisabled: { ...todoRow, opacity: 0.5 },
+      todoTextDone: { ...base, color: colors.foregroundMuted },
       chips: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
       // The padding leaves room for a chip's focus ring inside the scroller, and the scroller
       // reaches out by as much, so the chips at rest still stand on the sheet's rails.

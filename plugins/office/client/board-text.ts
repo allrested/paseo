@@ -1,4 +1,4 @@
-import type { OfficeAgent, Post, WakeState } from "../shared/contracts.js";
+import type { ChecklistStep, OfficeAgent, Post, WakeState } from "../shared/contracts.js";
 import { USER_AUTHOR } from "../shared/names.js";
 import { agentTitle } from "../shared/model.js";
 
@@ -27,6 +27,21 @@ export function postMeta(post: Post, name: (author: string) => string): string {
   return `${postStateLabel(post, name)} · ${people}`;
 }
 
+/** Who claimed a to-do and whom it names; null when neither. A done to-do is no longer claimed. */
+export function todoMeta(post: Post, name: (author: string) => string): string | null {
+  const parts: string[] = [];
+  if (post.state === "claimed" && post.claimedBy !== undefined) {
+    parts.push(`claimed by ${name(post.claimedBy)}`);
+  }
+  if (post.to !== undefined) parts.push(`for ${name(post.to)}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** What "Clear finished" asks before it deletes the done to-dos. */
+export function clearQuestion(count: number): string {
+  return count === 1 ? "Delete 1 finished to-do?" : `Delete ${count} finished to-dos?`;
+}
+
 function rank(post: Post): number {
   if (post.kind === "note") return 2;
   return post.state === "claimed" ? 1 : 0;
@@ -52,6 +67,18 @@ export interface BoardPreview {
 export function boardPreview(posts: readonly Post[], max: number = CARD_POSTS): BoardPreview {
   const shown = orderBoardPosts(posts).slice(0, max);
   return { shown, more: posts.length - shown.length };
+}
+
+/** What the lobby's card shows of its to-dos: the first unfinished ones, and how many are left. */
+export function todoPreview(todos: readonly Post[], max: number = CARD_POSTS): BoardPreview {
+  const unfinished = todos.filter((post) => post.state !== "done");
+  const shown = unfinished.slice(0, max);
+  return { shown, more: unfinished.length - shown.length };
+}
+
+/** The mark before an agent's checklist step: in progress, or waiting. */
+export function stepMark(status: ChecklistStep["status"]): string {
+  return status === "in_progress" ? "◐" : "○";
 }
 
 export function queuedWakes(wake: WakeState): number {
