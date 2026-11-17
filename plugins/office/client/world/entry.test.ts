@@ -13,9 +13,24 @@ const h = vi.hoisted(() => ({
   applauded: [] as string[],
   played: [] as string[],
   incidentsOpened: 0,
+  /** The camera bar's markup is in the page. */
+  built: false,
+  /** Whether it was when the first of the scene's modules started (ui/photo.js wires it then). */
+  builtBeforeModules: null as boolean | null,
 }));
 
-vi.mock("../../vendor/my-office/src/office/paseo-modules.js", () => ({ MODULES: [] }));
+vi.mock("../../vendor/my-office/src/office/paseo-modules.js", () => ({
+  MODULES: [
+    [
+      "probe",
+      {
+        setup() {
+          h.builtBeforeModules ??= h.built;
+        },
+      },
+    ],
+  ],
+}));
 vi.mock("../../vendor/my-office/src/office/scene/renderer.js", () => ({
   renderer: { domElement: document.createElement("canvas"), dispose() {}, forceContextLoss() {} },
 }));
@@ -33,7 +48,12 @@ vi.mock("../../vendor/my-office/src/office/world/backdrops/index.js", () => ({
   setup() {},
   applyNight() {},
 }));
-vi.mock("../../vendor/my-office/src/office/ui/camera-bar.js", () => ({ build() {}, setup() {} }));
+vi.mock("../../vendor/my-office/src/office/ui/camera-bar.js", () => ({
+  build() {
+    h.built = true;
+  },
+  setup() {},
+}));
 vi.mock("../../vendor/my-office/src/office/ui/event-text.js", () => ({
   ACT: { other: {} },
   bubbleText: () => "",
@@ -100,6 +120,7 @@ vi.mock("../../vendor/my-office/src/office/audio/sfx.js", () => ({
 // The entry sets the API on the window as it loads.
 await import("../../vendor/my-office/src/office/paseo-entry.js");
 const { updateIncident } = await import("../../vendor/my-office/src/office/life/incidents.js");
+const { host } = await import("../../vendor/my-office/src/office/paseo-host.js");
 
 interface World {
   start(options?: object): void;
@@ -110,6 +131,7 @@ interface World {
 }
 const world = (globalThis as unknown as { PaseoOfficeWorld: World }).PaseoOfficeWorld;
 world.start({
+  brand: { name: "Acme" },
   onIncidents: () => {
     h.incidentsOpened += 1;
   },
@@ -297,6 +319,15 @@ interface Prop {
   /** The tooltip's line under the prop's name: interact/props.js's propHint gives it as it is for these props. */
   hint: string;
 }
+
+test("the camera bar is built before the scene's modules start", () => {
+  // ui/photo.js, one of the modules, wires the bar's photo button as it starts.
+  expect(h.builtBeforeModules).toBe(true);
+});
+
+test("the photo's mark carries the brand's name", () => {
+  expect(host.brandName).toBe("Acme");
+});
 
 /**
  * A page of its own, started with `options`, and its props. The page has a reading of the host, as `openMac()` reaches
