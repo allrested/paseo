@@ -772,6 +772,30 @@ notes card: a month's file as Markdown at its newest entry, read only. The serve
 `daily-standup-YYYYMM.md` directly in the notes folder. Design:
 [the stand-up notes](superpowers/specs/2026-11-16-office-standup-notes-design.md).
 
+The office also rings upstream's incident alarm for a new Jira bug or Sentry issue. "Jira projects"
+takes project keys, and a new issue of type Bug in one of them rings; it needs
+`ATLASSIAN_BASE_URL`, `ATLASSIAN_EMAIL` and `ATLASSIAN_API_TOKEN` in the daemon's environment.
+"Sentry organisation", "Sentry projects" and "Sentry address" (`https://sentry.io` by default) do
+the same for a new unresolved Sentry issue with `SENTRY_AUTH_TOKEN`. A changed token takes a daemon
+restart, and the settings say which variable is missing, never a value. Jira does not refuse a
+project key it does not know, so a mistyped key rings nothing and shows no problem. While a tracker
+is on, a [plugin schedule](#schedules) named `incidents` checks it every 5 minutes; the first check
+records what exists and rings nothing. Each check reads from the last successful one less 10
+minutes, because Jira compares `created` to the minute in the token user's time zone, and opens at
+most 20 incidents per tracker, the oldest first, leaving the rest to the next check. The office
+keeps each tracker's last check, the keys it saw in the last 2 days and the open incidents in
+`$PASEO_HOME/office/incidents.json`; without that file the next check is a first check again. An
+incident stays open on the host until it is dismissed or a day old, so whoever opens the office
+later still gets the alarm, and resolving the issue in its tracker does not close it. A failed
+check keeps the strip entry and a problem line on the Incidents card until a check succeeds.
+Incidents ride `office.state`: the strip's Incidents entry opens a card that dismisses through
+`office.incidents.dismiss.request`, and the 3D floor shows a banner naming the newest, with 25 s of
+red light, a fail bubble over each person at work and upstream's siren for one this device has not
+rung for. A device keeps what it rang for in its `office-device` setting, so opening the office
+again rings nothing. A browser plays the siren only after a click or a key press in the scene, and
+the 2D floor has no alarm. Design:
+[the incidents](superpowers/specs/2026-11-17-office-incidents-design.md).
+
 The Reviews entry is in the strip while a workspace has an open or draft pull request. Its card
 is a queue: what waits for a review first, then what was sent back, the approved and the drafts,
 each with its branch, its base, the size of the checkout's changes, its checks and its conflicts,
