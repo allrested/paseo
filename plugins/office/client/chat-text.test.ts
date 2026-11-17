@@ -257,6 +257,38 @@ test("the list is the model's agents matched with the List's search, in the floo
   ]);
 });
 
+test("a picked name closes the list, unless a longer name still starts with the words", () => {
+  const room = (titles: string[]) =>
+    buildOfficeModel({
+      ...EMPTY_OFFICE,
+      workspaces: [{ id: "w1", name: "shop-api", projectName: "Shop" }],
+      agents: titles.map((title, index) =>
+        agent({
+          id: `a${index}`,
+          title,
+          workspaceId: "w1",
+          createdAt: `2026-11-17T08:0${index}:00Z`,
+        }),
+      ),
+    });
+  const names = (model: ReturnType<typeof room>, query: string) =>
+    mentionOptions(model, query).map((option) => option.name);
+
+  const one = room(["Fix login"]);
+  expect(names(one, "Fix login ")).toEqual([]);
+  expect(names(one, "fix login ")).toEqual([]);
+  expect(names(one, "Fix login fix the login bug")).toEqual([]);
+  expect(names(one, "Fix lo")).toEqual(["Fix login"]);
+
+  const two = room(["Fix", "Fix login"]);
+  expect(names(two, "Fix lo")).toEqual(["Fix login"]);
+  expect(names(two, "Fix c")).toEqual([]);
+
+  const picked = mentionAt(putMention("hi @fi", { start: 3, query: "fi" }, "Fix login"));
+  expect(picked).not.toBeNull();
+  expect(mentionOptions(one, picked?.query ?? "")).toEqual([]);
+});
+
 test("a chosen name replaces the typed words", () => {
   expect(putMention("hi @fi", { start: 3, query: "fi" }, "Fix login")).toBe("hi @Fix login ");
 });
