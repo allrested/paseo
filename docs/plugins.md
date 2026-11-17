@@ -634,7 +634,8 @@ per device and keeps it in the `office-device` setting. A device that never chos
 floor where it can draw it, which is a browser with WebGL2, and the 2D floor anywhere else. A 3D
 floor that fails gives way to the 2D one, under a banner with a way to try again.
 
-The header's Sessions and Activity buttons open those panels beside the floor; the Activity feed is derived on the client from the office's state since the office opened, and is not kept.
+The header's Sessions and Activity buttons open those panels beside the floor; the Activity feed
+is derived on the client from the office's state since the office opened, and is not kept.
 
 On the 3D floor an agent is a person at a desk, and a workspace's agents sit together as a team.
 The floor is the scene of [my-office](https://github.com/khanh020905/my-office), vendored under
