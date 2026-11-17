@@ -4,10 +4,11 @@
 // An agent's session in the side area, beside the office. The agent pane is replaced by a probe
 // registered for kind "agent": the real pane's imports reach the expo package's runtime, which the
 // unit project cannot load. The probe reads what the pane reads (its pane context and focus, the
-// workspace providers it asserts, its draft by key, the agent's archived state).
+// workspace providers it asserts, its draft by key, its composer's editing session, the agent's
+// archived state).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { createElement, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createElement, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import { Text } from "react-native";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -15,6 +16,13 @@ import {
   useAssistantFileLinkEnvironment,
 } from "@/assistant-file-links";
 import type { ToastApi } from "@/components/toast-host";
+import {
+  ComposerEditingSessionsProvider,
+  useComposerEditingSession,
+  useComposerFullscreen,
+  WorkspaceComposerEditingSessionsProvider,
+  type ComposerEditingSession,
+} from "@/composer/editing-session";
 import { ToastApiProvider } from "@/contexts/toast-api-context";
 import {
   DiffDocumentWorkspaceCacheProvider,
@@ -152,12 +160,19 @@ function setAgent(next: Agent | null) {
 
 let probeMounts = 0;
 let probePane: PaneContextValue | null = null;
+let probeEditingSession: ComposerEditingSession | null = null;
+let rerenderProbe: (() => void) | null = null;
 
 /** The agent pane's stand-in: what it reads, as text. */
 function PaneProbe() {
   const pane = usePaneContext();
   probePane = pane;
   const { isInteractive } = usePaneFocus();
+  // The composer's fullscreen state and caret live here (agent-panel.tsx:1058).
+  const editingSession = useComposerEditingSession("chat");
+  probeEditingSession = editingSession;
+  const fullscreen = useComposerFullscreen(editingSession);
+  rerenderProbe = useReducer((count: number) => count + 1, 0)[1];
   // The subagents track asserts both on every route (subagents/track.tsx:83).
   const sheetHost = useSheetPaneHost();
   useDiffDocumentWorkspaceCache();
@@ -185,6 +200,7 @@ function PaneProbe() {
       <Text testID="probe-draft">{draft}</Text>
       <Text testID="probe-focus">{isInteractive ? "focused" : "unfocused"}</Text>
       <Text testID="probe-composer">{archived ? "archived" : "composer"}</Text>
+      <Text testID="probe-fullscreen">{fullscreen ? "fullscreen" : "inline"}</Text>
     </>
   );
 }
@@ -221,11 +237,14 @@ function renderOffice(
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <ToastApiProvider api={toast}>
-        {around(
-          <BesideFrame surfaceKey={surfaceKey}>
-            <OfficeContent />
-          </BesideFrame>,
-        )}
+        {/* The app's root keeps every composer's editing sessions (app/_layout.tsx). */}
+        <ComposerEditingSessionsProvider>
+          {around(
+            <BesideFrame surfaceKey={surfaceKey}>
+              <OfficeContent />
+            </BesideFrame>,
+          )}
+        </ComposerEditingSessionsProvider>
       </ToastApiProvider>
     </QueryClientProvider>,
   );
@@ -261,6 +280,8 @@ beforeEach(() => {
   useBesideStore.setState(useBesideStore.getInitialState(), true);
   probeMounts = 0;
   probePane = null;
+  probeEditingSession = null;
+  rerenderProbe = null;
   showBeside = undefined;
   navigateToAgentMock.mockReset();
   navigateToWorkspaceMock.mockReset();
@@ -460,6 +481,29 @@ function officeSheetHost(workspaceId: string): SheetPaneHost {
 
 const OFFICE_SHEET_HOSTS = { ops: officeSheetHost("ops"), "shop-api": officeSheetHost("shop-api") };
 
+/** Lets a test open another tab in the workspace the office panel is a tab of. */
+const officeTabs = { set: null as null | ((tabIds: string[]) => void) };
+
+/** The workspace's editing sessions, which keep only its own tabs' (workspace-screen.tsx). */
+function OfficeWorkspaceTabs({
+  workspaceId,
+  children,
+}: {
+  workspaceId: string;
+  children: ReactNode;
+}) {
+  const [tabIds, setTabIds] = useState(["office-tab"]);
+  officeTabs.set = setTabIds;
+  return (
+    <WorkspaceComposerEditingSessionsProvider
+      workspaceKey={`${SERVER}:${workspaceId}`}
+      tabIds={tabIds}
+    >
+      {children}
+    </WorkspaceComposerEditingSessionsProvider>
+  );
+}
+
 /** Lets a test move the workspace's focus off the office's pane, as a press in another pane does. */
 const officePane = { setFocused: null as null | ((focused: boolean) => void) };
 
@@ -479,16 +523,18 @@ describe("an agent's session beside the office as a workspace panel", () => {
   function inWorkspace(workspaceId: keyof typeof OFFICE_SHEET_HOSTS) {
     const host = OFFICE_SHEET_HOSTS[workspaceId];
     return (children: ReactNode) => (
-      <DiffDocumentWorkspaceCacheProvider>
-        <SheetPaneHostProvider value={host}>
-          <AssistantFileLinkResolverProvider
-            serverId={SERVER}
-            workspaceRoot={`/repo/${workspaceId}`}
-          >
-            <OfficePane>{children}</OfficePane>
-          </AssistantFileLinkResolverProvider>
-        </SheetPaneHostProvider>
-      </DiffDocumentWorkspaceCacheProvider>
+      <OfficeWorkspaceTabs workspaceId={workspaceId}>
+        <DiffDocumentWorkspaceCacheProvider>
+          <SheetPaneHostProvider value={host}>
+            <AssistantFileLinkResolverProvider
+              serverId={SERVER}
+              workspaceRoot={`/repo/${workspaceId}`}
+            >
+              <OfficePane>{children}</OfficePane>
+            </AssistantFileLinkResolverProvider>
+          </SheetPaneHostProvider>
+        </DiffDocumentWorkspaceCacheProvider>
+      </OfficeWorkspaceTabs>
     );
   }
 
@@ -539,4 +585,25 @@ describe("an agent's session beside the office as a workspace panel", () => {
     expect(text("probe-tab")).toBe(`beside:${surfaceKey}`);
     expect(text("probe-tab")).not.toBe("office-tab");
   });
+
+  it.each([
+    ["another workspace", "ops"],
+    ["the agent's own workspace", "shop-api"],
+  ] as const)(
+    "keeps the composer's editing session when the office's workspace, %s, changes its tabs",
+    (_name, workspaceId) => {
+      renderOffice(`${SERVER}:${workspaceId}:office-tab`, inWorkspace(workspaceId));
+      show(TARGET);
+      const session = probeEditingSession!;
+      act(() => session.setFullscreen(true));
+      expect(text("probe-fullscreen")).toBe("fullscreen");
+
+      // A tab opened beside the office: the workspace keeps the editing sessions of its own tabs.
+      act(() => officeTabs.set!(["office-tab", "notes-tab"]));
+      act(() => rerenderProbe!());
+
+      expect(probeEditingSession).toBe(session);
+      expect(text("probe-fullscreen")).toBe("fullscreen");
+    },
+  );
 });

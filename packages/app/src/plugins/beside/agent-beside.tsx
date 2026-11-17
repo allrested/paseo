@@ -16,6 +16,7 @@ import {
   createInlinePathOpener,
   type InlinePathTarget,
 } from "@/assistant-file-links";
+import { WorkspaceComposerEditingSessionsProvider } from "@/composer/editing-session";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import { useToast } from "@/contexts/toast-context";
@@ -264,33 +265,38 @@ function AgentBesidePane({ serverId, agentId, workspace, tabId, close }: AgentBe
   useViewedSheetAgent({ sourceId: tabId, serverId, agentId });
   const paneRef = useRef<View>(null);
   const isPaneFocused = useHasKeyboard(paneRef);
+  // The composer's editing session is the area's own. Under the office's workspace, that
+  // workspace's tab changes would drop it; under the agent's, each side would drop the other's.
+  const editingTabIds = useMemo(() => [tabId], [tabId]);
 
   return (
-    <DiffDocumentWorkspaceCacheProvider>
-      <SheetPaneHostProvider value={sheetPaneHost}>
-        <AssistantFileLinkResolverProvider
-          client={client}
-          serverId={serverId}
-          workspaceRoot={workspaceRoot || undefined}
-          onOpenWorkspaceFile={openPath}
-          toast={toast}
-        >
-          <ForgeShorthandProvider
-            forge={workspace.forge}
-            remoteUrl={workspace.gitRuntime?.remoteUrl}
-            forgeWeb={workspace.forgeWeb}
+    <WorkspaceComposerEditingSessionsProvider workspaceKey={tabId} tabIds={editingTabIds}>
+      <DiffDocumentWorkspaceCacheProvider>
+        <SheetPaneHostProvider value={sheetPaneHost}>
+          <AssistantFileLinkResolverProvider
+            client={client}
+            serverId={serverId}
+            workspaceRoot={workspaceRoot || undefined}
+            onOpenWorkspaceFile={openPath}
+            toast={toast}
           >
-            <View ref={paneRef} style={styles.pane}>
-              <WorkspacePaneContent
-                content={content}
-                isWorkspaceFocused={isWorkspaceFocused}
-                isPaneFocused={isPaneFocused}
-              />
-            </View>
-          </ForgeShorthandProvider>
-        </AssistantFileLinkResolverProvider>
-      </SheetPaneHostProvider>
-    </DiffDocumentWorkspaceCacheProvider>
+            <ForgeShorthandProvider
+              forge={workspace.forge}
+              remoteUrl={workspace.gitRuntime?.remoteUrl}
+              forgeWeb={workspace.forgeWeb}
+            >
+              <View ref={paneRef} style={styles.pane}>
+                <WorkspacePaneContent
+                  content={content}
+                  isWorkspaceFocused={isWorkspaceFocused}
+                  isPaneFocused={isPaneFocused}
+                />
+              </View>
+            </ForgeShorthandProvider>
+          </AssistantFileLinkResolverProvider>
+        </SheetPaneHostProvider>
+      </DiffDocumentWorkspaceCacheProvider>
+    </WorkspaceComposerEditingSessionsProvider>
   );
 }
 
