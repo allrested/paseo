@@ -254,7 +254,7 @@ const api = {
    * (the server racks), onResources() (the server room's wall screen), onLibrary() (the library's
    * chip and the bookshelf), onBell() (a click on the meeting table's bell), onNotes() (the label over
    * the meeting room's screen, on the company floor), onOpen(id) (E by a person while walking: their
-   * session), onIncidents() (the incidents' banner) and onToast(text).
+   * session), onIncidents() (the incidents' banner) and onToast(text), and `photo` (false hides Photo mode).
    * Throws when the world cannot be built (no WebGL, a module failed).
    */
   start(options = {}) {
@@ -272,6 +272,7 @@ const api = {
     host.bell = typeof options.onBell === 'function' ? () => options.onBell() : null;
     host.notes = typeof options.onNotes === 'function' ? () => options.onNotes() : null;
     host.open = typeof options.onOpen === 'function' ? (id) => options.onOpen(id) : null;
+    host.photo = options.photo !== false;
     host.limits = () => limits;
     host.boardRows = () => boardRows;
     problem = (message) => options.onProblem?.(message);

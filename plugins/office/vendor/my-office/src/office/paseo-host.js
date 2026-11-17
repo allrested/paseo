@@ -28,6 +28,8 @@ export const host = {
    * navigation but no side area it opens the agent's workspace, leaving the office, as the card's Open session does.
    */
   open: null,
+  /** False where Photo mode cannot keep a picture (a WebView has no download): no button, no P key. */
+  photo: true,
   /** A short line the office says once. */
   toast() {},
   /** Usage windows, as upstream's plan card has them: [{ key, pct, resetsAt }]. */

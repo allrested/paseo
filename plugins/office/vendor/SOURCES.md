@@ -41,7 +41,8 @@ Five copied files are changed by hand, and each change starts with `// PASEO:`:
 - `src/office/life/tests.js`: `clearRun` puts out the lamp of a test run whose end Paseo never
   learns.
 - `src/office/ui/photo.js`: the mark painted into a photo is the host's brand name (Paseo's when
-  there is none), and the file is named `office-YYYY-MM-DD-HHMM.png`.
+  there is none), the file is named `office-YYYY-MM-DD-HHMM.png`, and a host with `photo` false
+  has no Photo mode (the button is hidden and `enterPhoto` returns).
 
 Two files are taken trimmed. Their paths stay in the import tool's `DENY`, so it never writes them
 and only checks that they export what the kept modules import (which is why `MANIFEST.json` lists
