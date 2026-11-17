@@ -102,7 +102,10 @@ function makeTeamChipsButtons() {
     asButton(tag.o.element, open);
   }
 }
-/** The server room's chip, the racks, the wall screen and the dev boxes open Paseo's panel: no reading, no panel. */
+/**
+ * The server room's chip, the racks, the dev boxes, and the wall screen without Resources open Paseo's panel: no
+ * reading, no panel, and the wall screen is furniture then too (ui/whiteboard.js).
+ */
 function showMachine(on) {
   host.machine = on && onMachine ? () => onMachine() : null;
   document.querySelector('.zone[data-place="server"]')?.toggleAttribute('hidden', !host.machine);
@@ -264,9 +267,10 @@ const api = {
     // (the bell on the meeting table: whoever is at a solo activity stops for it, as for the stand-up card's bell)
     const bell = PROPS.get('bell');
     if (bell) { const ring = bell.act; bell.act = () => ringWithEveryone(ring); }
-    // (the wall screen opens Paseo's Resources when Paseo has it; the racks and the server room's chip keep the panel)
+    // (the wall screen opens Paseo's Resources when Paseo has it, and its tooltip says so; the racks and the server
+    // room's chip keep the panel)
     const tv = PROPS.get('tv');
-    if (tv && host.resources) tv.act = () => host.resources();
+    if (tv && host.resources) { tv.act = () => host.resources(); tv.hint = tr('paseo.tv.resources'); }
     everyFrame(updateLeisure);
     showMachine(false);
     showBrand(options.brand);

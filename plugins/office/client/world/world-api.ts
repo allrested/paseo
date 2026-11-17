@@ -129,7 +129,10 @@ export interface WorldStartOptions {
   onMachine?(): void;
   /** The library was chosen: its chip or the bookshelf. Absent: the scene's own card opens. */
   onLibrary?(): void;
-  /** The server room's wall screen was chosen. Absent while Paseo has nothing to show for it. */
+  /**
+   * The server room's wall screen was chosen. Absent while Paseo has nothing to show for it. The
+   * screen can be chosen only while `onMachine` is given and the host has a reading (`setMachine`).
+   */
   onResources?(): void;
   /** A short line the office says once. */
   onToast?(text: string): void;
