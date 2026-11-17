@@ -321,6 +321,7 @@ const api = {
     everyFrame(updateLeisure);
     showMachine(false);
     showBrand(options.brand);
+    host.brandName = options.brand?.name || '';
     // (the tag over the boxes left behind opens the panel; upstream listens for its click already)
     if (lostObj) asButton(lostObj.element, () => host.machine?.());
     renderer.domElement.addEventListener('webglcontextlost', () => { if (!stopped) problem('the graphics context was lost'); });

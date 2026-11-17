@@ -7,6 +7,8 @@ export const host = {
   night: false,
   /** The app's surface colour: the plain backdrop behind the floor. */
   surface: '#F4EFE6',
+  /** The host's name, painted into a photo's mark; empty while Paseo has no brand. */
+  brandName: '',
   /** A person was chosen; null when nobody is. */
   select() {},
   /** A team's chip was chosen (its project), or the whiteboard (nothing). */

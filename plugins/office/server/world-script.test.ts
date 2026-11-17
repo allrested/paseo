@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { bundleBrowserScript } from "../../../packages/server/src/server/plugins/browser-script.js";
@@ -74,6 +75,19 @@ describe("the vendored entry", () => {
     // Node's globals would throw in the page: upstream's build flag was the one use.
     expect(script).not.toContain("process.env");
     expect(script).not.toMatch(/\brequire\(/);
+  }, 60_000);
+
+  it("bundles upstream's photo mode, with Paseo's mark and file name", async () => {
+    const photo = readFileSync(
+      new URL("../vendor/my-office/src/office/ui/photo.js", import.meta.url),
+      "utf8",
+    );
+    const bundle = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+
+    expect(photo).toContain("PASEO:");
+    expect(photo).toContain("host.brandName");
+    expect(photo).toMatch(/office-\$\{/);
+    expect(bundle).toContain("ph-shoot");
   }, 60_000);
 
   it("the scene's bundle builds with the new modules", async () => {

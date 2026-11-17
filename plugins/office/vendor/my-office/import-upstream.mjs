@@ -31,7 +31,7 @@ if (!FROM || !THREE) {
  * checked.
  */
 const DENY = [
-  /^office\/ui\/(?!event-text\.js$|icons\.js$)/,
+  /^office\/ui\/(?!event-text\.js$|icons\.js$|photo\.js$)/,
   /^office\/(demo|replay|audio)\//,
   /^office\/world\/backdrops\//,
   /^office\/world\/pro\/wing\.js$/,
