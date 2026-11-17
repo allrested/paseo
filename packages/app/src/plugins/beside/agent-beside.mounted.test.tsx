@@ -8,7 +8,15 @@
 // archived state).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { createElement, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import {
+  createElement,
+  useEffect,
+  useMemo,
+  useReducer,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { Text } from "react-native";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -71,6 +79,25 @@ vi.mock("@/stores/navigation-active-workspace-store", () => ({ navigateToWorkspa
 
 // Registering the real panels imports the real agent pane; the probe stands in for it below.
 vi.mock("@/panels/register-panels", () => ({ ensurePanelsRegistered: vi.fn() }));
+
+/** The workspace the area last gave its Markdown links, for their forge references. */
+const markdownLinks = vi.hoisted(() => ({ workspaceId: null as string | null }));
+
+// The workspace screen's module reaches the expo package's runtime, as the agent pane's does. The
+// stand-in `WorkspaceMarkdownLinks` gives the area's props to the real file-link resolver, which the
+// probe reads.
+vi.mock("@/screens/workspace/workspace-screen", async () => {
+  const { AssistantFileLinkResolverProvider: FileLinkResolver } =
+    await import("@/assistant-file-links");
+  function WorkspaceMarkdownLinks({
+    workspace: linked,
+    ...fileLinks
+  }: ComponentProps<typeof import("@/screens/workspace/workspace-screen").WorkspaceMarkdownLinks>) {
+    markdownLinks.workspaceId = linked?.id ?? null;
+    return <FileLinkResolver {...fileLinks} />;
+  }
+  return { WorkspaceMarkdownLinks };
+});
 
 const navigateToAgentMock = vi.mocked(navigateToAgent);
 const navigateToWorkspaceMock = vi.mocked(navigateToWorkspace);
@@ -282,6 +309,7 @@ beforeEach(() => {
   probePane = null;
   probeEditingSession = null;
   rerenderProbe = null;
+  markdownLinks.workspaceId = null;
   showBeside = undefined;
   navigateToAgentMock.mockReset();
   navigateToWorkspaceMock.mockReset();
@@ -306,6 +334,7 @@ describe("an agent's session beside the office's own screen", () => {
     expect(text("probe-workspace")).toBe("shop-api");
     expect(text("probe-sheet-workspace")).toBe("shop-api");
     expect(text("probe-file-root")).toBe("/repo/shop-api");
+    expect(markdownLinks.workspaceId).toBe("shop-api");
     expect(text("probe-tab")).toBe(besideTabId(OFFICE_SCREEN));
     expect(screen.getByTestId("office-content")).toBeTruthy();
   });
@@ -546,6 +575,7 @@ describe("an agent's session beside the office as a workspace panel", () => {
     expect(text("probe-workspace")).toBe("shop-api");
     expect(text("probe-sheet-workspace")).toBe("shop-api");
     expect(text("probe-file-root")).toBe("/repo/shop-api");
+    expect(markdownLinks.workspaceId).toBe("shop-api");
   });
 
   it("is the focused pane only while the office's pane is focused and the area has the keyboard", () => {

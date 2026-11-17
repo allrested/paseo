@@ -3943,7 +3943,7 @@ function WorkspaceScreenContent({
 }
 
 /** File links and forge references for every Markdown surface in the workspace. */
-function WorkspaceMarkdownLinks({
+export function WorkspaceMarkdownLinks({
   workspace,
   children,
   ...fileLinks

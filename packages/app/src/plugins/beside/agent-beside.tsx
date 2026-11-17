@@ -11,17 +11,12 @@ import { View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import { useAgentDescriptor } from "@/agent-presentation";
-import {
-  AssistantFileLinkResolverProvider,
-  createInlinePathOpener,
-  type InlinePathTarget,
-} from "@/assistant-file-links";
+import { createInlinePathOpener, type InlinePathTarget } from "@/assistant-file-links";
 import { WorkspaceComposerEditingSessionsProvider } from "@/composer/editing-session";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import { useToast } from "@/contexts/toast-context";
 import { DiffDocumentWorkspaceCacheProvider } from "@/git/diff-document/workspace-cache";
-import { ForgeShorthandProvider } from "@/git/forge-shorthand";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { usePaneFocusIfAny } from "@/panels/pane-context";
@@ -32,6 +27,7 @@ import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { SheetPaneHostProvider, type SheetPaneHost } from "@/screens/workspace/sheet-pane";
 import { useViewedSheetAgent } from "@/screens/workspace/sheet-pane/sheet-pane";
 import { resolveWorkspaceHeader } from "@/screens/workspace/workspace-header-source";
+import { WorkspaceMarkdownLinks } from "@/screens/workspace/workspace-screen";
 import {
   buildWorkspacePaneContentModel,
   WorkspacePaneContent,
@@ -273,27 +269,22 @@ function AgentBesidePane({ serverId, agentId, workspace, tabId, close }: AgentBe
     <WorkspaceComposerEditingSessionsProvider workspaceKey={tabId} tabIds={editingTabIds}>
       <DiffDocumentWorkspaceCacheProvider>
         <SheetPaneHostProvider value={sheetPaneHost}>
-          <AssistantFileLinkResolverProvider
+          <WorkspaceMarkdownLinks
+            workspace={workspace}
             client={client}
             serverId={serverId}
             workspaceRoot={workspaceRoot || undefined}
             onOpenWorkspaceFile={openPath}
             toast={toast}
           >
-            <ForgeShorthandProvider
-              forge={workspace.forge}
-              remoteUrl={workspace.gitRuntime?.remoteUrl}
-              forgeWeb={workspace.forgeWeb}
-            >
-              <View ref={paneRef} style={styles.pane}>
-                <WorkspacePaneContent
-                  content={content}
-                  isWorkspaceFocused={isWorkspaceFocused}
-                  isPaneFocused={isPaneFocused}
-                />
-              </View>
-            </ForgeShorthandProvider>
-          </AssistantFileLinkResolverProvider>
+            <View ref={paneRef} style={styles.pane}>
+              <WorkspacePaneContent
+                content={content}
+                isWorkspaceFocused={isWorkspaceFocused}
+                isPaneFocused={isPaneFocused}
+              />
+            </View>
+          </WorkspaceMarkdownLinks>
         </SheetPaneHostProvider>
       </DiffDocumentWorkspaceCacheProvider>
     </WorkspaceComposerEditingSessionsProvider>
