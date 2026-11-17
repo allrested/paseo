@@ -250,6 +250,24 @@ function sameEvent(left: FeedEvent, right: FeedEvent): boolean {
   );
 }
 
+/** Two subscriptions receive the same broadcast milliseconds apart, and stamp its status with each. */
+export const STATUS_SAME_MS = 2_000;
+
+const STATUS_KINDS: ReadonlySet<FeedKind> = new Set(["started", "finished", "error"]);
+
+/** A status event already kept for the same change: same agent, same kind, close in time. */
+function statusTwin(kept: readonly FeedEvent[], event: FeedEvent): boolean {
+  return (
+    STATUS_KINDS.has(event.kind) &&
+    kept.some(
+      (other) =>
+        other.agentId === event.agentId &&
+        other.kind === event.kind &&
+        Math.abs(other.at - event.at) <= STATUS_SAME_MS,
+    )
+  );
+}
+
 let store: readonly FeedEvent[] = [];
 const listeners = new Set<() => void>();
 
@@ -268,6 +286,8 @@ export const feedStore = {
     const index = new Map(next.map((event, position) => [event.id, position]));
     let changed = false;
     for (const event of incoming) {
+      // The earlier telling of a status change is kept; the other subscription's is dropped.
+      if (statusTwin(next, event)) continue;
       const position = index.get(event.id);
       if (position === undefined) {
         index.set(event.id, next.length);
