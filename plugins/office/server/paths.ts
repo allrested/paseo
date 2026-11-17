@@ -26,6 +26,11 @@ export function notesWriterFile(env: NodeJS.ProcessEnv, home: string): string {
   return join(officeDir(env, home), "notes-writer.json");
 }
 
+/** What the incidents check has seen in each tracker, and the open incidents. */
+export function incidentsFile(env: NodeJS.ProcessEnv, home: string): string {
+  return join(officeDir(env, home), "incidents.json");
+}
+
 /** A folder skills are read from, and the name the card gives it. */
 export interface SkillFolder {
   label: string;
