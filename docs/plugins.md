@@ -722,7 +722,12 @@ stand-up or the lounge, and the janitor stays at the cart. Designs:
 Server code of a plugin cannot import from its `client/` folder (the compiler refuses it).
 
 Each room has a board, and the lobby has one for the host: posts are tasks (open, claimed, done) or
-notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days). A
+notes, kept in `$PASEO_HOME/office/boards.json` (200 per board, done tasks dropped after 7 days).
+The lobby's board is the office's to-do list: a to-do is a lobby task, and "Clear finished" deletes
+the done ones. It also shows each agent's unfinished checklist steps, text included, read with the
+"doing now" line from the newest `todo` item in the agent's timeline. The steps stay after the agent
+stops and go when it is archived or closed. The server keeps them in memory only: after a daemon
+restart an agent's steps are back when it next updates its checklist. A
 board is removed when its workspace is archived while the daemon runs; a board left from a workspace
 archived otherwise stays until its posts are deleted. Interactive agent sessions get three tools,
 `office_read`, `office_post` and `office_update`, unless the host's "Agent tools" switch is off when
@@ -734,7 +739,8 @@ agent. Posts that wait for an agent go out as one prompt per author: an agent's 
 agent as the source, the user's posts arrive as a user prompt. A post naming an agent that has not
 run a turn yet is delivered after that agent's first turn or the next post that names it. The "Wake
 agents" switch holds every wake until it is turned back on; wakes that wait are not kept across a
-daemon restart. Design: [the spec](superpowers/specs/2026-11-11-agent-office-design.md).
+daemon restart. Designs: [the office](superpowers/specs/2026-11-11-agent-office-design.md),
+[the lobby's to-do list](superpowers/specs/2026-11-17-office-lobby-todo-design.md).
 
 The Stand-up entry at the end of the attention strip reports every room with an agent in it: its
 branch, its ticket, its pull request, what blocks it, and what each agent is at, with the agent's
