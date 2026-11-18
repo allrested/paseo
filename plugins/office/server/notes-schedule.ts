@@ -29,6 +29,33 @@ export function notesTimeZone(values: NotesSettings, hostTimeZone: string): stri
   return values.notesTimeZone.trim() || hostTimeZone;
 }
 
+/** An instant's date in a zone, as YYYY-MM-DD. */
+function zoneDate(at: number, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(at);
+  const part = (type: string) => parts.find((piece) => piece.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/**
+ * The two days when a notes run due at `dueAt` could only start on a later day in the notes'
+ * zone; null when it starts on the day it was due. The writer writes the day it starts on, so a
+ * late run would write the wrong day's entry.
+ */
+export function lateNotesRun(
+  dueAt: number,
+  startAt: number,
+  timeZone: string,
+): { dueDay: string; startDay: string } | null {
+  const dueDay = zoneDate(dueAt, timeZone);
+  const startDay = zoneDate(startAt, timeZone);
+  return dueDay === startDay ? null : { dueDay, startDay };
+}
+
 /** When the stand-up notes are written: null while no folder is set. */
 export function notesCadence(values: NotesSettings, hostTimeZone: string): OfficeCadence | null {
   if (notesFolder(values) === null) return null;

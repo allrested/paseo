@@ -10,6 +10,8 @@ export type Paseo = PluginHandlerContext["paseo"];
 export interface PaseoHolder {
   remember(paseo: Paseo): void;
   require(): Paseo;
+  /** Whether a handler or hook has brought the API yet. */
+  held(): boolean;
   /** Resolves once a handler has brought the API: a run due before that waits for it. */
   wait(): Promise<Paseo>;
 }
@@ -29,6 +31,7 @@ export function createPaseoHolder(): PaseoHolder {
       if (held === null) throw new Error("The office has not received the Paseo API yet");
       return held;
     },
+    held: () => held !== null,
     wait: () => (held === null ? first : Promise.resolve(held)),
   };
 }

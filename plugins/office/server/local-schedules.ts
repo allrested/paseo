@@ -33,8 +33,11 @@ export interface OfficeSchedules {
 }
 
 export interface LocalSchedules extends OfficeSchedules {
-  /** Answers a due schedule that names `handler`. Returns a function that stops answering. */
-  handle(handler: string, run: () => Promise<void>): () => void;
+  /**
+   * Answers a due schedule that names `handler`, given the instant it was due (a run can start
+   * late). Returns a function that stops answering.
+   */
+  handle(handler: string, run: (dueAt: number) => Promise<void>): () => void;
   /** Cancels every timer. */
   stop(): void;
 }
@@ -162,8 +165,10 @@ export function createLocalSchedules(ports: {
   log(message: string): void;
 }): LocalSchedules {
   const kept = new Map<string, Kept>();
-  const handlers = new Map<string, () => Promise<void>>();
+  const handlers = new Map<string, (dueAt: number) => Promise<void>>();
   const running = new Set<string>();
+  // The schedules whose run in flight has had a skip logged: one line per stuck run.
+  const skipLogged = new Set<string>();
   let stopped = false;
 
   function arm(input: OfficeScheduleInput, at: number): Kept {
@@ -180,6 +185,7 @@ export function createLocalSchedules(ports: {
   async function due(name: string): Promise<void> {
     const entry = kept.get(name);
     if (!entry) return;
+    const dueAt = entry.nextRunAt;
     // Set for the run after first, so a slow or failing handler never stops the schedule. A timer
     // can fire a little before its time, so the run after counts from the time it was set for.
     try {
@@ -192,12 +198,16 @@ export function createLocalSchedules(ports: {
     if (!run) return;
     // One run of a schedule at a time: a slow one is not joined by the next, or by a queue of them.
     if (running.has(name)) {
-      ports.log(`[office] ${name} run skipped: the last one has not ended`);
+      if (!skipLogged.has(name)) {
+        skipLogged.add(name);
+        ports.log(`[office] ${name} run skipped: the last one has not ended`);
+      }
       return;
     }
     running.add(name);
+    skipLogged.delete(name);
     try {
-      await run();
+      await run(dueAt);
     } catch (error) {
       ports.log(`[office] ${name} run failed: ${errorMessage(error)}`);
     } finally {

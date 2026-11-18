@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { fakeSchedules } from "./fake-schedules.js";
 import {
   createNotesSchedule,
+  lateNotesRun,
   NOTES_SCHEDULE,
   notesCadence,
   syncNotesSchedule,
@@ -131,4 +132,36 @@ test("changes are synced one at a time, so a slow save cannot land after a later
   expect((await fake.list()).map((schedule) => schedule.cadence)).toEqual([
     { ...RIYADH_EIGHT, timezone: "Europe/Berlin" },
   ]);
+});
+
+const at = (iso: string) => Date.parse(iso);
+
+test("a notes run that starts on the day it was due is not late", () => {
+  expect(
+    lateNotesRun(at("2026-11-19T05:00:00Z"), at("2026-11-19T09:30:00Z"), "Asia/Riyadh"),
+  ).toBeNull();
+});
+
+test("a notes run that could only start the next day is late, with both days", () => {
+  expect(
+    lateNotesRun(at("2026-11-19T05:00:00Z"), at("2026-11-20T06:00:00Z"), "Asia/Riyadh"),
+  ).toEqual({ dueDay: "2026-11-19", startDay: "2026-11-20" });
+});
+
+test("the days are the zone's: midnight east of UTC is passed while the UTC day is the same", () => {
+  // 23:59 and 00:01 in Riyadh (UTC+3), both on 18 November in UTC.
+  expect(
+    lateNotesRun(at("2026-11-18T20:59:00Z"), at("2026-11-18T21:01:00Z"), "Asia/Riyadh"),
+  ).toEqual({ dueDay: "2026-11-18", startDay: "2026-11-19" });
+});
+
+test("the days are the zone's: midnight west of UTC is passed while the UTC day is the same", () => {
+  // 23:59 and 00:01 in New York (UTC-5), both on 19 November in UTC.
+  expect(
+    lateNotesRun(at("2026-11-19T04:59:00Z"), at("2026-11-19T05:01:00Z"), "America/New_York"),
+  ).toEqual({ dueDay: "2026-11-18", startDay: "2026-11-19" });
+  // 18:00 and 20:00 in New York, across UTC midnight: the same day there.
+  expect(
+    lateNotesRun(at("2026-11-18T23:00:00Z"), at("2026-11-19T01:00:00Z"), "America/New_York"),
+  ).toBeNull();
 });

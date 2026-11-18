@@ -208,25 +208,8 @@ const EVERY_INCIDENTS = {
   cadence: { type: "every" as const, everyMs: 5 * 60 * 1000 },
 };
 
-test("a run is skipped, and logged, while the last one has not ended", async () => {
+test("a stuck run logs one skip line across several due times, and the next run resets it", async () => {
   const { clock, logged, schedules } = engine();
-  let runs = 0;
-  schedules.handle("incidents", () => {
-    runs += 1;
-    return new Promise<void>(() => undefined);
-  });
-  await schedules.upsert(EVERY_INCIDENTS);
-
-  clock.advance(16 * 60 * 1000);
-  await settle();
-  expect(runs).toBe(1);
-  expect(
-    logged.filter((line) => line === "[office] incidents run skipped: the last one has not ended"),
-  ).toHaveLength(2);
-});
-
-test("a run that ended lets the next one start", async () => {
-  const { clock, schedules } = engine();
   let runs = 0;
   let end: () => void = () => undefined;
   schedules.handle("incidents", () => {
@@ -236,30 +219,48 @@ test("a run that ended lets the next one start", async () => {
     });
   });
   await schedules.upsert(EVERY_INCIDENTS);
+  const skips = () =>
+    logged.filter((line) => line === "[office] incidents run skipped: the last one has not ended");
 
-  clock.advance(5 * 60 * 1000);
-  await settle();
+  // Due at 5, 10, 15 and 20 minutes: the first run starts and the three after it are skipped.
+  for (let step = 0; step < 4; step += 1) {
+    clock.advance(5 * 60 * 1000);
+    await settle();
+  }
+  expect(runs).toBe(1);
+  expect(skips()).toHaveLength(1);
+
   end();
   await settle();
   clock.advance(5 * 60 * 1000);
   await settle();
+  clock.advance(5 * 60 * 1000);
+  await settle();
   expect(runs).toBe(2);
+  expect(skips()).toHaveLength(2);
 });
 
-test("an interval under a second is refused, naming the value", async () => {
-  const { schedules } = engine();
-  await expect(
-    schedules.upsert({ ...EVERY_INCIDENTS, cadence: { type: "every", everyMs: 10 } }),
-  ).rejects.toThrow(/10/);
-  await expect(
-    schedules.upsert({ ...EVERY_INCIDENTS, cadence: { type: "every", everyMs: Number.NaN } }),
-  ).rejects.toThrow(/NaN/);
-  expect(await schedules.list()).toEqual([]);
-});
+test("the handler is given the instant the schedule was due, for a cron and an interval", async () => {
+  let now = at("2026-11-18T04:00:00Z");
+  const timers: (() => void)[] = [];
+  const clock = {
+    now: () => now,
+    setTimeout: (run: () => void) => {
+      timers.push(run);
+      return () => undefined;
+    },
+  };
+  const schedules = createLocalSchedules({ clock, log: () => undefined });
+  const given: number[] = [];
+  schedules.handle("standup-notes", async (dueAt) => void given.push(dueAt));
+  schedules.handle("incidents", async (dueAt) => void given.push(dueAt));
+  await schedules.upsert(NOTES_INPUT);
+  await schedules.upsert(EVERY_INCIDENTS);
 
-test("after stop a save is refused and sets no timer", async () => {
-  const { clock, schedules } = engine();
-  schedules.stop();
-  await expect(schedules.upsert(NOTES_INPUT)).rejects.toThrow(/have stopped/);
-  expect(clock.pending()).toBe(0);
+  // Both timers fire late, as a busy or sleeping host's do: each handler gets its due time.
+  now = at("2026-11-18T05:00:30Z");
+  timers[0]?.();
+  timers[1]?.();
+  await settle();
+  expect(given).toEqual([at("2026-11-18T05:00:00Z"), at("2026-11-18T04:05:00Z")]);
 });

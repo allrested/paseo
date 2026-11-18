@@ -35,7 +35,12 @@ import { liveCleanupPorts, liveMachinePorts } from "./server/machine/live-ports.
 import { createMachineReader } from "./server/machine/machine.js";
 import { createMachineWatch } from "./server/machine/watch.js";
 import { nodeNotesFs, readMonthNotes } from "./server/notes-files.js";
-import { createNotesSchedule, NOTES_SCHEDULE } from "./server/notes-schedule.js";
+import {
+  createNotesSchedule,
+  lateNotesRun,
+  NOTES_SCHEDULE,
+  notesTimeZone,
+} from "./server/notes-schedule.js";
 import { createNotesStore, createNotesWriter, type NotesStore } from "./server/notes-writer.js";
 import { createLocalSchedules, type LocalSchedules } from "./server/local-schedules.js";
 import { createOffice } from "./server/office.js";
@@ -357,9 +362,32 @@ export function createOfficePlugin(
     holder.remember(context.paseo);
     return writer.start();
   });
-  // The 8:00 run ends once the writer started; the writer's own end is its turn's hook.
-  const stopNotesRuns = deps.schedules.handle(NOTES_SCHEDULE, async () => {
+  // On stock Paseo the API reaches the plugin only on a handler's or hook's context, so after a
+  // restart on a quiet host a run waits until the office is opened or an agent's turn moves.
+  async function paseoForRun(name: string): Promise<void> {
+    if (!holder.held()) {
+      log(
+        `[office] ${name} run is waiting for the Paseo API: open the office, or let an agent open or end a turn`,
+      );
+    }
     await holder.wait();
+  }
+  // The 8:00 run ends once the writer started; the writer's own end is its turn's hook.
+  const stopNotesRuns = deps.schedules.handle(NOTES_SCHEDULE, async (dueAt) => {
+    await paseoForRun(NOTES_SCHEDULE);
+    // The writer writes the day it starts on: a run that waited past midnight would write the
+    // wrong day. Settings that cannot be read are left to the writer, which shows why.
+    const zone = await readHostSettings().then(
+      (values) => notesTimeZone(values, deps.hostTimeZone),
+      () => null,
+    );
+    const late = zone === null ? null : lateNotesRun(dueAt, deps.clock.now(), zone);
+    if (late !== null) {
+      log(
+        `[office] ${NOTES_SCHEDULE} run dropped: it was due on ${late.dueDay} and could only start on ${late.startDay}`,
+      );
+      return;
+    }
     await writer.start();
   });
   server.handle(incidentsDismissRpc, ({ ids }) =>
@@ -373,9 +401,10 @@ export function createOfficePlugin(
       return chat.request(input);
     });
   });
-  // A check never rejects: a tracker that fails shows its problem on the Incidents card.
+  // A check never rejects: a tracker that fails shows its problem on the Incidents card. It is
+  // about now, so a run that waited checks when it resumes.
   const stopIncidentsRuns = deps.schedules.handle(INCIDENTS_SCHEDULE, async () => {
-    await holder.wait();
+    await paseoForRun(INCIDENTS_SCHEDULE);
     await incidents.check();
   });
 

@@ -43,7 +43,7 @@ interface Recorded {
   /** When set, a schedule's save rejects with it. */
   scheduleFailure: Error | null;
   /** The handlers that answer due schedules, by handler name. */
-  scheduleRuns: Map<string, () => Promise<void>>;
+  scheduleRuns: Map<string, (dueAt: number) => Promise<void>>;
 }
 
 interface Sent {
@@ -917,24 +917,46 @@ test("the bell's request starts one writer in the notes folder, and its good end
 });
 
 test("the 8:00 run starts the writer with the run's Paseo API", async () => {
-  const { recorded, writers, open, stop } = setup(async () => NOTES);
+  const { recorded, writers, logs, clock, open, stop } = setup(async () => NOTES);
   await settle();
   // A run has no Paseo API of its own: a handler or hook brought it before.
   await open();
-  await recorded.scheduleRuns.get("standup-notes")?.();
+  await recorded.scheduleRuns.get("standup-notes")?.(clock.now());
   expect(writers.created).toHaveLength(1);
+  expect(logs.filter((line) => line.includes("waiting for the Paseo API"))).toEqual([]);
   await stop();
 });
 
-test("a run due before any handler brought the Paseo API waits for it", async () => {
-  const { recorded, writers, open, stop } = setup(async () => NOTES);
+const NOTES_WAITING =
+  "[office] standup-notes run is waiting for the Paseo API: open the office, or let an agent open or end a turn";
+
+test("a run due before any handler brought the Paseo API says so once and waits for it", async () => {
+  const { recorded, writers, logs, clock, open, stop } = setup(async () => NOTES);
   await settle();
-  const run = recorded.scheduleRuns.get("standup-notes")?.();
+  const run = recorded.scheduleRuns.get("standup-notes")?.(clock.now());
   await settle();
   expect(writers.created).toHaveLength(0);
+  // An hour later, the same day in Riyadh.
+  clock.advance(60 * 60 * 1000);
   await open();
   await run;
   expect(writers.created).toHaveLength(1);
+  expect(logs.filter((line) => line === NOTES_WAITING)).toHaveLength(1);
+  await stop();
+});
+
+test("a notes run that could only start the next day starts no writer and says why", async () => {
+  const { recorded, writers, logs, clock, open, stop } = setup(async () => NOTES);
+  await settle();
+  const run = recorded.scheduleRuns.get("standup-notes")?.(clock.now());
+  await settle();
+  clock.advance(24 * 60 * 60 * 1000);
+  await open();
+  await run;
+  expect(writers.created).toHaveLength(0);
+  expect(logs).toContain(
+    "[office] standup-notes run dropped: it was due on 2026-11-11 and could only start on 2026-11-12",
+  );
   await stop();
 });
 
@@ -1179,7 +1201,7 @@ test("a due incidents run calls the check; dismiss answers its count", async () 
   };
   // A run has no Paseo API of its own: a handler or hook brought it before.
   await open();
-  await recorded.scheduleRuns.get("incidents")?.();
+  await recorded.scheduleRuns.get("incidents")?.(clock.now());
   expect(jira.searches).toEqual([
     'project in ("OPS") AND issuetype = Bug AND created >= "2026-11-11 08:45" ORDER BY created ASC',
   ]);
@@ -1255,7 +1277,7 @@ test("a tracker's problem goes once no tracker is on", async () => {
   jira.refusing = true;
   // What the daemon reads back is what was saved last.
   let saved = JIRA_ON;
-  const { recorded, context, open, stop } = setup(async () => saved, {
+  const { recorded, context, open, clock, stop } = setup(async () => saved, {
     env: jiraVariables(jira.base),
   });
   await settle();
@@ -1268,7 +1290,7 @@ test("a tracker's problem goes once no tracker is on", async () => {
   } as never);
   await settle();
   await open();
-  await recorded.scheduleRuns.get("incidents")?.();
+  await recorded.scheduleRuns.get("incidents")?.(clock.now());
   await settle();
   expect(events.at(-1)?.state?.incidents).toMatchObject({
     problems: { jira: "Jira refused the token: check ATLASSIAN_API_TOKEN" },
