@@ -70,7 +70,10 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Its default package list still names the legacy 'tools', which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       # build-apk.mjs aligns and signs with this version's zipalign and apksigner.
       - name: Install build tools 35.0.0
