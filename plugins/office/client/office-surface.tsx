@@ -34,7 +34,7 @@ import { authorName } from "./board-text.js";
 import { useChatSeen } from "./chat-seen.js";
 import { ChatPanel } from "./chat-panel.js";
 import { unreadCount, unreadLabel } from "./chat-text.js";
-import { countLabel, type ColumnTab } from "./column-model.js";
+import { COLUMN_MIN, FLOOR_MIN, countLabel, type ColumnTab } from "./column-model.js";
 import { IncidentsCard } from "./incidents-card.js";
 import { incidentsEntry } from "./incidents-text.js";
 import { janitorNote, janitorRows } from "./context-text.js";
@@ -48,7 +48,7 @@ import {
   type OfficeRoom,
 } from "../shared/model.js";
 import type { FocusRequest } from "./focus-request.js";
-import { ColumnSheet } from "./column-sheet.js";
+import { ColumnBar, ColumnSheet } from "./column-sheet.js";
 import { OfficeColumn, type ColumnBadges } from "./office-column.js";
 import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
 import { SessionsPanel } from "./sessions-panel.js";
@@ -57,7 +57,7 @@ import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
-import { useColumn } from "./use-column.js";
+import { useColumn, type ColumnState } from "./use-column.js";
 import { LibraryCard } from "./library-card.js";
 import { NotesCard } from "./notes-card.js";
 import { todayZone } from "./notes-text.js";
@@ -907,45 +907,89 @@ function useColumnSheet(link: OfficeLink) {
 
 type ColumnSheetState = ReturnType<typeof useColumnSheet>;
 
-interface PhoneColumnProps extends Omit<ColumnPanelProps, "link"> {
+interface PhoneSheetProps extends Omit<ColumnPanelProps, "link"> {
   compact: boolean;
   sheet: ColumnSheetState;
-  badges: ColumnBadges;
   color: string;
-  platform: Platform;
   attention: ReactNode;
-  /** The office's row: the floor, and beside it the column where there is room for one. */
-  children: ReactNode;
 }
 
-/** On a phone the office's row gets the column's bar under it and its sheet over it. */
-function PhoneColumn({
-  compact,
-  sheet,
-  badges,
-  color,
-  platform,
-  attention,
-  children,
-  ...panel
-}: PhoneColumnProps) {
-  if (!compact) return children;
+/** On a compact surface, the open tab's sheet over the floor; nothing on a wide one. */
+function PhoneSheet({ compact, sheet, color, attention, ...panel }: PhoneSheetProps) {
+  if (!compact) return null;
   return (
     <ColumnSheet
       open={sheet.sheetTab}
-      badges={badges}
       color={color}
       iconSize={20}
-      platform={platform}
-      onOpen={sheet.setSheetTab}
+      platform={panel.layout.platform}
       onClose={sheet.closeSheet}
       styles={panel.styles}
-      floor={children}
     >
       {sheet.sheetTab === null ? null : (
         <ColumnPanel tab={sheet.sheetTab} attention={attention} {...panel} link={sheet.sheetLink} />
       )}
     </ColumnSheet>
+  );
+}
+
+interface PhoneBarProps {
+  compact: boolean;
+  sheet: ColumnSheetState;
+  badges: ColumnBadges;
+  color: string;
+  styles: OfficeStyles;
+}
+
+/** On a compact surface, the column's tabs as a bar under the floor; nothing on a wide one. */
+function PhoneBar({ compact, sheet, badges, color, styles }: PhoneBarProps) {
+  if (!compact) return null;
+  return (
+    <ColumnBar
+      open={sheet.sheetTab}
+      badges={badges}
+      color={color}
+      iconSize={20}
+      onOpen={sheet.setSheetTab}
+      onClose={sheet.closeSheet}
+      styles={styles}
+    />
+  );
+}
+
+interface WideColumnProps extends ColumnPanelProps {
+  compact: boolean;
+  column: ColumnState;
+  surfaceWidth: number;
+  badges: ColumnBadges;
+  color: string;
+  iconSize: number;
+  attention: ReactNode;
+}
+
+/** On a wide surface, the column beside the floor; nothing on a compact one. */
+function WideColumn({
+  compact,
+  column,
+  surfaceWidth,
+  badges,
+  color,
+  iconSize,
+  attention,
+  ...panel
+}: WideColumnProps) {
+  if (compact) return null;
+  return (
+    <OfficeColumn
+      column={column}
+      surfaceWidth={surfaceWidth}
+      badges={badges}
+      color={color}
+      iconSize={iconSize}
+      styles={panel.styles}
+    >
+      <ColumnPanel tab={column.tab} attention={attention} {...panel} />
+    </OfficeColumn>
   );
 }
 
@@ -1011,6 +1055,9 @@ export function OfficeSurface(
     (event: LayoutChangeEvent) => setSurfaceWidth(event.nativeEvent.layout.width),
     [],
   );
+  // A surface too narrow for the column and the floor is compact on any device: a desktop's split
+  // pane gets the bar and the sheet. Until it is measured the device decides.
+  const compact = layout.compact || (surfaceWidth > 0 && surfaceWidth < COLUMN_MIN + FLOOR_MIN);
   const machine = useMemo(() => namedMachine(reading, model.agents), [reading, model.agents]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
@@ -1145,90 +1192,72 @@ export function OfficeSurface(
   });
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
-  const officeRow = (
-    <View style={styles.officeRow} onLayout={measure}>
-      <View style={styles.floor}>
-        <ViewControls
-          floorDrawn={floorDrawn}
-          viewChoice={viewChoice}
-          onChange={changeView}
-          compact={layout.compact}
-          touchScreen={touchScreen}
-          color={theme.colors.foreground}
-          onOpenSettings={onOpenSettings}
-          styles={styles}
-        />
-        <SurfaceBody
-          office={office}
-          model={model}
-          rooms={rooms}
-          view={view}
-          theme={theme}
-          focusRoomId={focusRoomId}
-          focusRequest={focusRequest}
-          selectedAgentId={kept}
-          styles={styles}
-          compact={layout.compact}
-          actions={actions}
-          name={name}
-          onSelectAgent={setSelectedId}
-          onOpenSession={navigation ? openSession : undefined}
-          onOpenBoard={board.open}
-          machine={machine}
-          onOpenMachine={openMachine}
-          onOpenResources={openResources}
-          onOpenLibrary={library.show}
-          onOpenNotes={openNotes}
-          janitor={janitorEntry?.note ?? null}
-          onOpenJanitor={openJanitor}
-          meeting={standup.open}
-          incidents={incidents}
-          onOpenIncidents={openIncidents}
-          onSceneProblem={setSceneProblem}
-          platform={layout.platform}
-        />
-      </View>
-      {layout.compact ? null : (
-        <OfficeColumn
-          column={column}
-          surfaceWidth={surfaceWidth}
-          badges={badges}
-          color={theme.colors.foreground}
-          iconSize={touchScreen ? 20 : 16}
-          styles={styles}
-        >
-          <ColumnPanel
-            tab={column.tab}
-            attention={attention}
-            office={office}
-            styles={styles}
-            theme={theme}
-            layout={layout}
-            link={link}
-          />
-        </OfficeColumn>
-      )}
-    </View>
-  );
+  // The panels size their controls for the surface they are in, not only for the device.
+  const panelLayout = useMemo(() => ({ ...layout, compact }), [layout, compact]);
+  const panel = { office, styles, theme, layout: panelLayout, attention };
+  const color = theme.colors.foreground;
+  // One tree in both layouts, so a flip between them does not draw the floor again: compact adds
+  // the sheet in the floor's box and the bar under the row, wide adds the column beside the floor.
   return (
-    <View style={styles.screen}>
+    <View style={styles.screen} onLayout={measure}>
       {viewChoice.choice === "3d" && sceneProblem !== null ? (
         <SceneProblem message={sceneProblem} onRetry={retryScene} styles={styles} />
       ) : null}
-      <PhoneColumn
-        compact={layout.compact}
-        sheet={sheet}
-        badges={badges}
-        color={theme.colors.foreground}
-        platform={layout.platform}
-        attention={attention}
-        office={office}
-        styles={styles}
-        theme={theme}
-        layout={layout}
-      >
-        {officeRow}
-      </PhoneColumn>
+      <View style={styles.officeRow}>
+        <View style={styles.floor}>
+          <ViewControls
+            floorDrawn={floorDrawn}
+            viewChoice={viewChoice}
+            onChange={changeView}
+            compact={layout.compact}
+            touchScreen={touchScreen}
+            color={color}
+            onOpenSettings={onOpenSettings}
+            styles={styles}
+          />
+          <SurfaceBody
+            office={office}
+            model={model}
+            rooms={rooms}
+            view={view}
+            theme={theme}
+            focusRoomId={focusRoomId}
+            focusRequest={focusRequest}
+            selectedAgentId={kept}
+            styles={styles}
+            compact={layout.compact}
+            actions={actions}
+            name={name}
+            onSelectAgent={setSelectedId}
+            onOpenSession={navigation ? openSession : undefined}
+            onOpenBoard={board.open}
+            machine={machine}
+            onOpenMachine={openMachine}
+            onOpenResources={openResources}
+            onOpenLibrary={library.show}
+            onOpenNotes={openNotes}
+            janitor={janitorEntry?.note ?? null}
+            onOpenJanitor={openJanitor}
+            meeting={standup.open}
+            incidents={incidents}
+            onOpenIncidents={openIncidents}
+            onSceneProblem={setSceneProblem}
+            platform={layout.platform}
+          />
+          <PhoneSheet compact={compact} sheet={sheet} color={color} {...panel} />
+        </View>
+        <WideColumn
+          compact={compact}
+          column={column}
+          surfaceWidth={surfaceWidth}
+          badges={badges}
+          color={color}
+          iconSize={touchScreen ? 20 : 16}
+          link={link}
+          {...panel}
+        />
+      </View>
+      <PhoneBar compact={compact} sheet={sheet} badges={badges} color={color} styles={styles} />
       <AgentCard
         agent={selected}
         activity={selectedActivity}

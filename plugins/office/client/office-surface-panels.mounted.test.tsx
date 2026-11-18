@@ -101,6 +101,22 @@ vi.mock("../shared/model.js", async (importOriginal) => {
 });
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+// jsdom lays nothing out: react-native-web reads a view's layout through a ResizeObserver, and this
+// one reports what a test says, when it says it.
+let resized: (entries: Array<{ target: Element }>) => void = () => {
+  throw new Error("No view has asked for its layout");
+};
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    constructor(callback: (entries: Array<{ target: Element }>) => void) {
+      resized = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+);
 // A test browser draws no 3D: the surface asks for WebGL2 as it loads, and the answer is no.
 vi.mock("./web-env.web.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./web-env.web.js")>()),
@@ -139,6 +155,16 @@ async function press(label: string): Promise<void> {
   const button = labelled(label);
   if (!button) throw new Error(`Nothing is labelled "${label}"`);
   await act(async () => button.click());
+}
+
+/** The surface's outer view reports `width`, as a resized pane would. */
+async function sizeSurface(width: number): Promise<void> {
+  const target = container.firstElementChild;
+  if (!(target instanceof HTMLElement)) throw new Error("The surface is not drawn");
+  Object.defineProperty(target, "offsetWidth", { configurable: true, value: width });
+  resized([{ target }]);
+  // react-native-web measures on the next tick.
+  await act(async () => void (await new Promise((done) => setTimeout(done, 0))));
 }
 
 /** What each button says to a screen reader, in the order they are drawn. */
@@ -409,11 +435,53 @@ test("a phone's Sessions opens as a sheet, and a row press closes it for the age
   expect(container.querySelector('[aria-label="Close"]')).not.toBeNull();
 
   // The list view of the floor has rows for the agent too: look only inside the sheet.
-  const sheet = container.querySelector('[aria-label="Close"]')?.parentElement?.parentElement;
+  const sheet = container.querySelector('[data-testid="office-column-sheet"]');
   const row = [...(sheet?.querySelectorAll<HTMLElement>('[role="button"]') ?? [])].find((button) =>
     button.getAttribute("aria-label")?.startsWith("Ada"),
   );
   if (!row) throw new Error("The sheet has no row for the agent");
   await act(async () => row.click());
   expect(container.querySelector('[aria-label="Close"]')).toBeNull();
+  expect(container.querySelector('section[aria-label="Ada"]')).not.toBeNull();
+});
+
+/** The phone's bar: the column's tabs with no Collapse button and none of them chosen. */
+function hasBar(): boolean {
+  const tabs = container.querySelectorAll('[role="tablist"][aria-label="Office column"]');
+  return (
+    tabs.length === 1 &&
+    labelled("Collapse the column") === null &&
+    labelled("Sessions")?.getAttribute("aria-selected") === "false"
+  );
+}
+
+test("a surface narrower than the column and the floor is compact on a wide device", async () => {
+  compact = false;
+  await mount();
+  await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+
+  await sizeSurface(450);
+  expect(hasBar()).toBe(true);
+
+  await sizeSurface(1280);
+  expect(hasBar()).toBe(false);
+  expect(labelled("Collapse the column")).not.toBeNull();
+});
+
+test("the floor is not drawn again when the layout flips", async () => {
+  compact = false;
+  view = "list";
+  await mount();
+  await act(async () => deliver?.({ type: "snapshot", state: OFFICE_WITH_ONE_AGENT }));
+  await sizeSurface(1280);
+  const search = container.querySelector("#office-list-search");
+  if (!search) throw new Error("The list has no search");
+
+  await sizeSurface(450);
+  expect(hasBar()).toBe(true);
+  expect(container.querySelector("#office-list-search")).toBe(search);
+
+  await sizeSurface(1280);
+  expect(hasBar()).toBe(false);
+  expect(container.querySelector("#office-list-search")).toBe(search);
 });

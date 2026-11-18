@@ -5,16 +5,16 @@
 // The phone's column: a bar of the tabs under the floor and a sheet over it.
 import { act, createElement, useCallback, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ColumnTab } from "./column-model.js";
-import { ColumnSheet } from "./column-sheet.js";
+import { ColumnBar, ColumnSheet } from "./column-sheet.js";
 import { useOfficeStyles } from "./styles.js";
 
 vi.mock("@getpaseo/plugin/client/ui", async () => {
-  const { View } = await import("react-native");
-  const Icon = (props: { name: string }) => createElement(View, { testID: `icon-${props.name}` });
+  const { View: Glyph } = await import("react-native");
+  const Icon = (props: { name: string }) => createElement(Glyph, { testID: `icon-${props.name}` });
   return { Icon };
 });
 
@@ -31,20 +31,32 @@ function Harness(): ReactNode {
   const styles = useOfficeStyles(THEME, true, true);
   const [open, setOpen] = useState<ColumnTab | null>(null);
   const close = useCallback(() => setOpen(null), []);
+  // As the surface draws them: the sheet in the floor's box, after the floor, and the bar under it.
   return (
-    <ColumnSheet
-      open={open}
-      badges={BADGES}
-      color="#000000"
-      iconSize={20}
-      platform="web"
-      onOpen={setOpen}
-      onClose={close}
-      styles={styles}
-      floor={FLOOR}
-    >
-      <Text>{`panel:${open}`}</Text>
-    </ColumnSheet>
+    <>
+      <View style={styles.floor}>
+        {FLOOR}
+        <ColumnSheet
+          open={open}
+          color="#000000"
+          iconSize={20}
+          platform="web"
+          onClose={close}
+          styles={styles}
+        >
+          <Text>{`panel:${open}`}</Text>
+        </ColumnSheet>
+      </View>
+      <ColumnBar
+        open={open}
+        badges={BADGES}
+        color="#000000"
+        iconSize={20}
+        onOpen={setOpen}
+        onClose={close}
+        styles={styles}
+      />
+    </>
   );
 }
 
