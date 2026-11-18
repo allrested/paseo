@@ -132,6 +132,18 @@ Command Center's "Office settings" open it.
 - A look in a browser against that daemon's web UI at 1280 and 390 px: the 3D floor, the column,
   the gear opening Settings > Plugins > Office.
 
+### Following my-office
+
+- Taking a newer my-office is the procedure `vendor/SOURCES.md` already has: `import-upstream.mjs`
+  in check mode against a fresh clone, then for real, then `npm run build:world`, the tests and a
+  look in a browser. Files that carry a `PASEO:` note are merged by hand; a stand-in that lacks an
+  export a kept module now asks for gets it; a module upstream added is taken or denied.
+- A weekly job in the repo's CI compares my-office's default branch with the commit in
+  `MANIFEST.json`. When upstream has moved, it opens an issue titled with upstream's new commit and
+  version, with the tool's check-mode output in its body. One open issue at a time: a later run
+  updates it. The job never changes files: taking the update stays a person's step.
+- The README names the my-office commit and version the release is based on.
+
 ### Cutover on the owner's host
 
 With the owner's go-ahead at the time, since it restarts the daemon on 6767:
