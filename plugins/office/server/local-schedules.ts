@@ -1,4 +1,3 @@
-// plugins/office/server/local-schedules.ts
 import { errorMessage } from "./errors.js";
 import type { Clock } from "./timers.js";
 
@@ -76,7 +75,7 @@ function wallClock(format: Intl.DateTimeFormat, at: number): WallClock {
   };
 }
 
-/** The instant a wall-clock time falls on in the zone. Corrected once, for a change of offset. */
+/** The instant a wall-clock time falls on in the zone. Two passes of correction, for a change of offset. */
 function instantOf(format: Intl.DateTimeFormat, wall: WallClock): number {
   const asUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute);
   let guess = asUtc;
@@ -164,6 +163,8 @@ export function createLocalSchedules(ports: {
 }): LocalSchedules {
   const kept = new Map<string, Kept>();
   const handlers = new Map<string, () => Promise<void>>();
+  const running = new Set<string>();
+  let stopped = false;
 
   function arm(input: OfficeScheduleInput, at: number): Kept {
     const delay = Math.max(0, at - ports.clock.now());
@@ -179,19 +180,41 @@ export function createLocalSchedules(ports: {
   async function due(name: string): Promise<void> {
     const entry = kept.get(name);
     if (!entry) return;
-    // Set for the run after first, so a slow or failing handler never stops the schedule.
-    arm(entry.input, nextRun(entry.input.cadence, ports.clock.now()));
+    // Set for the run after first, so a slow or failing handler never stops the schedule. A timer
+    // can fire a little before its time, so the run after counts from the time it was set for.
+    try {
+      arm(entry.input, nextRun(entry.input.cadence, Math.max(ports.clock.now(), entry.nextRunAt)));
+    } catch (error) {
+      kept.delete(name);
+      ports.log(`[office] ${name} schedule stopped: ${errorMessage(error)}`);
+    }
     const run = handlers.get(entry.input.handler);
     if (!run) return;
+    // One run of a schedule at a time: a slow one is not joined by the next, or by a queue of them.
+    if (running.has(name)) {
+      ports.log(`[office] ${name} run skipped: the last one has not ended`);
+      return;
+    }
+    running.add(name);
     try {
       await run();
     } catch (error) {
       ports.log(`[office] ${name} run failed: ${errorMessage(error)}`);
+    } finally {
+      running.delete(name);
     }
   }
 
   return {
     async upsert(input) {
+      if (stopped) throw new Error("The office's schedules have stopped");
+      const { cadence } = input;
+      if (
+        cadence.type === "every" &&
+        !(Number.isFinite(cadence.everyMs) && cadence.everyMs >= 1000)
+      ) {
+        throw new Error(`An interval must be at least 1000 ms: ${cadence.everyMs}`);
+      }
       // Worked out before anything changes: a refused cadence leaves the kept schedule as it was.
       const at = nextRun(input.cadence, ports.clock.now());
       kept.get(input.name)?.cancel();
@@ -221,6 +244,7 @@ export function createLocalSchedules(ports: {
       };
     },
     stop() {
+      stopped = true;
       for (const entry of kept.values()) entry.cancel();
       kept.clear();
     },

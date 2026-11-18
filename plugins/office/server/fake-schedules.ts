@@ -15,7 +15,7 @@ export interface FakeSchedules extends OfficeSchedules {
   holdNextUpsert(): () => void;
 }
 
-/** The daemon's store of the office's schedules, by name. */
+/** The office's schedules, kept by name. */
 export function fakeSchedules(kept: OfficeScheduleEntry[] = []): FakeSchedules {
   const stored = new Map(kept.map((schedule) => [schedule.name, schedule]));
   const upserted: OfficeScheduleInput[] = [];

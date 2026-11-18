@@ -172,10 +172,14 @@ export function createOfficePlugin(
     const forkSchedules = (server as { schedules: { remove(name: string): Promise<boolean> } })
       .schedules;
     void (async () => {
-      try {
-        for (const name of [NOTES_SCHEDULE, INCIDENTS_SCHEDULE]) await forkSchedules.remove(name);
-      } catch (error) {
-        log(`[office] the fork's stored schedules were not removed: ${errorMessage(error)}`);
+      for (const name of [NOTES_SCHEDULE, INCIDENTS_SCHEDULE]) {
+        try {
+          await forkSchedules.remove(name);
+        } catch (error) {
+          log(
+            `[office] the fork's stored ${name} schedule was not removed: ${errorMessage(error)}`,
+          );
+        }
       }
     })();
   }

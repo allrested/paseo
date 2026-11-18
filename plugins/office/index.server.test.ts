@@ -928,6 +928,29 @@ test("a run due before any handler brought the Paseo API waits for it", async ()
   await stop();
 });
 
+test("a stored schedule of the fork that cannot be removed is logged, and the other is still removed", async () => {
+  const removed: string[] = [];
+  const { logs, stop } = setup(async () => ON, {
+    server: (base) =>
+      ({
+        ...base,
+        schedules: {
+          remove: async (name: string) => {
+            if (name === "standup-notes") throw new Error("store is down");
+            removed.push(name);
+            return true;
+          },
+        },
+      }) as unknown as PluginServerContext,
+  });
+  await settle();
+  expect(removed).toEqual(["incidents"]);
+  expect(
+    logs.some((line) => line.includes("standup-notes") && line.includes("store is down")),
+  ).toBe(true);
+  await stop();
+});
+
 test("on the fork daemon the office removes its two stored schedules; on stock it touches none", async () => {
   const removed: string[] = [];
   const fork = setup(async () => ON, {

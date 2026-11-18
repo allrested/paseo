@@ -1,4 +1,3 @@
-// plugins/office/server/local-schedules.test.ts
 import { expect, test } from "vitest";
 import { createFakeClock, settle } from "./fake-clock.js";
 import { createLocalSchedules, nextCronRun } from "./local-schedules.js";
@@ -100,8 +99,11 @@ test("an interval runs every time it passes", async () => {
     cadence: { type: "every", everyMs: 5 * 60 * 1000 },
   });
 
-  clock.advance(16 * 60 * 1000);
-  await settle();
+  // A step at a time: a run that has not ended when the next falls due is skipped.
+  for (let step = 0; step < 3; step += 1) {
+    clock.advance(5 * 60 * 1000);
+    await settle();
+  }
   expect(runs).toBe(3);
 });
 
@@ -114,7 +116,10 @@ test("a handler that fails is logged and the schedule keeps running", async () =
   });
   await schedules.upsert(NOTES_INPUT);
 
-  clock.advance(25 * 60 * 60 * 1000);
+  // The failed run has ended before the next falls due.
+  clock.advance(60 * 60 * 1000);
+  await settle();
+  clock.advance(24 * 60 * 60 * 1000);
   await settle();
   expect(runs).toBe(2);
   expect(logged.some((line) => line.includes("standup-notes") && line.includes("no writer"))).toBe(
@@ -163,4 +168,98 @@ test("stop cancels what is set", async () => {
   clock.advance(48 * 60 * 60 * 1000);
   await settle();
   expect(runs).toBe(0);
+});
+
+test("the hour that happens twice is run once: the first 01:00, then the next day's", () => {
+  // New York goes back on Sunday 1 November 2026: 01:00 happens as EDT and again as EST.
+  const first = nextCronRun("0 1 * * *", "America/New_York", at("2026-10-31T06:00:00Z"));
+  expect(iso(first)).toBe("2026-11-01T05:00:00.000Z");
+  expect(iso(nextCronRun("0 1 * * *", "America/New_York", first))).toBe("2026-11-02T06:00:00.000Z");
+});
+
+test("a timer that fires a millisecond early runs the handler once", async () => {
+  let now = at("2026-11-18T04:00:00Z");
+  const timers: (() => void)[] = [];
+  const clock = {
+    now: () => now,
+    setTimeout: (run: () => void) => {
+      timers.push(run);
+      return () => undefined;
+    },
+  };
+  const schedules = createLocalSchedules({ clock, log: () => undefined });
+  let runs = 0;
+  schedules.handle("standup-notes", async () => {
+    runs += 1;
+  });
+  await schedules.upsert(NOTES_INPUT);
+
+  now = at("2026-11-18T04:59:59.999Z");
+  timers[0]?.();
+  await settle();
+  expect(runs).toBe(1);
+  expect((await schedules.list())[0]?.nextRunAt).toBe("2026-11-19T05:00:00.000Z");
+});
+
+const EVERY_INCIDENTS = {
+  name: "incidents",
+  handler: "incidents",
+  prompt: "Incidents",
+  cadence: { type: "every" as const, everyMs: 5 * 60 * 1000 },
+};
+
+test("a run is skipped, and logged, while the last one has not ended", async () => {
+  const { clock, logged, schedules } = engine();
+  let runs = 0;
+  schedules.handle("incidents", () => {
+    runs += 1;
+    return new Promise<void>(() => undefined);
+  });
+  await schedules.upsert(EVERY_INCIDENTS);
+
+  clock.advance(16 * 60 * 1000);
+  await settle();
+  expect(runs).toBe(1);
+  expect(
+    logged.filter((line) => line === "[office] incidents run skipped: the last one has not ended"),
+  ).toHaveLength(2);
+});
+
+test("a run that ended lets the next one start", async () => {
+  const { clock, schedules } = engine();
+  let runs = 0;
+  let end: () => void = () => undefined;
+  schedules.handle("incidents", () => {
+    runs += 1;
+    return new Promise<void>((resolve) => {
+      end = resolve;
+    });
+  });
+  await schedules.upsert(EVERY_INCIDENTS);
+
+  clock.advance(5 * 60 * 1000);
+  await settle();
+  end();
+  await settle();
+  clock.advance(5 * 60 * 1000);
+  await settle();
+  expect(runs).toBe(2);
+});
+
+test("an interval under a second is refused, naming the value", async () => {
+  const { schedules } = engine();
+  await expect(
+    schedules.upsert({ ...EVERY_INCIDENTS, cadence: { type: "every", everyMs: 10 } }),
+  ).rejects.toThrow(/10/);
+  await expect(
+    schedules.upsert({ ...EVERY_INCIDENTS, cadence: { type: "every", everyMs: Number.NaN } }),
+  ).rejects.toThrow(/NaN/);
+  expect(await schedules.list()).toEqual([]);
+});
+
+test("after stop a save is refused and sets no timer", async () => {
+  const { clock, schedules } = engine();
+  schedules.stop();
+  await expect(schedules.upsert(NOTES_INPUT)).rejects.toThrow(/have stopped/);
+  expect(clock.pending()).toBe(0);
 });
