@@ -313,7 +313,7 @@ async function continueAgent(
       return undefined;
     });
   try {
-    const { disposition } = await sendPromptToAgent({
+    const dispatch = await sendPromptToAgent({
       agentManager: deps.agentManager,
       agentStorage: deps.agentStorage,
       logger: deps.logger,
@@ -322,8 +322,8 @@ async function continueAgent(
       // A message id makes the prompt a visible user message in the timeline, as a typed one is.
       messageId: randomUUID(),
     });
-    if (disposition === "turn_started") {
-      await waitForAgentRunStartWithTimeout(deps.agentManager, agentId);
+    if (dispatch.disposition === "turn_started") {
+      await waitForAgentRunStartWithTimeout(deps.agentManager, agentId, dispatch.started);
     }
   } catch (error) {
     await notice?.reject().catch((rejectError: unknown) => {

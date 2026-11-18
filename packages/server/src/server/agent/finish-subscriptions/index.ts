@@ -290,6 +290,13 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     if (reason !== "needs permission") return true;
     return false;
   }
+  /** A turn that failed, was cancelled or was closed leaves the caller's request undone. */
+  function noteIfUndone(record: FinishSubscription, result: FinishObservationResult): boolean {
+    if (!["errored", "was canceled", "was closed"].includes(reasonFor(result))) return false;
+    noteTold(record);
+    return true;
+  }
+
   async function run(watch: Watch, initialGroup: Set<Watch>): Promise<void> {
     const signal = watch.controller.signal;
     if (!(await watch.decision) || signal.aborted) return;
@@ -370,11 +377,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
             stop(watch, group);
             return;
           }
-          // A turn that failed, was cancelled or was closed leaves the caller's request undone.
-          if (!noted && ["errored", "was canceled", "was closed"].includes(reasonFor(pending))) {
-            noteTold(record);
-            noted = true;
-          }
+          if (!noted) noted = noteIfUndone(record, pending);
           if (!acknowledged) acknowledged = await deliver(record, pending, permissions, signal);
           if (acknowledged) {
             // A removal failure retries only the commit, never the already accepted callback.
