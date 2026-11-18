@@ -283,7 +283,12 @@ export function createOfficePlugin(
     pushIncidents();
   }
   const stopFollowingSettings = settings.subscribe(followSettings);
-  settings.read().then(followSettings, (error: unknown) => settingsUnreadable(errorMessage(error)));
+  settings
+    .read()
+    .then(followSettings, (error: unknown) => settingsUnreadable(errorMessage(error)))
+    .catch((error: unknown) =>
+      log(`[office] following the settings failed: ${errorMessage(error)}`),
+    );
 
   async function guarded<T>(name: string, work: () => Promise<T>): Promise<T> {
     try {
