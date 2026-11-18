@@ -107,7 +107,7 @@ npm run dev:ios         # Build/install the iOS development app
 flag. These builds keep the production package ID (`sh.paseo`) and release optimizations. Use this APK for
 personal dogfooding. Android system-trace spans require the separate `PASEO_PROFILE_BUILD=1` flag;
 watchdog recording does not send duplicate spans to that sink by default. Upstream's store and
-release workflows leave diagnostics disabled; [the fork's app](#the-forks-app) keeps them on.
+release workflows, and [the fork's app](#the-forks-app), leave diagnostics disabled.
 
 The older `android`, `android:development`, and `ios` commands remain aliases for development.
 `android:production` still builds and installs a release through Expo; use `build:apk` when you
@@ -172,8 +172,8 @@ they do not produce Downloads files.
 ## The fork's app
 
 The allrested fork ships the [`fork` variant](#app-variants) as an arm64 APK, signed with the
-fork's own key, on prereleases of `allrested/paseo`. It is a diagnostics build, as the dogfood APK
-is: it keeps [diagnostic logs](#diagnostic-logs-without-adb) in Downloads → **Paseo diagnostics**.
+fork's own key, on prereleases of `allrested/paseo`. It is an ordinary release build: no watchdog
+and no diagnostic logs.
 
 ### The key
 
