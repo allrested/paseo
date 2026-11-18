@@ -1,6 +1,6 @@
 # The office's own column: design
 
-Date: 2026-11-18. Status: designed. It follows
+Date: 2026-11-18. Status: piece 1 built. It follows
 [the office as one page](2026-11-17-office-one-page-design.md),
 [Sessions and Activity beside the floor](2026-11-17-office-side-panels-design.md) and
 [the team chat](2026-11-17-office-team-chat-design.md), and replaces how the three reach the screen.
@@ -74,7 +74,8 @@ The owner's review of 0.16.1, on the desktop app:
 - **Compact.** The floor fills the surface. A bottom bar of the tabs' icons opens the column as a
   sheet over the floor, drawn by the office (not the app's sheet host). The sheet closes with its
   own button, a press on the floor above it, and Escape.
-- **Above the floor.** Nothing. The `ViewSwitch` moves into a corner of the floor, over every view.
+- **Above the floor.** Nothing. The `ViewSwitch` moves into a corner of the floor, over every view;
+  the corner also holds the settings button.
   The scene's problem line (`SceneProblem`) stays over the floor, since it is about the floor.
 - The office as a workspace panel (`addWorkspacePanel`) gets the same layout; a narrow panel is
   compact.
@@ -137,9 +138,10 @@ The owner's review of 0.16.1, on the desktop app:
 - A failed switch and a refused save show on this screen, beside the setting they belong to, as
   they happen. An unsaved view shows by whichever view switch was pressed.
 - A schedule that cannot follow the settings (the stand-up notes' or the incidents check's) lasts,
-  so it also adds a Settings card to Attention. A plugin cannot open a screen of the app's
-  Settings (`navigation` has no such call), so the card opens a card of the office that says what
-  failed and names Settings > Office.
+  so it also adds a Settings card to Attention. `client.openSettings("office")` opens the screen.
+  A built-in has no row in Settings > Plugins, which is why the office needs its own ways in:
+  the settings button (a gear) beside the view switch, the Command Center item "Office settings",
+  and the strip's Settings card. All three call `openSettings`.
 - `HostSwitches` leaves the header; its rows move to the settings screen's component.
 
 ### Working in every app
@@ -184,3 +186,22 @@ Between pieces 1 and 3, in upstream's app, "Open session" still leaves for the w
   `showBeside`, which is what upstream's app gives the office.
 - Not checkable here: upstream's desktop app itself. The owner confirms there after the host runs
   the new build.
+
+## Not verified
+
+The look at piece 1 was a static page: `OfficeSurface` and `OfficeSettings` bundled with esbuild,
+with `@getpaseo/plugin/client` and `/ui` stood in as the mounted tests stand them in, served from
+`/tmp` and opened in the Paseo browser. The dev app could not be started from this checkout.
+
+- Seen: the 2D floor in light at 1280 and 390 px, with the corner, and the List in dark at 1280
+  and 390 px (its row ends on the list's rail), on a navigation with no `showBeside`. Also the
+  Settings card for a broken schedule, the gear opening the screen, a tap on List changing the
+  view, and the Office screen at 390 px (two switches, six fields, the view switch). The look
+  found the corner's controls inset twice and unreadable over the floor; both are fixed.
+- Not seen: the 3D floor (the page has no scene bundle, so the iframe never drew), walk-in's Exit,
+  light List, dark 2D, the light and dark Office screen at 1280 px. Sessions, Activity and Chat were absent, as they
+  are without `showBeside`; their placement in the corner is not seen.
+- Not seen: a change in Settings > Office showing in the office. The stood-in settings do not
+  persist.
+- Not seen: the app's own Settings chrome around the screen, the Command Center item, and
+  upstream's desktop app. The owner confirms there after the host runs the new build.

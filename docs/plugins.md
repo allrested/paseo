@@ -630,8 +630,10 @@ when a turn ends, so after a reset the old number would stay until the next turn
 reset agent's context as empty until the provider reports another number (`settleResets` in
 `plugins/office/server/directory.ts`).
 
-The office has three views: a 3D floor, a 2D floor and the list. The header's switch chooses one
-per device and keeps it in the `office-device` setting. A device that never chose shows the 3D
+The office has three views: a 3D floor, a 2D floor and the list. A switch over the floor's top
+right corner chooses one per device and keeps it in the `office-device` setting; the Office screen
+of the app's Settings has the same switch. Over the List the switch takes a row of its own, and the
+page's header holds only the attention strip. A device that never chose shows the 3D
 floor where it can draw it: a browser with WebGL2, or an app whose kit has `ScriptFrame` (the
 fork's Android app; the store build does not). It shows the 2D floor anywhere else. On the web the
 scene runs in an `iframe` of its own (`client/world/world-frame.web.ts`); in an app it runs in a
@@ -641,7 +643,7 @@ plugin bundle has no platform file extensions, so `office-surface.tsx` picks the
 other failure, the 3D floor gives way to the 2D one under a banner with a way to try again. Photo
 mode is off in an app, since a WebView cannot keep a download.
 
-The header's Sessions and Activity buttons open those panels beside the floor; the Activity feed
+The Sessions and Activity buttons beside that switch open those panels beside the floor; the Activity feed
 is derived on the client from the office's state, kept in memory for this app run, and fills only
 while an office or a panel is open.
 
@@ -745,7 +747,11 @@ an agent's steps are back when it next updates its checklist. A board is removed
 is archived while the daemon runs; a board left from a workspace archived otherwise stays until its
 posts are deleted. Interactive agent sessions get three tools,
 `office_read`, `office_post` and `office_update`, unless the host's "Agent tools" switch is off when
-the session opens. Plugin tools reach an agent through Paseo's own agent tools and are filtered by
+the session opens. That switch, "Wake agents", "Notes folder" and the tracker fields are on the
+Office screen of the app's Settings (`plugins/office/client/office-settings.tsx`). A built-in has
+no row in Settings > Plugins, so three things open the screen with `client.openSettings("office")`:
+the gear beside the view switch, the Command Center's "Office settings", and the strip's Settings
+card, which shows while a schedule cannot follow the settings. Plugin tools reach an agent through Paseo's own agent tools and are filtered by
 name like them: a provider with Paseo's tools off gets none, and a provider that lists
 `send_agent_prompt` in `paseoTools.disabledTools` must list `office_post` too to keep its agents
 from waking others. A post that names an agent wakes it when it is idle, at most 6 times an hour per
@@ -772,7 +778,7 @@ agent is asked once per opening of the card, and the button is off while "Wake a
 [the stand-up](superpowers/specs/2026-11-16-office-standup-design.md).
 
 The office also writes the day's entry in a folder of stand-up notes, one `daily-standup-YYYYMM.md`
-per month. Nothing runs until you set "Notes folder", an absolute path, in the office's settings;
+per month. Nothing runs until you set "Notes folder", an absolute path;
 "Time zone" is the notes' zone, the host's when empty. With a folder set, the office keeps a
 [plugin schedule](#schedules) at 08:00 Sunday to Thursday in that zone, so it is not in the app,
 `schedule ls` or `list_schedules`. Each run, and each click on the 3D floor's bell, starts an agent

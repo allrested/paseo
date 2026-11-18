@@ -15,6 +15,7 @@
 - Work in `/workspace/QFlavours/paseo-onepage-docs` on branch `feat/office-own-column`. Every path below is relative to it.
 - Use only client calls upstream's app has: `addSettingsScreen`, `useSettings`, `useSubscription`, `useRpc`. No new call on `navigation`.
 - A plugin cannot open a settings screen: `navigation` has no such call. The "Settings" card opens a card of the office that names Settings > Office.
+- Correction: "A plugin cannot open a settings screen" was wrong; `client.openSettings("office")` opens it. Three ways in replaced the constraint (the gear beside the view switch, the Command Center's "Office settings", the strip's Settings card), and there is no problems card. Task 3's text below predates this.
 - The header keeps the attention strip and the corner keeps the Sessions, Activity and Chat buttons until piece 2 replaces both with the column.
 - Run one test file at a time: `cd plugins && npx vitest run <file> --bail=1`. Never the whole suite.
 - After each task: `npm run typecheck --workspace=@getpaseo/builtin-plugins`, `npm run lint -- <changed files>`, `npm run format:files -- <changed files>` from the repo root.
