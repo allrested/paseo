@@ -1,10 +1,15 @@
 # What a stock daemon gives an installed plugin
 
 Probed on 2026-11-18 with the published `@getpaseo/server@0.16.2` and `@getpaseo/cli@0.16.2`,
-installed under `/tmp/paseo-stock`, on its own home and port 6798. The probe plugin is
-`/tmp/office-probe`: `index.server.ts` logs what its process sees from `contribute`, and serves one
-RPC that returns the keys of a handler's context. Plugin output below is from
-`paseo plugin logs office-probe`, trimmed.
+installed under `/tmp/paseo-stock`, on a throwaway home and port 6798. Every `paseo` call and the
+daemon ran with `PASEO_HOME` set on the same command line. Before the first plugin command,
+`paseo daemon status` reported `listen: 127.0.0.1:6798` and the throwaway home, not 6767.
+
+The first probe plugin is `/tmp/office-probe`: `index.server.ts` logs what its process sees from
+`contribute`, and serves one RPC that returns the keys of a handler's context. F1 to F3 and F5 to F7
+come from it, on the home `/tmp/paseo-stock/home`. F4 was run again on a home with no `node_modules`
+above it (`/tmp/office-stock-home`), with small plugins named in that section. Plugin output below
+is from `paseo plugin logs <id>`, trimmed.
 
 ## F1. The server's process
 
@@ -26,17 +31,19 @@ listener on :6798 (socket inode lookup in /proc): pid 185586 "Paseo Daemon"
 
 ```
 paseoEnv: {"PASEO_HOME":"/tmp/paseo-stock/home","PASEO_LISTEN":"0.0.0.0:6798"}
-home:     "/home/paseo"
+home:     "<user home>"
 ```
 
-The subprocess inherits the daemon's whole environment. The first run (started from an agent's
-shell) also showed `PASEO_AGENT_ID`, `PASEO_PASSWORD`, `PASEO_WORKSPACE_ID` and the rest of the
-launching shell's `PASEO_*`. A plugin therefore sees the daemon's password if the daemon has one in
-its environment. The later runs used `env -i` to keep the list to what the daemon itself passes.
+The subprocess inherits the daemon's whole environment. A first run, started from an agent's shell,
+also showed that shell's `PASEO_AGENT_ID`, `PASEO_WORKSPACE_ID`, `PASEO_PASSWORD` and the rest of
+its `PASEO_*`. A plugin therefore sees whatever the daemon's environment holds, a password
+included. The later runs used `env -i` with only `PATH`, `HOME`, `PASEO_HOME` and `PASEO_LISTEN`
+(plus `PASEO_WEB_UI_ENABLED` for F7).
 
 ## F3. Its own folder
 
-None of the three gives the installed directory.
+None of the three gives the installed directory. Observed in the directory, Git and Git-with-`build`
+installs alike:
 
 ```
 cwd:           "/tmp/paseo-stock"      (the daemon's cwd, not the plugin's)
@@ -44,40 +51,70 @@ argv:          ["/usr/local/bin/node", ".../server/dist/server/server/plugins/pl
 importMetaUrl: absent from the JSON line, so undefined
 ```
 
-The daemon compiles the entry with esbuild into a CommonJS string and `eval`s it in
-`plugin-process.js` (`bundle-evaluator.js`). `import.meta.url` is undefined there and `__dirname`
-is not defined in that scope. The installed directory exists
+The cause is from reading `bundle-evaluator.js`, not from a run: the daemon compiles the entry with
+esbuild into a CommonJS string and `eval`s it in `plugin-process.js`. `import.meta.url` is undefined
+there, and `__dirname` is not defined in that scope. The installed directory exists
 (`<home>/plugins/<id>/<uuid>/checkout` for Git, the source path for a directory source) but the
 process is not told. Files beside the plugin source have to be embedded in the bundle at build
 time.
 
 ## F4. Dependencies
 
-`zod` resolves in all four installs, because it is a host module: the daemon marks it external and
-hands the plugin its own copy (`SERVER_HOST_MODULES` in `compiler-esbuild.js`, `runtimeRequire` in
-`bundle-evaluator.js`). So do `@getpaseo/plugin` and its `/server` entries.
+Re-run on `PASEO_HOME=/tmp/office-stock-home`, with no `node_modules` in any folder above it or the
+plugins (the packages stay in `/tmp/paseo-stock`, so the first run's Git rows could have found
+`zod` by Node's ancestor lookup). The daemon ran with `env -i`, so no shell variable reached a log.
+
+| Install                          | Plugin imports | Result                                  |
+| -------------------------------- | -------------- | --------------------------------------- |
+| (a) Directory, no `node_modules` | `zod`          | resolves, running                       |
+| (b) Git (`file://`), no `build`  | `zod`          | resolves, running                       |
+| (c) Git (`file://`), no `build`  | `ms`           | `Could not resolve "ms"`, not installed |
+
+```
+(a) [probe-a] zod resolved, version={"major":4,"minor":6,"patch":7} parse={"n":1}
+(b) [probe-b] zod resolved, version={"major":4,"minor":6,"patch":7} parse={"n":1}
+(c) Error: Build failed with 1 error:
+    .../plugins/probe-c/<uuid>/checkout/index.server.ts:1:15: ERROR: Could not resolve "ms"
+```
+
+So `zod` resolves with nothing installed beside the plugin, and another package does not. The cause
+is from reading the source: `zod` and `@getpaseo/plugin` are host modules, external in the bundle
+and handed over by the daemon (`SERVER_HOST_MODULES` in `compiler-esbuild.js`, `runtimeRequire` in
+`bundle-evaluator.js`). Everything else is bundled by esbuild from the plugin's directory at install
+time.
+
+The host hands over `zod` 4.6.7 (`/tmp/paseo-stock/node_modules/zod/package.json`; the plugin
+printed the same version). The probe plugin's range `^4.4.3` and the SDK's own `^4.4.3` accept it.
+
+Rows from the first run, where `zod` resolved but the home sat under `node_modules`:
 
 | Install                                   | `zod`    | Result                              |
 | ----------------------------------------- | -------- | ----------------------------------- |
 | Directory, `node_modules` installed       | resolves | running                             |
-| Directory, no `node_modules`              | resolves | running                             |
-| Git (`file://`), no `build`               | resolves | running                             |
 | Git, `build: [["npm","ci","--omit=dev"]]` | resolves | running, `node_modules` in checkout |
 
-`zod` is the wrong test for a plugin's own dependencies. Anything else is bundled by esbuild from
-the plugin's directory at install time. Checked with a second plugin that imports `ms`:
-
-```
-paseo plugin install /tmp/office-probe2     (no node_modules)
-Error: Build failed with 1 error:
-../office-probe2/index.server.ts:1:15: ERROR: Could not resolve "ms"
-```
-
-The failed install leaves the plugin configured with status `failed`; after `npm install` in its
-directory, `paseo plugin reload office-probe2` loaded it and it logged `ms(1000)=1s`. For a Git
-source, a dependency other than `zod` and the SDK needs `build` to install it. A plugin with no
-other dependency needs no `build`. With `build` and `@getpaseo/plugin` in `dependencies`, the
+Neither says more than (a) and (b). With `build` and `@getpaseo/plugin` in `dependencies`, the
 checkout gets about a dozen packages (`react`, `ws`, `i18next`, ...) that the bundle never reads.
+
+A failed directory install leaves the plugin configured with status `failed`. After `npm install` in
+its directory, `paseo plugin reload <id>` loaded it. A failed Git install is not left configured.
+For a Git source, a dependency other than `zod` and the SDK needs `build` to install it.
+
+### A second, large source file
+
+A Git plugin with no `build` whose `index.server.ts` imports `./server/big.ts`, a generated module
+exporting one string. The file is 2,367,919 bytes. The handler returns the string's length:
+
+```
+[probe-d] big module loaded, length=2365589
+RPC probe-d.len.request -> {"length":2365589}
+```
+
+The relative import with its `.ts` extension compiled, and the string survived whole. Time to
+install (clone, compile, start): 5.4 s for the 2.4 MB plugin, against 2.4 s for the one-file `zod`
+plugin, on a cold-ish machine and one run each. The daemon logged no size warning. Its only
+warnings were `ws_slow_request` for each `plugin.source.install.request` over about 700 ms
+(4541 ms for the large one, 1348 to 1801 ms for the small ones), which any install gets.
 
 ## F5. The server context
 
@@ -96,45 +133,45 @@ directory source and for a Git source.
 
 ## F7. Listing
 
-`paseo plugin ls` lists the plugin for every install form:
+`paseo plugin ls` lists the plugin for the directory and Git installs:
 
 ```
 office-probe   running   yes   git:file:///tmp/office-probe   34fee9fde23b...   <home>/plugins/office-probe/<uuid>/checkout
 ```
 
-The web UI lists it too. Seen with the Paseo browser tools at `http://10.0.1.66:6798` on a
-throwaway daemon bound to `0.0.0.0:6798` for the look, with no pairing and no credentials: the page
-connected to its own daemon. Settings, Plugins shows `Installed · 1`, `office-probe`,
+The web UI lists it too. Seen with the Paseo browser tools at `http://<first address of hostname -i>:6798`
+on a throwaway daemon bound to `0.0.0.0:6798` for the look, with no pairing and no credentials: the
+page connected to its own daemon. Settings, Plugins shows `Installed · 1`, `office-probe`,
 `git:file:///tmp/office-probe · 34fee9fde23b`. The tab is closed.
 
 ## F8. What was used
 
 - Install: `npm install @getpaseo/server@0.16.2 @getpaseo/cli@0.16.2` in `/tmp/paseo-stock`.
-- Entry point: `node node_modules/@getpaseo/server/dist/scripts/supervisor-entrypoint.js`, as the
-  brief says. Environment: `PASEO_HOME=/tmp/paseo-stock/home`, `PASEO_LISTEN=127.0.0.1:6798`.
-- Config: `home/config.json` with `{ "pluginsEnabled": true }`, as the brief says. The daemon adds a
-  `plugins` map to it (`"office-probe": { "source": "directory", "path": ..., "enabled": true }`;
-  a Git install is stored as a directory source on its checkout).
+- Entry point: `node node_modules/@getpaseo/server/dist/scripts/supervisor-entrypoint.js`.
+  Environment: `PASEO_HOME=<throwaway home>`, `PASEO_LISTEN=127.0.0.1:6798`.
+- Config: `<home>/config.json` with `{ "pluginsEnabled": true }`. The daemon adds a `plugins` map
+  to it (`"office-probe": { "source": "directory", "path": ..., "enabled": true }`; a Git install is
+  stored as a directory source on its checkout).
 - The web UI is off by default on stock. It needed `PASEO_WEB_UI_ENABLED=true`.
-- `paseo plugin remove <id>`, not `rm`. The brief's step 3.2 command is `plugin remove`.
+- Removing a plugin is `paseo plugin remove <id>`. There is no `rm`.
 - Git URL form: `paseo plugin install file:///tmp/office-probe`, after `git init -b main` and a
   commit. The source is recorded as `git:file:///tmp/office-probe` with the commit as revision.
 - Calling the RPC needs a client. The CLI has no command for it. `/tmp/paseo-stock/scripts/call.mjs`
   uses `DaemonClient.invokePluginRpc` from `@getpaseo/client/dist/daemon-client.js` with `ws`.
-- The daemon was restarted twice during the probe (kill the supervisor, start with the same
-  command) to drop the inherited `PASEO_*` variables and to turn the web UI on. Plugin config
-  survived. The pid file holds the supervisor's pid, not the shell's.
-- `defineRpc` and `server.handle` have the shape the brief gives.
+- The daemon was restarted during the probe (kill the supervisor, start with the same command) to
+  drop inherited `PASEO_*` variables, to turn the web UI on and to move F4 to a clean home. Plugin
+  config survived a restart. The pid file holds the supervisor's pid, not the shell's.
+- `defineRpc` and `server.handle` work as `@getpaseo/plugin@0.16.2` types them.
 
 ## What each finding selects
 
-| Task | Finding | Branch it selects                                                                                                                              |
-| ---- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3    | F3      | The scene is embedded in the server bundle as a string. A file next to the source, `import.meta.url` or `directory` cannot find it.            |
-| 3    | F4      | The generated world module is one more source file in the bundle; it needs no `build` and no extra dependency.                                 |
-| 4    | F6      | No second argument for an installed plugin, so `inDaemon` is `builtin !== undefined`.                                                          |
-| 4    | F1      | Parent is the daemon worker, which is the listener. `daemonPid` is `ppid`. A supervisor sits one step above and `readAncestors` covers it.     |
-| 4    | F2      | `PASEO_HOME` reaches the subprocess. `boardsFile(process.env, homedir())` and its siblings need no change. No open item for part 2.            |
-| 6    | F4      | The generated `package.json` keeps `@getpaseo/plugin` and `zod` only. The Git form needs no `build` unless the office adds another dependency. |
-| 6    | F5, F6  | Typecheck against the SDK types: `paseo` only on a handler's context, `contribute` takes the server context alone.                             |
-| 6    | F7      | `paseo plugin ls` and Settings, Plugins both list a Git-installed plugin.                                                                      |
+| Task | Finding | Branch it selects                                                                                                                                                                                        |
+| ---- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3    | F3      | The scene is embedded in the server bundle as a string. A file next to the source, `import.meta.url` or `directory` cannot find it.                                                                      |
+| 3    | F4      | The generated world module is one more source file in the bundle. A 2.4 MB one installed and returned whole from a Git source with no `build`; no extra dependency.                                      |
+| 4    | F6      | No second argument for an installed plugin, so `inDaemon` is `builtin !== undefined`.                                                                                                                    |
+| 4    | F1      | Parent is the daemon worker, which is the listener. `daemonPid` is `ppid`. A supervisor sits one step above; Task 4 confirms `readAncestors` (`plugins/office/server/machine/cleanup.ts`) walks past it. |
+| 4    | F2      | `PASEO_HOME` reaches the subprocess. `boardsFile(process.env, homedir())` and its siblings need no change. No open item for part 2.                                                                      |
+| 6    | F4      | The generated `package.json` keeps `@getpaseo/plugin` and `zod` (`^4.4.3`, host has 4.6.7) only. The Git form needs no `build` unless the office adds another dependency.                                |
+| 6    | F5, F6  | Typecheck against the SDK types: `paseo` only on a handler's context, `contribute` takes the server context alone.                                                                                       |
+| 6    | F7      | `paseo plugin ls` and Settings, Plugins both list a Git-installed plugin.                                                                                                                                |
