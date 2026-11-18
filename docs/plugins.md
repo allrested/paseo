@@ -667,11 +667,11 @@ The floor is the scene of [my-office](https://github.com/khanh020905/my-office),
 stands in for the rest, and how to take a newer version. The plugin's server carries the scene's
 script as a string in `plugins/office/server/world.generated.ts` and serves it through
 `office.world.request`. `plugins/office/scripts/build-world.mjs` bundles the vendored entry into
-that module and the module is committed; `node plugins/office/scripts/build-world.mjs --check` fails when the
-committed module is not what the build makes, so run the build after any change under `vendor/`.
-It is embedded because an installed plugin is not told where its files are: the daemon compiles its
-server into one bundle. The built-in arguments `bundleBrowserScript` and `offscreenPages` are not
-used by the office. Directory plugins do not get them either.
+that module and the module is committed; `node plugins/office/scripts/build-world.mjs --check`
+fails when the committed module is not what the build makes, so run the build after any change
+under `vendor/`. It is embedded because an installed plugin is not told where its files are: the
+daemon compiles its server into one bundle. The built-in arguments `bundleBrowserScript` and
+`offscreenPages` are not used by the office. Directory plugins do not get them either.
 
 The client runs it in an `<iframe srcdoc>` and drives it through the `PaseoOfficeWorld` object the
 script sets (`plugins/office/client/world/world-api.ts`), mapping the office model to the scene's
@@ -765,10 +765,10 @@ posts are deleted. Interactive agent sessions get three tools, `office_read`, `o
 `office_update`, unless the host's "Agent tools" switch is off when the session opens. That switch,
 "Wake agents", "Notes folder" and the tracker fields are on the Office screen of the app's Settings
 (`plugins/office/client/office-settings.tsx`). A built-in has no row in Settings > Plugins, so three
-things open the screen with `client.openSettings("office")` (installed on stock Paseo, the office has
-a row and a page there, and the same three open it): the gear beside the view switch, the
+things open the screen with `client.openSettings("office")`: the gear beside the view switch, the
 Command Center's "Office settings", and the strip's Settings card, which shows while a schedule
-cannot follow the settings. Plugin tools reach an agent through Paseo's own agent tools and are
+cannot follow the settings. Installed on stock Paseo, the office has a row and a page there, and the
+same three open it. Plugin tools reach an agent through Paseo's own agent tools and are
 filtered by name like them: a provider with Paseo's tools off gets none, and a provider that lists
 `send_agent_prompt` in `paseoTools.disabledTools` must list `office_post` too to keep its agents
 from waking others. A post that names an agent wakes it when it is idle, at most 6 times an hour per
@@ -797,12 +797,16 @@ agent is asked once per opening of the card, and the button is off while "Wake a
 The office also writes the day's entry in a folder of stand-up notes, one `daily-standup-YYYYMM.md`
 per month. Nothing runs until you set "Notes folder", an absolute path;
 "Time zone" is the notes' zone, the host's when empty. With a folder set, the office runs its own
-schedule at 08:00 Sunday to Thursday in that zone (`plugins/office/server/local-schedules.ts`), so it
-is not in the app, `schedule ls` or `list_schedules`. The office sets it from its settings each time
-it starts and stores nothing. A run that came due while the daemon was down is not made up. Each run, and each click on the 3D floor's bell, starts an agent
-titled "Stand-up notes" in the notes folder's workspace, unattended: the first enabled, ready
-provider in the daemon's order, with that provider's default model, in its mode that edits files
-without asking (Claude's "Accept File Edits") or else its default mode. That mode covers file edits;
+schedule at 08:00 Sunday to Thursday in that zone (`plugins/office/server/local-schedules.ts`), so
+it is not in the app, `schedule ls` or `list_schedules`. The office sets it from its settings each
+time it starts and stores nothing. A run that came due while the daemon was down is not made up.
+After a restart a run of either of the office's schedules waits until the office is opened or an
+agent opens or ends a turn, since only those bring the plugin the Paseo API; a notes run that could
+only start on a later day than it was due is dropped, so no entry is written for the wrong day. Each
+run, and each click on the 3D floor's bell, starts an agent titled "Stand-up notes" in the notes
+folder's workspace, unattended: the first enabled, ready provider in the daemon's order, with that
+provider's default model, in its mode that edits files without asking (Claude's "Accept File
+Edits") or else its default mode. That mode covers file edits;
 whether the writer's shell commands, such as `git log`, ask first is up to the provider's own
 settings, for Claude its permission rules. Whatever asks, the writer waits on the permission until
 someone answers it. The writer follows the stand-up rules of the folder's `CLAUDE.md` and gets the

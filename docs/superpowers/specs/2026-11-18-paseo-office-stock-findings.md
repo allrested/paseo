@@ -165,22 +165,22 @@ page connected to its own daemon. Settings, Plugins shows `Installed · 1`, `off
 
 ## What each finding selects
 
-| Task | Finding | Branch it selects                                                                                                                                                                                        |
-| ---- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3    | F3      | The scene is embedded in the server bundle as a string. A file next to the source, `import.meta.url` or `directory` cannot find it.                                                                      |
-| 3    | F4      | The generated world module is one more source file in the bundle. A 2.4 MB one installed and returned whole from a Git source with no `build`; no extra dependency.                                      |
-| 4    | F6      | No second argument for an installed plugin, so `inDaemon` is `builtin !== undefined`.                                                                                                                    |
-| 4    | F1      | Parent is the daemon worker, which is the listener. `daemonPid` is `ppid`. A supervisor sits one step above; Task 4 confirms `readAncestors` (`plugins/office/server/machine/cleanup.ts`) walks past it. |
-| 4    | F2      | `PASEO_HOME` reaches the subprocess. `boardsFile(process.env, homedir())` and its siblings need no change. No open item for part 2.                                                                      |
-| 6    | F4      | The generated `package.json` keeps `@getpaseo/plugin` and `zod` (`^4.4.3`, host has 4.6.7) only. The Git form needs no `build` unless the office adds another dependency.                                |
-| 6    | F5, F6  | Typecheck against the SDK types: `paseo` only on a handler's context, `contribute` takes the server context alone.                                                                                       |
-| 6    | F7      | `paseo plugin ls` and Settings, Plugins both list a Git-installed plugin.                                                                                                                                |
+| Task | Finding | Branch it selects                                                                                                                                                                                                                                                                         |
+| ---- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3    | F3      | The scene is embedded in the server bundle as a string. A file next to the source, `import.meta.url` or `directory` cannot find it.                                                                                                                                                       |
+| 3    | F4      | The generated world module is one more source file in the bundle. A 2.4 MB one installed and returned whole from a Git source with no `build`; no extra dependency.                                                                                                                       |
+| 4    | F6      | No second argument for an installed plugin: `contribute(server)` takes the server context alone, and nothing asks where the office runs.                                                                                                                                                  |
+| 4    | F1      | Parent is the daemon worker, which is the listener, with a supervisor one step above. `selfPid` is the plugin's own pid; `readAncestors`, defined in `plugins/office/server/machine/proc.ts`, includes it and every ancestor, so the plugin, the worker and the supervisor are protected. |
+| 4    | F2      | `PASEO_HOME` reaches the subprocess. `boardsFile(process.env, homedir())` and its siblings need no change. No open item for part 2.                                                                                                                                                       |
+| 6    | F4      | The generated `package.json` keeps `@getpaseo/plugin` and `zod` (`^4.4.3`, host has 4.6.7) only. The Git form needs no `build` unless the office adds another dependency.                                                                                                                 |
+| 6    | F5, F6  | Typecheck against the SDK types: `paseo` only on a handler's context, `contribute` takes the server context alone.                                                                                                                                                                        |
+| 6    | F7      | `paseo plugin ls` and Settings, Plugins both list a Git-installed plugin.                                                                                                                                                                                                                 |
 
 ## Proof
 
-`bash plugins/office/scripts/check-stock.sh` copies the office out of the workspace (tests
-excluded), installs `@getpaseo/plugin@0.16.2` and `zod`, and typechecks with `strict` under
-`NodeNext`, with nothing of the fork on the path. Its last line:
+`bash plugins/office/scripts/check-stock.sh` copies the office out of the workspace and installs
+`@getpaseo/plugin@0.16.2` and `zod`, and typechecks with `strict` under `NodeNext`, with nothing of
+the fork on the path. Test files are not copied, so they are not part of the proof. Its last line:
 
 ```
 the office typechecks against @getpaseo/plugin@0.16.2
@@ -223,3 +223,14 @@ Screenshots are in `/tmp/office-stock-look/`: `01-plugins-host-offline.png` (the
 Not seen: the stand-up run and the incidents check running, an agent's `office_read`, `office_post`
 and `office_update`, a stand-up writer, and the 2D and List views. This is a first look. Part 2
 installs from the new repo by Git.
+
+## For part 2
+
+- On stock the plugin shows as lowercase "office" with a placeholder icon: it has no name or icon
+  of its own yet.
+- `client/brand.test.ts` checks the logo address against what
+  `packages/server/src/server/web-ui.ts` writes, named in its comment. The new repo has no
+  `packages/`, so that tie is checked against the published server instead.
+- The new repo pins esbuild to an exact version: `build-world.mjs --check` compares the committed
+  scene module byte for byte with what the build makes, and another esbuild can make other bytes.
+- `bundleBrowserScript` and `offscreenPages` in the fork's `packages/server` have no user left.
