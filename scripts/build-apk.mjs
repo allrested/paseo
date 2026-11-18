@@ -33,13 +33,21 @@ const app = path.join(root, "packages/app");
 const env = {
   ...process.env,
   APP_VARIANT: isFork ? "fork" : "production",
-  PASEO_WATCHDOG_BUILD: "1",
-  PASEO_DIAGNOSTIC_BUILD_TIME: new Date().toISOString(),
-  PASEO_DIAGNOSTIC_REVISION:
-    execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8" }).trim() +
-    (execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim()
-      ? "-dirty"
-      : ""),
+  // The fork's APK is an ordinary release: no watchdog, no logs in Downloads.
+  ...(isFork
+    ? {}
+    : {
+        PASEO_WATCHDOG_BUILD: "1",
+        PASEO_DIAGNOSTIC_BUILD_TIME: new Date().toISOString(),
+        PASEO_DIAGNOSTIC_REVISION:
+          execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+            cwd: root,
+            encoding: "utf8",
+          }).trim() +
+          (execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim()
+            ? "-dirty"
+            : ""),
+      }),
 };
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
@@ -80,9 +88,7 @@ if (isFork) {
     ["sign", "--ks", forkKey, "--ks-pass", `file:${forkPassword}`, "--out", destination, aligned],
     root,
   );
-  console.log(
-    `\nFork APK (arm64, signed with ${forkKey}): ${destination}\nLogs: Downloads/Paseo diagnostics\n`,
-  );
+  console.log(`\nFork APK (arm64, signed with ${forkKey}): ${destination}\n`);
 } else {
   copyFileSync(built, destination);
   console.log(`\nDiagnostic release APK: ${destination}\nLogs: Downloads/Paseo diagnostics\n`);
