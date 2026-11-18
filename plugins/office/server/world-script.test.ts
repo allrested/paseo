@@ -65,7 +65,7 @@ describe("the embedded scene", () => {
     // Node's globals would throw in the page: upstream's build flag was the one use.
     expect(script).not.toContain("process.env");
     expect(script).not.toMatch(/\brequire\(/);
-  }, 60_000);
+  });
 
   it("bundles upstream's photo mode, with Paseo's mark and file name", () => {
     const photo = readFileSync(
@@ -79,7 +79,7 @@ describe("the embedded scene", () => {
     expect(photo).toMatch(/office-\$\{/);
     expect(photo).not.toContain("my-office-");
     expect(bundle).toContain("ph-shoot");
-  }, 60_000);
+  });
 
   it("bundles upstream's first-person walk, with the street cut", () => {
     const walk = readFileSync(
@@ -93,7 +93,7 @@ describe("the embedded scene", () => {
     expect(walk).toMatch(/export const floorBounds/);
     expect(walk).toContain("open: true");
     expect(bundle).toContain("fp-near");
-  }, 60_000);
+  });
 
   it("the scene's bundle builds with the new modules", () => {
     const script = WORLD_SCRIPT;
@@ -110,5 +110,5 @@ describe("the embedded scene", () => {
     // was one of the sounds left out.
     expect(script).toContain("office-sound");
     expect(script).not.toContain("mixue");
-  }, 60_000);
+  });
 });

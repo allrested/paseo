@@ -114,3 +114,9 @@ test("Clean up all counts only what this host can clean", async () => {
     "Clean up all 3",
   ]);
 });
+
+test("a host that cannot close offers nothing for an agent in error or still starting", async () => {
+  const failed = agent({ agentId: "err", title: "Broken", status: "error", forgotten: true });
+  const starting = agent({ agentId: "init", title: "Starting", status: "initializing" });
+  expect(await labels(reading([failed, starting], false))).toEqual([]);
+});

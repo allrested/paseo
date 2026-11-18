@@ -26,10 +26,10 @@ test("loads once, even when two views ask at the same time", async () => {
 
 test("a failed load reports its error, and a later load tries again", async () => {
   const loader = createWorldLoader();
-  await loader.load(() => Promise.reject(new Error("This host cannot build the 3D office")));
+  await loader.load(() => Promise.reject(new Error("The host did not answer")));
   expect(loader.state()).toEqual({
     status: "failed",
-    error: "This host cannot build the 3D office",
+    error: "The host did not answer",
   });
   await loader.load(async () => "script");
   expect(loader.state().status).toBe("ready");

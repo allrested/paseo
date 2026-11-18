@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 // The agent actions as the host's SDK gives them: Stop exists only where an agent's handle has
-// cancel(), and asking for it sends nothing.
+// cancel(), and asking for it costs one ref("probe") and no request.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -55,12 +55,18 @@ test("where the handle has cancel(), the actions cancel through it, bound to the
   };
   await act(async () => root.render(<Probe />));
   expect(actions?.cancel).not.toBeNull();
+  expect(refs).toEqual(["probe"]);
+  expect(stopped).toEqual([]);
   await actions?.cancel?.("a1");
+  expect(refs).toEqual(["probe", "a1"]);
   expect(stopped).toEqual(["a1"]);
 });
 
 test("where the handle has no cancel(), the actions have none", async () => {
-  handle = { send: async () => undefined };
+  const sent: string[] = [];
+  handle = { send: async (text: string) => void sent.push(text) };
   await act(async () => root.render(<Probe />));
   expect(actions?.cancel).toBeNull();
+  expect(refs).toEqual(["probe"]);
+  expect(sent).toEqual([]);
 });
