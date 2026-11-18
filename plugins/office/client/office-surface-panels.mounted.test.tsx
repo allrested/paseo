@@ -1,10 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-// The office's header, mounted as the app mounts the screen: the panel buttons open their panels
-// beside the floor, and are not there on an app without a side area. Everything the header and
-// its cards take from the host is stood in here; the office's subscription speaks only when a
-// test delivers an event, so the body stays on "Loading..." until then.
+// The office's page, mounted as the app mounts the screen: nothing of the settings is on it, and
+// the view switch and the panel buttons sit over the floor's corner. Everything the page and its
+// cards take from the host is stood in here; the office's subscription speaks only when a test
+// delivers an event, so the body stays on "Loading..." until then.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
@@ -193,6 +193,40 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+});
+
+test("the page has no settings: no switch and no field", async () => {
+  await mount();
+  await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+
+  expect(container.querySelector('[role="switch"]')).toBeNull();
+  // The list view's agent search is the page's own field, not a setting.
+  expect(container.querySelector("input:not(#office-list-search)")).toBeNull();
+});
+
+test("a schedule the settings broke shows a Settings card that says where to fix it", async () => {
+  await mount();
+  const notes = {
+    folderSet: true,
+    writing: false,
+    writtenAt: null,
+    failedAgentId: null,
+    problem: null,
+    scheduleError: "unknown zone Mars/Olympus",
+  };
+  await act(async () => deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes } }));
+
+  const card = [...container.querySelectorAll<HTMLElement>('[role="button"]')].find((button) =>
+    button.textContent?.includes("Settings"),
+  );
+  if (!card) throw new Error("The strip has no Settings card");
+  await act(async () => card.click());
+
+  const sheet = container.querySelector('section[aria-label="Office settings"]');
+  expect(sheet?.textContent).toContain(
+    "Unable to schedule the stand-up notes: unknown zone Mars/Olympus",
+  );
+  expect(sheet?.textContent).toContain("Settings, under Office");
 });
 
 test("the header has Sessions and Activity when the side area exists, and they open their screens", async () => {

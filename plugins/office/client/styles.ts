@@ -10,6 +10,12 @@ const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });
 export interface OfficeStyles {
   screen: ViewStyle;
   header: ViewStyle;
+  /** Holds the floor and what lies over its corner. */
+  floor: ViewStyle;
+  /** The view switch and the panel buttons over the floor's top right corner. */
+  viewCorner: ViewStyle;
+  /** The same controls in the page's flow, above a view that scrolls under them. */
+  viewRow: ViewStyle;
   /** The row of switches: it wraps on a phone, and every line ends on the trailing rail. */
   headerControls: ViewStyle;
   /** The switches' failures, one line each, under their row. */
@@ -450,6 +456,18 @@ export function useOfficeStyles(
       screen: { flex: 1, backgroundColor: colors.surface0 },
       // No side padding here: the strip scrolls to the screen edge, and each row pads itself.
       header: { paddingTop: 8, gap: 8 },
+      floor: { flex: 1 },
+      // Top right: the scene's camera bar is at the bottom centre and its note bottom left.
+      viewCorner: {
+        position: "absolute",
+        top: pad,
+        right: pad,
+        zIndex: 1,
+        alignItems: "flex-end",
+        gap: 4,
+        maxWidth: 360,
+      },
+      viewRow: { ...column, alignItems: "flex-end", gap: 4, paddingHorizontal: pad, paddingTop: 8 },
       // Each control is as tall as a touch target, so the row gap only keeps two targets apart.
       headerControls: {
         ...column,

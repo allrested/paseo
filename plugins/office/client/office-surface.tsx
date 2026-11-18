@@ -32,7 +32,6 @@ import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
 import { useChatSeen } from "./chat-seen.js";
 import { unreadCount, unreadLabel } from "./chat-text.js";
-import { HostSwitches } from "./host-switches.js";
 import { IncidentsCard } from "./incidents-card.js";
 import { incidentsEntry } from "./incidents-text.js";
 import { janitorNote, janitorRows } from "./context-text.js";
@@ -64,6 +63,8 @@ import { NotesCard } from "./notes-card.js";
 import { todayZone } from "./notes-text.js";
 import { QaCard } from "./qa-card.js";
 import { ReviewCard } from "./review-card.js";
+import { SettingsProblemsCard } from "./settings-problems-card.js";
+import { settingsEntry, settingsProblems } from "./settings-text.js";
 import { StandupCard } from "./standup-card.js";
 import { useIncidents } from "./use-incidents.js";
 import { useJanitor } from "./use-janitor.js";
@@ -785,6 +786,20 @@ function useCardOpening(live: boolean): CardOpening {
   return { open: opened && live, openedAt, show, close };
 }
 
+/** What the host could not do with the settings, and the strip's card and sheet that say so. */
+function useSettingsProblems(state: OfficeState["state"], live: boolean) {
+  const notesError = state.notes?.scheduleError ?? null;
+  const incidentsError = state.incidents?.scheduleError ?? null;
+  const problems = useMemo(
+    () => settingsProblems(notesError, incidentsError),
+    [notesError, incidentsError],
+  );
+  const card = useCardOpening(live);
+  const { show } = card;
+  const entry = useMemo(() => settingsEntry(problems, show), [problems, show]);
+  return { problems, card, entry };
+}
+
 /** One surface for both places: the sidebar screen and a workspace tab. */
 export function OfficeSurface(props: OfficeSurfaceProps) {
   const { theme, layout, navigation } = props;
@@ -910,11 +925,13 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     () => incidentsEntry(incidents, openIncidents),
     [incidents, openIncidents],
   );
+  const settings = useSettingsProblems(office.state, live);
   // The strip's cards, each only while it has something to say. An incident comes first.
   const cards = useMemo(
     () =>
       [
         incidentsStripEntry,
+        settings.entry,
         hostEntry,
         janitorEntry,
         standup.entry,
@@ -924,6 +941,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
       ].filter((card) => card !== null),
     [
       incidentsStripEntry,
+      settings.entry,
       hostEntry,
       janitorEntry,
       standup.entry,
@@ -936,32 +954,8 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <HostSwitches
-          wake={office.loaded && live ? office.state.wake : null}
-          actions={boardActions}
-          styles={styles}
-          deviceProblem={viewChoice.unsaved ? UNSAVED_VIEW : null}
-          scheduleError={office.state.notes?.scheduleError ?? null}
-          incidents={incidents}
-        >
-          <ViewSwitch
-            options={viewChoice.options}
-            value={viewChoice.choice}
-            onChange={changeView}
-            styles={styles}
-          />
-          <PanelButtons
-            navigation={navigation}
-            link={link}
-            compact={layout.compact}
-            touchScreen={touchScreen}
-            color={theme.colors.foreground}
-            unread={unread}
-            styles={styles}
-          />
-        </HostSwitches>
-        {live ? (
+      {live ? (
+        <View style={styles.header}>
           <AttentionStrip
             entries={model.attention}
             cards={cards}
@@ -969,40 +963,67 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
             wrap={!layout.compact}
             onSelect={selectFromStrip}
           />
-        ) : null}
-      </View>
+        </View>
+      ) : null}
       {viewChoice.choice === "3d" && sceneProblem !== null ? (
         <SceneProblem message={sceneProblem} onRetry={retryScene} styles={styles} />
       ) : null}
-      <SurfaceBody
-        office={office}
-        model={model}
-        rooms={rooms}
-        view={view}
-        theme={theme}
-        focusRoomId={focusRoomId}
-        focusRequest={focusRequest}
-        selectedAgentId={kept}
-        styles={styles}
-        compact={layout.compact}
-        actions={actions}
-        name={name}
-        onSelectAgent={setSelectedId}
-        onOpenSession={navigation ? openSession : undefined}
-        onOpenBoard={board.open}
-        machine={machine}
-        onOpenMachine={openMachine}
-        onOpenResources={openResources}
-        onOpenLibrary={library.show}
-        onOpenNotes={openNotes}
-        janitor={janitorEntry?.note ?? null}
-        onOpenJanitor={openJanitor}
-        meeting={standup.open}
-        incidents={incidents}
-        onOpenIncidents={openIncidents}
-        onSceneProblem={setSceneProblem}
-        platform={layout.platform}
-      />
+      <View style={styles.floor}>
+        {/* A floor is drawn under the corner; the list scrolls, so its controls take a row. */}
+        <View style={view === "3d" || view === "2d" ? styles.viewCorner : styles.viewRow}>
+          <View style={styles.headerControls}>
+            <ViewSwitch
+              options={viewChoice.options}
+              value={viewChoice.choice}
+              onChange={changeView}
+              styles={styles}
+            />
+            <PanelButtons
+              navigation={navigation}
+              link={link}
+              compact={layout.compact}
+              touchScreen={touchScreen}
+              color={theme.colors.foreground}
+              unread={unread}
+              styles={styles}
+            />
+          </View>
+          {viewChoice.unsaved ? (
+            <Text accessibilityRole="alert" style={styles.actionError}>
+              {UNSAVED_VIEW}
+            </Text>
+          ) : null}
+        </View>
+        <SurfaceBody
+          office={office}
+          model={model}
+          rooms={rooms}
+          view={view}
+          theme={theme}
+          focusRoomId={focusRoomId}
+          focusRequest={focusRequest}
+          selectedAgentId={kept}
+          styles={styles}
+          compact={layout.compact}
+          actions={actions}
+          name={name}
+          onSelectAgent={setSelectedId}
+          onOpenSession={navigation ? openSession : undefined}
+          onOpenBoard={board.open}
+          machine={machine}
+          onOpenMachine={openMachine}
+          onOpenResources={openResources}
+          onOpenLibrary={library.show}
+          onOpenNotes={openNotes}
+          janitor={janitorEntry?.note ?? null}
+          onOpenJanitor={openJanitor}
+          meeting={standup.open}
+          incidents={incidents}
+          onOpenIncidents={openIncidents}
+          onSceneProblem={setSceneProblem}
+          platform={layout.platform}
+        />
+      </View>
       <AgentCard
         agent={selected}
         activity={selectedActivity}
@@ -1032,6 +1053,12 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onDismiss={dismissIncidents}
         styles={styles}
         onClose={incidentsCard.close}
+      />
+      <SettingsProblemsCard
+        problems={settings.problems}
+        open={settings.card.open}
+        styles={styles}
+        onClose={settings.card.close}
       />
       <StandupCard
         teams={standup.teams}
