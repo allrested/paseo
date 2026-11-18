@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
   useRpc,
@@ -15,7 +15,7 @@ import {
   type PluginScreenProps,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/ui";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import { notesReadRpc, type IncidentsState, type Machine } from "../shared/contracts.js";
 import {
   OFFICE_VIEWS,
@@ -24,12 +24,17 @@ import {
   type OfficeViewChoice,
 } from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
+import { ActivityPanel } from "./activity-panel.js";
 import { AgentCard } from "./agent-card.js";
 import { sheetLeavesFirstOn } from "./agent-picker-text.js";
 import { AttentionStrip, type StripCard } from "./attention-strip.js";
 import { openSessionWith, resourcesOpener } from "./beside.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
+import { useChatSeen } from "./chat-seen.js";
+import { ChatPanel } from "./chat-panel.js";
+import { unreadCount, unreadLabel } from "./chat-text.js";
+import { countLabel, type ColumnTab } from "./column-model.js";
 import { IncidentsCard } from "./incidents-card.js";
 import { incidentsEntry } from "./incidents-text.js";
 import { janitorNote, janitorRows } from "./context-text.js";
@@ -43,11 +48,15 @@ import {
   type OfficeRoom,
 } from "../shared/model.js";
 import type { FocusRequest } from "./focus-request.js";
+import { OfficeColumn, type ColumnBadges } from "./office-column.js";
+import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
+import { SessionsPanel } from "./sessions-panel.js";
 import { PixelOffice } from "./pixel/pixel-office.js";
 import { StructureView } from "./structure-view.js";
 import { useOfficeStyles, type OfficeStyles } from "./styles.js";
 import { useAgentActions, type AgentActions } from "./use-agent-actions.js";
 import { useBoardActions } from "./use-board-actions.js";
+import { useColumn } from "./use-column.js";
 import { LibraryCard } from "./library-card.js";
 import { NotesCard } from "./notes-card.js";
 import { todayZone } from "./notes-text.js";
@@ -309,6 +318,8 @@ export function nextSwitchStep<Value>(
 export function switchUnsaved(sync: SwitchSync<unknown>): boolean {
   return sync.save?.phase === "given-up";
 }
+
+const NOTHING_WAITS = "Nothing needs you.";
 
 export const UNSAVED_VIEW =
   "Unable to save the view on this device. It holds until the office is closed.";
@@ -780,6 +791,68 @@ function ViewControls({
   );
 }
 
+/** The Chat tab's count: the chat's messages since it was last open on this device. */
+function useUnread(chat: OfficeState["chat"]): string | null {
+  const seenAt = useChatSeen();
+  return unreadLabel(unreadCount(chat?.messages ?? [], seenAt));
+}
+
+interface ColumnPanelSwitchProps extends ColumnPanelProps {
+  tab: ColumnTab;
+  /** The Attention tab's content. */
+  attention: ReactNode;
+}
+
+/** The chosen tab's panel. Only that one is mounted: Chat counts as seen while it is. */
+function ColumnPanel({ tab, attention, ...panel }: ColumnPanelSwitchProps) {
+  if (tab === "attention") {
+    return (
+      <ScrollView contentContainerStyle={panel.styles.columnAttention}>{attention}</ScrollView>
+    );
+  }
+  if (tab === "sessions") return <SessionsPanel {...panel} />;
+  if (tab === "activity") return <ActivityPanel {...panel} />;
+  return <ChatPanel {...panel} />;
+}
+
+interface ColumnContentInput {
+  live: boolean;
+  model: OfficeModel;
+  cards: readonly StripCard[];
+  chat: OfficeState["chat"];
+  onSelect(agentId: string): void;
+  styles: OfficeStyles;
+}
+
+/** What the column shows of the strip: the tabs' counts, and the Attention tab's content. */
+function useColumnContent({ live, model, cards, chat, onSelect, styles }: ColumnContentInput) {
+  const unread = useUnread(chat);
+  const waiting = model.attention.length;
+  const badges = useMemo(
+    (): ColumnBadges => ({
+      attention: live ? countLabel(waiting + cards.length) : null,
+      chat: unread,
+    }),
+    [live, waiting, cards.length, unread],
+  );
+  const attention = useMemo(
+    () =>
+      live && (waiting > 0 || cards.length > 0) ? (
+        <AttentionStrip
+          entries={model.attention}
+          cards={cards}
+          styles={styles}
+          wrap
+          onSelect={onSelect}
+        />
+      ) : (
+        <Text style={styles.sceneStatus}>{NOTHING_WAITS}</Text>
+      ),
+    [live, waiting, model.attention, cards, styles, onSelect],
+  );
+  return { badges, attention };
+}
+
 /** The strip's Settings card, while a schedule could not follow the settings and there is a way in. */
 function useSettingsEntry(state: OfficeState["state"], onOpenSettings: (() => void) | undefined) {
   const notesError = state.notes?.scheduleError ?? null;
@@ -836,6 +909,12 @@ export function OfficeSurface(
   const notesTimeZone = useNotesTimeZone();
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
+  const column = useColumn();
+  const [surfaceWidth, setSurfaceWidth] = useState(0);
+  const measure = useCallback(
+    (event: LayoutChangeEvent) => setSurfaceWidth(event.nativeEvent.layout.width),
+    [],
+  );
   const machine = useMemo(() => namedMachine(reading, model.agents), [reading, model.agents]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
@@ -895,6 +974,9 @@ export function OfficeSurface(
     () => resourcesOpener(navigation, openMachine),
     [navigation, openMachine],
   );
+  // The panels of the column reach this surface through the link: a row press opens the card, as
+  // a List row does, and "Open session" shows the session.
+  const link = useMemo((): OfficeLink => ({ select: setSelectedId, openSession }), [openSession]);
   const retryScene = useCallback(() => setSceneProblem(null), []);
   // Choosing a view asks for 3D anew, so an old failure does not stand in its way.
   const { choose } = viewChoice;
@@ -955,64 +1037,83 @@ export function OfficeSurface(
       library.entry,
     ],
   );
+  const { badges, attention } = useColumnContent({
+    live,
+    model,
+    cards,
+    chat: office.chat,
+    onSelect: selectFromStrip,
+    styles,
+  });
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
     <View style={styles.screen}>
-      {live && (model.attention.length > 0 || cards.length > 0) ? (
-        <View style={styles.header}>
-          <AttentionStrip
-            entries={model.attention}
-            cards={cards}
-            styles={styles}
-            wrap={!layout.compact}
-            onSelect={selectFromStrip}
-          />
-        </View>
-      ) : null}
       {viewChoice.choice === "3d" && sceneProblem !== null ? (
         <SceneProblem message={sceneProblem} onRetry={retryScene} styles={styles} />
       ) : null}
-      <View style={styles.floor}>
-        <ViewControls
-          floorDrawn={floorDrawn}
-          viewChoice={viewChoice}
-          onChange={changeView}
-          compact={layout.compact}
-          touchScreen={touchScreen}
-          color={theme.colors.foreground}
-          onOpenSettings={onOpenSettings}
-          styles={styles}
-        />
-        <SurfaceBody
-          office={office}
-          model={model}
-          rooms={rooms}
-          view={view}
-          theme={theme}
-          focusRoomId={focusRoomId}
-          focusRequest={focusRequest}
-          selectedAgentId={kept}
-          styles={styles}
-          compact={layout.compact}
-          actions={actions}
-          name={name}
-          onSelectAgent={setSelectedId}
-          onOpenSession={navigation ? openSession : undefined}
-          onOpenBoard={board.open}
-          machine={machine}
-          onOpenMachine={openMachine}
-          onOpenResources={openResources}
-          onOpenLibrary={library.show}
-          onOpenNotes={openNotes}
-          janitor={janitorEntry?.note ?? null}
-          onOpenJanitor={openJanitor}
-          meeting={standup.open}
-          incidents={incidents}
-          onOpenIncidents={openIncidents}
-          onSceneProblem={setSceneProblem}
-          platform={layout.platform}
-        />
+      <View style={styles.officeRow} onLayout={measure}>
+        <View style={styles.floor}>
+          <ViewControls
+            floorDrawn={floorDrawn}
+            viewChoice={viewChoice}
+            onChange={changeView}
+            compact={layout.compact}
+            touchScreen={touchScreen}
+            color={theme.colors.foreground}
+            onOpenSettings={onOpenSettings}
+            styles={styles}
+          />
+          <SurfaceBody
+            office={office}
+            model={model}
+            rooms={rooms}
+            view={view}
+            theme={theme}
+            focusRoomId={focusRoomId}
+            focusRequest={focusRequest}
+            selectedAgentId={kept}
+            styles={styles}
+            compact={layout.compact}
+            actions={actions}
+            name={name}
+            onSelectAgent={setSelectedId}
+            onOpenSession={navigation ? openSession : undefined}
+            onOpenBoard={board.open}
+            machine={machine}
+            onOpenMachine={openMachine}
+            onOpenResources={openResources}
+            onOpenLibrary={library.show}
+            onOpenNotes={openNotes}
+            janitor={janitorEntry?.note ?? null}
+            onOpenJanitor={openJanitor}
+            meeting={standup.open}
+            incidents={incidents}
+            onOpenIncidents={openIncidents}
+            onSceneProblem={setSceneProblem}
+            platform={layout.platform}
+          />
+        </View>
+        {layout.compact ? null : (
+          <OfficeColumn
+            column={column}
+            surfaceWidth={surfaceWidth}
+            badges={badges}
+            color={theme.colors.foreground}
+            iconSize={touchScreen ? 20 : 16}
+            styles={styles}
+          >
+            <ColumnPanel
+              tab={column.tab}
+              attention={attention}
+              office={office}
+              styles={styles}
+              theme={theme}
+              layout={layout}
+              link={link}
+            />
+          </OfficeColumn>
+        )}
       </View>
       <AgentCard
         agent={selected}

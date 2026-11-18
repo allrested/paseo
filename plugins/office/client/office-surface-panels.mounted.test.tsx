@@ -14,7 +14,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ChatMessage, OfficeEvent } from "../shared/contracts.js";
 import { buildOfficeModel } from "../shared/model.js";
 import { officeHostSettings, officeDeviceSettings } from "../shared/settings.js";
-import { resetChatSeen } from "./chat-seen.js";
+import { markChatSeen, resetChatSeen } from "./chat-seen.js";
 import { EMPTY_OFFICE } from "./office-state.js";
 
 /** The view the device holds; every other device value is the office's default. */
@@ -38,13 +38,15 @@ const DEVICE: SettingsState<typeof officeDeviceSettings.schema> = {
 vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@getpaseo/plugin/client")>()),
   // The device's view is the test's; the host's settings are the schema's defaults.
-  useSettings: (settings: { id: string }) =>
-    settings.id === "office-device"
-      ? { ...DEVICE, values: { ...DEVICE.values, view } }
-      : {
-          ...DEVICE,
-          values: officeHostSettings.schema.parse({}),
-        },
+  useSettings: (settings: { id: string }) => {
+    if (settings.id === "office-device") {
+      return { ...DEVICE, values: { ...DEVICE.values, view } };
+    }
+    if (settings.id === "office-column") {
+      return { ...DEVICE, values: { width: 360, collapsed: false } };
+    }
+    return { ...DEVICE, values: officeHostSettings.schema.parse({}) };
+  },
   // Live, and silent until a test delivers: the body shows what it shows before a snapshot. The
   // machine's subscription never speaks.
   useSubscription: (
@@ -111,6 +113,8 @@ const THEME = { colors: new Proxy({}, { get: () => "#808080" }) } as unknown as 
 let settingsWay: boolean;
 /** How many times the surface asked for the office's settings screen. */
 let settingsOpened: number;
+/** True for the phone's layout, as the app mounts it narrow; false for the wide one. */
+let compact: boolean;
 let container: HTMLElement;
 let root: Root;
 
@@ -118,7 +122,7 @@ async function mount(): Promise<void> {
   const { OfficeSurface } = await import("./office-surface.js");
   const props = {
     theme: THEME,
-    layout: { compact: true, platform: "web" },
+    layout: { compact, platform: "web" },
     host: { id: "host", label: "Host" },
     params: {},
     ...(settingsWay ? { onOpenSettings: () => void (settingsOpened += 1) } : {}),
@@ -154,6 +158,7 @@ beforeEach(() => {
   deliver = null;
   settingsWay = true;
   settingsOpened = 0;
+  compact = true;
   // The test browser's AccessibilityInfo gives no subscription to remove; the 2D floor asks.
   vi.spyOn(AccessibilityInfo, "addEventListener").mockReturnValue({
     remove: () => undefined,
@@ -194,11 +199,20 @@ function settingsCard(): HTMLElement | undefined {
   );
 }
 
+/** The wide office's Attention tab, where the strip's cards are. */
+async function openAttention(): Promise<void> {
+  await act(async () =>
+    container.querySelector<HTMLElement>('[role="tab"][aria-label^="Attention"]')?.click(),
+  );
+}
+
 test("a schedule the settings broke shows a Settings card that opens the settings", async () => {
+  compact = false;
   await mount();
   await act(async () =>
     deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes: BROKEN_NOTES } }),
   );
+  await openAttention();
 
   const card = settingsCard();
   if (!card) throw new Error("The strip has no Settings card");
@@ -209,10 +223,12 @@ test("a schedule the settings broke shows a Settings card that opens the setting
 
 test("with no way to the settings, a broken schedule draws no Settings card", async () => {
   settingsWay = false;
+  compact = false;
   await mount();
   await act(async () =>
     deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes: BROKEN_NOTES } }),
   );
+  await openAttention();
 
   expect(settingsCard()).toBeUndefined();
 });
@@ -256,6 +272,72 @@ test("a chat change does not rebuild the floor's model", async () => {
     deliver?.({ type: "chat", change: { op: "add", message: chatMessage(6000, "a1") } }),
   );
   expect(vi.mocked(buildOfficeModel).mock.calls.length).toBe(built);
+});
+
+test("a wide office has the column, on Sessions, and no strip above the floor", async () => {
+  compact = false;
+  await mount();
+  await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+
+  // The Sessions panel's own filter pills are tabs too: only the column's are asked for.
+  const tabs = [...container.querySelectorAll('[aria-label="Office column"] [role="tab"]')].map(
+    (each) => each.getAttribute("aria-label"),
+  );
+  expect(tabs).toEqual(["Attention", "Sessions", "Activity", "Chat"]);
+  expect(labelled("Sessions")?.getAttribute("aria-selected")).toBe("true");
+});
+
+test("Attention counts the strip's cards and shows them", async () => {
+  compact = false;
+  await mount();
+  const notes = {
+    folderSet: true,
+    writing: false,
+    writtenAt: null,
+    failedAgentId: null,
+    problem: null,
+    scheduleError: "unknown zone Mars/Olympus",
+  };
+  await act(async () => deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes } }));
+
+  const attention = container.querySelector<HTMLElement>('[role="tab"][aria-label^="Attention"]');
+  expect(attention?.getAttribute("aria-label")).toBe("Attention, 1 new");
+  await act(async () => attention?.click());
+  expect(container.textContent).toContain("Settings");
+});
+
+test("Attention with nothing waiting says so", async () => {
+  compact = false;
+  await mount();
+  await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+  await openAttention();
+
+  expect(container.textContent).toContain("Nothing needs you.");
+});
+
+test("Chat's tab shows the messages since the chat was last open, and none at zero", async () => {
+  compact = false;
+  resetChatSeen(1000);
+  await mount();
+  const chat = () => container.querySelector<HTMLElement>('[role="tab"][aria-label^="Chat"]');
+  expect(chat()?.getAttribute("aria-label")).toBe("Chat");
+
+  // Seen, then two agents' messages after the mark; yours and a system line do not count.
+  const messages = [
+    chatMessage(500, "a1"),
+    chatMessage(2000, "a1"),
+    chatMessage(3000, "me"),
+    chatMessage(4000, undefined, "sys"),
+    chatMessage(5000, "a2"),
+  ];
+  await act(async () =>
+    deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, chat: { messages, typing: [] } } }),
+  );
+  expect(chat()?.getAttribute("aria-label")).toBe("Chat, 2 new");
+
+  // The chat was open up to the newest: the count goes.
+  await act(async () => markChatSeen(5000));
+  expect(chat()?.getAttribute("aria-label")).toBe("Chat");
 });
 
 test("the controls take a row while the body shows Loading, and the corner once a floor is drawn", async () => {

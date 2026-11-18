@@ -18,6 +18,23 @@ export interface OfficeStyles {
   viewRow: ViewStyle;
   /** The controls themselves, in either place: a row that wraps, with no rail of its own. */
   viewControls: ViewStyle;
+  /** The floor and the column, side by side. */
+  officeRow: ViewStyle;
+  /** The column beside the floor; its width is the device's. */
+  column: ViewStyle;
+  /** The column collapsed to its tabs' icons. */
+  columnRail: ViewStyle;
+  /** The strip between the floor and the column that is dragged to change the width. */
+  columnHandle: ViewStyle;
+  columnHandleLit: ViewStyle;
+  /** The tabs and the collapse button over a panel. */
+  columnHead: ViewStyle;
+  columnTabs: ViewStyle;
+  columnTabsVertical: ViewStyle;
+  /** The chosen tab's panel. */
+  columnBody: ViewStyle;
+  /** The Attention tab's list of cards. */
+  columnAttention: ViewStyle;
   /** The row of switches: it wraps on a phone, and every line ends on the trailing rail. */
   headerControls: ViewStyle;
   /** The switches' failures, one line each, under their row. */
@@ -279,6 +296,7 @@ const FOCUS_RING = 4;
 /** How wide the fade over the strip's right edge is on a phone. */
 const STRIP_FADE = 24;
 const DOT = 8;
+const HANDLE = 8;
 const DOT_GAP = 12;
 /** Where a row's text starts, from the row's own left edge. A child's dot sits on this rail. */
 const TEXT_RAIL = DOT + DOT_GAP;
@@ -485,6 +503,43 @@ export function useOfficeStyles(
         columnGap: 16,
         rowGap: 4,
       },
+      officeRow: { flex: 1, flexDirection: "row" },
+      column: {
+        borderLeftWidth: 1,
+        borderLeftColor: colors.border,
+        backgroundColor: colors.surface0,
+      },
+      columnRail: {
+        borderLeftWidth: 1,
+        borderLeftColor: colors.border,
+        backgroundColor: colors.surface0,
+        paddingVertical: 8,
+        paddingHorizontal: 4,
+        alignItems: "center",
+        gap: 8,
+      },
+      // Wider than it looks: the drag starts anywhere on it, and only its middle line is drawn.
+      columnHandle: { width: HANDLE, marginRight: -HANDLE, zIndex: 1 },
+      columnHandleLit: {
+        width: HANDLE,
+        marginRight: -HANDLE,
+        zIndex: 1,
+        backgroundColor: colors.border,
+      },
+      columnHead: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        paddingHorizontal: 8,
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      },
+      columnTabs: { ...segments, flexShrink: 1, flexWrap: "wrap" },
+      columnTabsVertical: { alignItems: "center", gap: 4 },
+      columnBody: { flex: 1 },
+      columnAttention: { paddingVertical: 8 },
       // Each control is as tall as a touch target, so the row gap only keeps two targets apart.
       headerControls: {
         ...column,
