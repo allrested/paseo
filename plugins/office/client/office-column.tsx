@@ -57,7 +57,7 @@ function Tab({
       onPressOut={pressOut}
       onHoverIn={hoverIn}
       onHoverOut={hoverOut}
-      style={styles.segment}
+      style={styles.columnTab}
     >
       {fill === null ? null : <View style={fill} />}
       {/* The count sits on the icon's corner, inside the pill that clips. */}
@@ -146,7 +146,7 @@ function IconButton({ label, icon, color, iconSize, onPress, styles }: IconButto
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={styles.segment}
+      style={styles.columnTab}
     >
       <Icon name={icon} size={iconSize} color={color} />
     </Pressable>

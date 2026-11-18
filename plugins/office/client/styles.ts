@@ -30,6 +30,8 @@ export interface OfficeStyles {
   /** The tabs and the collapse button over a panel. */
   columnHead: ViewStyle;
   columnTabs: ViewStyle;
+  /** A tab or the collapse button: a segment as wide as the controls are tall, so four fit 280 px. */
+  columnTab: ViewStyle;
   columnTabsVertical: ViewStyle;
   /** The chosen tab's panel. */
   columnBody: ViewStyle;
@@ -545,6 +547,16 @@ export function useOfficeStyles(
         borderBottomColor: colors.border,
       },
       columnTabs: { ...segments, flexShrink: 1, flexWrap: "wrap" },
+      // At 44 the chosen tab's label pushes the row past 280 px and Chat wraps to a second row.
+      columnTab: {
+        minHeight: controlHeight,
+        minWidth: controlHeight,
+        paddingHorizontal: 12,
+        borderRadius: 9999,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      },
       columnTabsVertical: { alignItems: "center", gap: 4 },
       columnBody: { flex: 1 },
       columnAttention: { paddingVertical: 8 },
