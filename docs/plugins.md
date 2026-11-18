@@ -664,12 +664,16 @@ prompts it and posts its answer.
 On the 3D floor an agent is a person at a desk, and a workspace's agents sit together as a team.
 The floor is the scene of [my-office](https://github.com/khanh020905/my-office), vendored under
 `plugins/office/vendor/my-office`; `plugins/office/vendor/SOURCES.md` says what is taken, what
-stands in for the rest, and how to take a newer version. The daemon bundles the scene's entry once
-per run with `bundleBrowserScript` and serves the script through `office.world.request`.
-`bundleBrowserScript` is one of two things the daemon hands built-ins beside their directory
-(`BuiltinPluginInfo`); the other, `offscreenPages`, opens pages in the daemon's Chromium that no
-pane and no agent sees, and no built-in uses it now. Directory plugins get neither. The
-client runs it in an `<iframe srcdoc>` and drives it through the `PaseoOfficeWorld` object the
+stands in for the rest, and how to take a newer version. The plugin's server carries the scene's
+script as a string in `plugins/office/server/world.generated.ts` and serves it through
+`office.world.request`. `plugins/office/scripts/build-world.mjs` bundles the vendored entry into
+that module and the module is committed; `node plugins/office/scripts/build-world.mjs --check` fails when the
+committed module is not what the build makes, so run the build after any change under `vendor/`.
+It is embedded because an installed plugin is not told where its files are: the daemon compiles its
+server into one bundle. The built-in arguments `bundleBrowserScript` and `offscreenPages` are not
+used by the office. Directory plugins do not get them either.
+
+The client runs it in an `<iframe srcdoc>` and drives it through the `PaseoOfficeWorld` object the
 script sets (`plugins/office/client/world/world-api.ts`), mapping the office model to the scene's
 people in `client/world/adapter.ts`. The scene is one app per page: module state, a stylesheet for
 `html` and `body`, listeners on its window. The frame keeps that out of the app's page, and
@@ -761,7 +765,8 @@ posts are deleted. Interactive agent sessions get three tools, `office_read`, `o
 `office_update`, unless the host's "Agent tools" switch is off when the session opens. That switch,
 "Wake agents", "Notes folder" and the tracker fields are on the Office screen of the app's Settings
 (`plugins/office/client/office-settings.tsx`). A built-in has no row in Settings > Plugins, so three
-things open the screen with `client.openSettings("office")`: the gear beside the view switch, the
+things open the screen with `client.openSettings("office")` (installed on stock Paseo, the office has
+a row and a page there, and the same three open it): the gear beside the view switch, the
 Command Center's "Office settings", and the strip's Settings card, which shows while a schedule
 cannot follow the settings. Plugin tools reach an agent through Paseo's own agent tools and are
 filtered by name like them: a provider with Paseo's tools off gets none, and a provider that lists
@@ -791,9 +796,10 @@ agent is asked once per opening of the card, and the button is off while "Wake a
 
 The office also writes the day's entry in a folder of stand-up notes, one `daily-standup-YYYYMM.md`
 per month. Nothing runs until you set "Notes folder", an absolute path;
-"Time zone" is the notes' zone, the host's when empty. With a folder set, the office keeps a
-[plugin schedule](#schedules) at 08:00 Sunday to Thursday in that zone, so it is not in the app,
-`schedule ls` or `list_schedules`. Each run, and each click on the 3D floor's bell, starts an agent
+"Time zone" is the notes' zone, the host's when empty. With a folder set, the office runs its own
+schedule at 08:00 Sunday to Thursday in that zone (`plugins/office/server/local-schedules.ts`), so it
+is not in the app, `schedule ls` or `list_schedules`. The office sets it from its settings each time
+it starts and stores nothing. A run that came due while the daemon was down is not made up. Each run, and each click on the 3D floor's bell, starts an agent
 titled "Stand-up notes" in the notes folder's workspace, unattended: the first enabled, ready
 provider in the daemon's order, with that provider's default model, in its mode that edits files
 without asking (Claude's "Accept File Edits") or else its default mode. That mode covers file edits;
@@ -817,7 +823,7 @@ takes project keys, and a new issue of type Bug in one of them rings; it needs
 the same for a new unresolved Sentry issue with `SENTRY_AUTH_TOKEN`. A changed token takes a daemon
 restart, and the settings name the variables to set, never a value. Jira does not refuse a
 project key it does not know, so a mistyped key rings nothing and shows no problem. While a tracker
-is on, a [plugin schedule](#schedules) named `incidents` checks it every 5 minutes; the first check
+is on, the office's own schedule named `incidents` checks it every 5 minutes; the first check
 records what exists and rings nothing. Each check reads from the last successful one less 10
 minutes, because Jira compares `created` to the minute; the office writes the time in the token
 user's profile zone, read from `/myself` each check. A check opens at most 20 incidents per

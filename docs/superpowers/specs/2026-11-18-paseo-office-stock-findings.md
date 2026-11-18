@@ -175,3 +175,51 @@ page connected to its own daemon. Settings, Plugins shows `Installed · 1`, `off
 | 6    | F4      | The generated `package.json` keeps `@getpaseo/plugin` and `zod` (`^4.4.3`, host has 4.6.7) only. The Git form needs no `build` unless the office adds another dependency.                                |
 | 6    | F5, F6  | Typecheck against the SDK types: `paseo` only on a handler's context, `contribute` takes the server context alone.                                                                                       |
 | 6    | F7      | `paseo plugin ls` and Settings, Plugins both list a Git-installed plugin.                                                                                                                                |
+
+## Proof
+
+`bash plugins/office/scripts/check-stock.sh` copies the office out of the workspace (tests
+excluded), installs `@getpaseo/plugin@0.16.2` and `zod`, and typechecks with `strict` under
+`NodeNext`, with nothing of the fork on the path. Its last line:
+
+```
+the office typechecks against @getpaseo/plugin@0.16.2
+```
+
+The first run passed: Tasks 2 to 5 had left no type that only the fork has, so the script found
+nothing to fix in `plugins/office`. The script copies with `tar`, not `rsync`, which this container
+does not have.
+
+The real office, as that copy, was installed once as a directory source
+(`paseo plugin install /tmp/office-stock-check`) on a throwaway stock daemon, home
+`/tmp/office-stock-home`, listening on `0.0.0.0:6798` with `PASEO_WEB_UI_ENABLED=true` for the look.
+`daemon status` showed port 6798 and that home before any plugin command.
+
+- The plugin loaded in a subprocess: `paseo plugin ls` showed `running`, and `paseo plugin logs
+office` held only `Loading plugin` and `Plugin ready`. No error names a missing call.
+- The daemon logged the office's methods: the `office.*.request` set and `settings.office.read`,
+  `write` and `reset`. The office's client session connected (`plugin:office`) to serve them.
+- The state subscription and the agent tools: the settings page shows "Agent tools" on and the
+  floor shows the empty host ("No agents on this host yet"), which is what a subscription with no
+  agents gives. The daemon's log holds nothing about the tools. No agent was started, so no tool
+  call was made, and the tools' presence in an agent session was not seen.
+- The schedules: with the default settings, no notes folder and no tracker, neither is set. Nothing
+  about a schedule is in the plugin's log or the daemon's. A schedule that did run was not seen.
+- The web UI, with the Paseo browser at the first address of `hostname -i`:
+  - The office's screen: the 3D floor drew, and the column (Attention 1, Sessions, Activity, Chat)
+    showed.
+  - The gear beside the 3D / 2D / List switch opened Settings > Plugins > office, with "Wake agents",
+    "Agent tools", the notes folder, the zone and the tracker fields. This is the bug that started
+    the work, and it is gone on stock.
+  - Settings > Plugins lists `office` with source `/tmp/office-stock-check`.
+  - The page's stored host from the first probe had the old daemon's id, so Settings said "Plugin
+    host is offline" until the page's local storage was cleared. That is the browser's stale
+    entry, not the office.
+
+Screenshots are in `/tmp/office-stock-look/`: `01-plugins-host-offline.png` (the stale host),
+`02-office-3d-floor-and-column.png`, `03-gear-opens-office-settings.png`,
+`04-settings-plugins-list.png`.
+
+Not seen: the stand-up run and the incidents check running, an agent's `office_read`, `office_post`
+and `office_update`, a stand-up writer, and the 2D and List views. This is a first look. Part 2
+installs from the new repo by Git.
