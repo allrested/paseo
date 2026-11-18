@@ -5,13 +5,8 @@
 # `gh workflow enable "CI"` for a full 18-job run when that is worth 25 minutes.
 #
 # This fork changes docker/**, built-in usage-source plugins in plugins/ (kiro,
-<<<<<<< HEAD
-# bddevlab, claude), session move, which spans the server, the CLI and
-# packages/app/src/session-move, ScriptFrame in packages/app, and the fork's APK
-=======
-# bddevlab, claude), ScriptFrame in packages/app (the office plugin's 3D view runs in it on Android), and the fork's APK
->>>>>>> fffa00f32 (chore(fork): remove session move)
-# (app.config.js's fork variant and fork-android-apk.yml). Upstream already
+# bddevlab), ScriptFrame in packages/app, and the fork's APK (app.config.js's fork variant and
+# fork-android-apk.yml). Upstream already
 # proves the rest of the app, desktop, relay, CLI and SDK on its own runs, so
 # re-testing them here buys nothing and costs ~145 runner-minutes. The seven
 # jobs below are the ones that can actually catch a fork-authored mistake.
@@ -147,16 +142,8 @@ jobs:
           FIGCRAFT_SERVER_BIN: ${{ steps.figcraft.outputs.FIGCRAFT_SERVER_BIN }}
         run: npx vitest run design/test/figcraft-contract.real.test.ts --bail=1
 
-<<<<<<< HEAD
-  # Session move's app and CLI tests, and the app's ScriptFrame and fork-variant
-  # unit tests. Session move's server half and the built-in plugins run in
-  # server-tests; these are the only fork-authored tests
-  # outside it.
-=======
-  # The app's ScriptFrame and fork-variant unit tests. The built-in plugins (the
-  # office among them) run in server-tests; these are the only fork-authored
+  # The app's ScriptFrame and fork-variant unit tests. The built-in plugins run in server-tests; these are the only fork-authored
   # tests outside it.
->>>>>>> fffa00f32 (chore(fork): remove session move)
   session-move-tests:
     runs-on: ubuntu-latest
     env:
