@@ -1,8 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
-import type { PluginServerContext, ScheduleCadence } from "@getpaseo/plugin/server";
 import { errorMessage } from "./errors.js";
-
-type Schedules = PluginServerContext["schedules"];
+import type { OfficeCadence, OfficeSchedules } from "./local-schedules.js";
 
 /** One of the office's schedules. */
 export interface OfficeSchedule {
@@ -14,14 +12,14 @@ export interface OfficeSchedule {
 }
 
 /**
- * Brings the daemon's schedule in step with `cadence`: saves it, or removes it for null. A
+ * Brings the office's schedule in step with `cadence`: saves it, or removes it for null. A
  * schedule that is already so is left alone, since a save counts the next run again from now and
  * can move a run that is due.
  */
 export async function syncSchedule(
-  schedules: Schedules,
+  schedules: OfficeSchedules,
   schedule: OfficeSchedule,
-  cadence: ScheduleCadence | null,
+  cadence: OfficeCadence | null,
 ): Promise<void> {
   if (cadence === null) {
     await schedules.remove(schedule.name);
@@ -39,7 +37,7 @@ export async function syncSchedule(
 }
 
 export interface ScheduleFollowerPorts {
-  schedules: Schedules;
+  schedules: OfficeSchedules;
   schedule: OfficeSchedule;
   log(message: string): void;
 }
@@ -49,7 +47,7 @@ export interface ScheduleFollower {
    * Follows the cadence `cadence()` gives, worked out in turn, so it may throw like a refused
    * save. Never rejects: a failure is logged and kept for `error`.
    */
-  sync(cadence: () => ScheduleCadence | null): Promise<void>;
+  sync(cadence: () => OfficeCadence | null): Promise<void>;
   /** Why the schedule could not follow; null once a later sync succeeds. */
   error(): string | null;
 }
@@ -58,7 +56,7 @@ export function createScheduleFollower(ports: ScheduleFollowerPorts): ScheduleFo
   let scheduleError: string | null = null;
   // One at a time, in order: a slow save must not land after a later one.
   let queue: Promise<void> = Promise.resolve();
-  async function follow(cadence: () => ScheduleCadence | null): Promise<void> {
+  async function follow(cadence: () => OfficeCadence | null): Promise<void> {
     try {
       await syncSchedule(ports.schedules, ports.schedule, cadence());
       scheduleError = null;

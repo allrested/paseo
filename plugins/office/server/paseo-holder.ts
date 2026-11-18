@@ -10,17 +10,25 @@ export type Paseo = PluginHandlerContext["paseo"];
 export interface PaseoHolder {
   remember(paseo: Paseo): void;
   require(): Paseo;
+  /** Resolves once a handler has brought the API: a run due before that waits for it. */
+  wait(): Promise<Paseo>;
 }
 
 export function createPaseoHolder(): PaseoHolder {
   let held: Paseo | null = null;
+  let arrived: (paseo: Paseo) => void = () => undefined;
+  const first = new Promise<Paseo>((resolve) => {
+    arrived = resolve;
+  });
   return {
     remember(paseo) {
       held = paseo;
+      arrived(paseo);
     },
     require() {
       if (held === null) throw new Error("The office has not received the Paseo API yet");
       return held;
     },
+    wait: () => (held === null ? first : Promise.resolve(held)),
   };
 }

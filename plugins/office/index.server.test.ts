@@ -4,7 +4,6 @@ import type {
   PluginServerContext,
   PluginSessionOpenRequest,
   PluginSettingsState,
-  ScheduleCadence,
 } from "@getpaseo/plugin/server";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -15,6 +14,7 @@ import { createOfficePlugin } from "./index.server.js";
 import { EMPTY_BOARDS, type BoardStore } from "./server/board-store.js";
 import { emptyChat, type ChatData, type ChatStore } from "./server/chat-store.js";
 import { createFakeClock, settle } from "./server/fake-clock.js";
+import type { LocalSchedules, OfficeCadence } from "./server/local-schedules.js";
 import {
   EMPTY_INCIDENTS,
   type IncidentsData,
@@ -43,7 +43,7 @@ interface Recorded {
   /** When set, a schedule's save rejects with it. */
   scheduleFailure: Error | null;
   /** The handlers that answer due schedules, by handler name. */
-  scheduleRuns: Map<string, Handler>;
+  scheduleRuns: Map<string, () => Promise<void>>;
 }
 
 interface Sent {
@@ -71,7 +71,7 @@ const OFF: SettingsState = {
 };
 const OWN_TOOL = { name: "other_tool", description: "Another plugin's tool", inputSchema: {} };
 
-function cadenceText(cadence: ScheduleCadence): string {
+function cadenceText(cadence: OfficeCadence): string {
   if (cadence.type === "every") return `every ${cadence.everyMs}`;
   return `${cadence.expression} ${cadence.timezone}`;
 }
@@ -100,24 +100,29 @@ function fakeServer(recorded: Recorded, read: () => Promise<SettingsState>): Plu
         recorded.hooks.delete(name);
       };
     },
-    schedules: {
-      upsert: async ({ name, cadence }: { name: string; cadence: ScheduleCadence }) => {
-        recorded.schedules.push(`upsert ${name} ${cadenceText(cadence)}`);
-        if (recorded.scheduleFailure) throw recorded.scheduleFailure;
-        return { id: "s1", nextRunAt: null };
-      },
-      remove: async (name: string) => {
-        recorded.schedules.push(`remove ${name}`);
-        return false;
-      },
-      list: async () => [],
+  };
+}
+
+/** The office's own schedule engine, recording its calls and keeping the handlers it is given. */
+function recordingSchedules(recorded: Recorded): LocalSchedules {
+  return {
+    upsert: async ({ name, cadence }) => {
+      recorded.schedules.push(`upsert ${name} ${cadenceText(cadence)}`);
+      if (recorded.scheduleFailure) throw recorded.scheduleFailure;
+      return { id: "s1", nextRunAt: null };
     },
-    handleSchedule: (handler: string, run: Handler) => {
+    remove: async (name) => {
+      recorded.schedules.push(`remove ${name}`);
+      return false;
+    },
+    list: async () => [],
+    handle: (handler, run) => {
       recorded.scheduleRuns.set(handler, run);
       return () => {
         recorded.scheduleRuns.delete(handler);
       };
     },
+    stop: () => undefined,
   };
 }
 
@@ -326,7 +331,12 @@ function hookAgent(id: string): PluginHookAgent {
  */
 function setup(
   read: () => Promise<SettingsState>,
-  options: { env?: NodeJS.ProcessEnv; chatStore?: ChatStore } = {},
+  options: {
+    env?: NodeJS.ProcessEnv;
+    chatStore?: ChatStore;
+    /** Gives the fake server extras, as the fork daemon's has. */
+    server?: (base: PluginServerContext) => PluginServerContext;
+  } = {},
 ) {
   const recorded: Recorded = {
     hooks: new Map(),
@@ -348,7 +358,8 @@ function setup(
   const chatStore = options.chatStore ?? memoryChatStore();
   const clock = createFakeClock(Date.parse("2026-11-11T09:00:00.000Z"));
   const context = fakeContext(statuses, sent, writers, directory);
-  const stop = createOfficePlugin(fakeServer(recorded, read), {
+  const baseServer = fakeServer(recorded, read);
+  const stop = createOfficePlugin(options.server?.(baseServer) ?? baseServer, {
     store: memoryStore(),
     notesStore,
     incidentsStore,
@@ -367,6 +378,7 @@ function setup(
     },
     skillFolders: [{ label: ".claude", path: "/nonexistent-skills" }],
     hostTimeZone: "Asia/Riyadh",
+    schedules: recordingSchedules(recorded),
   });
   async function open(
     overrides: Partial<PluginSessionOpenRequest> = {},
@@ -895,13 +907,49 @@ test("the bell's request starts one writer in the notes folder, and its good end
 });
 
 test("the 8:00 run starts the writer with the run's Paseo API", async () => {
-  const { recorded, writers, context, stop } = setup(async () => NOTES);
+  const { recorded, writers, open, stop } = setup(async () => NOTES);
   await settle();
-  const run = recorded.scheduleRuns.get("standup-notes");
-  // A schedule handler receives the run's context alone.
-  await run?.({ paseo: context.paseo, scheduleId: "s1", runId: "r1" }, undefined as never);
+  // A run has no Paseo API of its own: a handler or hook brought it before.
+  await open();
+  await recorded.scheduleRuns.get("standup-notes")?.();
   expect(writers.created).toHaveLength(1);
   await stop();
+});
+
+test("a run due before any handler brought the Paseo API waits for it", async () => {
+  const { recorded, writers, open, stop } = setup(async () => NOTES);
+  await settle();
+  const run = recorded.scheduleRuns.get("standup-notes")?.();
+  await settle();
+  expect(writers.created).toHaveLength(0);
+  await open();
+  await run;
+  expect(writers.created).toHaveLength(1);
+  await stop();
+});
+
+test("on the fork daemon the office removes its two stored schedules; on stock it touches none", async () => {
+  const removed: string[] = [];
+  const fork = setup(async () => ON, {
+    server: (base) =>
+      ({
+        ...base,
+        schedules: {
+          remove: async (name: string) => {
+            removed.push(name);
+            return true;
+          },
+        },
+      }) as unknown as PluginServerContext,
+  });
+  await settle();
+  expect(removed).toEqual(["standup-notes", "incidents"]);
+  await fork.stop();
+
+  const stock = setup(async () => ON);
+  await settle();
+  expect(stock.logs).toEqual([]);
+  await stock.stop();
 });
 
 test("a writer whose turn fails or is stopped is left, and its reason kept", async () => {
@@ -1086,7 +1134,7 @@ const JIRA_ON: SettingsState = {
 
 test("a due incidents run calls the check; dismiss answers its count", async () => {
   const jira = await jiraStandIn();
-  const { recorded, incidentsStore, context, clock, stop } = setup(async () => JIRA_ON, {
+  const { recorded, incidentsStore, context, open, clock, stop } = setup(async () => JIRA_ON, {
     env: jiraVariables(jira.base),
   });
   await settle();
@@ -1096,9 +1144,9 @@ test("a due incidents run calls the check; dismiss answers its count", async () 
     trackers: { jira: { checkedAt: clock.now() - 300_000, seen: {} } },
     open: [],
   };
-  const run = recorded.scheduleRuns.get("incidents");
-  // A schedule handler receives the run's context alone.
-  await run?.({ paseo: context.paseo, scheduleId: "s2", runId: "r2" }, undefined as never);
+  // A run has no Paseo API of its own: a handler or hook brought it before.
+  await open();
+  await recorded.scheduleRuns.get("incidents")?.();
   expect(jira.searches).toEqual([
     'project in ("OPS") AND issuetype = Bug AND created >= "2026-11-11 08:45" ORDER BY created ASC',
   ]);
@@ -1174,7 +1222,9 @@ test("a tracker's problem goes once no tracker is on", async () => {
   jira.refusing = true;
   // What the daemon reads back is what was saved last.
   let saved = JIRA_ON;
-  const { recorded, context, stop } = setup(async () => saved, { env: jiraVariables(jira.base) });
+  const { recorded, context, open, stop } = setup(async () => saved, {
+    env: jiraVariables(jira.base),
+  });
   await settle();
   const events: { type: string; state?: { incidents?: unknown } }[] = [];
   const leaving = new AbortController();
@@ -1184,8 +1234,8 @@ test("a tracker's problem goes once no tracker is on", async () => {
     push: async (event: { type: string }) => void events.push(event),
   } as never);
   await settle();
-  const run = recorded.scheduleRuns.get("incidents");
-  await run?.({ paseo: context.paseo, scheduleId: "s2", runId: "r2" }, undefined as never);
+  await open();
+  await recorded.scheduleRuns.get("incidents")?.();
   await settle();
   expect(events.at(-1)?.state?.incidents).toMatchObject({
     problems: { jira: "Jira refused the token: check ATLASSIAN_API_TOKEN" },

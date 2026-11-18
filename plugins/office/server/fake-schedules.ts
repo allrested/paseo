@@ -1,9 +1,13 @@
-import type { PluginSchedule, PluginScheduleInput, PluginSchedules } from "@getpaseo/plugin/server";
+import type {
+  OfficeScheduleEntry,
+  OfficeScheduleInput,
+  OfficeSchedules,
+} from "./local-schedules.js";
 
 // Test helper, as fake-clock.ts is: nothing imports it from index.server.ts, so it is not in the
 // bundle.
-export interface FakeSchedules extends PluginSchedules {
-  upserted: PluginScheduleInput[];
+export interface FakeSchedules extends OfficeSchedules {
+  upserted: OfficeScheduleInput[];
   removed: string[];
   /** Makes each later upsert reject with this error; null lets them through again. */
   upsertRejects(error: Error | null): void;
@@ -12,9 +16,9 @@ export interface FakeSchedules extends PluginSchedules {
 }
 
 /** The daemon's store of the office's schedules, by name. */
-export function fakeSchedules(kept: PluginSchedule[] = []): FakeSchedules {
+export function fakeSchedules(kept: OfficeScheduleEntry[] = []): FakeSchedules {
   const stored = new Map(kept.map((schedule) => [schedule.name, schedule]));
-  const upserted: PluginScheduleInput[] = [];
+  const upserted: OfficeScheduleInput[] = [];
   const removed: string[] = [];
   let refusal: Error | null = null;
   let gate: Promise<void> | null = null;

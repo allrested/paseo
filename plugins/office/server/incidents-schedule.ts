@@ -1,9 +1,9 @@
-import type { PluginServerContext, ScheduleCadence } from "@getpaseo/plugin/server";
 import type { IncidentSource } from "../shared/contracts.js";
 import { JIRA_KEY, parseKeys, SENTRY_SLUG } from "../shared/settings.js";
 import type { TrackerReader } from "./incidents-http.js";
 import { createJiraReader, jiraEnv } from "./incidents-jira.js";
 import { createSentryReader, sentryToken } from "./incidents-sentry.js";
+import type { OfficeCadence, OfficeSchedules } from "./local-schedules.js";
 import { createScheduleFollower, type OfficeSchedule } from "./schedule-follower.js";
 
 /** The check's schedule's name among the office's schedules, and the handler that answers it. */
@@ -14,8 +14,6 @@ const INCIDENTS: OfficeSchedule = {
   logName: "incidents",
 };
 const EVERY_MS = 300_000;
-
-type Schedules = PluginServerContext["schedules"];
 
 export interface IncidentsSettings {
   jiraProjects: string;
@@ -54,12 +52,12 @@ export function incidentsReaders(
 }
 
 /** When the trackers are checked: null while none is on. */
-export function incidentsCadence(on: boolean): ScheduleCadence | null {
+export function incidentsCadence(on: boolean): OfficeCadence | null {
   return on ? { type: "every", everyMs: EVERY_MS } : null;
 }
 
 export interface IncidentsSchedulePorts {
-  schedules: Schedules;
+  schedules: OfficeSchedules;
   log(message: string): void;
 }
 

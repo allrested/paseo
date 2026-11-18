@@ -37,6 +37,7 @@ import { createMachineWatch } from "./server/machine/watch.js";
 import { nodeNotesFs, readMonthNotes } from "./server/notes-files.js";
 import { createNotesSchedule, NOTES_SCHEDULE } from "./server/notes-schedule.js";
 import { createNotesStore, createNotesWriter, type NotesStore } from "./server/notes-writer.js";
+import { createLocalSchedules, type LocalSchedules } from "./server/local-schedules.js";
 import { createOffice } from "./server/office.js";
 import { createPaseoHolder } from "./server/paseo-holder.js";
 import {
@@ -99,6 +100,8 @@ export interface OfficePluginDeps {
   skillFolders: readonly SkillFolder[];
   /** The IANA zone of the stand-up notes' 8:00 run when the settings name none. */
   hostTimeZone: string;
+  /** The office's own schedule engine; a test hands in a recording one. */
+  schedules: LocalSchedules;
 }
 
 export interface MachineHost {
@@ -164,10 +167,22 @@ export function createOfficePlugin(
   const skillsPorts = liveSkillsPorts(holder, hub, deps.skillFolders, () => deps.clock.now(), log);
 
   const settings = server.registerSettings(officeHostSettings);
-  // The daemon keeps the 8:00 schedule across restarts. It follows the settings from each load,
-  // which also picks up a change of the host's zone, and from each save.
+  // COMPAT(officeForkSchedules): removes the fork daemon's stored schedules; delete once the host runs stock Paseo.
+  if ("schedules" in server) {
+    const forkSchedules = (server as { schedules: { remove(name: string): Promise<boolean> } })
+      .schedules;
+    void (async () => {
+      try {
+        for (const name of [NOTES_SCHEDULE, INCIDENTS_SCHEDULE]) await forkSchedules.remove(name);
+      } catch (error) {
+        log(`[office] the fork's stored schedules were not removed: ${errorMessage(error)}`);
+      }
+    })();
+  }
+  // The office keeps its own schedules: nothing is stored, so they are set from the settings at
+  // each load, which also picks up a change of the host's zone, and again at each save.
   const notesSchedule = createNotesSchedule({
-    schedules: server.schedules,
+    schedules: deps.schedules,
     hostTimeZone: deps.hostTimeZone,
     log,
   });
@@ -190,7 +205,7 @@ export function createOfficePlugin(
     log,
   });
   // Every 5 minutes while a tracker is on; it follows the settings as the 8:00 schedule does.
-  const incidentsSchedule = createIncidentsSchedule({ schedules: server.schedules, log });
+  const incidentsSchedule = createIncidentsSchedule({ schedules: deps.schedules, log });
   // The check's last state, kept so a save that changes the schedule's error pushes it again.
   // Null until the store was read: the snapshot has no incidents before then.
   let checked: IncidentsCheckState | null = null;
@@ -347,8 +362,8 @@ export function createOfficePlugin(
     return writer.start();
   });
   // The 8:00 run ends once the writer started; the writer's own end is its turn's hook.
-  const stopNotesRuns = server.handleSchedule(NOTES_SCHEDULE, async ({ paseo }) => {
-    holder.remember(paseo);
+  const stopNotesRuns = deps.schedules.handle(NOTES_SCHEDULE, async () => {
+    await holder.wait();
     await writer.start();
   });
   server.handle(incidentsDismissRpc, ({ ids }) =>
@@ -363,9 +378,9 @@ export function createOfficePlugin(
     });
   });
   // A check never rejects: a tracker that fails shows its problem on the Incidents card.
-  const stopIncidentsRuns = server.handleSchedule(INCIDENTS_SCHEDULE, ({ paseo }) => {
-    holder.remember(paseo);
-    return incidents.check();
+  const stopIncidentsRuns = deps.schedules.handle(INCIDENTS_SCHEDULE, async () => {
+    await holder.wait();
+    await incidents.check();
   });
 
   const removeHooks = [
@@ -449,6 +464,7 @@ export function createOfficePlugin(
     stopFollowingSettings();
     stopNotesRuns();
     stopIncidentsRuns();
+    deps.schedules.stop();
     for (const remove of removeHooks) remove();
     machine.stop();
     office.stop();
@@ -499,5 +515,6 @@ export default function contribute(
     },
     skillFolders: hostSkillFolders(process.env, homedir()),
     hostTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    schedules: createLocalSchedules({ clock: nodeClock, log }),
   });
 }
