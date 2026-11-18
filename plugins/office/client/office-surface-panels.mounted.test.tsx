@@ -11,7 +11,7 @@ import { AccessibilityInfo } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps, SettingsState } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { ChatMessage, OfficeEvent } from "../shared/contracts.js";
+import type { ChatMessage, OfficeAgent, OfficeEvent } from "../shared/contracts.js";
 import { buildOfficeModel } from "../shared/model.js";
 import { officeHostSettings, officeDeviceSettings } from "../shared/settings.js";
 import { markChatSeen, resetChatSeen } from "./chat-seen.js";
@@ -363,4 +363,57 @@ test("the controls take a row while the subscription is in error or closed", asy
     expect(container.querySelector('[data-testid="office-view-row"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="office-view-corner"]')).toBeNull();
   }
+});
+
+const ADA: OfficeAgent = {
+  id: "ada",
+  title: "Ada",
+  provider: "claude",
+  model: null,
+  status: "idle",
+  workspaceId: "w1",
+  parentAgentId: null,
+  permissions: [],
+  createdAt: "2026-11-17T08:00:00.000Z",
+};
+
+const OFFICE_WITH_ONE_AGENT = {
+  ...EMPTY_OFFICE,
+  agents: [ADA],
+  workspaces: [{ id: "w1", name: "shop-api", projectName: "Shop" }],
+};
+
+test("a phone has the bar under the floor, and no column beside it", async () => {
+  compact = true;
+  await mount();
+  await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+
+  expect(
+    container.querySelectorAll('[role="tablist"][aria-label="Office column"] [role="tab"]'),
+  ).toHaveLength(4);
+  expect(container.querySelector('[aria-label="Collapse the column"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Close"]')).toBeNull();
+});
+
+test("a phone's Sessions opens as a sheet, and a row press closes it for the agent's card", async () => {
+  compact = true;
+  await mount();
+  await act(async () => deliver?.({ type: "snapshot", state: OFFICE_WITH_ONE_AGENT }));
+  await act(async () =>
+    container
+      .querySelector<HTMLElement>(
+        '[role="tablist"][aria-label="Office column"] [role="tab"][aria-label="Sessions"]',
+      )
+      ?.click(),
+  );
+  expect(container.querySelector('[aria-label="Close"]')).not.toBeNull();
+
+  // The list view of the floor has rows for the agent too: look only inside the sheet.
+  const sheet = container.querySelector('[aria-label="Close"]')?.parentElement?.parentElement;
+  const row = [...(sheet?.querySelectorAll<HTMLElement>('[role="button"]') ?? [])].find((button) =>
+    button.getAttribute("aria-label")?.startsWith("Ada"),
+  );
+  if (!row) throw new Error("The sheet has no row for the agent");
+  await act(async () => row.click());
+  expect(container.querySelector('[aria-label="Close"]')).toBeNull();
 });

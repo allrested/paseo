@@ -35,6 +35,14 @@ export interface OfficeStyles {
   columnBody: ViewStyle;
   /** The Attention tab's list of cards. */
   columnAttention: ViewStyle;
+  /** The phone's bar of the column's tabs, under the floor. */
+  columnBar: ViewStyle;
+  /** Over the floor above an open sheet: a press on it closes the sheet. */
+  sheetScrim: ViewStyle;
+  /** The phone's column: a sheet over the lower part of the floor. */
+  columnSheet: ViewStyle;
+  columnSheetHead: ViewStyle;
+  columnSheetTitle: TextStyle;
   /** The row of switches: it wraps on a phone, and every line ends on the trailing rail. */
   headerControls: ViewStyle;
   /** The switches' failures, one line each, under their row. */
@@ -540,6 +548,41 @@ export function useOfficeStyles(
       columnTabsVertical: { alignItems: "center", gap: 4 },
       columnBody: { flex: 1 },
       columnAttention: { paddingVertical: 8 },
+      columnBar: {
+        flexDirection: "row",
+        justifyContent: "space-around",
+        alignItems: "center",
+        paddingVertical: 4,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        backgroundColor: colors.surface0,
+      },
+      sheetScrim: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 2 },
+      // The floor's top quarter stays in view over the sheet, so the office is still there.
+      columnSheet: {
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: "75%",
+        zIndex: 3,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        borderTopWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface0,
+        overflow: "hidden",
+      },
+      columnSheetHead: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingLeft: pad,
+        paddingRight: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      },
+      columnSheetTitle: { ...base, color: colors.foreground, fontWeight: "500" },
       // Each control is as tall as a touch target, so the row gap only keeps two targets apart.
       headerControls: {
         ...column,

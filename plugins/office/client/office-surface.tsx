@@ -48,6 +48,7 @@ import {
   type OfficeRoom,
 } from "../shared/model.js";
 import type { FocusRequest } from "./focus-request.js";
+import { ColumnSheet } from "./column-sheet.js";
 import { OfficeColumn, type ColumnBadges } from "./office-column.js";
 import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
 import { SessionsPanel } from "./sessions-panel.js";
@@ -821,11 +822,21 @@ interface ColumnContentInput {
   cards: readonly StripCard[];
   chat: OfficeState["chat"];
   onSelect(agentId: string): void;
+  /** Called first when the Attention tab opens a card of the office: the phone's sheet leaves. */
+  onLeave(): void;
   styles: OfficeStyles;
 }
 
 /** What the column shows of the strip: the tabs' counts, and the Attention tab's content. */
-function useColumnContent({ live, model, cards, chat, onSelect, styles }: ColumnContentInput) {
+function useColumnContent({
+  live,
+  model,
+  cards,
+  chat,
+  onSelect,
+  onLeave,
+  styles,
+}: ColumnContentInput) {
   const unread = useUnread(chat);
   const waiting = model.attention.length;
   const badges = useMemo(
@@ -835,22 +846,107 @@ function useColumnContent({ live, model, cards, chat, onSelect, styles }: Column
     }),
     [live, waiting, cards.length, unread],
   );
+  const select = useCallback(
+    (agentId: string) => {
+      onLeave();
+      onSelect(agentId);
+    },
+    [onLeave, onSelect],
+  );
+  const leaving = useMemo(
+    () =>
+      cards.map((card) => ({
+        ...card,
+        onOpen: () => {
+          onLeave();
+          card.onOpen();
+        },
+      })),
+    [cards, onLeave],
+  );
   const attention = useMemo(
     () =>
       live && (waiting > 0 || cards.length > 0) ? (
         <AttentionStrip
           entries={model.attention}
-          cards={cards}
+          cards={leaving}
           styles={styles}
           wrap
-          onSelect={onSelect}
+          onSelect={select}
         />
       ) : (
         <Text style={styles.sceneStatus}>{NOTHING_WAITS}</Text>
       ),
-    [live, waiting, model.attention, cards, styles, onSelect],
+    [live, waiting, cards.length, model.attention, leaving, styles, select],
   );
   return { badges, attention };
+}
+
+/**
+ * The phone's sheet: the tab it shows, and the link its panels use. A row press must not leave
+ * the agent's card under the sheet, so the sheet closes first.
+ */
+function useColumnSheet(link: OfficeLink) {
+  const [sheetTab, setSheetTab] = useState<ColumnTab | null>(null);
+  const closeSheet = useCallback(() => setSheetTab(null), []);
+  const sheetLink = useMemo(
+    (): OfficeLink => ({
+      select: (agentId) => {
+        setSheetTab(null);
+        link.select(agentId);
+      },
+      openSession: (agentId) => {
+        setSheetTab(null);
+        link.openSession(agentId);
+      },
+    }),
+    [link],
+  );
+  return { sheetTab, setSheetTab, closeSheet, sheetLink };
+}
+
+type ColumnSheetState = ReturnType<typeof useColumnSheet>;
+
+interface PhoneColumnProps extends Omit<ColumnPanelProps, "link"> {
+  compact: boolean;
+  sheet: ColumnSheetState;
+  badges: ColumnBadges;
+  color: string;
+  platform: Platform;
+  attention: ReactNode;
+  /** The office's row: the floor, and beside it the column where there is room for one. */
+  children: ReactNode;
+}
+
+/** On a phone the office's row gets the column's bar under it and its sheet over it. */
+function PhoneColumn({
+  compact,
+  sheet,
+  badges,
+  color,
+  platform,
+  attention,
+  children,
+  ...panel
+}: PhoneColumnProps) {
+  if (!compact) return children;
+  return (
+    <ColumnSheet
+      open={sheet.sheetTab}
+      badges={badges}
+      color={color}
+      iconSize={20}
+      platform={platform}
+      onOpen={sheet.setSheetTab}
+      onClose={sheet.closeSheet}
+      styles={panel.styles}
+      floor={children}
+    >
+      {sheet.sheetTab === null ? null : (
+        <ColumnPanel tab={sheet.sheetTab} attention={attention} {...panel} link={sheet.sheetLink} />
+      )}
+    </ColumnSheet>
+  );
 }
 
 /** The strip's Settings card, while a schedule could not follow the settings and there is a way in. */
@@ -1037,84 +1133,102 @@ export function OfficeSurface(
       library.entry,
     ],
   );
+  const sheet = useColumnSheet(link);
   const { badges, attention } = useColumnContent({
     live,
     model,
     cards,
     chat: office.chat,
     onSelect: selectFromStrip,
+    onLeave: sheet.closeSheet,
     styles,
   });
   const selected = kept === null ? null : (model.agents.get(kept) ?? null);
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
+  const officeRow = (
+    <View style={styles.officeRow} onLayout={measure}>
+      <View style={styles.floor}>
+        <ViewControls
+          floorDrawn={floorDrawn}
+          viewChoice={viewChoice}
+          onChange={changeView}
+          compact={layout.compact}
+          touchScreen={touchScreen}
+          color={theme.colors.foreground}
+          onOpenSettings={onOpenSettings}
+          styles={styles}
+        />
+        <SurfaceBody
+          office={office}
+          model={model}
+          rooms={rooms}
+          view={view}
+          theme={theme}
+          focusRoomId={focusRoomId}
+          focusRequest={focusRequest}
+          selectedAgentId={kept}
+          styles={styles}
+          compact={layout.compact}
+          actions={actions}
+          name={name}
+          onSelectAgent={setSelectedId}
+          onOpenSession={navigation ? openSession : undefined}
+          onOpenBoard={board.open}
+          machine={machine}
+          onOpenMachine={openMachine}
+          onOpenResources={openResources}
+          onOpenLibrary={library.show}
+          onOpenNotes={openNotes}
+          janitor={janitorEntry?.note ?? null}
+          onOpenJanitor={openJanitor}
+          meeting={standup.open}
+          incidents={incidents}
+          onOpenIncidents={openIncidents}
+          onSceneProblem={setSceneProblem}
+          platform={layout.platform}
+        />
+      </View>
+      {layout.compact ? null : (
+        <OfficeColumn
+          column={column}
+          surfaceWidth={surfaceWidth}
+          badges={badges}
+          color={theme.colors.foreground}
+          iconSize={touchScreen ? 20 : 16}
+          styles={styles}
+        >
+          <ColumnPanel
+            tab={column.tab}
+            attention={attention}
+            office={office}
+            styles={styles}
+            theme={theme}
+            layout={layout}
+            link={link}
+          />
+        </OfficeColumn>
+      )}
+    </View>
+  );
   return (
     <View style={styles.screen}>
       {viewChoice.choice === "3d" && sceneProblem !== null ? (
         <SceneProblem message={sceneProblem} onRetry={retryScene} styles={styles} />
       ) : null}
-      <View style={styles.officeRow} onLayout={measure}>
-        <View style={styles.floor}>
-          <ViewControls
-            floorDrawn={floorDrawn}
-            viewChoice={viewChoice}
-            onChange={changeView}
-            compact={layout.compact}
-            touchScreen={touchScreen}
-            color={theme.colors.foreground}
-            onOpenSettings={onOpenSettings}
-            styles={styles}
-          />
-          <SurfaceBody
-            office={office}
-            model={model}
-            rooms={rooms}
-            view={view}
-            theme={theme}
-            focusRoomId={focusRoomId}
-            focusRequest={focusRequest}
-            selectedAgentId={kept}
-            styles={styles}
-            compact={layout.compact}
-            actions={actions}
-            name={name}
-            onSelectAgent={setSelectedId}
-            onOpenSession={navigation ? openSession : undefined}
-            onOpenBoard={board.open}
-            machine={machine}
-            onOpenMachine={openMachine}
-            onOpenResources={openResources}
-            onOpenLibrary={library.show}
-            onOpenNotes={openNotes}
-            janitor={janitorEntry?.note ?? null}
-            onOpenJanitor={openJanitor}
-            meeting={standup.open}
-            incidents={incidents}
-            onOpenIncidents={openIncidents}
-            onSceneProblem={setSceneProblem}
-            platform={layout.platform}
-          />
-        </View>
-        {layout.compact ? null : (
-          <OfficeColumn
-            column={column}
-            surfaceWidth={surfaceWidth}
-            badges={badges}
-            color={theme.colors.foreground}
-            iconSize={touchScreen ? 20 : 16}
-            styles={styles}
-          >
-            <ColumnPanel
-              tab={column.tab}
-              attention={attention}
-              office={office}
-              styles={styles}
-              theme={theme}
-              layout={layout}
-              link={link}
-            />
-          </OfficeColumn>
-        )}
-      </View>
+      <PhoneColumn
+        compact={layout.compact}
+        sheet={sheet}
+        badges={badges}
+        color={theme.colors.foreground}
+        platform={layout.platform}
+        attention={attention}
+        office={office}
+        styles={styles}
+        theme={theme}
+        layout={layout}
+      >
+        {officeRow}
+      </PhoneColumn>
       <AgentCard
         agent={selected}
         activity={selectedActivity}
