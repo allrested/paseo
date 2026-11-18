@@ -1,6 +1,6 @@
 # The office's own column: design
 
-Date: 2026-11-18. Status: piece 1 built. It follows
+Date: 2026-11-18. Status: pieces 1 and 2 built. It follows
 [the office as one page](2026-11-17-office-one-page-design.md),
 [Sessions and Activity beside the floor](2026-11-17-office-side-panels-design.md) and
 [the team chat](2026-11-17-office-team-chat-design.md), and replaces how the three reach the screen.
@@ -90,7 +90,8 @@ The owner's review of 0.16.1, on the desktop app:
 | Chat            | `ChatPanel`.                                                                                                        | Unread, as today. |
 | One per session | A session view. Closable. Named after the agent.                                                                    | Its status dot.   |
 
-- The four fixed tabs are always there. Session tabs follow them, in the order they were opened.
+- The four fixed tabs are always there. The chosen tab alone shows its label, since four labels do
+  not fit a 280 px column. Session tabs follow them, in the order they were opened.
   Opening a session that has a tab selects that tab.
 - Open session tabs and the selected tab are kept while the surface is mounted, not across a
   reload.
@@ -189,20 +190,35 @@ Between pieces 1 and 3, in upstream's app, "Open session" still leaves for the w
 
 ## Not verified
 
-The look at piece 1 was a static page: `OfficeSurface` and `OfficeSettings` bundled with esbuild,
+Both looks were a static page: `OfficeSurface` (and `OfficeSettings` in piece 1) bundled with esbuild,
 with `@getpaseo/plugin/client` and `/ui` stood in as the mounted tests stand them in, served from
-`/tmp` and opened in the Paseo browser. The dev app could not be started from this checkout.
+`/tmp` and opened in the Paseo browser, on a navigation with no `showBeside`. The dev app could not
+be started from this checkout. The stood-in settings keep the column's width and the view for the
+page's life only, the icons are placeholders, and the theme colours are stand-in values.
 
-- Seen: the 2D floor in light at 1280 and 390 px, with the corner, and the List in dark at 1280
-  and 390 px (its row ends on the list's rail), on a navigation with no `showBeside`. Also the
-  Settings card for a broken schedule, the gear opening the screen, a tap on List changing the
-  view, and the Office screen in light at 390 px (two switches, six fields, the view switch). The look
-  found the corner's controls inset twice and unreadable over the floor; both are fixed.
-- Not seen: the 3D floor (the page has no scene bundle, so the iframe never drew), walk-in's Exit,
-  light List, dark 2D, the light and dark Office screen at 1280 px. Sessions, Activity and Chat were absent, as they
-  are without `showBeside`; their placement in the corner is not seen.
-- Moved, not seen: walk-in's Exit, its help line and the incident banner were moved below the corner
-  (`--corner-clear` in the scene's CSS), and their fit was not seen in 3D.
+- Seen, piece 1: the 2D floor in light at 1280 and 390 px, with the corner; the List in dark at both
+  widths; the Settings card for a broken schedule, the gear opening the screen, a tap on List
+  changing the view, and the Office screen in light at 390 px. The look found the corner's controls
+  inset twice and unreadable over the floor; both are fixed.
+- Seen, piece 2, 1280 px: the column beside the floor with the four tabs, each tab's panel,
+  the badges, and the corner over the floor and not the column; Collapse leaving the rail and a rail
+  press opening the column; a drag of the handle (8 px wide) stopping at 280 and 560. Light 2D and
+  List, dark 2D and List, at 360; light 2D at 280 for Attention, Activity and Chat. The drag was
+  scripted mouse events, not a hand. The look found the tabs wrapping Chat onto a second row at
+  280 px for three of the four chosen tabs; the tabs now follow the control height and fit one row.
+- Seen, piece 2, 390 px: the floor filling the page with the bar under it; Chat and Attention
+  opening the sheet in light 2D, Chat in dark List; the bar pressable with the sheet open, a press
+  on a tab switching it, and Close, a press above the sheet and Escape closing it (Escape sent as a
+  key event); Chat's text box above the bar. The sheet starts below the view corner, so the corner
+  shows above it, and a press there closes the sheet (the scrim is over it). The badge's white on
+  the stand-in accent was 5.7:1 in dark; the real accent comes from the host's theme and was not
+  seen.
+- `--corner-clear` is 106 px for the corner's one row (inset 16, border 2, padding 8, a control of
+  44, then the unsaved-view note of 36). Its fit under walk-in's Exit, help line and incident banner
+  was not seen.
+- Not seen: the 3D floor (the page has no scene bundle, so the iframe never drew), walk-in, light
+  List at 390, dark 2D at 390, the dark Attention and Activity tabs, the real icons, a real touch
+  drag, and the sheet on a real phone's keyboard.
 - Not seen: a change in Settings > Office showing in the office. The stood-in settings do not
   persist.
 - Not seen: the app's own Settings chrome around the screen, the Command Center item, and

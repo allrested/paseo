@@ -632,9 +632,8 @@ reset agent's context as empty until the provider reports another number (`settl
 
 The office has three views: a 3D floor, a 2D floor and the list. A switch over the floor's top
 right corner chooses one per device and keeps it in the `office-device` setting; the Office screen
-of the app's Settings has the same switch. Over the List the switch takes a row of its own, and the
-page's header holds only the attention strip. A device that never chose shows the 3D
-floor where it can draw it: a browser with WebGL2, or an app whose kit has `ScriptFrame` (the
+of the app's Settings has the same switch. Over the List the switch takes a row of its own; nothing
+else sits above the floor. A device that never chose shows the 3D floor where it can draw it: a browser with WebGL2, or an app whose kit has `ScriptFrame` (the
 fork's Android app; the store build does not). It shows the 2D floor anywhere else. On the web the
 scene runs in an `iframe` of its own (`client/world/world-frame.web.ts`); in an app it runs in a
 `ScriptFrame`, and `client/world/world-bridge.ts` carries the scene's API over messages. The
@@ -643,11 +642,23 @@ plugin bundle has no platform file extensions, so `office-surface.tsx` picks the
 other failure, the 3D floor gives way to the 2D one under a banner with a way to try again. Photo
 mode is off in an app, since a WebView cannot keep a download.
 
-The Sessions and Activity buttons beside that switch open those panels beside the floor; the
-Activity feed is derived on the client from the office's state, kept in memory for this app run, and
-fills only while an office or a panel is open.
+The office draws its own column beside the floor (`plugins/office/client/office-column.tsx`), with
+Attention, Sessions, Activity and Chat tabs, because upstream's app has no side area to put them in
+(`navigation.showBeside` is the fork's). Only the chosen tab's panel is mounted, and only the chosen
+tab shows its label: four labels do not fit the narrowest column, 280 px. A drag handle sets the
+width (280 to 560, 360 by default; the floor keeps 320), and a button collapses the column to a rail
+of the tabs. On a compact layout the floor fills the page, a bar of the tabs sits under it and a tab
+opens the column as a sheet over the floor (`column-sheet.tsx`); Close, a press above the sheet and
+Escape close it, and the bar stays pressable. Width and collapsed are the `office-column` device
+setting, apart from `office-device` because that one is saved whole.
 
-The Chat button opens the team chat beside the floor. The conversation is upstream's engine running on the office's server (`plugins/office/server/chat-service.ts`; the importer takes the engine and its words into `plugins/office/shared/upstream/`), kept in `<PASEO_HOME>/office/chat.json`, and an `@` to an agent prompts it and posts its answer.
+The panels (`sessions-panel.tsx`, `activity-panel.tsx`, `chat-panel.tsx`) read the surface's one
+`office.state` subscription. The Activity feed is derived
+on the client from the office's state and kept in memory for this app run; it fills only while an
+office surface is open. The Chat tab's conversation is upstream's engine running on the office's
+server (`plugins/office/server/chat-service.ts`; the importer takes the engine and its words into
+`plugins/office/shared/upstream/`), kept in `<PASEO_HOME>/office/chat.json`, and an `@` to an agent
+prompts it and posts its answer.
 
 On the 3D floor an agent is a person at a desk, and a workspace's agents sit together as a team.
 The floor is the scene of [my-office](https://github.com/khanh020905/my-office), vendored under
