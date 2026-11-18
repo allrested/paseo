@@ -16,6 +16,8 @@ export interface OfficeStyles {
   viewCorner: ViewStyle;
   /** The same controls in the page's flow, above a view that scrolls under them. */
   viewRow: ViewStyle;
+  /** The controls themselves, in either place: a row that wraps, with no rail of its own. */
+  viewControls: ViewStyle;
   /** The row of switches: it wraps on a phone, and every line ends on the trailing rail. */
   headerControls: ViewStyle;
   /** The switches' failures, one line each, under their row. */
@@ -466,8 +468,23 @@ export function useOfficeStyles(
         alignItems: "flex-end",
         gap: 4,
         maxWidth: 360,
+        // A floor is busy under it, so the controls carry a ground, as the scene's note does.
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
       },
       viewRow: { ...column, alignItems: "flex-end", gap: 4, paddingHorizontal: pad, paddingTop: 8 },
+      viewControls: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        flexWrap: "wrap",
+        columnGap: 16,
+        rowGap: 4,
+      },
       // Each control is as tall as a touch target, so the row gap only keeps two targets apart.
       headerControls: {
         ...column,

@@ -1004,7 +1004,7 @@ export function OfficeSurface(
       <View style={styles.floor}>
         {/* A floor is drawn under the corner; the list scrolls, so its controls take a row. */}
         <View style={view === "3d" || view === "2d" ? styles.viewCorner : styles.viewRow}>
-          <View style={styles.headerControls}>
+          <View style={styles.viewControls}>
             <ViewSwitch
               options={viewChoice.options}
               value={viewChoice.choice}
