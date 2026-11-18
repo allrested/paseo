@@ -70,15 +70,19 @@ The owner's review of 0.16.1, on the desktop app:
 - **Wide.** The floor on the left and one column on the right, inside `OfficeSurface`. A drag
   handle between them changes the column's width, within a least and a most that keep the floor
   usable. A button collapses the column to a rail of the tabs' icons; a press on an icon opens it
-  again on that tab. Width and collapsed are device settings (`officeDeviceSettings`).
-- **Compact.** The floor fills the surface. A bottom bar of the tabs' icons opens the column as a
+  again on that tab. Width and collapsed are the `office-column` device setting
+  (`officeColumnSettings`). It is apart from `office-device` because the view's and the incidents'
+  saves write that setting whole and would drop the column's fields.
+- **Compact.** A surface narrower than 600 px (the column's least, 280, and the floor's, 320) is
+  compact whatever the device, so a desktop's split pane gets the bar and the sheet. Until the
+  surface is measured, the device's layout decides. The floor fills the surface. A bottom bar of the tabs' icons opens the column as a
   sheet over the floor, drawn by the office (not the app's sheet host). The sheet closes with its
   own button, a press on the floor above it, and Escape.
 - **Above the floor.** Nothing. The `ViewSwitch` moves into a corner of the floor, over every view;
   the corner also holds the settings button.
   The scene's problem line (`SceneProblem`) stays over the floor, since it is about the floor.
 - The office as a workspace panel (`addWorkspacePanel`) gets the same layout; a narrow panel is
-  compact.
+  compact. A flip between the layouts keeps the floor mounted, so the 3D scene does not load again.
 
 ### The column's tabs
 
@@ -95,6 +99,8 @@ The owner's review of 0.16.1, on the desktop app:
   Opening a session that has a tab selects that tab.
 - Open session tabs and the selected tab are kept while the surface is mounted, not across a
   reload.
+- The surface holds the Chat tab's draft (the typed text and the message it replies to), since only
+  the chosen tab's panel is mounted: a look at another tab or a closed sheet keeps it.
 - The three panels become components of the column and share the surface's one subscription. Their
   three screens (`SESSIONS_SCREEN`, `ACTIVITY_SCREEN`, `CHAT_SCREEN`) are removed, with
   `PanelButtons` and `office-link.ts`'s screen ids.
@@ -219,6 +225,9 @@ page's life only, the icons are placeholders, and the theme colours are stand-in
 - Not seen: the 3D floor (the page has no scene bundle, so the iframe never drew), walk-in, light
   List at 390, dark 2D at 390, the dark Attention and Activity tabs, the real icons, a real touch
   drag, and the sheet on a real phone's keyboard.
+- Not seen: the sheet's Chat box under a phone's keyboard. The sheet's body avoids the keyboard on
+  iOS; no device showed it.
+- Not seen: a touch tablet's 280 px column, where four 44 px tabs may wrap.
 - Not seen: a change in Settings > Office showing in the office. The stood-in settings do not
   persist.
 - Not seen: the app's own Settings chrome around the screen, the Command Center item, and

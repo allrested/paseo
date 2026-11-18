@@ -601,10 +601,10 @@ wakes it, and the Host card can still close a waiting agent.
 The office also watches the host. While an office surface is open, the `office.machine`
 subscription sends a reading every 10 s: memory (the daemon's cgroup when it has a cap, else the
 host), CPU, and for each agent the memory, the process count and the TCP ports of the processes
-that carry its `PASEO_AGENT_ID`. A Host entry at the end of the attention strip shows the memory
-in use and opens a card with the agents by memory. An agent has left something running when it
-has been idle for 30 minutes with a port open, or when it is closed or archived and processes of
-it remain: the daemon collects an idle runtime after an hour
+that carry its `PASEO_AGENT_ID`. A Host entry in the column's Attention tab shows the memory in
+use and opens a card with the agents by memory. An agent has left something running when it has
+been idle for 30 minutes with a port open, or when it is closed or archived and processes of it
+remain: the daemon collects an idle runtime after an hour
 ([runtime residency](agent-lifecycle.md#runtime-residency)), and a dev server the agent started
 can outlive that. Clean up, for one agent or for all of them, calls
 `office.machine.cleanup.request`: an idle agent's runtime is closed through the SDK, so its next
@@ -619,7 +619,7 @@ can differ while one runs. Linux only: elsewhere the subscription answers `unava
 entry is not shown.
 
 The office shows how full each agent's context is, from the `lastUsage` its provider reports. A
-Janitor entry after Host in the attention strip counts the contexts that are 85% full or more,
+Janitor entry after Host in the Attention tab counts the contexts that are 85% full or more,
 and its card lists every agent, the fullest first, with two actions for an agent that is idle or
 stopped on an error. Clean context sends the provider's `compact` command. Reset session sends
 its command for a new conversation, the first of `clear`, `new` and `reset` that the session
@@ -630,17 +630,18 @@ when a turn ends, so after a reset the old number would stay until the next turn
 reset agent's context as empty until the provider reports another number (`settleResets` in
 `plugins/office/server/directory.ts`).
 
-The office has three views: a 3D floor, a 2D floor and the list. A switch over the floor's top
-right corner chooses one per device and keeps it in the `office-device` setting; the Office screen
-of the app's Settings has the same switch. Over the List the switch takes a row of its own; nothing
-else sits above the floor. A device that never chose shows the 3D floor where it can draw it: a browser with WebGL2, or an app whose kit has `ScriptFrame` (the
+The office has three views: a 3D floor, a 2D floor and the list. A switch over the floor's top right
+corner chooses one per device and keeps it in the `office-device` setting; the Office screen of the
+app's Settings has the same switch. Over the List the switch takes a row of its own. Above the floor
+sits only the scene's problem banner, while the 3D floor has failed. A device that never chose shows
+the 3D floor where it can draw it: a browser with WebGL2, or an app whose kit has `ScriptFrame` (the
 fork's Android app; the store build does not). It shows the 2D floor anywhere else. On the web the
 scene runs in an `iframe` of its own (`client/world/world-frame.web.ts`); in an app it runs in a
-`ScriptFrame`, and `client/world/world-bridge.ts` carries the scene's API over messages. The
-plugin bundle has no platform file extensions, so `office-surface.tsx` picks the view by
-`layout.platform`. An app's page finds out whether the phone has WebGL2; with none, and for any
-other failure, the 3D floor gives way to the 2D one under a banner with a way to try again. Photo
-mode is off in an app, since a WebView cannot keep a download.
+`ScriptFrame`, and `client/world/world-bridge.ts` carries the scene's API over messages. The plugin
+bundle has no platform file extensions, so `office-surface.tsx` picks the view by `layout.platform`.
+An app's page finds out whether the phone has WebGL2; with none, and for any other failure, the 3D
+floor gives way to the 2D one under a banner with a way to try again. Photo mode is off in an app,
+since a WebView cannot keep a download.
 
 The office draws its own column beside the floor (`plugins/office/client/office-column.tsx`), with
 Attention, Sessions, Activity and Chat tabs, because upstream's app has no side area to put them in
@@ -773,9 +774,9 @@ agents" switch holds every wake until it is turned back on; wakes that wait are 
 daemon restart. Designs: [the office](superpowers/specs/2026-11-11-agent-office-design.md), [the
 lobby's to-do list](superpowers/specs/2026-11-17-office-lobby-todo-design.md).
 
-The Stand-up entry at the end of the attention strip reports every room with an agent in it: its
-branch, its ticket, its pull request, what blocks it, and what each agent is at, with the agent's
-newest note on the room's board from the last 24 hours. The office calls no tracker and no forge
+The Stand-up entry in the Attention tab reports every room with an agent in it: its branch, its
+ticket, its pull request, what blocks it, and what each agent is at, with the agent's newest note
+on the room's board from the last 24 hours. The office calls no tracker and no forge
 for it and holds no token. The ticket is the one the `tasks` built-in keeps on the workspace
 (`tasks.key` and `tasks.url` in its metadata), whichever tracker it came from. The branch and the
 pull request, with its checks, its review decision and whether it conflicts, are on the workspace
