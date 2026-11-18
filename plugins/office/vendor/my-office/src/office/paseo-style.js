@@ -26,6 +26,11 @@ export const STYLE = `
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
 body { font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--o-fg); -webkit-font-smoothing: antialiased; }
 #stage-wrap, #stage { position: absolute; inset: 0; }
+/* PASEO: what the host draws over the stage's top right corner (client/styles.ts viewCorner) is cleared by what the scene
+   puts at the stage's top edge: Exit and the help line in walk-in (ui/camera-bar.js) and the incident banner. The
+   tallest corner is the touch one: inset 16 + border 2 + padding 8 + two wrapped rows of 44 with a gap of 4, then the
+   unsaved-view note (gap 4, two lines of 16) = 154, rounded up to 156. */
+:root { --corner-clear: 156px; }
 #stage canvas { display: block; outline: none; touch-action: none; cursor: grab; }
 #stage canvas:active { cursor: grabbing; }
 #stage canvas.hovering { cursor: pointer; }
@@ -120,7 +125,7 @@ button.pl-chip { cursor: pointer; }
 .btn:hover { border-color: var(--o-muted); }
 .btn[disabled] { cursor: not-allowed; opacity: .5; }
 
-.incident { all: unset; box-sizing: border-box; position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2; max-width: calc(100% - 24px); display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 9px; border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; background: var(--o-surface-raised); color: var(--o-fg); border: 1px solid var(--o-danger); }
+.incident { all: unset; box-sizing: border-box; position: absolute; top: var(--corner-clear); left: 50%; transform: translateX(-50%); z-index: 2; max-width: calc(100% - 24px); display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 9px; border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; background: var(--o-surface-raised); color: var(--o-fg); border: 1px solid var(--o-danger); }
 .incident::before { content: ""; width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--o-danger); }
 .incident-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .incident:hover { background: var(--o-surface); }

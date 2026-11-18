@@ -11,7 +11,8 @@ import { ViewSwitch } from "./view-switch.js";
 /**
  * The office's settings, under the app's Settings: what the host holds (wakes, agent tools, the
  * stand-up notes, the incident trackers) and this device's view. The office's page shows none of
- * them, so a phone's floor is not covered.
+ * them, so a phone's floor is not covered. The screen follows the office's state for the wakes and
+ * the schedules' failures, so the host does its "an office surface is open" work while it is open.
  */
 export function OfficeSettings({ theme, layout }: PluginSurfaceProps) {
   const touchScreen = useMemo(

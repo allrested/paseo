@@ -138,7 +138,12 @@ test("the notes schedule's failure shows under the Time zone field", async () =>
   };
   await act(async () => deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes } }));
 
-  expect(container.textContent).toContain(
-    "Unable to schedule the stand-up notes: unknown zone Mars/Olympus",
+  const failure = [...container.querySelectorAll("*")].find(
+    (node) =>
+      node.children.length === 0 &&
+      node.textContent === "Unable to schedule the stand-up notes: unknown zone Mars/Olympus",
   );
+  const field = container.querySelector('input[aria-label="Time zone"]');
+  if (!failure || !field) throw new Error("The failure or the Time zone field is not drawn");
+  expect(field.compareDocumentPosition(failure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

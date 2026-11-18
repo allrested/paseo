@@ -196,11 +196,13 @@ with `@getpaseo/plugin/client` and `/ui` stood in as the mounted tests stand the
 - Seen: the 2D floor in light at 1280 and 390 px, with the corner, and the List in dark at 1280
   and 390 px (its row ends on the list's rail), on a navigation with no `showBeside`. Also the
   Settings card for a broken schedule, the gear opening the screen, a tap on List changing the
-  view, and the Office screen at 390 px (two switches, six fields, the view switch). The look
+  view, and the Office screen in light at 390 px (two switches, six fields, the view switch). The look
   found the corner's controls inset twice and unreadable over the floor; both are fixed.
 - Not seen: the 3D floor (the page has no scene bundle, so the iframe never drew), walk-in's Exit,
   light List, dark 2D, the light and dark Office screen at 1280 px. Sessions, Activity and Chat were absent, as they
   are without `showBeside`; their placement in the corner is not seen.
+- Moved, not seen: walk-in's Exit, its help line and the incident banner were moved below the corner
+  (`--corner-clear` in the scene's CSS), and their fit was not seen in 3D.
 - Not seen: a change in Settings > Office showing in the office. The stood-in settings do not
   persist.
 - Not seen: the app's own Settings chrome around the screen, the Command Center item, and

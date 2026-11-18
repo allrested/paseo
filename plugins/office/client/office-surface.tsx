@@ -614,7 +614,10 @@ interface SettingsButtonProps {
   styles: OfficeStyles;
 }
 
-/** The way to the office's settings screen, drawn like the panels' buttons. */
+/**
+ * The way to the office's settings screen, drawn like the panels' buttons. `PanelButton` presses
+ * with a screen id; the settings press takes none, so the id here is unused.
+ */
 function SettingsButton({ onOpen, compact, touchScreen, color, styles }: SettingsButtonProps) {
   return (
     <PanelButton
@@ -808,6 +811,76 @@ function useCardOpening(live: boolean): CardOpening {
   return { open: opened && live, openedAt, show, close };
 }
 
+interface ViewControlsProps {
+  /** True once a floor is drawn under them: they take its corner, else a row of the page. */
+  floorDrawn: boolean;
+  viewChoice: ViewChoiceState;
+  onChange(next: OfficeViewChoice): void;
+  navigation: PluginScreenProps["navigation"];
+  link: OfficeLink;
+  compact: boolean;
+  touchScreen: boolean;
+  color: string;
+  unread: string | null;
+  onOpenSettings: (() => void) | undefined;
+  styles: OfficeStyles;
+}
+
+/** The view switch, the panel buttons and the settings button. */
+function ViewControls({
+  floorDrawn,
+  viewChoice,
+  onChange,
+  navigation,
+  link,
+  compact,
+  touchScreen,
+  color,
+  unread,
+  onOpenSettings,
+  styles,
+}: ViewControlsProps) {
+  return (
+    // The controls show in the row first and move to the corner once the floor is drawn.
+    <View
+      testID={floorDrawn ? "office-view-corner" : "office-view-row"}
+      style={floorDrawn ? styles.viewCorner : styles.viewRow}
+    >
+      <View style={styles.viewControls}>
+        <ViewSwitch
+          options={viewChoice.options}
+          value={viewChoice.choice}
+          onChange={onChange}
+          styles={styles}
+        />
+        <PanelButtons
+          navigation={navigation}
+          link={link}
+          compact={compact}
+          touchScreen={touchScreen}
+          color={color}
+          unread={unread}
+          styles={styles}
+        />
+        {onOpenSettings ? (
+          <SettingsButton
+            onOpen={onOpenSettings}
+            compact={compact}
+            touchScreen={touchScreen}
+            color={color}
+            styles={styles}
+          />
+        ) : null}
+      </View>
+      {viewChoice.unsaved ? (
+        <Text accessibilityRole="alert" style={styles.actionError}>
+          {UNSAVED_VIEW}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 /** The strip's Settings card, while a schedule could not follow the settings and there is a way in. */
 function useSettingsEntry(state: OfficeState["state"], onOpenSettings: (() => void) | undefined) {
   const notesError = state.notes?.scheduleError ?? null;
@@ -821,7 +894,11 @@ function useSettingsEntry(state: OfficeState["state"], onOpenSettings: (() => vo
   );
 }
 
-/** The surface as the app mounts it, with its way to the office's settings screen. */
+/**
+ * The surface as the app mounts it, with its way to the office's settings screen. Call it once,
+ * at `contribute`: each call returns a new component type, so calling it while rendering would
+ * remount the office.
+ */
 export function createOfficeSurface(openSettings: () => void) {
   return function Surface(props: OfficeSurfaceProps) {
     return <OfficeSurface {...props} onOpenSettings={openSettings} />;
@@ -831,7 +908,7 @@ export function createOfficeSurface(openSettings: () => void) {
 /** One surface for both places: the sidebar screen and a workspace tab. */
 export function OfficeSurface(
   props: OfficeSurfaceProps & {
-    /** Absent where the host gives no way to the settings. */
+    /** Absent only in tests and on a host that gives no way to its settings. */
     onOpenSettings?: () => void;
   },
 ) {
@@ -935,6 +1012,7 @@ export function OfficeSurface(
     [choose],
   );
   const view = officeView({ choice: viewChoice.choice, problem: sceneProblem });
+  const floorDrawn = office.loaded && live && (view === "3d" || view === "2d");
   const kept = keptSelection(selectedId, model.agents, live);
   // A selection whose agent left is dropped, so the card does not reopen if that agent returns.
   useEffect(() => {
@@ -987,7 +1065,7 @@ export function OfficeSurface(
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   return (
     <View style={styles.screen}>
-      {live ? (
+      {live && (model.attention.length > 0 || cards.length > 0) ? (
         <View style={styles.header}>
           <AttentionStrip
             entries={model.attention}
@@ -1002,40 +1080,19 @@ export function OfficeSurface(
         <SceneProblem message={sceneProblem} onRetry={retryScene} styles={styles} />
       ) : null}
       <View style={styles.floor}>
-        {/* A floor is drawn under the corner; the list scrolls, so its controls take a row. */}
-        <View style={view === "3d" || view === "2d" ? styles.viewCorner : styles.viewRow}>
-          <View style={styles.viewControls}>
-            <ViewSwitch
-              options={viewChoice.options}
-              value={viewChoice.choice}
-              onChange={changeView}
-              styles={styles}
-            />
-            <PanelButtons
-              navigation={navigation}
-              link={link}
-              compact={layout.compact}
-              touchScreen={touchScreen}
-              color={theme.colors.foreground}
-              unread={unread}
-              styles={styles}
-            />
-            {onOpenSettings ? (
-              <SettingsButton
-                onOpen={onOpenSettings}
-                compact={layout.compact}
-                touchScreen={touchScreen}
-                color={theme.colors.foreground}
-                styles={styles}
-              />
-            ) : null}
-          </View>
-          {viewChoice.unsaved ? (
-            <Text accessibilityRole="alert" style={styles.actionError}>
-              {UNSAVED_VIEW}
-            </Text>
-          ) : null}
-        </View>
+        <ViewControls
+          floorDrawn={floorDrawn}
+          viewChoice={viewChoice}
+          onChange={changeView}
+          navigation={navigation}
+          link={link}
+          compact={layout.compact}
+          touchScreen={touchScreen}
+          color={theme.colors.foreground}
+          unread={unread}
+          onOpenSettings={onOpenSettings}
+          styles={styles}
+        />
         <SurfaceBody
           office={office}
           model={model}

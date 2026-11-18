@@ -109,6 +109,8 @@ const STYLE = `
 .toolbar .ic, .photo-bar .ic, .fp-hud .ic { width: 16px; height: 16px; flex: none; }
 /* (a narrow frame has no room for the last tool's name: at 390 px it ran past the right edge) */
 @media (max-width: 520px) { .tb-zoom button::after, .tb-full::after { display: none; } }
+/* PASEO: Exit and the help line start at --corner-clear (set in paseo-style.js), below the host's controls over the
+   stage's top right corner. */
 /* Walk in: the button at the bar's end, and the overlay while walking (upstream's touch line and its fade to the
    street are not taken; the joystick stays hidden) */
 .tb-fp { all: unset; height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 16px 0 13px; box-sizing: border-box; border-radius: 11px; background: var(--o-accent, #EF8A5F); color: #2A1307; font-size: .8rem; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 14px rgba(239, 138, 95, .26), inset 0 1px 0 rgba(255, 255, 255, .28); transition: background .15s; }
@@ -118,12 +120,12 @@ const STYLE = `
 .is-fp .tb-seg, .is-fp .tb-zoom { opacity: .35; }
 .fp-hud { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .fp-cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255, 255, 255, .85); box-shadow: 0 0 0 2px rgba(0, 0, 0, .35); }
-.fp-help { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; max-width: calc(100% - 140px); padding: 8px 14px; border-radius: 12px; background: rgba(17, 23, 32, .8); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, .13); font-size: .76rem; color: #8D97AA; }
+.fp-help { position: absolute; left: 50%; top: calc(var(--corner-clear) + 2px); transform: translateX(-50%); display: flex; gap: 10px; align-items: center; max-width: calc(100% - 140px); padding: 8px 14px; border-radius: 12px; background: rgba(17, 23, 32, .8); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, .13); font-size: .76rem; color: #8D97AA; }
 .fp-help b { color: #F2B544; white-space: nowrap; }
-/* (Paseo's incident banner is at the stage's top too, 12 px down and about 30 px tall: while it shows, the help line
-   goes under it; at 520 px and narrower it is at 56 px already) */
-@media (min-width: 521px) { #stage-wrap:has(> #incident:not([hidden])) .fp-help { top: 52px; } }
-.fp-exit { all: unset; pointer-events: auto; position: absolute; right: 14px; top: 12px; height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 10px; background: rgba(17, 23, 32, .86); border: 1px solid rgba(255, 255, 255, .13); color: #E8ECF4; font-size: .78rem; font-weight: 700; cursor: pointer; }
+/* (Paseo's incident banner is at the stage's top too, --corner-clear down and about 30 px tall: while it shows, the
+   help line goes under it; at 520 px and narrower it is under it already) */
+@media (min-width: 521px) { #stage-wrap:has(> #incident:not([hidden])) .fp-help { top: calc(var(--corner-clear) + 40px); } }
+.fp-exit { all: unset; pointer-events: auto; position: absolute; right: 14px; top: var(--corner-clear); height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 10px; background: rgba(17, 23, 32, .86); border: 1px solid rgba(255, 255, 255, .13); color: #E8ECF4; font-size: .78rem; font-weight: 700; cursor: pointer; }
 .fp-exit:hover { background: #1E2734; }
 .fp-near { all: unset; pointer-events: auto; position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: rgba(17, 23, 32, .9); border: 1px solid #3DDC84; color: #E8ECF4; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap; max-width: 80%; overflow: hidden; text-overflow: ellipsis; }
 .is-gaming .fp-near, .is-gaming .fp-cross, .is-gaming .fp-help { display: none !important; }   /* (on the sofa with a controller: the TV is the view) */
@@ -143,7 +145,7 @@ const STYLE = `
    ran past the right edge at 530 px) */
 @media (max-width: 720px) { .tb-fp span:last-child, .seg-btn > span:last-child { display: none !important; } .tb-fp { padding: 0 11px; } .seg-btn, .seg-btn:hover, .seg-btn[aria-pressed="true"] { padding: 0 10px; } }
 /* (with it, at 390 px with a mouse Walk in still ran 30 px past the right edge: the buttons and the groups sit closer) */
-@media (max-width: 520px) { .toolbar { gap: 4px; } .seg-btn, .seg-btn:hover, .seg-btn:focus-visible, .seg-btn[aria-pressed="true"] { padding: 0 7px; } .tb-zoom button, .tb-full { width: 30px; } .fp-help { top: 56px; max-width: calc(100% - 24px); } }
+@media (max-width: 520px) { .toolbar { gap: 4px; } .seg-btn, .seg-btn:hover, .seg-btn:focus-visible, .seg-btn[aria-pressed="true"] { padding: 0 7px; } .tb-zoom button, .tb-full { width: 30px; } .fp-help { top: calc(var(--corner-clear) + 44px); max-width: calc(100% - 24px); } }
 body.is-photo .toolbar { display: none; }
 /* Photo mode: the office alone, with one bar to frame and take the picture */
 body.is-photo #stage-wrap > :not(#stage):not(#photo-bar) { display: none !important; }

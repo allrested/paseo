@@ -7,6 +7,7 @@
 // delivers an event, so the body stays on "Loading..." until then.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { AccessibilityInfo } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps, SettingsState } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -25,6 +26,8 @@ import { EMPTY_OFFICE } from "./office-state.js";
 
 /** The view the device holds; every other device value is the office's default. */
 let view: "3d" | "2d" | "list";
+/** The office's subscription: "live" unless a test says it failed or closed. */
+let subscriptionStatus: "live" | "error" | "closed";
 /** The office's events, once its subscription is drawn. */
 let deliver: ((event: OfficeEvent) => void) | null;
 
@@ -57,7 +60,8 @@ vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
     onEvent: (event: OfficeEvent) => void,
   ) => {
     if (contract.name === "office.state") deliver = onEvent;
-    return { status: "live" };
+    if (contract.name !== "office.state") return { status: "live" };
+    return { status: subscriptionStatus, error: { message: "The office is out of reach" } };
   },
   useRpc: () => async () => {
     throw new Error("The header asks for nothing");
@@ -185,6 +189,7 @@ function chatMessage(at: number, from: string | undefined, kind = "text"): ChatM
 
 beforeEach(() => {
   view = "list";
+  subscriptionStatus = "live";
   deliver = null;
   shown = [];
   opened = [];
@@ -192,6 +197,10 @@ beforeEach(() => {
   noNavigation = false;
   settingsWay = true;
   settingsOpened = 0;
+  // The test browser's AccessibilityInfo gives no subscription to remove; the 2D floor asks.
+  vi.spyOn(AccessibilityInfo, "addEventListener").mockReturnValue({
+    remove: () => undefined,
+  } as unknown as ReturnType<typeof AccessibilityInfo.addEventListener>);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -405,4 +414,29 @@ test("a chat change does not rebuild the floor's model", async () => {
   // The surface drew the change (its count moved), and built no model for it.
   expect(chatButton().getAttribute("aria-label")).not.toBe("Chat");
   expect(vi.mocked(buildOfficeModel).mock.calls.length).toBe(built);
+});
+
+test("the controls take a row while the body shows Loading, and the corner once a floor is drawn", async () => {
+  view = "2d";
+  await mount();
+  expect(container.textContent).toContain("Loading");
+  expect(container.querySelector('[data-testid="office-view-row"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="office-view-corner"]')).toBeNull();
+
+  await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+
+  expect(container.querySelector('[data-testid="office-view-corner"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="office-view-row"]')).toBeNull();
+});
+
+test("the controls take a row while the subscription is in error or closed", async () => {
+  view = "2d";
+  for (const status of ["error", "closed"] as const) {
+    subscriptionStatus = status;
+    await mount();
+    await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+
+    expect(container.querySelector('[data-testid="office-view-row"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="office-view-corner"]')).toBeNull();
+  }
 });

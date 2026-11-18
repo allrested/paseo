@@ -17,8 +17,9 @@ function OfficeItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return <SidebarRow icon={ICON} active={currentScreen?.screenId === SCREEN_ID} onPress={open} />;
 }
 
-// The sidebar item and the Command Center item are the ways in; Settings > Sidebar can hide the
-// item. The office's settings are a screen of the app's Settings.
+// The sidebar item and the two Command Center items (the office, its settings) are the ways in;
+// Settings > Sidebar can hide the sidebar item. The office's settings are a screen of the app's
+// Settings.
 export default function contribute(client: PluginClientContext) {
   const Surface = createOfficeSurface(() => client.openSettings(SCREEN_ID));
   const removers = [

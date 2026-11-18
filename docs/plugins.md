@@ -643,9 +643,9 @@ plugin bundle has no platform file extensions, so `office-surface.tsx` picks the
 other failure, the 3D floor gives way to the 2D one under a banner with a way to try again. Photo
 mode is off in an app, since a WebView cannot keep a download.
 
-The Sessions and Activity buttons beside that switch open those panels beside the floor; the Activity feed
-is derived on the client from the office's state, kept in memory for this app run, and fills only
-while an office or a panel is open.
+The Sessions and Activity buttons beside that switch open those panels beside the floor; the
+Activity feed is derived on the client from the office's state, kept in memory for this app run, and
+fills only while an office or a panel is open.
 
 The Chat button opens the team chat beside the floor. The conversation is upstream's engine running on the office's server (`plugins/office/server/chat-service.ts`; the importer takes the engine and its words into `plugins/office/shared/upstream/`), kept in `<PASEO_HOME>/office/chat.json`, and an `@` to an agent prompts it and posts its answer.
 
@@ -745,22 +745,22 @@ steps stay after the agent stops and go when it is archived or closed. The serve
 memory, and only while an office surface is open: after the last one closes or the daemon restarts,
 an agent's steps are back when it next updates its checklist. A board is removed when its workspace
 is archived while the daemon runs; a board left from a workspace archived otherwise stays until its
-posts are deleted. Interactive agent sessions get three tools,
-`office_read`, `office_post` and `office_update`, unless the host's "Agent tools" switch is off when
-the session opens. That switch, "Wake agents", "Notes folder" and the tracker fields are on the
-Office screen of the app's Settings (`plugins/office/client/office-settings.tsx`). A built-in has
-no row in Settings > Plugins, so three things open the screen with `client.openSettings("office")`:
-the gear beside the view switch, the Command Center's "Office settings", and the strip's Settings
-card, which shows while a schedule cannot follow the settings. Plugin tools reach an agent through Paseo's own agent tools and are filtered by
-name like them: a provider with Paseo's tools off gets none, and a provider that lists
+posts are deleted. Interactive agent sessions get three tools, `office_read`, `office_post` and
+`office_update`, unless the host's "Agent tools" switch is off when the session opens. That switch,
+"Wake agents", "Notes folder" and the tracker fields are on the Office screen of the app's Settings
+(`plugins/office/client/office-settings.tsx`). A built-in has no row in Settings > Plugins, so three
+things open the screen with `client.openSettings("office")`: the gear beside the view switch, the
+Command Center's "Office settings", and the strip's Settings card, which shows while a schedule
+cannot follow the settings. Plugin tools reach an agent through Paseo's own agent tools and are
+filtered by name like them: a provider with Paseo's tools off gets none, and a provider that lists
 `send_agent_prompt` in `paseoTools.disabledTools` must list `office_post` too to keep its agents
 from waking others. A post that names an agent wakes it when it is idle, at most 6 times an hour per
 agent. Posts that wait for an agent go out as one prompt per author: an agent's posts carry that
 agent as the source, the user's posts arrive as a user prompt. A post naming an agent that has not
 run a turn yet is delivered after that agent's first turn or the next post that names it. The "Wake
 agents" switch holds every wake until it is turned back on; wakes that wait are not kept across a
-daemon restart. Designs: [the office](superpowers/specs/2026-11-11-agent-office-design.md),
-[the lobby's to-do list](superpowers/specs/2026-11-17-office-lobby-todo-design.md).
+daemon restart. Designs: [the office](superpowers/specs/2026-11-11-agent-office-design.md), [the
+lobby's to-do list](superpowers/specs/2026-11-17-office-lobby-todo-design.md).
 
 The Stand-up entry at the end of the attention strip reports every room with an agent in it: its
 branch, its ticket, its pull request, what blocks it, and what each agent is at, with the agent's
