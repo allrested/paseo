@@ -119,3 +119,18 @@ export const officeDeviceSettings = defineSettings({
   // Version 1 had no `rungIncidents`: its values stay, and the device has rung for none.
   migrate: (values) => values,
 });
+
+/**
+ * The office's column on this device: its width beside the floor and whether it is collapsed to
+ * its rail. A setting of its own: the view's and the incidents' saves write `office-device` whole,
+ * and would drop a field of the column's.
+ */
+export const officeColumnSettings = defineSettings({
+  id: "office-column",
+  scope: "device",
+  version: 1,
+  schema: z.object({
+    width: z.number().default(360),
+    collapsed: z.boolean().default(false),
+  }),
+});
