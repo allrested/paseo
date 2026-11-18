@@ -373,7 +373,6 @@ function setup(
       cgroupRoot: "/nonexistent-cgroup",
       platform: "linux",
       selfPid: 1,
-      ownPid: 2,
       stop: (pid) => void stopped.push(pid),
       sleep: async () => undefined,
     },

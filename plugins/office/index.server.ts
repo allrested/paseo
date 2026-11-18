@@ -54,7 +54,6 @@ import {
   type SkillFolder,
 } from "./server/paths.js";
 import { readScriptLog } from "./server/script-log.js";
-import { daemonPid } from "./server/host-process.js";
 import { readSkills } from "./server/skills.js";
 import { nodeClock, type Clock } from "./server/timers.js";
 import {
@@ -108,10 +107,8 @@ export interface MachineHost {
   cgroupRoot: string;
   /** `process.platform`. */
   platform: string;
-  /** The daemon's pid, or its child's when the office is a subprocess: it and its ancestors are never asked to end. */
+  /** The office's own process: it and its ancestors are never asked to end. */
   selfPid: number;
-  /** This process: never asked to end. */
-  ownPid: number;
   /** Sends SIGTERM. */
   stop(pid: number): void;
   sleep(ms: number): Promise<void>;
@@ -158,7 +155,6 @@ export function createOfficePlugin(
   const cleanupPorts = {
     procRoot: deps.machine.procRoot,
     selfPid: deps.machine.selfPid,
-    ownPid: deps.machine.ownPid,
     stop: deps.machine.stop,
     sleep: deps.machine.sleep,
     ...liveCleanupPorts(holder),
@@ -501,12 +497,7 @@ export function createOfficePlugin(
   };
 }
 
-export default function contribute(
-  server: PluginServerContext,
-  // The fork passes its built-ins a second argument; stock Paseo passes an installed plugin none.
-  builtin?: unknown,
-): () => Promise<void> {
-  const inDaemon = builtin !== undefined;
+export default function contribute(server: PluginServerContext): () => Promise<void> {
   const log = (message: string) => console.error(message);
   return createOfficePlugin(server, {
     // A built-in runs in the daemon process; an installed plugin inherits the daemon's whole
@@ -527,14 +518,14 @@ export default function contribute(
     clock: nodeClock,
     log,
     world: embeddedWorldScript(),
-    // A built-in's pid is the daemon's. An installed plugin is a subprocess of the daemon, so the
-    // daemon's chain starts from its parent and this process is protected on its own.
     machine: {
       procRoot: "/proc",
       cgroupRoot: "/sys/fs/cgroup",
       platform: process.platform,
-      selfPid: daemonPid({ pid: process.pid, ppid: process.ppid, inDaemon }),
-      ownPid: process.pid,
+      // readAncestors (server/machine/proc.ts) returns the pid it starts from and every ancestor.
+      // As a built-in this is the daemon, so the daemon and what is above it are protected; as an
+      // installed plugin it is the plugin, so the plugin, the daemon worker and the supervisor are.
+      selfPid: process.pid,
       stop: (pid) => void process.kill(pid, "SIGTERM"),
       sleep: (ms) => delay(ms, undefined, { ref: false }),
     },
