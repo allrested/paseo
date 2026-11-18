@@ -264,3 +264,21 @@ test("the handler is given the instant the schedule was due, for a cron and an i
   await settle();
   expect(given).toEqual([at("2026-11-18T05:00:00Z"), at("2026-11-18T04:05:00Z")]);
 });
+
+test("an interval under a second is refused, naming the value", async () => {
+  const { schedules } = engine();
+  await expect(
+    schedules.upsert({ ...EVERY_INCIDENTS, cadence: { type: "every", everyMs: 10 } }),
+  ).rejects.toThrow(/10/);
+  await expect(
+    schedules.upsert({ ...EVERY_INCIDENTS, cadence: { type: "every", everyMs: Number.NaN } }),
+  ).rejects.toThrow(/NaN/);
+  expect(await schedules.list()).toEqual([]);
+});
+
+test("after stop a save is refused and sets no timer", async () => {
+  const { clock, schedules } = engine();
+  schedules.stop();
+  await expect(schedules.upsert(NOTES_INPUT)).rejects.toThrow(/have stopped/);
+  expect(clock.pending()).toBe(0);
+});
