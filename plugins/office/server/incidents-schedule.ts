@@ -69,6 +69,8 @@ export interface IncidentsSchedule {
   sync(on: boolean): Promise<void>;
   /** Why the schedule could not follow the settings; null once a later sync succeeds. */
   error(): string | null;
+  /** Keeps a reason found outside a sync until a sync succeeds. */
+  fail(message: string): void;
 }
 
 export function createIncidentsSchedule(ports: IncidentsSchedulePorts): IncidentsSchedule {
@@ -80,5 +82,6 @@ export function createIncidentsSchedule(ports: IncidentsSchedulePorts): Incident
   return {
     sync: (on) => follower.sync(() => incidentsCadence(on)),
     error: follower.error,
+    fail: follower.fail,
   };
 }

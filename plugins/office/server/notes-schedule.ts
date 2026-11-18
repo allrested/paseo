@@ -84,6 +84,8 @@ export interface NotesSchedule {
   sync(values: NotesSettings): Promise<void>;
   /** Why the schedule could not follow the settings; null once a later sync succeeds. */
   error(): string | null;
+  /** Keeps a reason found outside a sync until a sync succeeds. */
+  fail(message: string): void;
 }
 
 export function createNotesSchedule(ports: NotesSchedulePorts): NotesSchedule {
@@ -96,5 +98,6 @@ export function createNotesSchedule(ports: NotesSchedulePorts): NotesSchedule {
     // A folder that is not an absolute path fails in turn, as a refused save does.
     sync: (values) => follower.sync(() => notesCadence(values, ports.hostTimeZone)),
     error: follower.error,
+    fail: follower.fail,
   };
 }

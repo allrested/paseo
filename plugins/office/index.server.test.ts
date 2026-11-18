@@ -458,11 +458,38 @@ test("a setting that cannot be read leaves the session as it is and is logged", 
   expect(await open()).toBeUndefined();
   await settle();
   // The reads at load, for the notes schedule and the writer, fail too.
-  expect([...logs].sort()).toEqual([
-    "[office] agent.open.before failed: settings store is down",
-    "[office] notes schedule failed: settings store is down",
-    "[office] notes writer load failed: settings store is down",
-  ]);
+  expect([...logs].sort()).toEqual(
+    [
+      "[office] The office's settings cannot be read: settings store is down",
+      "[office] agent.open.before failed: settings store is down",
+      "[office] notes writer load failed: settings store is down",
+    ].sort(),
+  );
+  await stop();
+});
+
+test("settings that are not ready are logged, and both schedules' cards show why", async () => {
+  const invalid: SettingsState = {
+    status: "invalid",
+    revision: "bad",
+    error: "notesFolder: Required",
+  };
+  const { recorded, context, logs, stop } = setup(async () => invalid);
+  await settle();
+  const message = "The office's settings cannot be read: notesFolder: Required";
+  expect(logs).toContain(`[office] ${message}`);
+  const events: { type: string; state?: { notes?: unknown; incidents?: unknown } }[] = [];
+  const leaving = new AbortController();
+  const done = recorded.handlers.get("office.state")?.({}, {
+    ...context,
+    signal: leaving.signal,
+    push: async (event: { type: string }) => void events.push(event),
+  } as never);
+  await settle();
+  expect(events.at(-1)?.state?.notes).toMatchObject({ scheduleError: message });
+  expect(events.at(-1)?.state?.incidents).toMatchObject({ scheduleError: message });
+  leaving.abort();
+  await done;
   await stop();
 });
 

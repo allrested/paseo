@@ -254,10 +254,22 @@ export function createOfficePlugin(
   const chatReady = startChat().catch((error: unknown) =>
     log(`[office] chat unavailable: ${errorMessage(error)}`),
   );
+  // Neither schedule can follow settings it cannot read: both cards say why until a save is read.
+  function settingsUnreadable(reason: string): void {
+    const message = `The office's settings cannot be read: ${reason}`;
+    log(`[office] ${message}`);
+    notesSchedule.fail(message);
+    incidentsSchedule.fail(message);
+    hub.setNotes({ ...writer.state(), scheduleError: notesSchedule.error() });
+    pushIncidents();
+  }
   async function followSettings(
     state: PluginSettingsState<typeof officeHostSettings.schema>,
   ): Promise<void> {
-    if (state.status !== "ready") return;
+    if (state.status !== "ready") {
+      settingsUnreadable(state.error);
+      return;
+    }
     await notesSchedule.sync(state.values);
     // The writer reads the folder again, and its push carries the schedule's error with it.
     await writer
@@ -271,10 +283,7 @@ export function createOfficePlugin(
     pushIncidents();
   }
   const stopFollowingSettings = settings.subscribe(followSettings);
-  settings
-    .read()
-    .then(followSettings)
-    .catch((error: unknown) => log(`[office] notes schedule failed: ${errorMessage(error)}`));
+  settings.read().then(followSettings, (error: unknown) => settingsUnreadable(errorMessage(error)));
 
   async function guarded<T>(name: string, work: () => Promise<T>): Promise<T> {
     try {

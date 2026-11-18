@@ -50,6 +50,8 @@ export interface ScheduleFollower {
   sync(cadence: () => OfficeCadence | null): Promise<void>;
   /** Why the schedule could not follow; null once a later sync succeeds. */
   error(): string | null;
+  /** Keeps a reason found outside a sync (settings that cannot be read) until a sync succeeds. */
+  fail(message: string): void;
 }
 
 export function createScheduleFollower(ports: ScheduleFollowerPorts): ScheduleFollower {
@@ -71,5 +73,8 @@ export function createScheduleFollower(ports: ScheduleFollowerPorts): ScheduleFo
       return queue;
     },
     error: () => scheduleError,
+    fail(message) {
+      scheduleError = message;
+    },
   };
 }
