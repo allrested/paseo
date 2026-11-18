@@ -14,8 +14,10 @@ export interface CleanupAgent {
 
 export interface CleanupPorts {
   procRoot: string;
-  /** The daemon's own pid: it and its ancestors are never signalled. */
+  /** The daemon's pid, or its child's when the office is a subprocess: it and its ancestors are never signalled. */
   selfPid: number;
+  /** This process, which is not its own ancestor when `selfPid` is its parent: never signalled either. */
+  ownPid: number;
   /** Null when this daemon does not know the id. */
   agent(agentId: string): Promise<CleanupAgent | null>;
   closeRuntime(agentId: string): Promise<void>;
@@ -26,6 +28,7 @@ export interface CleanupPorts {
 
 async function leftovers(ports: CleanupPorts, agentId: string) {
   const protectedPids = await readAncestors(ports.procRoot, ports.selfPid);
+  protectedPids.add(ports.ownPid);
   const processes = await readAgentProcesses(ports.procRoot);
   return processes.filter(
     (process) => process.agentId === agentId && !protectedPids.has(process.pid),

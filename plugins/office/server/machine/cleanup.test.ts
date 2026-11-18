@@ -28,6 +28,7 @@ async function harness(
   const ports: CleanupPorts = {
     procRoot,
     selfPid: 40,
+    ownPid: 40,
     agent: async (agentId) => agents[agentId] ?? null,
     closeRuntime: async (agentId) => void closed.push(agentId),
     stop: (pid) => void stopped.push(pid),
@@ -168,4 +169,14 @@ test("a pid that names another process by the time it is its turn is not signall
   };
   expect((await cleanUpAgent(ports, "gone")).ok).toBe(true);
   expect(stopped).toEqual([60]);
+});
+
+test("a plugin that inherited the agent's id is not stopped, though it is not its own ancestor", async () => {
+  const { ports, stopped } = await harness(
+    [...DAEMON, { pid: 60, ppid: 40, agentId: "a" }, { pid: 61, ppid: 1, agentId: "a" }],
+    { a: { status: "closed", resumable: false } },
+    { selfPid: 40, ownPid: 60 },
+  );
+  expect(await cleanUpAgent(ports, "a")).toEqual({ agentId: "a", ok: true, error: null });
+  expect(stopped).toEqual([61]);
 });
