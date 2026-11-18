@@ -5,8 +5,16 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-/tmp/office-stock-check}"
 SDK="${OFFICE_SDK_VERSION:-0.16.2}"
+# Inside a git checkout an ancestor's node_modules would be reachable, and the fork's types with it.
+CHECK="$OUT"
+while [ ! -d "$CHECK" ]; do CHECK="$(dirname "$CHECK")"; done
+if git -C "$CHECK" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "check-stock: $OUT is inside a git checkout; give a folder outside one, such as /tmp/office-stock-check" >&2
+  exit 1
+fi
 rm -rf "$OUT" && mkdir -p "$OUT"
-# The tests lean on the workspace's vitest setup; part 2 gives the new repo its own.
+# Test files are not copied, so they are not checked against the SDK: they lean on the workspace's
+# vitest setup, and part 2 gives the new repo its own.
 tar -C "$HERE" --exclude node_modules --exclude '*.test.ts' --exclude '*.test.tsx' -cf - . | tar -C "$OUT" -xf -
 cd "$OUT"
 cat > package.json <<JSON
