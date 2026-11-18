@@ -4,8 +4,11 @@
 # A pushed fork-android-<version>-<n> tag runs the workflow file of the tagged commit, so a tag
 # push works without this file on the fork's main. workflow_dispatch, which builds an existing tag
 # again, fires only once this file is on the fork's main (GitHub's rule for dispatch). Until then,
-# rebuild a tag with `gh run rerun <run-id>` or push the next tag. Pushing a tag publishes a
-# release: push one only after the owner agrees to the upload.
+# rebuild a tag with `gh run rerun <run-id> --repo allrested/paseo` or push the next tag. Find the
+# run ID with `gh run list --repo allrested/paseo --workflow fork-android-apk.yml --branch <tag>`.
+# GitHub re-runs a run only within 30 days of it; after that, push the next tag.
+# Any run that reaches the upload step publishes: a tag push, a re-run or a dispatch, and the last
+# two replace the APK already attached. Start one only after the owner agrees to that upload.
 # docs/android.md, "The fork's app", has the key, the two secrets and the commands.
 # scripts/fork-android-apk.test.mjs tests this file in fork-ci.yml's docker-tests job.
 name: Fork Android APK
