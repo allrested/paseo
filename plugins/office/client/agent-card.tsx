@@ -100,6 +100,8 @@ function AgentCardBody({
   // Stop shares its row with Open session, so its error goes under the row, at the row's width.
   const [stopFailure, setStopFailure] = useState<StopFailure | null>(null);
   const running = agent.status === "running";
+  const cancel = actions.cancel;
+  const canStop = running && cancel !== null;
   // Counted during render (React's "state from the previous render"), so a failure of the last
   // turn never shows for a frame under the next one. Once the turn ended, so has its failure.
   const [counted, setCounted] = useState<TurnCount>(() => countTurns(null, running));
@@ -108,13 +110,14 @@ function AgentCardBody({
   const stopError = shownStopError(stopFailure, turn);
   const stoppedTurn = turn.turns;
   const stop = useCallback(async () => {
+    if (cancel === null) return;
     setStopFailure(null);
     try {
-      await actions.cancel(agent.id);
+      await cancel(agent.id);
     } catch (caught) {
       if (mounted.current) setStopFailure({ turn: stoppedTurn, text: failureText("Stop", caught) });
     }
-  }, [actions, agent.id, stoppedTurn]);
+  }, [cancel, agent.id, stoppedTurn]);
   const send = useCallback(async () => {
     const sent = text.trim();
     await actions.send(agent.id, sent);
@@ -143,7 +146,7 @@ function AgentCardBody({
           styles={styles}
         />
       ))}
-      {navigation || running ? (
+      {navigation || canStop ? (
         <View style={styles.sheetActions}>
           <View style={styles.actions}>
             {navigation ? (
@@ -154,7 +157,7 @@ function AgentCardBody({
                 styles={styles}
               />
             ) : null}
-            {running ? (
+            {canStop ? (
               <ActionButton
                 label="Stop"
                 pendingLabel="Stopping..."

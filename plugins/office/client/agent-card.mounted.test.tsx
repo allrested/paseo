@@ -7,10 +7,11 @@
 import { act, createElement, useCallback, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginBesideTarget, PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { OfficeAgent } from "../shared/contracts.js";
 import { AgentCard } from "./agent-card.js";
+import type { BesideTarget } from "./beside.js";
 import { useOfficeStyles } from "./styles.js";
 import type { AgentActions } from "./use-agent-actions.js";
 
@@ -41,7 +42,7 @@ const ACTIONS: AgentActions = { send: nothing, respond: nothing, cancel: nothing
 
 type Navigation = NonNullable<PluginSurfaceProps["navigation"]>;
 
-let shown: PluginBesideTarget[];
+let shown: BesideTarget[];
 let opened: string[];
 
 /** The app's navigation; `answer` is what its side area says, null when the app has none. */
@@ -54,7 +55,7 @@ function navigation(answer: boolean | null): Navigation {
     ...(answer === null
       ? {}
       : {
-          showBeside: (target: PluginBesideTarget) => {
+          showBeside: (target: BesideTarget) => {
             shown.push(target);
             return answer;
           },
@@ -62,15 +63,23 @@ function navigation(answer: boolean | null): Navigation {
   };
 }
 
-function Harness({ nav }: { nav: Navigation }) {
+function Harness({
+  nav,
+  actions = ACTIONS,
+  start = AGENT,
+}: {
+  nav: Navigation;
+  actions?: AgentActions;
+  start?: OfficeAgent;
+}) {
   const styles = useOfficeStyles(THEME, false, false);
-  const [agent, setAgent] = useState<OfficeAgent | null>(AGENT);
+  const [agent, setAgent] = useState<OfficeAgent | null>(start);
   const close = useCallback(() => setAgent(null), []);
   return (
     <AgentCard
       agent={agent}
       activity={null}
-      actions={ACTIONS}
+      actions={actions}
       navigation={nav}
       styles={styles}
       onClose={close}
@@ -122,4 +131,31 @@ test("on an app without a side area the card closes as the session opens", async
   await openSession(navigation(null));
   expect(opened).toEqual(["a1"]);
   expect(card()).toBeNull();
+});
+
+const RUNNING: OfficeAgent = { ...AGENT, status: "running" };
+const stopButton = () => container.querySelector('[aria-label="Stop"]');
+const stopped: string[] = [];
+const CAN_STOP: AgentActions = {
+  ...ACTIONS,
+  cancel: async (agentId) => void stopped.push(agentId),
+};
+const CANNOT_STOP: AgentActions = { ...ACTIONS, cancel: null };
+
+test("a running agent can be stopped where the host can stop a turn", async () => {
+  stopped.length = 0;
+  await act(async () =>
+    root.render(<Harness nav={navigation(null)} actions={CAN_STOP} start={RUNNING} />),
+  );
+  await act(async () => stopButton()?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await settle();
+  expect(stopped).toEqual(["a1"]);
+});
+
+test("a running agent has no Stop where the host cannot stop a turn", async () => {
+  await act(async () =>
+    root.render(<Harness nav={navigation(null)} actions={CANNOT_STOP} start={RUNNING} />),
+  );
+  expect(card()).not.toBeNull();
+  expect(stopButton()).toBeNull();
 });

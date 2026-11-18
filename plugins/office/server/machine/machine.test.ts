@@ -89,3 +89,18 @@ test("an agent that got a runtime between the two calls is left for the next rea
 test("a host that is not Linux has no reading", async () => {
   expect(await (await reader({ platform: "darwin" })).read()).toBe(null);
 });
+
+test("a reading says whether this host can close an agent's runtime", async () => {
+  expect((await (await reader({ canCloseRuntime: () => true })).read())?.canCloseRuntime).toBe(
+    true,
+  );
+  expect((await (await reader({ canCloseRuntime: () => false })).read())?.canCloseRuntime).toBe(
+    false,
+  );
+});
+
+test("a reader that is not asked leaves the field out, as an older server did", async () => {
+  const machine = await (await reader()).read();
+  expect(machine).not.toBeNull();
+  expect(machine).not.toHaveProperty("canCloseRuntime");
+});

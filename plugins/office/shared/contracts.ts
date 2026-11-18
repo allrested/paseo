@@ -403,6 +403,11 @@ export const MachineSchema = z.object({
   cpuPercent: z.number().nullable(),
   /** The agents with a process on the host: the forgotten first, then by memory. */
   agents: z.array(MachineAgentSchema),
+  /**
+   * Whether this host can close an agent's runtime, which the clean-up of an idle agent needs.
+   * Absent from an older server, which only the fork's host ran: read it as true.
+   */
+  canCloseRuntime: z.boolean().optional(),
 });
 export type Machine = z.output<typeof MachineSchema>;
 

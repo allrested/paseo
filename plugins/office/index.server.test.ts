@@ -554,7 +554,8 @@ test("the machine is read for a subscriber and no longer once it left", async ()
   // The reading asks the file system, which takes longer than a round of promises.
   for (let round = 0; round < 200 && events.length === 0; round += 1) await settle();
 
-  // No /proc at the test's root: a reading with nothing in it, not a failure.
+  // No /proc at the test's root: a reading with nothing in it, not a failure. The test's host has
+  // no closeRuntime on an agent's handle, as stock Paseo's has none.
   expect(events).toEqual([
     {
       type: "reading",
@@ -563,6 +564,7 @@ test("the machine is read for a subscriber and no longer once it left", async ()
         memory: null,
         cpuPercent: null,
         agents: [],
+        canCloseRuntime: false,
       },
     },
   ]);

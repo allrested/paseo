@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
-import type { ScriptFrameHandle } from "@getpaseo/plugin/client/ui";
 import { worldBrand } from "./adapter.js";
-import { kitScriptFrame } from "./script-frame-kit.js";
+import { kitScriptFrame, type ScriptFrameHandle } from "./script-frame-kit.js";
 import { useWorldFeed } from "./use-world-feed.js";
 import type { WorldApi } from "./world-api.js";
 import { createWorldBridge, type WorldBridge } from "./world-bridge.js";

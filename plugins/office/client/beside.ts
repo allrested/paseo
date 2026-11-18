@@ -1,8 +1,25 @@
-import type { PluginBesideTarget, PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+
+/** What the fork's app can show beside a plugin's screen; stock Paseo's app has no side area. */
+export type BesideTarget =
+  | { readonly kind: "agent"; readonly agentId: string; readonly serverId?: string }
+  | {
+      readonly kind: "screen";
+      readonly pluginId: string;
+      readonly screenId: string;
+      readonly params?: Record<string, string>;
+      readonly serverId?: string;
+    };
 
 type Navigation = PluginSurfaceProps["navigation"];
 
-const RESOURCES: PluginBesideTarget = {
+/** The app's `showBeside`, where it has one; the published types do not declare it. */
+export function showBesideOf(navigation: Navigation): ((target: BesideTarget) => boolean) | null {
+  const call: unknown = (navigation as Record<string, unknown> | undefined)?.showBeside;
+  return typeof call === "function" ? (call as (target: BesideTarget) => boolean) : null;
+}
+
+const RESOURCES: BesideTarget = {
   kind: "screen",
   pluginId: "resource-manager",
   screenId: "resources",
@@ -15,7 +32,7 @@ const RESOURCES: PluginBesideTarget = {
  */
 export function openSessionWith(navigation: Navigation, agentId: string): boolean {
   if (navigation === undefined) return false;
-  if (navigation.showBeside?.({ kind: "agent", agentId }) === true) return true;
+  if (showBesideOf(navigation)?.({ kind: "agent", agentId }) === true) return true;
   navigation.openAgent({ agentId });
   return false;
 }
@@ -29,8 +46,8 @@ export function resourcesOpener(
   navigation: Navigation,
   openMachine: () => void,
 ): (() => void) | undefined {
-  const showBeside = navigation?.showBeside;
-  if (showBeside === undefined) return undefined;
+  const showBeside = showBesideOf(navigation);
+  if (showBeside === null) return undefined;
   return () => {
     if (!showBeside(RESOURCES)) openMachine();
   };

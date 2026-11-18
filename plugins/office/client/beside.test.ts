@@ -1,18 +1,18 @@
 import { expect, test } from "vitest";
-import type { PluginBesideTarget, PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { openSessionWith, resourcesOpener } from "./beside.js";
+import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { openSessionWith, resourcesOpener, showBesideOf, type BesideTarget } from "./beside.js";
 
 type Navigation = NonNullable<PluginSurfaceProps["navigation"]>;
 
 interface FakeNavigation {
   navigation: Navigation;
-  shown: PluginBesideTarget[];
+  shown: BesideTarget[];
   opened: string[];
 }
 
 /** The app's navigation; `answer` is what its side area says, null when the app has none. */
 function fakeNavigation(answer: boolean | null): FakeNavigation {
-  const shown: PluginBesideTarget[] = [];
+  const shown: BesideTarget[] = [];
   const opened: string[] = [];
   const navigation: Navigation = {
     openAgent: ({ agentId }) => {
@@ -22,7 +22,7 @@ function fakeNavigation(answer: boolean | null): FakeNavigation {
     ...(answer === null
       ? {}
       : {
-          showBeside: (target: PluginBesideTarget) => {
+          showBeside: (target: BesideTarget) => {
             shown.push(target);
             return answer;
           },
@@ -91,4 +91,12 @@ test("the wall screen opens the Host card when the side area cannot show Resourc
   expect(fake.shown).toHaveLength(1);
   expect(machineOpened).toBe(1);
   expect(fake.opened).toEqual([]);
+});
+
+test("showBesideOf gives the app's call, and null where it has none", () => {
+  expect(showBesideOf(fakeNavigation(true).navigation)).toBeTypeOf("function");
+  expect(showBesideOf(fakeNavigation(null).navigation)).toBeNull();
+  expect(showBesideOf(undefined)).toBeNull();
+  const odd = { ...fakeNavigation(null).navigation, showBeside: "no" } as unknown as Navigation;
+  expect(showBesideOf(odd)).toBeNull();
 });

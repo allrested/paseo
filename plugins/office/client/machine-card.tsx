@@ -104,9 +104,18 @@ function MachineBody({ machine, cleanUp, styles }: MachineBodyProps) {
     () => machine.agents.filter((agent) => !agent.forgotten),
     [machine.agents],
   );
-  const cleanAll = useCallback(() => cleanUp(left.map((agent) => agent.agentId)), [cleanUp, left]);
+  // A host that cannot close an agent's runtime can still stop what a closed agent left behind.
+  const canClose = machine.canCloseRuntime !== false;
+  const cleanable = useMemo(
+    () => left.filter((agent) => canClose || agent.status === "closed"),
+    [left, canClose],
+  );
+  const cleanAll = useCallback(
+    () => cleanUp(cleanable.map((agent) => agent.agentId)),
+    [cleanUp, cleanable],
+  );
   const percent = memoryPercent(machine);
-  const rowAction = left.length === 1 ? CLEAN_ONLY : CLEAN_ONE;
+  const rowAction = cleanable.length === 1 ? CLEAN_ONLY : CLEAN_ONE;
   return (
     <View style={styles.sheet}>
       <View style={styles.machineMeters}>
@@ -135,18 +144,19 @@ function MachineBody({ machine, cleanUp, styles }: MachineBodyProps) {
               key={agent.agentId}
               agent={agent}
               now={now}
-              action={rowAction}
+              action={cleanable.includes(agent) ? rowAction : null}
               cleanUp={cleanUp}
               styles={styles}
             />
           ))}
           <Text style={styles.rowMeta}>
-            Cleaning up closes an idle agent, which its next prompt resumes, and stops what a closed
-            agent left behind.
+            {canClose
+              ? "Cleaning up closes an idle agent, which its next prompt resumes, and stops what a closed agent left behind."
+              : `This host cannot close an idle agent's runtime.${cleanable.length > 0 ? " Cleaning up stops what a closed agent left behind." : ""}`}
           </Text>
-          {left.length > 1 ? (
+          {cleanable.length > 1 ? (
             <ActionButton
-              label={`Clean up all ${left.length}`}
+              label={`Clean up all ${cleanable.length}`}
               pendingLabel="Cleaning up..."
               onPress={cleanAll}
               styles={styles}
@@ -171,7 +181,7 @@ function MachineBody({ machine, cleanUp, styles }: MachineBodyProps) {
               key={agent.agentId}
               agent={agent}
               now={now}
-              action={agent.status === "idle" ? CLOSE : null}
+              action={canClose && agent.status === "idle" ? CLOSE : null}
               cleanUp={cleanUp}
               styles={styles}
             />

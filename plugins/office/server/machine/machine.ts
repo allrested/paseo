@@ -19,6 +19,8 @@ export interface MachinePorts {
   liveAgents(): Promise<KnownAgent[]>;
   /** An agent in whatever state; null when this daemon does not know the id. */
   agent(id: string): Promise<KnownAgent | null>;
+  /** Whether this host can close an agent's runtime; a reading carries the answer when given. */
+  canCloseRuntime?(): boolean;
 }
 
 export interface MachineReader {
@@ -61,7 +63,7 @@ export function createMachineReader(ports: MachinePorts): MachineReader {
       ]);
       const percent = cpuPercent(cpuBefore, cpuNow);
       cpuBefore = cpuNow;
-      return buildMachine({
+      const machine = buildMachine({
         now: ports.now(),
         memory,
         cpuPercent: percent,
@@ -69,6 +71,9 @@ export function createMachineReader(ports: MachinePorts): MachineReader {
         listeners,
         agents,
       });
+      return ports.canCloseRuntime
+        ? { ...machine, canCloseRuntime: ports.canCloseRuntime() }
+        : machine;
     },
   };
 }

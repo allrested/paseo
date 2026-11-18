@@ -1,3 +1,4 @@
+import { extra } from "../../shared/host-extras.js";
 import { AgentStatusSchema } from "../../shared/contracts.js";
 import type { Paseo, PaseoHolder } from "../paseo-holder.js";
 import type { CleanupPorts } from "./cleanup.js";
@@ -57,9 +58,10 @@ async function liveAgents(paseo: Paseo): Promise<KnownAgent[]> {
 export function liveMachinePorts(
   holder: PaseoHolder,
   now: () => number,
-): Pick<MachinePorts, "now" | "liveAgents" | "agent"> {
+): Pick<MachinePorts, "now" | "liveAgents" | "agent" | "canCloseRuntime"> {
   return {
     now,
+    canCloseRuntime: () => canCloseRuntime(holder),
     liveAgents: () => liveAgents(holder.require()),
     async agent(id) {
       const result = await holder.require().agents.ref(id).refresh();
@@ -68,9 +70,17 @@ export function liveMachinePorts(
   };
 }
 
+/**
+ * Whether this host's agent handle has `closeRuntime`: the fork's SDK does, stock Paseo's does
+ * not. `agents.ref` sends nothing, so a made-up id is enough to ask.
+ */
+function canCloseRuntime(holder: PaseoHolder): boolean {
+  return extra(holder.require().agents.ref("probe"), "closeRuntime") !== null;
+}
+
 export function liveCleanupPorts(
   holder: PaseoHolder,
-): Pick<CleanupPorts, "agent" | "closeRuntime"> {
+): Pick<CleanupPorts, "agent" | "closeRuntime"> & { canCloseRuntime(): boolean } {
   return {
     async agent(agentId) {
       const result = await holder.require().agents.ref(agentId).refresh();
@@ -78,6 +88,11 @@ export function liveCleanupPorts(
       const status = statusOf(result.agent);
       return status === null ? null : { status, resumable: result.agent.persistence != null };
     },
-    closeRuntime: (agentId) => holder.require().agents.ref(agentId).closeRuntime(),
+    async closeRuntime(agentId) {
+      const call = extra(holder.require().agents.ref(agentId), "closeRuntime");
+      if (call === null) throw new Error("This host cannot close an agent's runtime");
+      await call();
+    },
+    canCloseRuntime: () => canCloseRuntime(holder),
   };
 }
