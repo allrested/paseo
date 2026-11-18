@@ -106,8 +106,8 @@ npm run dev:ios         # Build/install the iOS development app
 `PASEO_WATCHDOG_BUILD=1`, the production React profiling renderer, and Android's shell-profileable
 flag. These builds keep the production package ID (`sh.paseo`) and release optimizations. Use this APK for
 personal dogfooding. Android system-trace spans require the separate `PASEO_PROFILE_BUILD=1` flag;
-watchdog recording does not send duplicate spans to that sink by default. Normal store/release
-workflows leave diagnostics disabled.
+watchdog recording does not send duplicate spans to that sink by default. Upstream's store and
+release workflows leave diagnostics disabled; [the fork's app](#the-forks-app) keeps them on.
 
 The older `android`, `android:development`, and `ios` commands remain aliases for development.
 `android:production` still builds and installs a release through Expo; use `build:apk` when you
@@ -172,7 +172,8 @@ they do not produce Downloads files.
 ## The fork's app
 
 The allrested fork ships the [`fork` variant](#app-variants) as an arm64 APK, signed with the
-fork's own key, on prereleases of `allrested/paseo`.
+fork's own key, on prereleases of `allrested/paseo`. It is a diagnostics build, as the dogfood APK
+is: it keeps [diagnostic logs](#diagnostic-logs-without-adb) in Downloads → **Paseo diagnostics**.
 
 ### The key
 
@@ -208,7 +209,9 @@ be on the fork's `main`. The run fails, and uploads nothing, unless the APK is `
 arm64, signed by `CN=Paseo Fork`, aligned for 16 KB pages and carrying ScriptFrame. Then it creates
 the tag's prerelease if it is missing and attaches `paseo-fork-arm64.apk`.
 
-A pushed tag publishes the APK. Push one only after the owner agrees to that upload.
+Any run that reaches the upload step publishes the APK: a tag push, a re-run or a dispatch. A
+re-run or a dispatch replaces the APK already attached. Start one only after the owner agrees to
+that upload.
 
 The workflow reads the key from two repository secrets. Set them once from the files; neither
 command prints a value:
@@ -218,15 +221,18 @@ base64 -w0 ~/.paseo-fork/release.keystore | gh secret set FORK_ANDROID_KEYSTORE 
 gh secret set FORK_ANDROID_KEYSTORE_PASSWORD --repo allrested/paseo < ~/.paseo-fork/release.password
 ```
 
-Then tag, push the tag, and follow the run with `gh run watch`:
+Then tag, push the tag, find the run's ID and follow the run with `gh run watch`:
 
 ```bash
 git tag fork-android-0.16.0-1 <commit>
 git push origin fork-android-0.16.0-1
+gh run list --repo allrested/paseo --workflow fork-android-apk.yml --branch fork-android-0.16.0-1
+gh run watch <run-id> --repo allrested/paseo
 ```
 
 To build an existing tag again, re-run its run: `gh run rerun <run-id> --repo allrested/paseo`
-runs the tag's own workflow file again. Or push the next tag, `fork-android-<version>-<n+1>`.
+runs the tag's own workflow file again. GitHub re-runs a run only within 30 days of it. Or push
+the next tag, `fork-android-<version>-<n+1>`, which works at any time.
 GitHub fires `workflow_dispatch` only for a workflow file on the default branch, so once this file
 is on the fork's `main` you can also start a build by hand, with the same tag for `--ref` and
 `-f tag`:

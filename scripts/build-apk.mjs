@@ -80,7 +80,9 @@ if (isFork) {
     ["sign", "--ks", forkKey, "--ks-pass", `file:${forkPassword}`, "--out", destination, aligned],
     root,
   );
-  console.log(`\nFork APK (arm64, signed with ${forkKey}): ${destination}\n`);
+  console.log(
+    `\nFork APK (arm64, signed with ${forkKey}): ${destination}\nLogs: Downloads/Paseo diagnostics\n`,
+  );
 } else {
   copyFileSync(built, destination);
   console.log(`\nDiagnostic release APK: ${destination}\nLogs: Downloads/Paseo diagnostics\n`);
