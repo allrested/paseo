@@ -12,6 +12,8 @@ import { useOfficeStyles } from "./styles.js";
 import { useColumn } from "./use-column.js";
 
 let saves: unknown[];
+/** What the column said of its drag, in order. */
+let dragging: boolean[];
 let storedColumn: { width: number; collapsed: boolean };
 
 vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
@@ -41,6 +43,10 @@ vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
 const THEME = { colors: new Proxy({}, { get: () => "#808080" }) } as unknown as PluginTheme;
 let container: HTMLElement;
+
+function recordDrag(next: boolean): void {
+  dragging.push(next);
+}
 let root: Root;
 
 function Harness({ chat }: { chat: string | null }): ReactNode {
@@ -54,6 +60,7 @@ function Harness({ chat }: { chat: string | null }): ReactNode {
       badges={badges}
       color="#000000"
       iconSize={16}
+      onDragging={recordDrag}
       styles={styles}
     >
       <Text>{`panel:${column.tab}`}</Text>
@@ -73,6 +80,7 @@ function tab(label: string): HTMLElement {
 
 beforeEach(() => {
   saves = [];
+  dragging = [];
   storedColumn = { width: 360, collapsed: false };
   container = document.createElement("div");
   document.body.append(container);
@@ -132,4 +140,21 @@ test("a device that left the column collapsed opens the office on the rail", asy
 
   expect(container.textContent).not.toContain("panel:");
   expect(container.querySelectorAll('[role="tab"]')).toHaveLength(4);
+});
+
+test("a drag of the handle says when it starts and when it ends", async () => {
+  await mount();
+  const handle = container.querySelector<HTMLElement>('[aria-label="Drag to resize the column"]');
+  if (!handle) throw new Error("There is no handle");
+
+  // The responder events react-native-web listens for: a press on the handle, a release anywhere.
+  await act(async () => {
+    handle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  });
+  expect(dragging).toEqual([true]);
+
+  await act(async () => {
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  });
+  expect(dragging).toEqual([true, false]);
 });

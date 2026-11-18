@@ -12,6 +12,8 @@ export interface OfficeStyles {
   header: ViewStyle;
   /** Holds the floor and what lies over its corner. */
   floor: ViewStyle;
+  /** The floor while the column's handle is dragged: it takes no pointer, so its frame cannot. */
+  floorDragging: ViewStyle;
   /** The view switch and the panel buttons over the floor's top right corner. */
   viewCorner: ViewStyle;
   /** The same controls in the page's flow, above a view that scrolls under them. */
@@ -487,6 +489,7 @@ export function useOfficeStyles(
       // No side padding here: the strip scrolls to the screen edge, and each row pads itself.
       header: { paddingTop: 8, gap: 8 },
       floor: { flex: 1 },
+      floorDragging: { flex: 1, pointerEvents: "none" },
       // Top right: the scene's camera bar is at the bottom centre and its note bottom left.
       viewCorner: {
         position: "absolute",
@@ -528,7 +531,9 @@ export function useOfficeStyles(
         alignItems: "center",
         gap: 8,
       },
-      // Wider than it looks: the drag starts anywhere on it, and only its middle line is drawn.
+      // Nothing is drawn at rest; the strip fills while it is dragged. It overlaps the column's
+      // edge, so the drag starts anywhere on it. No col-resize cursor: ViewStyle's cursor takes
+      // only "auto" and "pointer".
       columnHandle: { width: HANDLE, marginRight: -HANDLE, zIndex: 1 },
       columnHandleLit: {
         width: HANDLE,

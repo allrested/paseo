@@ -959,6 +959,7 @@ function PhoneBar({ compact, sheet, badges, color, styles }: PhoneBarProps) {
 
 interface WideColumnProps extends ColumnPanelProps {
   compact: boolean;
+  onDragging(dragging: boolean): void;
   column: ColumnState;
   surfaceWidth: number;
   badges: ColumnBadges;
@@ -975,6 +976,7 @@ function WideColumn({
   badges,
   color,
   iconSize,
+  onDragging,
   attention,
   ...panel
 }: WideColumnProps) {
@@ -986,6 +988,7 @@ function WideColumn({
       badges={badges}
       color={color}
       iconSize={iconSize}
+      onDragging={onDragging}
       styles={panel.styles}
     >
       <ColumnPanel tab={column.tab} attention={attention} {...panel} />
@@ -1004,6 +1007,26 @@ function useSettingsEntry(state: OfficeState["state"], onOpenSettings: (() => vo
         : null,
     [notesError, incidentsError, onOpenSettings],
   );
+}
+
+/**
+ * The surface's width and the layout it gets. A surface too narrow for the column and the floor
+ * is compact on any device: a desktop's split pane gets the bar and the sheet. Until it is
+ * measured the device decides.
+ */
+function useSurfaceLayout(deviceCompact: boolean, styles: OfficeStyles) {
+  const [surfaceWidth, setSurfaceWidth] = useState(0);
+  const measure = useCallback(
+    (event: LayoutChangeEvent) => setSurfaceWidth(event.nativeEvent.layout.width),
+    [],
+  );
+  const compact = deviceCompact || (surfaceWidth > 0 && surfaceWidth < COLUMN_MIN + FLOOR_MIN);
+  // While the column's handle is dragged over it, the floor takes no pointer: the web's 3D floor
+  // is a frame, which would keep the moves and the release from the handle. A compact surface
+  // has no handle, so a drag cut short by a flip to compact does not leave the floor dead.
+  const [dragging, setDragging] = useState(false);
+  const floorStyle = dragging && !compact ? styles.floorDragging : styles.floor;
+  return { surfaceWidth, measure, compact, floorStyle, setDragging };
 }
 
 /**
@@ -1050,14 +1073,10 @@ export function OfficeSurface(
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
   const column = useColumn();
-  const [surfaceWidth, setSurfaceWidth] = useState(0);
-  const measure = useCallback(
-    (event: LayoutChangeEvent) => setSurfaceWidth(event.nativeEvent.layout.width),
-    [],
+  const { surfaceWidth, measure, compact, floorStyle, setDragging } = useSurfaceLayout(
+    layout.compact,
+    styles,
   );
-  // A surface too narrow for the column and the floor is compact on any device: a desktop's split
-  // pane gets the bar and the sheet. Until it is measured the device decides.
-  const compact = layout.compact || (surfaceWidth > 0 && surfaceWidth < COLUMN_MIN + FLOOR_MIN);
   const machine = useMemo(() => namedMachine(reading, model.agents), [reading, model.agents]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
@@ -1204,7 +1223,7 @@ export function OfficeSurface(
         <SceneProblem message={sceneProblem} onRetry={retryScene} styles={styles} />
       ) : null}
       <View style={styles.officeRow}>
-        <View style={styles.floor}>
+        <View style={floorStyle}>
           <ViewControls
             floorDrawn={floorDrawn}
             viewChoice={viewChoice}
@@ -1253,6 +1272,7 @@ export function OfficeSurface(
           badges={badges}
           color={color}
           iconSize={touchScreen ? 20 : 16}
+          onDragging={setDragging}
           link={link}
           {...panel}
         />

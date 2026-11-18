@@ -161,6 +161,11 @@ export interface OfficeColumnProps {
   /** The theme's foreground, which an icon-only control's glyph rests at. */
   color: string;
   iconSize: number;
+  /**
+   * True when a drag of the handle starts, false when it ends. The drag widens over the floor, and
+   * a web floor's frame would take the pointer from the handle while it moves over it.
+   */
+  onDragging(dragging: boolean): void;
   styles: OfficeStyles;
   /** The chosen tab's panel. */
   children: ReactNode;
@@ -177,6 +182,7 @@ export function OfficeColumn({
   badges,
   color,
   iconSize,
+  onDragging,
   styles,
   children,
 }: OfficeColumnProps) {
@@ -193,17 +199,22 @@ export function OfficeColumn({
         onPanResponderGrant: () => {
           start.current = width;
           setDragged(width);
+          onDragging(true);
         },
         // The handle is on the column's left: a drag to the left widens it.
         onPanResponderMove: (_event, gesture) =>
           setDragged(clampColumn(start.current - gesture.dx, surfaceWidth)),
         onPanResponderRelease: (_event, gesture) => {
           setDragged(null);
+          onDragging(false);
           setWidth(clampColumn(start.current - gesture.dx, surfaceWidth));
         },
-        onPanResponderTerminate: () => setDragged(null),
+        onPanResponderTerminate: () => {
+          setDragged(null);
+          onDragging(false);
+        },
       }),
-    [width, surfaceWidth, setWidth],
+    [width, surfaceWidth, setWidth, onDragging],
   );
   const collapse = useCallback(() => setCollapsed(true), [setCollapsed]);
   const sized = useMemo(
