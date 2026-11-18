@@ -28,9 +28,9 @@ body { font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto
 #stage-wrap, #stage { position: absolute; inset: 0; }
 /* PASEO: what the host draws over the stage's top right corner (client/styles.ts viewCorner) is cleared by what the scene
    puts at the stage's top edge: Exit and the help line in walk-in (ui/camera-bar.js) and the incident banner. The
-   tallest corner is the touch one: inset 16 + border 2 + padding 8 + two wrapped rows of 44 with a gap of 4, then the
-   unsaved-view note (gap 4, two lines of 16) = 154, rounded up to 156. */
-:root { --corner-clear: 156px; }
+   tallest corner is the touch one with the unsaved-view note: inset 16 + border 2 + padding 8 + one row of 44 (the view
+   switch and the settings button), then the note (gap 4, two lines of 16) = 106. */
+:root { --corner-clear: 106px; }
 #stage canvas { display: block; outline: none; touch-action: none; cursor: grab; }
 #stage canvas:active { cursor: grabbing; }
 #stage canvas.hovering { cursor: pointer; }

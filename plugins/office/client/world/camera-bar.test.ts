@@ -308,12 +308,12 @@ test("the overlay's style keeps upstream's light ink and hides the chips while w
 });
 
 test("while the incident banner shows, the walk's help line sits under it above 520 px", () => {
-  // The banner (paseo-style.js `.incident`) is at the stage's top, 12 px down and about 30 px tall;
-  // at 520 px and narrower the help line is at 56 px already.
+  // The banner (paseo-style.js `.incident`) is at the stage's top, `--corner-clear` down and about
+  // 30 px tall; at 520 px and narrower the help line is 44 px under the corner already.
   build();
   const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
   expect(css).toMatch(
-    /@media \(min-width: 521px\) \{ #stage-wrap:has\(> #incident:not\(\[hidden\]\)\) \.fp-help \{ top: 52px; \} \}/,
+    /@media \(min-width: 521px\) \{ #stage-wrap:has\(> #incident:not\(\[hidden\]\)\) \.fp-help \{ top: calc\(var\(--corner-clear\) \+ 40px\); \} \}/,
   );
 });
 
