@@ -3,7 +3,7 @@ import type { UsageInput } from "../shared/input.js";
 import { execFile } from "node:child_process";
 import { existsSync, promises as fs } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import {
@@ -343,22 +343,11 @@ interface ClaudeCredentialLookup extends StoreLookup {
   claudeHome?: string;
 }
 
-/** A login to try, named after its Claude profile directory when it has one. */
-interface Candidate {
-  input: UsageInput;
-  profile?: string;
-}
-
-function claudeConfigDir(lookup: ClaudeCredentialLookup): string {
+function claudeCredentialPath(lookup: ClaudeCredentialLookup): string {
   const home = lookup.home ?? homedir();
   const env = lookup.env ?? process.env;
-  return lookup.claudeHome ?? env.CLAUDE_CONFIG_DIR ?? join(home, ".claude");
-}
-
-/** `~/.claude-work` is the "claude-work" profile; the default `~/.claude` has no name. */
-function profileName(configDir: string): string | undefined {
-  const name = basename(configDir);
-  return name !== ".claude" && name.startsWith(".claude") ? name.slice(1) : undefined;
+  const claudeHome = lookup.claudeHome ?? env.CLAUDE_CONFIG_DIR ?? join(home, ".claude");
+  return join(claudeHome, ".credentials.json");
 }
 
 async function keychainCredentialRecord(
@@ -388,33 +377,24 @@ export async function discover(
   const candidates =
     scope.kind === "global" ? await globalRoutes(lookup) : await sessionRoutes(scope, lookup);
   const accounts: UsageAccount[] = [];
-  for (const { input, profile } of candidates) {
+  for (const input of candidates) {
     const credentials = await resolveClaudeCredentials(input, lookup);
     if (!credentials) continue;
-    const store = { pi: "Pi", omp: "OMP", claude: "Claude", keychain: "Claude" }[input.route.store];
-    const harness = profile ? `${store} (${profile})` : store;
-    const fallback = {
-      key: hashAccountKey(JSON.stringify(input.route)),
-      ...(profile ? { label: profile } : {}),
-      harness,
-      input,
-    };
+    const harness = { pi: "Pi", omp: "OMP", claude: "Claude", keychain: "Claude" }[
+      input.route.store
+    ];
+    const fallback = { key: hashAccountKey(JSON.stringify(input.route)), harness, input };
     if (credentials.expires !== undefined && credentials.expires <= (lookup.now ?? Date.now)()) {
       accounts.push(fallback);
       continue;
     }
     try {
-      const identity = await readProfile(
+      const profile = await readProfile(
         credentials.oauth.accessToken,
         fetchApi,
         lookup.now ?? Date.now,
       );
-      if ("status" in identity) {
-        accounts.push(fallback);
-        continue;
-      }
-      const label = identity.label ?? profile;
-      accounts.push({ key: identity.key, ...(label ? { label } : {}), harness, input });
+      accounts.push("status" in profile ? fallback : { ...profile, harness, input });
     } catch {
       // Keep the login visible; fetching usage reports the vendor failure.
       accounts.push(fallback);
@@ -438,61 +418,25 @@ function claudeKeychainRoute(lookup: ClaudeCredentialLookup) {
   };
 }
 
-async function claudeRoute(lookup: ClaudeCredentialLookup): Promise<Candidate> {
+async function claudeRoute(lookup: ClaudeCredentialLookup): Promise<UsageInput> {
   const route = claudeKeychainRoute(lookup);
-  const configDir = claudeConfigDir(lookup);
-  const input: UsageInput = (await keychainCredentialRecord(lookup, route))
+  return (await keychainCredentialRecord(lookup, route))
     ? { route }
-    : { route: { store: "claude", path: join(configDir, ".credentials.json") } };
-  return { input, profile: profileName(configDir) };
+    : { route: { store: "claude", path: claudeCredentialPath(lookup) } };
 }
 
-/**
- * Every `.claude*` directory in the home, for logins made with
- * `CLAUDE_CONFIG_DIR=~/.claude-work claude`. A directory without a login drops out in discover().
- */
-async function profileRoutes(lookup: ClaudeCredentialLookup): Promise<Candidate[]> {
-  const home = lookup.home ?? homedir();
-  const env = { ...(lookup.env ?? process.env) };
-  delete env.CLAUDE_CONFIG_DIR;
-  const names = await fs.readdir(home).catch(() => [] as string[]);
-  const candidates: Candidate[] = [];
-  for (const name of names.filter((entry) => entry.startsWith(".claude")).sort()) {
-    const configDir = join(home, name);
-    if (!(await fs.stat(configDir).catch(() => null))?.isDirectory()) continue;
-    // Plain `claude` reads ~/.claude with CLAUDE_CONFIG_DIR unset, which on macOS selects a
-    // different Keychain entry than setting it to the same path.
-    candidates.push(
-      await claudeRoute({
-        ...lookup,
-        claudeHome: undefined,
-        env: name === ".claude" ? env : { ...env, CLAUDE_CONFIG_DIR: configDir },
-      }),
-    );
-  }
-  return candidates;
-}
-
-async function globalRoutes(lookup: ClaudeCredentialLookup): Promise<Candidate[]> {
-  const candidates: Candidate[] = [
+async function globalRoutes(lookup: ClaudeCredentialLookup): Promise<UsageInput[]> {
+  return [
     await claudeRoute(lookup),
-    ...(await profileRoutes(lookup)),
-    { input: { route: { store: "pi", path: piAuthPath(lookup) } } },
-    ...discoverOmp(lookup).map((route) => ({ input: { route } })),
+    { route: { store: "pi", path: piAuthPath(lookup) } },
+    ...discoverOmp(lookup).map((route) => ({ route })),
   ];
-  const seen = new Set<string>();
-  return candidates.filter(({ input }) => {
-    const route = JSON.stringify(input.route);
-    if (seen.has(route)) return false;
-    seen.add(route);
-    return true;
-  });
 }
 
 async function sessionRoutes(
   scope: Extract<UsageScope, { kind: "session" }>,
   lookup: ClaudeCredentialLookup,
-): Promise<Candidate[]> {
+): Promise<UsageInput[]> {
   if (scope.provider === "claude") {
     const env = scope.env;
     const foreign =
@@ -503,9 +447,8 @@ async function sessionRoutes(
     return [await claudeRoute(lookup)];
   }
   if (!scope.model?.startsWith("anthropic/")) return [];
-  if (scope.provider === "pi")
-    return [{ input: { route: { store: "pi", path: piAuthPath(lookup) } } }];
-  if (scope.provider === "omp") return discoverOmp(lookup).map((route) => ({ input: { route } }));
+  if (scope.provider === "pi") return [{ route: { store: "pi", path: piAuthPath(lookup) } }];
+  if (scope.provider === "omp") return discoverOmp(lookup).map((route) => ({ route }));
   return [];
 }
 

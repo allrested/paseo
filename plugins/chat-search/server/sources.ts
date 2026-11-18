@@ -1,10 +1,10 @@
 // Where Claude Code keeps its transcripts on this host: <config folder>/projects/<folder slug>/
-// <session id>.jsonl, for the main config folder and for each account claude-accounts made.
+// <session id>.jsonl, for the main config folder and for each ~/.claude-<name> account folder.
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-// plugins/claude-accounts/server/profiles.ts names an account's folder ~/.claude-<name>.
+// An account's own config folder is ~/.claude-<name>.
 const ACCOUNT_PREFIX = ".claude-";
 const TRANSCRIPT = ".jsonl";
 

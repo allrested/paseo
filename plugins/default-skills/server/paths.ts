@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 
 export interface SkillPaths {
-  /** The main Claude config folder's `skills/`. claude-accounts links it into every account. */
+  /** The main Claude config folder's `skills/`. */
   skillsDirectory: string;
   /** The folders this plugin created, so it never replaces or removes one it did not. */
   recordFile: string;

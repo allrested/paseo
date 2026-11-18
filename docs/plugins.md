@@ -277,55 +277,11 @@ and while one hangs, the tab still shows the hosts that answered.
 `plugins/shared-mcp/server/procfs.ts`, because a built-in cannot import another built-in's files.
 `procfs-copy.test.ts` fails when the two differ, so change both together.
 
-The `claude-accounts` built-in manages several Claude Code logins on one host. Each account is a
-directory `~/.claude-<name>` with its own login, launched by the provider `claude-<name>`, whose
-`env` sets `CLAUDE_CONFIG_DIR`. Open the "Claude accounts" screen from the sidebar footer; it
-works before any workspace is open. Add account creates the directory and the provider entry,
-links the main profile's settings, `CLAUDE.md`, skills, plugins, commands and agents into it, and
-opens `claude auth login` in a terminal of your most recent workspace, so open a project first.
-Add account and Sign in need macOS or Linux. The reasons are in the
-[design](superpowers/specs/2026-11-06-claude-accounts-design.md).
-
-`.claude.json` holds each login's own state, so it cannot be a link. The plugin keeps each
-account's user-scope `mcpServers` equal to the main profile's: every 5 s it compares them and
-rewrites a copy that differs, under Claude Code's own file lock, which also undoes a Claude Code
-write that drops the copy. It writes only into accounts it added, recorded in
-`$PASEO_HOME/claude-accounts/added.json`. A `~/.claude-<name>` made by hand shows a problem on its
-row until you add the same name again, which adopts it. Links are made at Add, so an entry the main
-profile gains later is shared once you add the account again.
-
-The default account on that screen applies to every agent created with plain `claude`. Auto picks
-the signed-in account with the most room; it skips an account whose usage is unknown, whose
-provider is off or not ready, or that is at 95% or more or on pace to run out within 30 minutes,
-and keeps plain `claude` when none is left. A named default that cannot take agents also keeps
-plain `claude`, and an agent started on a named account stays on it. A move to plain `claude` from
-the Move dialog or the CLI that falls back to a history handoff creates its successor through the
-same choice, so it can land on another account. Move idle agents skips agents in a turn, and an
-agent it moves to the main account stays on plain `claude`. The agents it moves lose their
-background shells, `Monitor` watches, background subagents and a running Workflow, which live in
-the Claude process. On macOS the login is in the Keychain, so the screen learns it from the usage
-source: with usage off, every account shows as not signed in, Auto keeps plain `claude`, and Move
-idle agents refuses every account.
-
-Remove on an account's row retires the account; the main account has no Remove. After you confirm,
-it deletes the `claude-<name>` provider entry, drops the name from `added.json`, and renames
-`~/.claude-<name>` to `~/.claude-<name>.removed-<yyyymmdd-hhmmss>`, stamped in UTC. The renamed
-folder keeps the account's chat history and login, and discovery skips it because an account name
-cannot contain a dot. Remove changes nothing and says why while the account has agents that are not
-archived, while Move idle agents moves agents to or from it, or when Paseo did not add it; to remove
-a hand-made account, add the same name first. A plugin's server cannot write the plugin's settings,
-so when the default account is the removed one, the screen saves plain `claude` as the default
-after the removal. If that save fails, its error shows under the default account picker, and the
-stale default keeps plain `claude`. To restore an account, rename its folder back to
-`~/.claude-<name>`, then add the same name again.
-
 The `default-skills` built-in installs third-party Claude Code skills that were reviewed at a
 pinned commit: ub-mode, the AI design skills, Anti Slop, UI/UX Pro Max and unslop. At every daemon
 start, and whenever its settings are saved, it copies each skill that is on from
 `plugins/default-skills/vendor/` into `skills/` of the main Claude config folder
-(`$CLAUDE_CONFIG_DIR`, else `~/.claude`). `claude-accounts` links that folder into each account it
-adds, so one copy serves every account; an account added before the folder existed needs Add
-again. It writes no other agent's skills folder. Each folder it creates is recorded with a hash of
+(`$CLAUDE_CONFIG_DIR`, else `~/.claude`). It writes no other agent's skills folder. Each folder it creates is recorded with a hash of
 its content in `$PASEO_HOME/default-skills/installed.json`, and a folder counts as the plugin's only
 while it still matches that hash. A folder you made, or one of its folders you edited, is never
 replaced or removed; the skill shows "skipped: a folder with this name exists" on the Skills screen,
@@ -653,8 +609,6 @@ skills into your real Claude skills folder, and
 `$PASEO_HOME/heavy-command-gate` and `$PASEO_HOME/resource-manager`, and write the gate's shims,
 config and socket there when no daemon owns `gate.sock`; `worktree-include` and `claude-workflows`
 write nothing there, since they act only when a worktree is created or a card asks for a run.
-`claude-accounts` discovers your real Claude profiles from `HOME` and `CLAUDE_CONFIG_DIR`, and syncs
-`mcpServers` into the accounts that the real `$PASEO_HOME/claude-accounts/added.json` records.
 
 Desktop packaging ships the entire built-in plugin directory as an external resource,
 including declarations. The external esbuild compiler cannot read Electron's `app.asar`

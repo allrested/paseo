@@ -9,7 +9,6 @@ export const builtinPlugins = [
   "attribution",
   "bddevlab-usage-source",
   "chat-search",
-  "claude-accounts",
   "claude-usage-source",
   "claude-workflows",
   "codex-usage-source",
