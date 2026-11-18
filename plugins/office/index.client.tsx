@@ -5,7 +5,7 @@ import { ActivityPanel } from "./client/activity-panel.js";
 import { ChatPanel } from "./client/chat-panel.js";
 import { ACTIVITY_SCREEN, CHAT_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
 import { OfficeSettings } from "./client/office-settings.js";
-import { OfficeSurface } from "./client/office-surface.js";
+import { createOfficeSurface } from "./client/office-surface.js";
 import { SessionsPanel } from "./client/sessions-panel.js";
 
 const SCREEN_ID = "office";
@@ -20,8 +20,9 @@ function OfficeItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
 // The sidebar item and the Command Center item are the ways in; Settings > Sidebar can hide the
 // item. The office's settings are a screen of the app's Settings.
 export default function contribute(client: PluginClientContext) {
+  const Surface = createOfficeSurface(() => client.openSettings(SCREEN_ID));
   const removers = [
-    client.addScreen({ id: SCREEN_ID, title: "Office", Component: OfficeSurface }),
+    client.addScreen({ id: SCREEN_ID, title: "Office", Component: Surface }),
     client.addScreen({
       id: SESSIONS_SCREEN,
       title: "Sessions",
@@ -44,7 +45,7 @@ export default function contribute(client: PluginClientContext) {
       id: PANEL_ID,
       title: "Office",
       icon: ICON,
-      Component: OfficeSurface,
+      Component: Surface,
     }),
     client.addCommandCenterItem({
       id: "open-office",
@@ -53,6 +54,16 @@ export default function contribute(client: PluginClientContext) {
       context: "workspace",
       onSelect({ openPanel }) {
         openPanel(PANEL_ID);
+      },
+    }),
+    client.addCommandCenterItem({
+      id: "open-office-settings",
+      title: "Office settings",
+      icon: ICON,
+      keywords: ["office", "wake", "notes", "incidents", "view"],
+      context: "global",
+      onSelect({ openSettings: open }) {
+        open(SCREEN_ID);
       },
     }),
   ];

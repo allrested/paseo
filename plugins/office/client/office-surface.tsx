@@ -63,7 +63,6 @@ import { NotesCard } from "./notes-card.js";
 import { todayZone } from "./notes-text.js";
 import { QaCard } from "./qa-card.js";
 import { ReviewCard } from "./review-card.js";
-import { SettingsProblemsCard } from "./settings-problems-card.js";
 import { settingsEntry, settingsProblems } from "./settings-text.js";
 import { StandupCard } from "./standup-card.js";
 import { useIncidents } from "./use-incidents.js";
@@ -607,6 +606,29 @@ function PanelButtons({
   );
 }
 
+interface SettingsButtonProps {
+  onOpen(): void;
+  compact: boolean;
+  touchScreen: boolean;
+  color: string;
+  styles: OfficeStyles;
+}
+
+/** The way to the office's settings screen, drawn like the panels' buttons. */
+function SettingsButton({ onOpen, compact, touchScreen, color, styles }: SettingsButtonProps) {
+  return (
+    <PanelButton
+      label="Office settings"
+      icon="Settings"
+      screenId="settings"
+      size={compact || touchScreen ? 20 : 16}
+      color={color}
+      onOpen={onOpen}
+      styles={styles}
+    />
+  );
+}
+
 interface SurfaceBodyProps {
   office: OfficeState;
   model: OfficeModel;
@@ -786,23 +808,34 @@ function useCardOpening(live: boolean): CardOpening {
   return { open: opened && live, openedAt, show, close };
 }
 
-/** What the host could not do with the settings, and the strip's card and sheet that say so. */
-function useSettingsProblems(state: OfficeState["state"], live: boolean) {
+/** The strip's Settings card, while a schedule could not follow the settings and there is a way in. */
+function useSettingsEntry(state: OfficeState["state"], onOpenSettings: (() => void) | undefined) {
   const notesError = state.notes?.scheduleError ?? null;
   const incidentsError = state.incidents?.scheduleError ?? null;
-  const problems = useMemo(
-    () => settingsProblems(notesError, incidentsError),
-    [notesError, incidentsError],
+  return useMemo(
+    () =>
+      onOpenSettings
+        ? settingsEntry(settingsProblems(notesError, incidentsError), onOpenSettings)
+        : null,
+    [notesError, incidentsError, onOpenSettings],
   );
-  const card = useCardOpening(live);
-  const { show } = card;
-  const entry = useMemo(() => settingsEntry(problems, show), [problems, show]);
-  return { problems, card, entry };
+}
+
+/** The surface as the app mounts it, with its way to the office's settings screen. */
+export function createOfficeSurface(openSettings: () => void) {
+  return function Surface(props: OfficeSurfaceProps) {
+    return <OfficeSurface {...props} onOpenSettings={openSettings} />;
+  };
 }
 
 /** One surface for both places: the sidebar screen and a workspace tab. */
-export function OfficeSurface(props: OfficeSurfaceProps) {
-  const { theme, layout, navigation } = props;
+export function OfficeSurface(
+  props: OfficeSurfaceProps & {
+    /** Absent where the host gives no way to the settings. */
+    onOpenSettings?: () => void;
+  },
+) {
+  const { theme, layout, navigation, onOpenSettings } = props;
   const focusRoomId = "workspaceId" in props ? props.workspaceId : null;
   // Asked once for the surface's life, like the app: a mouse plugged into a tablet does not
   // shrink its controls.
@@ -925,13 +958,13 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
     () => incidentsEntry(incidents, openIncidents),
     [incidents, openIncidents],
   );
-  const settings = useSettingsProblems(office.state, live);
+  const settingsStripEntry = useSettingsEntry(office.state, onOpenSettings);
   // The strip's cards, each only while it has something to say. An incident comes first.
   const cards = useMemo(
     () =>
       [
         incidentsStripEntry,
-        settings.entry,
+        settingsStripEntry,
         hostEntry,
         janitorEntry,
         standup.entry,
@@ -941,7 +974,7 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
       ].filter((card) => card !== null),
     [
       incidentsStripEntry,
-      settings.entry,
+      settingsStripEntry,
       hostEntry,
       janitorEntry,
       standup.entry,
@@ -987,6 +1020,15 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
               unread={unread}
               styles={styles}
             />
+            {onOpenSettings ? (
+              <SettingsButton
+                onOpen={onOpenSettings}
+                compact={layout.compact}
+                touchScreen={touchScreen}
+                color={theme.colors.foreground}
+                styles={styles}
+              />
+            ) : null}
           </View>
           {viewChoice.unsaved ? (
             <Text accessibilityRole="alert" style={styles.actionError}>
@@ -1053,12 +1095,6 @@ export function OfficeSurface(props: OfficeSurfaceProps) {
         onDismiss={dismissIncidents}
         styles={styles}
         onClose={incidentsCard.close}
-      />
-      <SettingsProblemsCard
-        problems={settings.problems}
-        open={settings.card.open}
-        styles={styles}
-        onClose={settings.card.close}
       />
       <StandupCard
         teams={standup.teams}

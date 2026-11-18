@@ -120,6 +120,10 @@ let opened: string[];
 let sideArea: boolean;
 /** True on a host that offers no navigation: an older app. */
 let noNavigation: boolean;
+/** False on a host with no way to the settings: the surface gets no `onOpenSettings`. */
+let settingsWay: boolean;
+/** How many times the surface asked for the office's settings screen. */
+let settingsOpened: number;
 let container: HTMLElement;
 let root: Root;
 
@@ -130,6 +134,7 @@ async function mount(): Promise<void> {
     layout: { compact: true, platform: "web" },
     host: { id: "host", label: "Host" },
     params: {},
+    ...(settingsWay ? { onOpenSettings: () => void (settingsOpened += 1) } : {}),
     ...(noNavigation
       ? {}
       : {
@@ -185,6 +190,8 @@ beforeEach(() => {
   opened = [];
   sideArea = true;
   noNavigation = false;
+  settingsWay = true;
+  settingsOpened = 0;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -204,29 +211,59 @@ test("the page has no settings: no switch and no field", async () => {
   expect(container.querySelector("input:not(#office-list-search)")).toBeNull();
 });
 
-test("a schedule the settings broke shows a Settings card that says where to fix it", async () => {
-  await mount();
-  const notes = {
-    folderSet: true,
-    writing: false,
-    writtenAt: null,
-    failedAgentId: null,
-    problem: null,
-    scheduleError: "unknown zone Mars/Olympus",
-  };
-  await act(async () => deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes } }));
+const BROKEN_NOTES = {
+  folderSet: true,
+  writing: false,
+  writtenAt: null,
+  failedAgentId: null,
+  problem: null,
+  scheduleError: "unknown zone Mars/Olympus",
+};
 
-  const card = [...container.querySelectorAll<HTMLElement>('[role="button"]')].find((button) =>
-    button.textContent?.includes("Settings"),
+function settingsCard(): HTMLElement | undefined {
+  return [...container.querySelectorAll<HTMLElement>('[role="button"]')].find(
+    (button) =>
+      button.getAttribute("aria-label") !== "Office settings" &&
+      button.textContent?.includes("Settings"),
   );
+}
+
+test("a schedule the settings broke shows a Settings card that opens the settings", async () => {
+  await mount();
+  await act(async () =>
+    deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes: BROKEN_NOTES } }),
+  );
+
+  const card = settingsCard();
   if (!card) throw new Error("The strip has no Settings card");
   await act(async () => card.click());
 
-  const sheet = container.querySelector('section[aria-label="Office settings"]');
-  expect(sheet?.textContent).toContain(
-    "Unable to schedule the stand-up notes: unknown zone Mars/Olympus",
+  expect(settingsOpened).toBe(1);
+});
+
+test("with no way to the settings, a broken schedule draws no Settings card", async () => {
+  settingsWay = false;
+  await mount();
+  await act(async () =>
+    deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, notes: BROKEN_NOTES } }),
   );
-  expect(sheet?.textContent).toContain("Settings, under Office");
+
+  expect(settingsCard()).toBeUndefined();
+});
+
+test("the corner has an Office settings button that opens the settings", async () => {
+  await mount();
+
+  await press("Office settings");
+
+  expect(settingsOpened).toBe(1);
+});
+
+test("with no way to the settings, the corner has no Office settings button", async () => {
+  settingsWay = false;
+  await mount();
+
+  expect(labelled("Office settings")).toBeNull();
 });
 
 test("the header has Sessions and Activity when the side area exists, and they open their screens", async () => {
@@ -303,7 +340,14 @@ test("the header has Chat after Activity, and a press opens the chat beside the 
   await mount();
 
   // A test browser has no WebGL, so the view switch offers 2D and the List.
-  expect(buttonLabels()).toEqual(["2D view", "List view", "Sessions", "Activity", "Chat"]);
+  expect(buttonLabels()).toEqual([
+    "2D view",
+    "List view",
+    "Sessions",
+    "Activity",
+    "Chat",
+    "Office settings",
+  ]);
   await press("Chat");
   expect(shown).toEqual([CHAT]);
   expect(opened).toEqual([]);
