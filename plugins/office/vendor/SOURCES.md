@@ -1,8 +1,8 @@
 # Vendored files
 
-`my-office/` is the 3D office a browser draws. The daemon bundles it into one script and serves it
-over `office.world.request`; the client runs it in a frame only when the 3D view is shown. The 2D
-office (`client/pixel`) is the plugin's own and takes nothing from here.
+`my-office/` is the 3D office a browser draws. `scripts/build-world.mjs` builds it into one script,
+embedded in `server/world.generated.ts`, which the plugin serves over `office.world.request`; the
+client runs it in a frame only when the 3D view is shown. The 2D office (`client/pixel`) is the plugin's own and takes nothing from here.
 
 ## my-office
 
@@ -145,5 +145,5 @@ regenerates `paseo-modules.js`, the English locale index and `MANIFEST.json`, an
 - files it kept because they carry a `PASEO:` note: compare each with upstream by hand;
 - stand-ins that lack an export a kept module now imports: add it.
 
-Then run `server/world-script.test.ts`, which builds the entry, and look at the office in a
+Then run `node scripts/build-world.mjs` (from `plugins/office`), then `server/world-script.test.ts`, and look at the office in a
 browser: a module upstream added to its start-up list may need a stand-in or a place in `DENY`.

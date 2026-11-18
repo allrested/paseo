@@ -367,7 +367,7 @@ function setup(
     env: options.env ?? {},
     clock,
     log: (message) => logs.push(message),
-    world: null,
+    world: { read: async () => "the scene" },
     machine: {
       procRoot: "/nonexistent-proc",
       cgroupRoot: "/nonexistent-cgroup",
@@ -627,6 +627,13 @@ test("a script's log is refused while no office is open, when the host has no di
     ok: false,
     error: "This host does not know the script",
   });
+  await stop();
+});
+
+test("the 3D page script is answered from the world the plugin carries", async () => {
+  const { recorded, context, stop } = setup(async () => ON);
+  const world = recorded.handlers.get("office.world.request");
+  expect(await world?.({}, context)).toBe("the scene");
   await stop();
 });
 

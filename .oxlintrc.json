@@ -7,7 +7,8 @@
     ".dev/**",
     "plugins/default-skills/vendor/**",
     "plugins/office/vendor/**",
-    "plugins/office/shared/upstream/**"
+    "plugins/office/shared/upstream/**",
+    "plugins/office/server/world.generated.ts"
   ],
   "plugins": ["react", "react-perf", "unicorn", "typescript", "oxc", "import", "promise"],
   "jsPlugins": ["./scripts/oxlint/paseo-plugin.mjs"],

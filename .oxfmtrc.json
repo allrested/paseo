@@ -17,6 +17,7 @@
     "**/*.gen.tsx",
     "plugins/default-skills/vendor/**",
     "plugins/office/vendor/**",
-    "plugins/office/shared/upstream/**"
+    "plugins/office/shared/upstream/**",
+    "plugins/office/server/world.generated.ts"
   ]
 }

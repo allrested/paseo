@@ -1,47 +1,35 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { bundleBrowserScript } from "../../../packages/server/src/server/plugins/browser-script.js";
-import { createWorldScript, worldEntryPath } from "./world-script.js";
+import { WORLD_SCRIPT } from "./world.generated.js";
+import { embeddedWorldScript } from "./world-script.js";
 
-const OFFICE_DIRECTORY = fileURLToPath(new URL("..", import.meta.url));
+const BUILD = fileURLToPath(new URL("../scripts/build-world.mjs", import.meta.url));
 
 describe("the 3D office's page script", () => {
-  it("is built once from the vendored entry and kept", async () => {
-    const asked: string[] = [];
-    const world = createWorldScript({
-      bundle: async (entryPath) => {
-        asked.push(entryPath);
-        return "script";
-      },
-      entryPath: worldEntryPath("/plugins/office"),
-    });
-
-    expect(await Promise.all([world.read(), world.read()])).toEqual(["script", "script"]);
-    expect(await world.read()).toBe("script");
-    expect(asked).toEqual(["/plugins/office/vendor/my-office/src/office/paseo-entry.js"]);
+  it("is the embedded script, whenever it is read", async () => {
+    const world = embeddedWorldScript();
+    expect(await world.read()).toBe(WORLD_SCRIPT);
+    expect(await world.read()).toBe(WORLD_SCRIPT);
   });
 
-  it("builds again after a build that failed", async () => {
-    let calls = 0;
-    const world = createWorldScript({
-      bundle: async () => {
-        calls += 1;
-        if (calls === 1) throw new Error("no esbuild");
-        return "script";
-      },
-      entryPath: "/entry.js",
-    });
-
-    await expect(world.read()).rejects.toThrow("no esbuild");
-    expect(await world.read()).toBe("script");
-    expect(calls).toBe(2);
+  it("is one self-contained browser script that sets the scene's entry", () => {
+    expect(WORLD_SCRIPT.length).toBeGreaterThan(100_000);
+    expect(WORLD_SCRIPT).toContain("PaseoOfficeWorld");
+    // Bundled: nothing is left to resolve in the frame.
+    expect(WORLD_SCRIPT).not.toMatch(/\bfrom\s*["']three["']/);
   });
+
+  it("is what the build makes from the vendored scene", () => {
+    // Fails when vendor/my-office changed and the script was not built again.
+    expect(() => execFileSync("node", [BUILD, "--check"], { stdio: "pipe" })).not.toThrow();
+  }, 60_000);
 });
 
-describe("the vendored entry", () => {
-  it("builds into one script that sets the page's API and needs nothing a browser lacks", async () => {
-    const script = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+describe("the embedded scene", () => {
+  it("holds one script that sets the page's API and needs nothing a browser lacks", () => {
+    const script = WORLD_SCRIPT;
 
     expect(script).toContain("PaseoOfficeWorld");
     // The library's chip and the bookshelf tell Paseo, which opens its Library card.
@@ -79,12 +67,12 @@ describe("the vendored entry", () => {
     expect(script).not.toMatch(/\brequire\(/);
   }, 60_000);
 
-  it("bundles upstream's photo mode, with Paseo's mark and file name", async () => {
+  it("bundles upstream's photo mode, with Paseo's mark and file name", () => {
     const photo = readFileSync(
       new URL("../vendor/my-office/src/office/ui/photo.js", import.meta.url),
       "utf8",
     );
-    const bundle = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+    const bundle = WORLD_SCRIPT;
 
     expect(photo).toContain("PASEO:");
     expect(photo).toContain("host.brandName");
@@ -93,12 +81,12 @@ describe("the vendored entry", () => {
     expect(bundle).toContain("ph-shoot");
   }, 60_000);
 
-  it("bundles upstream's first-person walk, with the street cut", async () => {
+  it("bundles upstream's first-person walk, with the street cut", () => {
     const walk = readFileSync(
       new URL("../vendor/my-office/src/office/interact/first-person.js", import.meta.url),
       "utf8",
     );
-    const bundle = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+    const bundle = WORLD_SCRIPT;
 
     expect(walk).not.toContain("stand-in");
     expect(walk).toMatch(/\/\/ PASEO:[^\n]*\n\s*const street = \(\) => null;/);
@@ -107,8 +95,8 @@ describe("the vendored entry", () => {
     expect(bundle).toContain("fp-near");
   }, 60_000);
 
-  it("the scene's bundle builds with the new modules", async () => {
-    const script = await bundleBrowserScript(worldEntryPath(OFFICE_DIRECTORY));
+  it("the scene's bundle builds with the new modules", () => {
+    const script = WORLD_SCRIPT;
 
     // The incidents alarm: Paseo's call and start option, the banner's words, upstream's red stage.
     expect(script).toContain("setIncidents");

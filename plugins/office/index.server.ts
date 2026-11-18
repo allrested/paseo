@@ -5,7 +5,7 @@ import type {
   PluginSettingsState,
   PluginTurnOutcome,
 } from "@getpaseo/plugin/server";
-import { createWorldScript, worldEntryPath, type WorldScript } from "./server/world-script.js";
+import { embeddedWorldScript, type WorldScript } from "./server/world-script.js";
 import { createBoardStore, type BoardStore } from "./server/board-store.js";
 import { createChatService, type ChatService } from "./server/chat-service.js";
 import { createChatStore, type ChatStore } from "./server/chat-store.js";
@@ -72,13 +72,6 @@ import {
 import { chatT } from "./shared/chat-words.js";
 import { officeHostSettings } from "./shared/settings.js";
 
-/** What the daemon passes a built-in beside the server context (as in plugins/default-skills). */
-interface BuiltinPluginInfo {
-  directory: string;
-  /** Builds one self-contained browser script from an entry file. */
-  bundleBrowserScript?: (entryPath: string) => Promise<string>;
-}
-
 /** What the office needs from outside the daemon's plugin API. */
 export interface OfficePluginDeps {
   store: BoardStore;
@@ -92,8 +85,8 @@ export interface OfficePluginDeps {
   env: NodeJS.ProcessEnv;
   clock: Clock;
   log(message: string): void;
-  /** The 3D office's page script; null when the daemon cannot build one. */
-  world: WorldScript | null;
+  /** The 3D office's page script. */
+  world: WorldScript;
   /** Where the host's processes are read, and how one is asked to end. */
   machine: MachineHost;
   /** The host's skills folders the library lists. */
@@ -293,12 +286,7 @@ export function createOfficePlugin(
     holder.remember(context.paseo);
     return hub.attach(context);
   });
-  server.handle(worldRpc, () =>
-    guarded("world", () => {
-      if (deps.world === null) throw new Error("This host cannot build the 3D office");
-      return deps.world.read();
-    }),
-  );
+  server.handle(worldRpc, () => guarded("world", () => deps.world.read()));
   // The readings stop with the last subscriber: nothing walks /proc while no office is open.
   server.handle(machineSubscription, (_input, context) => {
     holder.remember(context.paseo);
@@ -480,10 +468,7 @@ export function createOfficePlugin(
   };
 }
 
-export default function contribute(
-  server: PluginServerContext,
-  builtin?: BuiltinPluginInfo,
-): () => Promise<void> {
+export default function contribute(server: PluginServerContext): () => Promise<void> {
   const log = (message: string) => console.error(message);
   return createOfficePlugin(server, {
     // Built-ins run in the daemon process, so process.env is the daemon's env.
@@ -502,12 +487,7 @@ export default function contribute(
     env: process.env,
     clock: nodeClock,
     log,
-    world: builtin?.bundleBrowserScript
-      ? createWorldScript({
-          bundle: builtin.bundleBrowserScript,
-          entryPath: worldEntryPath(builtin.directory),
-        })
-      : null,
+    world: embeddedWorldScript(),
     // Built-ins run in the daemon process: process.pid is the daemon's.
     machine: {
       procRoot: "/proc",
