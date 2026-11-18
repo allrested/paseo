@@ -1,13 +1,14 @@
 /**
  * @vitest-environment jsdom
  */
-// The chat panel, mounted as the side area mounts the screen: the office's subscription is stood in
-// so a test delivers the chat, and the chat's call is a mock the test reads one call at a time.
+// The chat panel, mounted as the office's column mounts it: the surface's state arrives as a prop,
+// a test re-renders with the next state, and the chat's call is a mock the test reads one call at
+// a time.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ScrollViewProps } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginScreenProps, PluginSubscriptionState } from "@getpaseo/plugin/client";
+import type { PluginSubscriptionState } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi, type Mock } from "vitest";
 import type {
   ChatChange,
@@ -15,16 +16,15 @@ import type {
   ChatRequest,
   ChatResult,
   OfficeAgent,
-  OfficeEvent,
 } from "../shared/contracts.js";
 import { getChatSeen, resetChatSeen } from "./chat-seen.js";
 import { CHAT_EMPTY, CHAT_RECALLED, REACTION_CHOICES, STICKERS, remindState } from "./chat-text.js";
-import { useOfficeLink, type OfficeLink } from "./office-link.js";
-import { EMPTY_OFFICE } from "./office-state.js";
+import { ChatPanel } from "./chat-panel.js";
+import type { OfficeLink } from "./office-link.js";
+import { applyChatEvent, EMPTY_OFFICE } from "./office-state.js";
+import { useOfficeStyles } from "./styles.js";
+import type { OfficeState } from "./use-office.js";
 
-/** The subscription's status, and the office's events once it delivers them. */
-let status: PluginSubscriptionState;
-let deliver: ((event: OfficeEvent) => void) | null;
 /** The chat's call: it takes each request until a test says otherwise. */
 let call: Mock<(input: ChatRequest) => Promise<ChatResult>>;
 /** The props the message list was last drawn with, and how often it was sent to its end. */
@@ -33,10 +33,6 @@ let toEnd: number;
 
 vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@getpaseo/plugin/client")>()),
-  useSubscription: (_contract: unknown, _input: unknown, onEvent: (event: OfficeEvent) => void) => {
-    deliver = onEvent;
-    return status;
-  },
   useRpc: () => call,
 }));
 
@@ -101,38 +97,32 @@ function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
   };
 }
 
+let selected: string[];
 let opened: string[];
 let container: HTMLElement;
 let root: Root;
+/** The state the surface hands the panel; a test changes it and the panel is drawn again. */
+let current: OfficeState;
+let compactLayout: boolean;
 
-function screenProps(compact: boolean): PluginScreenProps {
-  return {
-    theme: THEME,
-    layout: { compact, platform: "web" },
-    host: { id: "host", label: "Host" },
-    params: {},
-    navigation: {
-      openAgent: ({ agentId }: { agentId: string }) => void opened.push(agentId),
-      openWorkspace: () => undefined,
-    },
-  } as unknown as PluginScreenProps;
+function Harness({ value }: { value: OfficeState }) {
+  const layout = { compact: compactLayout, platform: "web" } as const;
+  const styles = useOfficeStyles(THEME, layout.compact, false);
+  const link: OfficeLink = {
+    select: (agentId) => void selected.push(agentId),
+    openSession: (agentId) => void opened.push(agentId),
+  };
+  return createElement(ChatPanel, { office: value, styles, theme: THEME, layout, link });
 }
 
-async function mount(options: { link?: OfficeLink; compact?: boolean } = {}): Promise<void> {
-  const { ChatPanel } = await import("./chat-panel.js");
-  const panel = createElement(ChatPanel, screenProps(options.compact ?? true));
-  const { link } = options;
-  // The office surface beside the panel is a tree of its own in the app; here a sibling stands in.
-  await act(async () =>
-    root.render(
-      link ? createElement("div", null, createElement(Surface, { value: link }), panel) : panel,
-    ),
-  );
-}
+const draw = () => act(async () => root.render(createElement(Harness, { value: current })));
 
-function Surface({ value }: { value: OfficeLink }) {
-  useOfficeLink(value);
-  return null;
+async function mount(
+  options: { compact?: boolean; subscription?: PluginSubscriptionState } = {},
+): Promise<void> {
+  compactLayout = options.compact ?? true;
+  if (options.subscription) current = { ...current, subscription: options.subscription };
+  await draw();
 }
 
 async function snapshot(
@@ -140,13 +130,18 @@ async function snapshot(
   agents: OfficeAgent[] = [],
   typing: string[] = [],
 ): Promise<void> {
-  await act(async () =>
-    deliver?.({ type: "snapshot", state: { ...EMPTY_OFFICE, agents, chat: { messages, typing } } }),
-  );
+  current = {
+    ...current,
+    state: { ...EMPTY_OFFICE, agents },
+    loaded: true,
+    chat: { messages, typing },
+  };
+  await draw();
 }
 
 async function chat(change: ChatChange): Promise<void> {
-  await act(async () => deliver?.({ type: "chat", change }));
+  current = { ...current, chat: applyChatEvent(current.chat, { type: "chat", change }) };
+  await draw();
 }
 
 function maybe(label: string, scope: ParentNode = container): HTMLElement | null {
@@ -220,11 +215,16 @@ function scrollEvent(offset: number, content: number, viewport: number) {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
-  status = { status: "live" };
-  deliver = null;
+  current = {
+    state: EMPTY_OFFICE,
+    loaded: false,
+    subscription: { status: "live" },
+    chat: null,
+  };
   call = vi.fn(async () => ({ ok: true as const }));
   scroller = null;
   toEnd = 0;
+  selected = [];
   opened = [];
   container = document.createElement("div");
   document.body.append(container);
@@ -427,17 +427,12 @@ test("typing words show above the box", async () => {
 });
 
 test("an agent's long answer is clipped with Show more, and Open session opens the agent", async () => {
-  const sessions: string[] = [];
-  const link: OfficeLink = {
-    select: () => undefined,
-    openSession: (agentId) => void sessions.push(agentId),
-  };
   const long = Array.from({ length: 12 }, (_, index) => `Line ${index + 1}`).join("\n");
   const answer = msg({ text: long });
   const short = msg({ text: "Done" });
   // An agent that is no longer on the floor has no session to open.
   const left = msg({ from: "a9", name: "Gone", text: "Bye" });
-  await mount({ link });
+  await mount();
   await snapshot([answer, short, left], [FIX]);
 
   // react-native-web clamps with -webkit-box classes; a real browser showed the eight lines.
@@ -451,8 +446,8 @@ test("an agent's long answer is clipped with Show more, and Open session opens t
   expect(maybe("Open session", row(short.id))).not.toBeNull();
   expect(maybe("Open session", row(left.id))).toBeNull();
   await press("Open session", row(answer.id));
-  expect(sessions).toEqual(["a1"]);
-  expect(opened).toEqual([]);
+  expect(opened).toEqual(["a1"]);
+  expect(selected).toEqual([]);
 });
 
 test("Enter sends and clears the box; Shift+Enter does not send", async () => {
@@ -622,14 +617,12 @@ test("the panel marks the chat seen as messages arrive", async () => {
 });
 
 test("a subscription that cannot load says so", async () => {
-  status = { status: "error", error: new Error("Host offline.") };
-  await mount();
+  await mount({ subscription: { status: "error", error: new Error("Host offline.") } });
   expect(container.textContent).toContain("Unable to load the office: host offline");
   // In place of the list.
   expect(container.textContent).not.toContain(CHAT_EMPTY);
 
-  status = { status: "closed" };
-  await mount();
+  await mount({ subscription: { status: "closed" } });
   expect(container.textContent).toContain(
     "Unable to show live agents: the host closed the office. Reopen it.",
   );

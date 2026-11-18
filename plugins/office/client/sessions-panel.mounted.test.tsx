@@ -1,30 +1,21 @@
 /**
  * @vitest-environment jsdom
  */
-// The Sessions panel, mounted as the side area mounts the screen: the office's subscription is
-// stood in so a test decides its status and the state it delivers.
+// The Sessions panel, mounted as the office's column mounts it: the surface's state arrives as a
+// prop, and a test re-renders with the next state to see the panel change.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginScreenProps, PluginSubscriptionState } from "@getpaseo/plugin/client";
+import type { PluginSubscriptionState } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { OfficeAgent, OfficeEvent } from "../shared/contracts.js";
+import type { OfficeAgent, OfficeSnapshot } from "../shared/contracts.js";
 import { NO_MATCH, SEARCH_LABEL } from "./list-text.js";
-import { useOfficeLink, type OfficeLink } from "./office-link.js";
+import type { OfficeLink } from "./office-link.js";
 import { EMPTY_OFFICE } from "./office-state.js";
+import { SessionsPanel } from "./sessions-panel.js";
 import { NO_AGENTS } from "./sessions-text.js";
-
-/** The subscription's status, and the office's events once it delivers them. */
-let status: PluginSubscriptionState;
-let deliver: ((event: OfficeEvent) => void) | null;
-
-vi.mock("@getpaseo/plugin/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@getpaseo/plugin/client")>()),
-  useSubscription: (_contract: unknown, _input: unknown, onEvent: (event: OfficeEvent) => void) => {
-    deliver = onEvent;
-    return status;
-  },
-}));
+import { useOfficeStyles } from "./styles.js";
+import type { OfficeState } from "./use-office.js";
 
 vi.mock("@getpaseo/plugin/client/ui", async () => {
   const { TextInput, View } = await import("react-native");
@@ -57,52 +48,51 @@ const AGENTS = [
   agent("b", { workspaceId: "w2", idleSince: "2026-11-17T09:30:00.000Z" }),
 ];
 
+let selected: string[];
 let opened: string[];
 let container: HTMLElement;
 let root: Root;
 
-function screenProps(): PluginScreenProps {
+const LAYOUT = { compact: true, platform: "web" } as const;
+
+function office(state: Partial<OfficeSnapshot>, extra: Partial<OfficeState> = {}): OfficeState {
   return {
+    state: { ...EMPTY_OFFICE, ...state },
+    loaded: true,
+    subscription: { status: "live" },
+    chat: null,
+    ...extra,
+  };
+}
+
+function Harness({ value }: { value: OfficeState }) {
+  const styles = useOfficeStyles(THEME, LAYOUT.compact, false);
+  const link: OfficeLink = {
+    select: (agentId) => void selected.push(agentId),
+    openSession: (agentId) => void opened.push(agentId),
+  };
+  return createElement(SessionsPanel, {
+    office: value,
+    styles,
     theme: THEME,
-    layout: { compact: true, platform: "web" },
-    host: { id: "host", label: "Host" },
-    params: {},
-    navigation: {
-      openAgent: ({ agentId }: { agentId: string }) => void opened.push(agentId),
-      openWorkspace: () => undefined,
-    },
-  } as unknown as PluginScreenProps;
+    layout: LAYOUT,
+    link,
+  });
 }
 
-function Surface({ value }: { value: OfficeLink }) {
-  useOfficeLink(value);
-  return null;
-}
-
-async function mount(link?: OfficeLink): Promise<void> {
-  const { SessionsPanel } = await import("./sessions-panel.js");
-  const panel = createElement(SessionsPanel, screenProps());
-  // The office surface beside the panel is a tree of its own in the app; here a sibling stands in.
-  await act(async () =>
-    root.render(
-      link ? createElement("div", null, createElement(Surface, { value: link }), panel) : panel,
-    ),
-  );
+async function mount(value: OfficeState): Promise<void> {
+  await act(async () => root.render(createElement(Harness, { value })));
 }
 
 async function show(agents: OfficeAgent[]): Promise<void> {
-  await act(async () =>
-    deliver?.({
-      type: "snapshot",
-      state: {
-        ...EMPTY_OFFICE,
-        agents,
-        workspaces: [
-          { id: "w1", name: "shop-api", projectName: "Shop" },
-          { id: "w2", name: "blog", projectName: "Blog" },
-        ],
-        activity: { a: "Editing files" },
-      },
+  await mount(
+    office({
+      agents,
+      workspaces: [
+        { id: "w1", name: "shop-api", projectName: "Shop" },
+        { id: "w2", name: "blog", projectName: "Blog" },
+      ],
+      activity: { a: "Editing files" },
     }),
   );
 }
@@ -131,8 +121,7 @@ async function type(label: string, text: string): Promise<void> {
 }
 
 beforeEach(() => {
-  status = { status: "live" };
-  deliver = null;
+  selected = [];
   opened = [];
   container = document.createElement("div");
   document.body.append(container);
@@ -145,7 +134,6 @@ afterEach(() => {
 });
 
 test("a row shows the room's name and the doing-now line; a press selects", async () => {
-  await mount();
   await show(AGENTS);
 
   const rowA = labelled("A: Running");
@@ -160,28 +148,15 @@ test("a row shows the room's name and the doing-now line; a press selects", asyn
   // No Open session on a Sessions row: the press and the card it opens are the way in.
   expect(maybe("Open session")).toBeNull();
 
-  // No office is mounted beside the panel: the agent's workspace opens.
   await press("A: Running");
-  expect(opened).toEqual(["a"]);
-});
-
-test("with a surface registered a press selects in it", async () => {
-  const selected: string[] = [];
-  const link: OfficeLink = {
-    select: (agentId) => void selected.push(agentId),
-    openSession: () => undefined,
-  };
-  await mount(link);
-  await show(AGENTS);
-
   await press("B: Idle");
-  expect(selected).toEqual(["b"]);
+  expect(selected).toEqual(["a", "b"]);
   expect(opened).toEqual([]);
 });
 
 test("No agents yet. and No agent matches.", async () => {
-  await mount();
   // Before the first state the office is not known to be empty.
+  await mount(office({}, { loaded: false }));
   expect(container.textContent).toContain("Loading...");
   expect(container.textContent).not.toContain(NO_AGENTS);
   await show([]);
@@ -210,12 +185,12 @@ test("No agents yet. and No agent matches.", async () => {
 });
 
 test("a state that cannot load says so as the office does", async () => {
-  status = { status: "error", error: new Error("Host offline.") };
-  await mount();
+  const problem = (subscription: PluginSubscriptionState) =>
+    mount(office({}, { loaded: false, subscription }));
+  await problem({ status: "error", error: new Error("Host offline.") });
   expect(container.textContent).toContain("Unable to load the office: host offline");
 
-  status = { status: "closed" };
-  await mount();
+  await problem({ status: "closed" });
   expect(container.textContent).toContain(
     "Unable to show live agents: the host closed the office. Reopen it.",
   );

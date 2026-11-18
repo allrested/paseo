@@ -1,31 +1,27 @@
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
 import { agentTitle, buildOfficeModel, dotTone } from "../shared/model.js";
 import { loadProblem, Pill } from "./activity-panel.js";
 import { stateLabel } from "./agent-card.js";
 import { LIST_TABS, NO_MATCH, SEARCH_LABEL, tabCounts, type ListTab } from "./list-text.js";
-import { linkSelect } from "./office-link.js";
+import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
 import { NO_AGENTS, sessionRows, type SessionRow } from "./sessions-text.js";
-import { useOfficeStyles, type OfficeStyles } from "./styles.js";
-import { useOffice } from "./use-office.js";
-
-type Navigation = PluginScreenProps["navigation"];
+import type { OfficeStyles } from "./styles.js";
 
 interface AgentRowProps {
   entry: SessionRow;
   /** The last sub-agent of its parent. */
   endsGroup: boolean;
-  navigation: Navigation;
+  link: OfficeLink;
   styles: OfficeStyles;
 }
 
-function AgentRow({ entry, endsGroup, navigation, styles }: AgentRowProps) {
+function AgentRow({ entry, endsGroup, link, styles }: AgentRowProps) {
   const { row, room } = entry;
   const { agent } = row;
   const child = row.depth === 1;
-  const press = useCallback(() => linkSelect(agent.id, navigation), [agent.id, navigation]);
+  const press = useCallback(() => link.select(agent.id), [agent.id, link]);
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
@@ -77,13 +73,11 @@ function AgentRow({ entry, endsGroup, navigation, styles }: AgentRowProps) {
 }
 
 /**
- * The Sessions screen, beside the floor or on its own route: every agent in one list, under the
- * List view's tabs and search.
+ * The Sessions tab of the office's column, fed by the surface's subscription: every agent in one
+ * list, under the List view's tabs and search.
  */
-export function SessionsPanel({ theme, layout, navigation }: PluginScreenProps) {
-  // The side area always passes compact, which sizes every control for touch on its own.
-  const styles = useOfficeStyles(theme, layout.compact, false);
-  const { state, loaded, subscription } = useOffice();
+export function SessionsPanel({ office, styles, link }: ColumnPanelProps) {
+  const { state, loaded, subscription } = office;
   const [tab, setTab] = useState<ListTab>("all");
   const [query, setQuery] = useState("");
   const model = useMemo(() => buildOfficeModel(state), [state]);
@@ -138,7 +132,7 @@ export function SessionsPanel({ theme, layout, navigation }: PluginScreenProps) 
             key={entry.row.agent.id}
             entry={entry}
             endsGroup={entry.row.depth === 1 && shown[index + 1]?.row.depth !== 1}
-            navigation={navigation}
+            link={link}
             styles={styles}
           />
         ))}

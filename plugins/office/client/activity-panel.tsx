@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View } from "react-native";
-import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import type { OfficeAgent } from "../shared/contracts.js";
 import { dotTone, type DotTone } from "../shared/model.js";
@@ -13,12 +12,10 @@ import {
   type FeedTab,
 } from "./activity-feed.js";
 import { FEED_EMPTY, FEED_NO_MATCH } from "./activity-feed-text.js";
-import { linkOpenSession, linkSelect } from "./office-link.js";
+import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
 import { problemText } from "./office-surface.js";
-import { useOfficeStyles, type OfficeStyles } from "./styles.js";
-import { useOffice, type OfficeState } from "./use-office.js";
-
-type Navigation = PluginScreenProps["navigation"];
+import type { OfficeStyles } from "./styles.js";
+import type { OfficeState } from "./use-office.js";
 
 const CHIPS: readonly { chip: FeedChip; label: string }[] = [
   { chip: "cmd", label: "Commands" },
@@ -97,17 +94,14 @@ interface CardRowProps {
   card: FeedCard;
   /** The card's agent as the office has it now; absent once it has left. */
   agent: OfficeAgent | undefined;
-  navigation: Navigation;
+  link: OfficeLink;
   styles: OfficeStyles;
 }
 
-function CardRow({ card, agent, navigation, styles }: CardRowProps) {
+function CardRow({ card, agent, link, styles }: CardRowProps) {
   const { agentId } = card;
-  const press = useCallback(() => linkSelect(agentId, navigation), [agentId, navigation]);
-  const openSession = useCallback(
-    () => linkOpenSession(agentId, navigation),
-    [agentId, navigation],
-  );
+  const press = useCallback(() => link.select(agentId), [agentId, link]);
+  const openSession = useCallback(() => link.openSession(agentId), [agentId, link]);
   const [hovered, setHovered] = useState(false);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
@@ -179,13 +173,11 @@ export function loadProblem(subscription: OfficeState["subscription"]): string |
 }
 
 /**
- * The Activity screen, beside the floor or on its own route. Its own subscription to the office's
- * state keeps the feed filling while only the panel is open.
+ * The Activity tab of the office's column, fed by the surface's subscription: the feed of what
+ * the agents did, filtered by its tabs and chips.
  */
-export function ActivityPanel({ theme, layout, navigation }: PluginScreenProps) {
-  // The side area always passes compact, which sizes every control for touch on its own.
-  const styles = useOfficeStyles(theme, layout.compact, false);
-  const { state, subscription } = useOffice();
+export function ActivityPanel({ office, styles, link }: ColumnPanelProps) {
+  const { state, subscription } = office;
   const events = useSyncExternalStore(feedStore.subscribe, feedStore.getSnapshot);
   const [tab, setTab] = useState<FeedTab>("all");
   const [chips, setChips] = useState<ReadonlySet<FeedChip>>(NO_CHIPS);
@@ -267,7 +259,7 @@ export function ActivityPanel({ theme, layout, navigation }: PluginScreenProps) 
             key={`${card.agentId}:${card.at}:${index}`}
             card={card}
             agent={agents.get(card.agentId)}
-            navigation={navigation}
+            link={link}
             styles={styles}
           />
         ))}

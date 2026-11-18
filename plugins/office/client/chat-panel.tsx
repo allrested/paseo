@@ -18,7 +18,7 @@ import {
   type TextInputKeyPressEventData,
   type ViewStyle,
 } from "react-native";
-import { useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
+import { useRpc } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
 import { CHAT_TEXT_MAX, chatRpc, type ChatMessage, type ChatRequest } from "../shared/contracts.js";
 import { buildOfficeModel } from "../shared/model.js";
@@ -49,12 +49,9 @@ import {
   type MentionOption,
 } from "./chat-text.js";
 import { markChatSeen } from "./chat-seen.js";
-import { linkOpenSession } from "./office-link.js";
+import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
 import { hasTouchScreen, readPointer } from "./office-surface.js";
-import { useOfficeStyles, type OfficeStyles } from "./styles.js";
-import { useOffice } from "./use-office.js";
-
-type Navigation = PluginScreenProps["navigation"];
+import type { OfficeStyles } from "./styles.js";
 
 /** Sends a request to the chat; false when it failed, and the error is then under the box. */
 type Run = (input: ChatRequest) => Promise<boolean>;
@@ -208,20 +205,20 @@ interface BodyProps {
   message: ChatMessage;
   /** The sender is an agent on the floor, so its session can be opened. */
   onFloor: boolean;
-  navigation: Navigation;
+  link: OfficeLink;
   run: Run;
   keep: Keep;
   styles: OfficeStyles;
 }
 
 /** Words, clipped at eight lines until Show more; an agent's have Open session under them. */
-function TextBody({ message, onFloor, navigation, keep, styles }: BodyProps) {
+function TextBody({ message, onFloor, link, keep, styles }: BodyProps) {
   const [expanded, setExpanded] = useState(false);
   const expand = useCallback(() => setExpanded(true), []);
   const { from } = message;
   const open = useCallback(() => {
-    if (from !== undefined) linkOpenSession(from, navigation);
-  }, [from, navigation]);
+    if (from !== undefined) link.openSession(from);
+  }, [from, link]);
   const clipped = !expanded && isLong(message.text);
   const openable = onFloor && !isYours(message);
   return (
@@ -440,7 +437,7 @@ interface ChatRowProps {
   onFloor: boolean;
   /** A touch screen, where nothing hovers. */
   always: boolean;
-  navigation: Navigation;
+  link: OfficeLink;
   run: Run;
   onReply(message: ChatMessage): void;
   styles: OfficeStyles;
@@ -454,7 +451,7 @@ const ChatRow = memo(function ChatRow({
   message,
   onFloor,
   always,
-  navigation,
+  link,
   run,
   onReply,
   styles,
@@ -471,7 +468,7 @@ const ChatRow = memo(function ChatRow({
   const keep = useMemo<Keep>(() => ({ hover: setInner, focus: setFocused }), []);
   const [picking, setPicking] = useState(false);
   const togglePicking = useCallback(() => setPicking((open) => !open), []);
-  const body: BodyProps = { message, onFloor, navigation, run, keep, styles };
+  const body: BodyProps = { message, onFloor, link, run, keep, styles };
   return (
     <Pressable
       testID={`chat-${message.id}`}
@@ -519,7 +516,7 @@ interface MessagesProps {
   agents: ReadonlyMap<string, unknown>;
   problem: string | null;
   always: boolean;
-  navigation: Navigation;
+  link: OfficeLink;
   run: Run;
   onReply(message: ChatMessage): void;
   styles: OfficeStyles;
@@ -531,7 +528,7 @@ function Messages({
   agents,
   problem,
   always,
-  navigation,
+  link,
   run,
   onReply,
   styles,
@@ -557,7 +554,7 @@ function Messages({
         message={message}
         onFloor={message.from !== undefined && agents.has(message.from)}
         always={always}
-        navigation={navigation}
+        link={link}
         run={run}
         onReply={onReply}
         styles={styles}
@@ -645,13 +642,11 @@ function StickerTray({ onPick, styles }: { onPick(index: number): void; styles: 
 }
 
 /**
- * The Chat screen, beside the floor or on its own route. Its own subscription to the office's
- * state brings the conversation; the chat is kept apart from the floor's state there.
+ * The Chat tab of the office's column, fed by the surface's subscription: the team conversation,
+ * which the surface keeps apart from the floor's state.
  */
-export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
-  // The side area always passes compact, which sizes every control for touch on its own.
-  const styles = useOfficeStyles(theme, layout.compact, false);
-  const { state, subscription, chat } = useOffice();
+export function ChatPanel({ office, styles, theme, layout, link }: ColumnPanelProps) {
+  const { state, subscription, chat } = office;
   const call = useRpc(chatRpc);
   const model = useMemo(() => buildOfficeModel(state), [state]);
   const [text, setText] = useState("");
@@ -779,7 +774,7 @@ export function ChatPanel({ theme, layout, navigation }: PluginScreenProps) {
           agents={model.agents}
           problem={problem}
           always={touchScreen}
-          navigation={navigation}
+          link={link}
           run={run}
           onReply={setReplyTo}
           styles={styles}

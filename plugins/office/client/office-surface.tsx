@@ -30,22 +30,12 @@ import { AttentionStrip, type StripCard } from "./attention-strip.js";
 import { openSessionWith, resourcesOpener } from "./beside.js";
 import { BoardSheet } from "./board-sheet.js";
 import { authorName } from "./board-text.js";
-import { useChatSeen } from "./chat-seen.js";
-import { unreadCount, unreadLabel } from "./chat-text.js";
 import { IncidentsCard } from "./incidents-card.js";
 import { incidentsEntry } from "./incidents-text.js";
 import { janitorNote, janitorRows } from "./context-text.js";
 import { JanitorCard } from "./janitor-card.js";
 import { MachineCard } from "./machine-card.js";
 import { hostNote, namedMachine, type HostNote } from "../shared/machine-text.js";
-import {
-  ACTIVITY_SCREEN,
-  CHAT_SCREEN,
-  SESSIONS_SCREEN,
-  claimOfficeLink,
-  useOfficeLink,
-  type OfficeLink,
-} from "./office-link.js";
 import {
   buildOfficeModel,
   orderRoomsForFocus,
@@ -530,82 +520,6 @@ function PanelButton({
   );
 }
 
-interface PanelButtonsProps {
-  /** Null, or with no `showBeside`, on an app without a side area: the panels are not offered. */
-  navigation: PluginScreenProps["navigation"];
-  /** This surface's link, which it claims as it opens a panel. */
-  link: OfficeLink;
-  /** The app's two control sizes: touch-sized in the compact layout or on a touch screen. */
-  compact: boolean;
-  touchScreen: boolean;
-  /** The theme's foreground, which an icon-only control's glyph rests at. */
-  color: string;
-  /** The chat's messages since it was last open on this device; null at none. */
-  unread: string | null;
-  styles: OfficeStyles;
-}
-
-/** The Chat button's count: the chat's messages since it was last open on this device. */
-function useUnread(chat: OfficeState["chat"]): string | null {
-  const seenAt = useChatSeen();
-  return unreadLabel(unreadCount(chat?.messages ?? [], seenAt));
-}
-
-/** The header's ways to the panels, after the view switch. */
-function PanelButtons({
-  navigation,
-  link,
-  compact,
-  touchScreen,
-  color,
-  unread,
-  styles,
-}: PanelButtonsProps) {
-  const showBeside = navigation?.showBeside;
-  const open = useCallback(
-    (screenId: string) => {
-      claimOfficeLink(link);
-      showBeside?.({ kind: "screen", pluginId: "office", screenId });
-    },
-    [link, showBeside],
-  );
-  if (showBeside === undefined) return null;
-  // The glyph at the app's icon sizes (control-geometry.ts iconSizeFor("md")).
-  const size = compact || touchScreen ? 20 : 16;
-  return (
-    <>
-      <PanelButton
-        label="Sessions"
-        icon="Users"
-        screenId={SESSIONS_SCREEN}
-        size={size}
-        color={color}
-        onOpen={open}
-        styles={styles}
-      />
-      <PanelButton
-        label="Activity"
-        icon="Activity"
-        screenId={ACTIVITY_SCREEN}
-        size={size}
-        color={color}
-        onOpen={open}
-        styles={styles}
-      />
-      <PanelButton
-        label="Chat"
-        icon="MessageCircle"
-        screenId={CHAT_SCREEN}
-        size={size}
-        color={color}
-        count={unread}
-        onOpen={open}
-        styles={styles}
-      />
-    </>
-  );
-}
-
 interface SettingsButtonProps {
   onOpen(): void;
   compact: boolean;
@@ -816,27 +730,21 @@ interface ViewControlsProps {
   floorDrawn: boolean;
   viewChoice: ViewChoiceState;
   onChange(next: OfficeViewChoice): void;
-  navigation: PluginScreenProps["navigation"];
-  link: OfficeLink;
   compact: boolean;
   touchScreen: boolean;
   color: string;
-  unread: string | null;
   onOpenSettings: (() => void) | undefined;
   styles: OfficeStyles;
 }
 
-/** The view switch, the panel buttons and the settings button. */
+/** The view switch and the settings button. */
 function ViewControls({
   floorDrawn,
   viewChoice,
   onChange,
-  navigation,
-  link,
   compact,
   touchScreen,
   color,
-  unread,
   onOpenSettings,
   styles,
 }: ViewControlsProps) {
@@ -851,15 +759,6 @@ function ViewControls({
           options={viewChoice.options}
           value={viewChoice.choice}
           onChange={onChange}
-          styles={styles}
-        />
-        <PanelButtons
-          navigation={navigation}
-          link={link}
-          compact={compact}
-          touchScreen={touchScreen}
-          color={color}
-          unread={unread}
           styles={styles}
         />
         {onOpenSettings ? (
@@ -937,7 +836,6 @@ export function OfficeSurface(
   const notesTimeZone = useNotesTimeZone();
   const viewChoice = useViewChoice(layout.platform);
   const model = useMemo(() => buildOfficeModel(office.state), [office.state]);
-  const unread = useUnread(office.chat);
   const machine = useMemo(() => namedMachine(reading, model.agents), [reading, model.agents]);
   const rooms = useMemo(
     () => orderRoomsForFocus(model.rooms, focusRoomId),
@@ -993,10 +891,6 @@ export function OfficeSurface(
     (agentId: string) => openSessionWith(navigation, agentId),
     [navigation],
   );
-  // The panels beside the floor reach this surface through the link: a row press opens the card,
-  // as a List row does, and "Open session" shows the session in the area the panel was in.
-  const link = useMemo(() => ({ select: setSelectedId, openSession }), [openSession]);
-  useOfficeLink(link);
   const openResources = useMemo(
     () => resourcesOpener(navigation, openMachine),
     [navigation, openMachine],
@@ -1084,12 +978,9 @@ export function OfficeSurface(
           floorDrawn={floorDrawn}
           viewChoice={viewChoice}
           onChange={changeView}
-          navigation={navigation}
-          link={link}
           compact={layout.compact}
           touchScreen={touchScreen}
           color={theme.colors.foreground}
-          unread={unread}
           onOpenSettings={onOpenSettings}
           styles={styles}
         />

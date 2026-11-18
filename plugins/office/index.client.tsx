@@ -1,12 +1,8 @@
 import { useCallback } from "react";
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
-import { ActivityPanel } from "./client/activity-panel.js";
-import { ChatPanel } from "./client/chat-panel.js";
-import { ACTIVITY_SCREEN, CHAT_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
 import { OfficeSettings } from "./client/office-settings.js";
 import { createOfficeSurface } from "./client/office-surface.js";
-import { SessionsPanel } from "./client/sessions-panel.js";
 
 const SCREEN_ID = "office";
 const PANEL_ID = "office";
@@ -24,17 +20,6 @@ export default function contribute(client: PluginClientContext) {
   const Surface = createOfficeSurface(() => client.openSettings(SCREEN_ID));
   const removers = [
     client.addScreen({ id: SCREEN_ID, title: "Office", Component: Surface }),
-    client.addScreen({
-      id: SESSIONS_SCREEN,
-      title: "Sessions",
-      Component: SessionsPanel,
-    }),
-    client.addScreen({
-      id: ACTIVITY_SCREEN,
-      title: "Activity",
-      Component: ActivityPanel,
-    }),
-    client.addScreen({ id: CHAT_SCREEN, title: "Chat", Component: ChatPanel }),
     client.addSettingsScreen({
       id: SCREEN_ID,
       title: "Office",
