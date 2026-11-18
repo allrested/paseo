@@ -690,7 +690,6 @@ export const en = {
         moveToMain: "Move to main panel",
         reloadAgent: "Reload agent",
         reloadAgentTooltip: "Reload agent to update skills, MCPs or login status.",
-        moveAgent: "Move session…",
         close: "Close",
         renameTerminal: "Rename terminal",
         renameAgent: "Rename agent",
@@ -2017,45 +2016,6 @@ export const en = {
       mute: "Mute realtime voice",
       unmute: "Unmute realtime voice",
       stop: "Stop realtime voice and interrupt turn",
-    },
-  },
-  sessionMove: {
-    hostDisconnected: "Host is not connected",
-    dialog: {
-      title: "Move session",
-      continueAutomatically: "Continue automatically",
-      model: "Model",
-      loading: "Loading...",
-      empty: "No providers to move to",
-      current: "Current",
-      unavailable: "Unavailable",
-      notSignedIn: "Not signed in",
-      usage: "{{used}}, {{reset}}",
-      move: "Move",
-      moving: "Moving...",
-    },
-    banner: {
-      movedFrom: "Moved from {{label}}",
-      movedFromUnknown: "Moved from another account",
-      moveBack: "Move back",
-      movingBack: "Moving back...",
-    },
-    // The card above the composer when the agent's account hit its limit or is about to: that
-    // account next to the one the chat can continue on.
-    handoff: {
-      limitReached: "Limit reached",
-      continueOn: "Continue on {{label}}",
-      otherAccounts: "Other accounts",
-      checking: "Checking other accounts...",
-      noRoom: "No other account has room",
-      unknown: "Could not read the other accounts",
-    },
-    // Fork delta (usage heads-up): the card's copy before the limit.
-    headsUp: {
-      resets: "resets {{reset}}",
-      moveTo: "Move to {{label}}",
-      moving: "Moving...",
-      dismiss: "Dismiss",
     },
   },
   brand: {

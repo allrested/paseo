@@ -2,32 +2,12 @@ import { unarchiveWorkspaceAgents } from "./workspace-archive-service.js";
 import { createRestartRecovery } from "./agent/restart-recovery/index.js";
 import { sendPromptToAgent, unarchiveAgentState } from "./agent/agent-prompt.js";
 import { createIdleRuntimeCleanup } from "./agent/idle-runtime-cleanup/index.js";
-// Fork delta (usage heads-up): the usage watch and the move targets it reads.
-import {
-  listAgentMoveTargets,
-  moveTargetProvidersFrom,
-  sharedMoveTargetUsage,
-} from "./agent/session-move/list-move-targets.js";
-import {
-  createUsageWatch,
-  isWatchedAgent,
-  startUsageWatch,
-} from "./agent/session-move/usage-watch.js";
-import { startUsageLimitFallback } from "./agent/session-move/usage-limit-fallback.js";
-import { movedAgentLookup, resolveMovedAgent } from "./agent/session-move/move-agent.js";
-import { registerWatcherNotice } from "./agent/session-move/watcher-notice.js";
-import { createUsageLookup } from "./agent/session-move/move-targets.js";
-import {
-  probeTargetLogin,
-  runStatusCommand,
-  type RunCommand,
-  type TargetLogin,
-} from "./agent/session-move/target-login.js";
+// Fork delta (usage heads-up): the usage watch.
+import { createUsageWatch, isWatchedAgent, startUsageWatch } from "./agent/usage-watch.js";
 import {
   createFinishSubscriptions,
   createFinishObservation,
   createJsonFinishSubscriptionStore,
-  createJsonFinishWatcherStore,
 } from "./agent/finish-subscriptions/index.js";
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
@@ -166,7 +146,6 @@ import { createSpeechService } from "./speech/speech-runtime.js";
 import { createSpeechSettingsOwner } from "./speech/speech-settings.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
-import type { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import {
@@ -532,7 +511,6 @@ export interface PaseoDaemon {
   agentManager: AgentManager;
   agentStorage: AgentStorage;
   scheduleService: ScheduleService;
-  providerSnapshotManager: ProviderSnapshotManager;
   terminalManager: TerminalManager;
   serviceProxy: ServiceProxySubsystem;
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
@@ -554,8 +532,6 @@ export interface PaseoDaemonDependencies {
     daemonStatusRpc?: boolean;
     relayConfig?: boolean;
   };
-  /** Runs a CLI's login status command for session move. Tests pass one that runs nothing. */
-  runLoginStatusCommand?: RunCommand;
 }
 
 function resolveBuiltinPluginLoader(dependencies: PaseoDaemonDependencies): BuiltinPluginLoader {
@@ -849,7 +825,6 @@ export async function createPaseoDaemon(
   let wsServer: VoiceAssistantWebSocketServer | null = null;
   // Fork delta (usage heads-up): stops the usage watch.
   let stopUsageWatch: (() => void) | null = null;
-  let stopUsageLimitFallback: (() => void) | null = null;
   let serviceProxyListenTarget: ListenTarget | null = null;
   const scriptHealthMonitor = new ScriptHealthMonitor({
     serviceProxy,
@@ -1596,15 +1571,16 @@ export async function createPaseoDaemon(
 
   const finishSubscriptions = createFinishSubscriptions({
     store: createJsonFinishSubscriptionStore(config.paseoHome),
-    watchers: createJsonFinishWatcherStore(config.paseoHome),
     serverId,
     logger,
     messages: () => {
       if (!wsServer) throw new Error("Daemon is not accepting agent messages");
       return wsServer.agentMessages;
     },
-    resolveCaller: (agentId) =>
-      resolveMovedAgent(agentId, movedAgentLookup({ agentManager, agentStorage })),
+    callerIsActive: async (agentId) => {
+      const record = await agentStorage.get(agentId);
+      return record ? !record.archivedAt : Boolean(agentManager.getAgent(agentId));
+    },
     ...createFinishObservation({
       agentManager,
       agentStorage,
@@ -1621,33 +1597,6 @@ export async function createPaseoDaemon(
       },
     }),
   });
-  // Nothing is reused: someone who signs in after a refusal is not held to the old answer. The
-  // lookup still shares a probe in flight and gives up on a slow one.
-  const targetLoginLookup = createUsageLookup<TargetLogin>({ ttlMs: 0 });
-  const targetLogin = async (providerId: string): Promise<TargetLogin> => {
-    const info = providerSnapshotManager.getProviderLaunchInfo(providerId);
-    if (!info) return "unknown";
-    const login = await targetLoginLookup(providerId, () =>
-      probeTargetLogin(info, dependencies.runLoginStatusCommand ?? runStatusCommand),
-    );
-    return login ?? "unknown";
-  };
-  agentManager.setMoveCarry({
-    targetLogin,
-    retargetSchedules: (from, to) => scheduleService.retargetAgent(from, to),
-    notifyWatchersOnFinish: (input) =>
-      registerWatcherNotice({ serverId, subscriptions: finishSubscriptions }, input),
-  });
-  // An agent that completes a turn has done its work: whoever was told about an earlier failure
-  // of it is not told again when it is moved later.
-  const stopForgettingWatchers = agentManager.subscribe(
-    (event) => {
-      if (event.type === "agent_stream" && event.event.type === "turn_completed") {
-        finishSubscriptions.forgetWatchers(event.agentId);
-      }
-    },
-    { replayState: false },
-  );
 
   const idleRuntimeCleanup = createIdleRuntimeCleanup({
     enabled: daemonConfigStore.get().idleRuntimeCleanup !== false,
@@ -2060,53 +2009,15 @@ export async function createPaseoDaemon(
                         title: (await agentStorage.get(agent.id))?.title ?? null,
                       })),
                   ),
-                launchInfo: (providerId) =>
-                  providerSnapshotManager.getProviderLaunchInfo(providerId),
+                providerLabel: (providerId) => providerSnapshotManager.getProviderLabel(providerId),
                 usageEnabled: isUsageEnabled,
-                listUsageReportsForScope: (scope) => pluginRuntime.listUsageReportsForScope(scope),
-                listMoveTargets: (agentId) =>
-                  listAgentMoveTargets({
-                    agentId,
-                    findAgent: async (id) =>
-                      agentManager.getAgent(id) ?? (await agentStorage.get(id)),
-                    providers: moveTargetProvidersFrom(providerSnapshotManager),
-                    usageEnabled: isUsageEnabled(),
-                    listUsageReportsForScope: (scope) =>
-                      pluginRuntime.listUsageReportsForScope(scope),
-                    usageLookup: sharedMoveTargetUsage,
-                    loginOf: targetLogin,
-                    logger: usageWatchLogger,
-                    now: Date.now(),
-                  }),
+                listAgentUsage: (agentId) => pluginRuntime.listUsageReports({ agentId }),
                 notify: async (notice) => {
                   await wsServer?.broadcastUsageAttention(notice);
                 },
-                // Fork delta (session move): an idle agent's account is read too, so the limit
-                // shows before a turn fails.
-                openAgents: async () =>
-                  agentManager
-                    .listAgents()
-                    .filter((agent) => !agent.internal)
-                    .map((agent) => ({ id: agent.id, provider: agent.provider })),
-                limitReachedAt: (agentId) =>
-                  agentManager.getAgent(agentId)?.limitReached?.at ?? null,
-                listAgentUsage: (agentId) => pluginRuntime.listUsageReports({ agentId }),
-                setLimitReached: (agentId, value) => agentManager.setLimitReached(agentId, value),
-                now: () => new Date(),
                 logger: usageWatchLogger,
               }),
               logger: usageWatchLogger,
-            });
-            // Fork delta (session move): a failed turn the limit matcher does not know still
-            // offers the move when the agent's account is at 100%. The read is forced, because
-            // a cached report from before the limit was hit would say there is room.
-            stopUsageLimitFallback = startUsageLimitFallback({
-              agentManager,
-              usageEnabled: isUsageEnabled,
-              listAgentUsage: (agentId) =>
-                pluginRuntime.listUsageReports({ agentId, forceRefresh: true }),
-              now: () => new Date(),
-              logger: logger.child({ module: "usage-limit-fallback" }),
             });
             const relaySecurityLogger = logger.child({ module: "relay-security" });
             relayRuntime = createRelayRuntime({
@@ -2167,8 +2078,6 @@ export async function createPaseoDaemon(
       // Fork delta (usage heads-up): a start that fails after the usage watch began stops it.
       stopUsageWatch?.();
       stopUsageWatch = null;
-      stopUsageLimitFallback?.();
-      stopUsageLimitFallback = null;
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
       unsubscribePluginProviders();
@@ -2210,11 +2119,8 @@ export async function createPaseoDaemon(
     // Fork delta (usage heads-up): the usage watch stops with the daemon.
     stopUsageWatch?.();
     stopUsageWatch = null;
-    stopUsageLimitFallback?.();
-    stopUsageLimitFallback = null;
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
-    stopForgettingWatchers();
     await finishSubscriptions.close();
     await wsServer?.agentMessages.close();
     agentManager.prepareForShutdown();
@@ -2279,7 +2185,6 @@ export async function createPaseoDaemon(
     agentManager,
     agentStorage,
     scheduleService,
-    providerSnapshotManager,
     terminalManager,
     serviceProxy,
     scriptRuntimeStore,

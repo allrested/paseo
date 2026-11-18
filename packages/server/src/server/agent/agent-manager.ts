@@ -1,5 +1,4 @@
 import type { AttachedAgentTool, PluginAgentToolsRuntime } from "../plugins/agent-tools.js";
-import type { MoveCarry } from "./session-move/move-carry.js";
 import { ProviderOptionsValidationError } from "./provider-options.js";
 import type { AgentToolResult } from "@getpaseo/plugin/server";
 import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
@@ -75,7 +74,6 @@ import {
   foldHookFeatureValues,
   type ProviderOptionsPatch,
 } from "./option-controls.js";
-import { isUsageLimitError } from "./session-move/limit-matcher.js";
 import type { StoredAgentRecord, AgentStorage } from "./agent-storage.js";
 import type { AgentOwner } from "./agent-owner.js";
 import {
@@ -287,7 +285,6 @@ export type {
 export type AgentManagerEvent =
   | { type: "agent_state"; agent: ManagedAgent }
   | { type: "agent_removed"; agentId: string; workspaceId?: string; internal: boolean }
-  | { type: "agent_moved"; fromAgentId: string; toAgentId: string; internal: boolean }
   | { type: "provider_subagent"; event: ProviderSubagentStoreEvent }
   | { type: "background_work"; agentId: string; items: AgentBackgroundWorkItem[] }
   | { type: "timeline_replacement"; agentId: string; epoch: string }
@@ -442,16 +439,6 @@ export type AttentionState =
       attentionTimestamp: Date;
     };
 
-/**
- * Fork delta (session move): a resumed agent keeps the limit its stored record carried, so the
- * move banner survives a reload or daemon restart; a new agent starts with none.
- */
-function initialLimitReached(
-  options: { limitReached?: ManagedAgent["limitReached"] } | undefined,
-): ManagedAgent["limitReached"] {
-  return options?.limitReached ?? null;
-}
-
 /** Private helpers and background agents report to their creator, never to the user. */
 function raisesAttention(agent: Pick<ManagedAgent, "internal" | "background">): boolean {
   return !agent.internal && !agent.background;
@@ -523,7 +510,6 @@ interface ManagedAgentBase {
   activeTurnStartedAt: Date | null;
   lastUsage?: AgentUsage;
   lastError?: string;
-  limitReached?: { at: string; message: string } | null;
   attention: AttentionState;
   foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
   finalizedForegroundTurnIds: Set<string>;
@@ -922,7 +908,6 @@ export class AgentManager {
   private appendSystemPrompt: string;
   private onAgentAttention?: AgentAttentionCallback;
   private onAgentArchived?: AgentArchivedCallback;
-  private carry: MoveCarry | null = null;
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
   private logger: Logger;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
@@ -1018,15 +1003,6 @@ export class AgentManager {
 
   setAgentArchivedCallback(callback: AgentArchivedCallback): void {
     this.onAgentArchived = callback;
-  }
-
-  /** Set once at daemon startup, as the archived callback is. */
-  setMoveCarry(carry: MoveCarry | null): void {
-    this.carry = carry;
-  }
-
-  get moveCarry(): MoveCarry | null {
-    return this.carry;
   }
 
   setMcpBaseUrl(url: string | null): void {
@@ -1759,7 +1735,6 @@ export class AgentManager {
       owner?: AgentOwner;
       background?: boolean;
       attention?: AttentionState;
-      limitReached?: { at: string; message: string } | null;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1794,7 +1769,6 @@ export class AgentManager {
       owner?: AgentOwner;
       background?: boolean;
       attention?: AttentionState;
-      limitReached?: { at: string; message: string } | null;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -2001,7 +1975,6 @@ export class AgentManager {
     const preservedHistoryPrimed = existing.historyPrimed;
     const preservedLastUsage = existing.lastUsage;
     const preservedLastError = existing.lastError;
-    const preservedLimitReached = existing.limitReached;
     const preservedAttention = existing.attention;
     const handle = existing.persistence;
     const provider = handle?.provider ?? existing.provider;
@@ -2088,7 +2061,6 @@ export class AgentManager {
         historyPrimed: rehydrateFromDisk ? false : preservedHistoryPrimed,
         lastUsage: preservedLastUsage,
         lastError: preservedLastError,
-        limitReached: preservedLimitReached,
         attention: preservedAttention,
         restoring: true,
       });
@@ -2598,7 +2570,6 @@ export class AgentManager {
         lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
         lastUsage: undefined,
         lastError: record.lastError ?? undefined,
-        limitReached: record.limitReached ?? null,
         attention,
         internal: record.internal,
         background: record.background,
@@ -2837,8 +2808,7 @@ export class AgentManager {
     this.emitState(agent, { persist: false });
   }
 
-  /** A null value removes that label. */
-  async setLabels(agentId: string, labels: AgentLabelPatch): Promise<void> {
+  async setLabels(agentId: string, labels: Record<string, string>): Promise<void> {
     await this.runLifecycleMutation(agentId, async () => {
       const agent = this.requireAgent(agentId);
       await this.writeLabels(agent.id, labels);
@@ -4285,26 +4255,6 @@ export class AgentManager {
     });
   }
 
-  /**
-   * Fork delta (session move): move back clears the limit on the agent it returns to, and a
-   * failed move back puts it back. Not activity in the agent, so updatedAt stays.
-   */
-  async setLimitReached(
-    agentId: string,
-    limitReached: ManagedAgent["limitReached"],
-  ): Promise<void> {
-    await this.runLifecycleMutation(agentId, async () => {
-      const agent = this.requireAgent(agentId);
-      agent.limitReached = limitReached ?? null;
-      await this.persistSnapshot(agent);
-      this.emitState(agent, { persist: false });
-    });
-  }
-
-  notifyAgentMoved(fromAgentId: string, toAgentId: string, options: { internal: boolean }): void {
-    this.dispatch({ type: "agent_moved", fromAgentId, toAgentId, internal: options.internal });
-  }
-
   async deleteCommittedTimeline(agentId: string): Promise<void> {
     await this.durableTimelineStore?.deleteAgent(agentId);
   }
@@ -4556,7 +4506,6 @@ export class AgentManager {
       historyPrimed?: boolean;
       lastUsage?: AgentUsage;
       lastError?: string;
-      limitReached?: { at: string; message: string } | null;
       attention?: AttentionState;
       /**
        * Bringing a known agent back, rather than starting a new one. Its timestamps and
@@ -4612,8 +4561,6 @@ export class AgentManager {
         background: options?.background === true,
         options,
       });
-
-      managed.limitReached = initialLimitReached(options);
 
       // Read history before publishing the agent: a provider failure must leave the
       // session unregistered so the registration catch closes it.
@@ -5652,7 +5599,6 @@ export class AgentManager {
     // data accumulated during streaming isn't lost when the provider omits
     // it from the completion event.
     agent.lastError = undefined;
-    agent.limitReached = null;
     if (
       !isForegroundEvent &&
       !agent.activeForegroundTurnId &&
@@ -5693,10 +5639,6 @@ export class AgentManager {
       agent.lifecycle = "error";
     }
     agent.lastError = event.error;
-    // Fork delta (session move): offer a move when the provider's quota ran out.
-    agent.limitReached = isUsageLimitError(event.error)
-      ? { at: new Date().toISOString(), message: event.error }
-      : (agent.limitReached ?? null);
     await this.appendSystemErrorTimelineMessage(
       agent,
       event.provider,
@@ -6229,8 +6171,6 @@ export class AgentManager {
     }
   }
 
-  // Fork delta (session move): the agent_moved block takes dispatch over the complexity limit.
-  // eslint-disable-next-line complexity
   private dispatch(event: AgentManagerEvent): void {
     for (const subscriber of this.subscribers) {
       if (
@@ -6251,14 +6191,6 @@ export class AgentManager {
         subscriber.agentId &&
         event.type === "agent_state" &&
         subscriber.agentId !== event.agent.id
-      ) {
-        continue;
-      }
-      if (
-        subscriber.agentId &&
-        event.type === "agent_moved" &&
-        subscriber.agentId !== event.fromAgentId &&
-        subscriber.agentId !== event.toAgentId
       ) {
         continue;
       }

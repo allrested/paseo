@@ -15,7 +15,7 @@ import type { PushNotificationSender, PushPayload } from "./push/index.js";
 import type { WorkspaceAutoName } from "./workspace-auto-name.js";
 import type { AgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
 import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
-import type { UsageNotice } from "./agent/session-move/usage-watch.js";
+import type { UsageNotice } from "./agent/usage-watch.js";
 
 const WORKSPACE_ID = "workspace-1";
 

@@ -308,8 +308,6 @@ function buildAgentStorageSpies() {
     listByWorkspaces: vi.fn().mockResolvedValue([]),
     lastUserMessageAtByWorkspace: async () => new Map<string, string>(),
     remove: vi.fn(),
-    // Sending a prompt asks for the history a move left for the agent; these agents have none.
-    takePendingMoveContext: vi.fn().mockResolvedValue(null),
   };
 }
 
@@ -911,7 +909,7 @@ async function createAgentMcpServer(
       },
     },
     messages: () => messages,
-    resolveCaller: async (id) => ((await options.agentStorage.get(id))?.archivedAt ? null : id),
+    callerIsActive: async (id) => !(await options.agentStorage.get(id))?.archivedAt,
     serverId: options.serverId ?? "self",
     logger: options.logger,
     ...createFinishObservation({

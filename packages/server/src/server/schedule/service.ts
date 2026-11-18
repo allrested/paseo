@@ -9,7 +9,6 @@ import type { AgentStorage } from "../agent/agent-storage.js";
 import { curateAgentActivity } from "../agent/activity-curator.js";
 import { ensureAgentLoaded } from "../agent/agent-loading.js";
 import { startAgentRun, type AgentRunController } from "../agent/agent-prompt.js";
-import { takePendingMovePrompt } from "../agent/session-move/pending-context.js";
 import { resolveCreateAgentTitles } from "../agent/create-agent-title.js";
 import { type BoundCreateAgentCommand, formatProviderModel } from "../agent/create-agent/create.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
@@ -577,30 +576,6 @@ export class ScheduleService {
     await this.store.delete(id);
   }
 
-  /**
-   * Points every not-completed schedule aimed at `fromAgentId` at `toAgentId` and returns their
-   * ids. A session move calls this before it archives the agent it leaves, so the archive finds
-   * nothing to complete.
-   */
-  async retargetAgent(fromAgentId: string, toAgentId: string): Promise<string[]> {
-    const updatedAt = this.now().toISOString();
-    const retargeted: string[] = [];
-    for (const candidate of await this.store.list()) {
-      await this.store.update(candidate.id, (schedule) => {
-        if (
-          schedule.target.type !== "agent" ||
-          schedule.target.agentId !== fromAgentId ||
-          schedule.status === "completed"
-        ) {
-          return schedule;
-        }
-        retargeted.push(schedule.id);
-        return { ...schedule, target: { ...schedule.target, agentId: toAgentId }, updatedAt };
-      });
-    }
-    return retargeted;
-  }
-
   async completeForAgent(agentId: string): Promise<number> {
     const now = this.now();
     const schedules = await this.store.list();
@@ -840,8 +815,6 @@ export class ScheduleService {
         ({ schedule: scheduleWithRun, runId } = claimed);
       }
 
-      const targetAgentId =
-        scheduleWithRun.target.type === "agent" ? scheduleWithRun.target.agentId : null;
       try {
         const result = await this.runner(scheduleWithRun, runId);
         await this.finishRun({
@@ -852,7 +825,6 @@ export class ScheduleService {
           output: result.output,
           error: null,
           targetGone: false,
-          targetAgentId,
           manual,
         });
       } catch (error) {
@@ -864,7 +836,6 @@ export class ScheduleService {
           output: null,
           error: error instanceof Error ? error.message : String(error),
           targetGone: error instanceof ScheduleTargetGoneError,
-          targetAgentId,
           manual,
         });
       }
@@ -945,8 +916,6 @@ export class ScheduleService {
     output: string | null;
     error: string | null;
     targetGone: boolean;
-    /** The agent the run was claimed for, when the schedule aimed at one. */
-    targetAgentId: string | null;
     manual: boolean;
   }): Promise<void> {
     const updatedSchedule = await this.store.update(params.scheduleId, (schedule) => {
@@ -970,13 +939,7 @@ export class ScheduleService {
         updatedAt: now.toISOString(),
       };
 
-      // A session move re-pointed the schedule while this run was in flight: the agent the run
-      // found gone is no longer its target.
-      const retargeted =
-        params.targetAgentId !== null &&
-        schedule.target.type === "agent" &&
-        schedule.target.agentId !== params.targetAgentId;
-      if (params.targetGone && !retargeted) {
+      if (params.targetGone) {
         // The target is permanently gone; retrying only burns the schedule down to
         // its expiry, so complete it now regardless of manual/scheduled origin.
         updated = completeSchedule(updated, now);
@@ -1064,13 +1027,7 @@ export class ScheduleService {
       if (this.agentManager.hasInFlightRun(agent.id)) {
         throw new Error(`Agent ${agent.id} already has an active run`);
       }
-      // Fork delta (session move): a moved agent's first turn may be a schedule fire.
-      const prompt = await takePendingMovePrompt({
-        agentStorage: this.agentStorage,
-        agentId: agent.id,
-        prompt: wrappedPrompt,
-      });
-      await startAgentRun(this.agentManager, agent.id, prompt, this.logger, {
+      await startAgentRun(this.agentManager, agent.id, wrappedPrompt, this.logger, {
         replaceRunning: true,
         activeTurnBehavior: "steer",
       });

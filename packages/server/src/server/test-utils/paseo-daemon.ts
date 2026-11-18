@@ -63,7 +63,6 @@ interface TestPaseoDaemonOptions {
 export interface TestPaseoDaemon {
   config: PaseoDaemonConfig;
   daemon: Awaited<ReturnType<typeof createPaseoDaemon>>;
-  logger: Parameters<typeof createPaseoDaemon>[1];
   port: number;
   paseoHome: string;
   staticDir: string;
@@ -111,8 +110,6 @@ export async function createTestPaseoDaemon(
     const logger = options.logger ?? pino({ level: "silent" });
     const daemon = await createPaseoDaemon(config, logger, {
       builtinPlugins: options.builtinPlugins ?? new BuiltinPluginLoader(undefined, []),
-      // No test daemon runs a real CLI to ask about a login: every login is unknown.
-      runLoginStatusCommand: async () => ({ exitCode: null, stdout: "", stderr: "" }),
       serverFeatureOverrides: {
         daemonStatusRpc: options.daemonStatusRpcCapability,
         relayConfig: options.relayConfigCapability,
@@ -137,7 +134,6 @@ export async function createTestPaseoDaemon(
       return {
         config,
         daemon,
-        logger,
         port: listenTarget.port,
         paseoHome,
         staticDir,

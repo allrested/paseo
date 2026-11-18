@@ -606,7 +606,7 @@ test("passes a usage attention notification through", async () => {
     shouldNotify: true,
     notification: {
       title: "Claude (work) 81% of Weekly",
-      body: "Fix login · Move to Claude · 12%",
+      body: "Fix login",
       data: { serverId: "srv-a", workspaceId: "ws-1", agentId: "agent-a", reason: "usage" },
     },
   };

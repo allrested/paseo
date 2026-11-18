@@ -1,4 +1,3 @@
-import type { ProviderCommand } from "@getpaseo/protocol/provider-config";
 import { normalizeAgentModelCatalog, type ProviderOptions } from "@getpaseo/protocol/agent-types";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -111,16 +110,6 @@ export interface ProviderSnapshotTransition {
 }
 
 type ProviderSnapshotChangeListener = (transition: ProviderSnapshotTransition) => void;
-
-export interface ProviderLaunchInfo {
-  providerId: string;
-  family: string;
-  label: string;
-  enabled: boolean;
-  env: Record<string, string>;
-  /** The provider's command override, when it has one. */
-  command?: ProviderCommand;
-}
 
 export interface ProviderSnapshotManagerOptions {
   logger: Logger;
@@ -365,19 +354,6 @@ export class ProviderSnapshotManager {
 
   getProviderLabel(provider: AgentProvider): string {
     return this.generation.definitions[provider]?.label ?? provider;
-  }
-
-  getProviderLaunchInfo(providerId: string): ProviderLaunchInfo | null {
-    const definition = this.generation.definitions[providerId];
-    if (!definition) return null;
-    return {
-      providerId,
-      family: definition.derivedFromProviderId ?? providerId,
-      label: this.getProviderLabel(providerId),
-      enabled: definition.enabled,
-      env: { ...definition.configuration?.runtimeSettings?.env },
-      command: definition.configuration?.runtimeSettings?.command,
-    };
   }
 
   getAgentManagerProviderState(): AgentManagerProviderState {

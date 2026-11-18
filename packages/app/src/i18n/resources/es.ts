@@ -698,7 +698,6 @@ export const es: TranslationResources = {
         reloadAgent: "Recargar agente",
         reloadAgentTooltip:
           "Vuelva a cargar el agente para actualizar habilidades, MCP o estado de inicio de sesión.",
-        moveAgent: en.workspace.tabs.menu.moveAgent,
         close: "Cerrar",
         renameTerminal: "Cambiar nombre de terminal",
         renameAgent: "Cambiar nombre del agente",
@@ -2040,7 +2039,6 @@ export const es: TranslationResources = {
       stop: "Detener la voz en tiempo real e interrumpir el turno.",
     },
   },
-  sessionMove: en.sessionMove,
   brand: en.brand,
   cdpBrowser: en.cdpBrowser,
   rewind: {

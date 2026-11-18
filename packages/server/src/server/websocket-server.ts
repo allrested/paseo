@@ -108,7 +108,7 @@ import {
   type AgentAttentionNotificationPayload,
   type AgentAttentionReason,
 } from "@getpaseo/protocol/agent-attention-notification";
-import type { UsageNotice } from "./agent/session-move/usage-watch.js";
+import type { UsageNotice } from "./agent/usage-watch.js";
 import { createGitHubService } from "../services/github-service.js";
 import type { ForgeService } from "../services/forge-service.js";
 import {
@@ -2067,9 +2067,6 @@ export class VoiceAssistantWebSocketServer {
       features: {
         connectedHosts: true,
         hostMultiplexing: true,
-        agentMove: true,
-        // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel.
-        usageHeadsUp: true,
         // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
         agentRuntimeClose: true,
         // Fork delta (web browser pane). True when PASEO_BROWSER_CDP_URL is set, reachable or not:

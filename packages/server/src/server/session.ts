@@ -121,7 +121,6 @@ import {
 
 import { AgentManager, AgentRunCancellationError } from "./agent/agent-manager.js";
 import { buildTimelinePromptIndex } from "./agent/timeline-prompt-index.js";
-// Fork delta (usage heads-up): the launch info type moved out with the move target listing.
 import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import type {
   AgentManagerEvent,
@@ -153,20 +152,6 @@ import {
 } from "./agent/agent-timeline-content.js";
 import { parsePluginClientId } from "./plugins/plugin-session-identity.js";
 import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
-import {
-  moveAgent,
-  moveAgentBack,
-  runMove,
-  type MoveAgentDeps,
-} from "./agent/session-move/move-agent.js";
-// Fork delta (usage heads-up): move targets are listed in list-move-targets.ts, shared with the
-// usage watch.
-import type { MoveTarget } from "./agent/session-move/move-targets.js";
-import {
-  listAgentMoveTargets,
-  moveTargetProvidersFrom,
-  sharedMoveTargetUsage,
-} from "./agent/session-move/list-move-targets.js";
 import { buildAgentPrompt } from "./agent/prompt-attachments.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
 import {
@@ -590,10 +575,6 @@ export interface SessionOptions {
       reportIds?: string[];
     }): Promise<UsageReportEntry[]>;
     listLegacyUsage(): Promise<{ fetchedAt: string; providers: ProviderUsage[] }>;
-    listUsageReportsForScope?(scope: {
-      provider: string;
-      env: Record<string, string>;
-    }): Promise<UsageReportEntry[]>;
   };
   orchestrationSkills?: import("./orchestration-skills/index.js").OrchestrationSkills;
   mcpBaseUrl?: string | null;
@@ -1888,8 +1869,7 @@ export class Session {
       this.wantsEvent("agent_permission_request") ||
       this.wantsEvent("agent_permission_resolved") ||
       this.wantsEvent("agent.provider_subagents.update") ||
-      this.wantsEvent("agent.background_work.update") ||
-      this.wantsEvent("agent.moved");
+      this.wantsEvent("agent.background_work.update");
     if (agents && !this.unsubscribeAgentEvents) this.subscribeToAgentEvents();
     if (!agents) {
       this.unsubscribeAgentEvents?.();
@@ -2174,7 +2154,20 @@ export class Session {
         }
 
         if (event.type === "agent_removed") {
-          this.forwardAgentRemoved(event);
+          if (event.internal) return;
+          void this.agentUpdates
+            .removeAgent(event.agentId)
+            .then(() => {
+              if (event.workspaceId)
+                return this.emitWorkspaceUpdateForWorkspaceId(event.workspaceId);
+              return undefined;
+            })
+            .catch((error) => {
+              this.sessionLogger.error(
+                { err: error, agentId: event.agentId },
+                "Failed to emit agent removal",
+              );
+            });
           return;
         }
 
@@ -2200,11 +2193,6 @@ export class Session {
 
         if (event.type === "background_work") {
           this.forwardBackgroundWork(event);
-          return;
-        }
-
-        if (event.type === "agent_moved") {
-          this.forwardAgentMoved(event);
           return;
         }
 
@@ -2709,7 +2697,6 @@ export class Session {
   ): Promise<void> | undefined {
     return (
       this.dispatchAgentRewindMessage(msg, source) ??
-      this.dispatchAgentMoveMessage(msg, source) ??
       this.dispatchAgentRelationshipMessage(msg) ??
       this.dispatchAgentTimelineMessage(msg, source)
     );
@@ -3146,106 +3133,6 @@ export class Session {
       default:
         return undefined;
     }
-  }
-
-  private dispatchAgentMoveMessage(
-    msg: SessionInboundMessage,
-    source?: object,
-  ): Promise<void> | undefined {
-    switch (msg.type) {
-      case "agent.move.request":
-        return this.handleAgentMoveRequest(msg, source);
-      case "agent.move_back.request":
-        return this.handleAgentMoveBackRequest(msg, source);
-      case "agent.move_targets.list.request":
-        return this.handleAgentMoveTargetsRequest(msg, source);
-      default:
-        return undefined;
-    }
-  }
-
-  private moveDeps(): MoveAgentDeps {
-    return {
-      agentManager: this.agentManager,
-      agentStorage: this.agentStorage,
-      providerSnapshotManager: this.providerSnapshotManager,
-      logger: this.sessionLogger,
-      paseoHome: this.paseoHome,
-      worktreesRoot: this.worktreesRoot,
-    };
-  }
-
-  private async handleAgentMoveRequest(
-    msg: Extract<SessionInboundMessage, { type: "agent.move.request" }>,
-    source?: object,
-  ): Promise<void> {
-    const payload = await runMove(() =>
-      moveAgent(this.moveDeps(), {
-        agentId: msg.agentId,
-        target: msg.target,
-        continueWork: msg.continueWork,
-      }),
-    );
-    this.emitForSource(
-      { type: "agent.move.response", payload: { requestId: msg.requestId, ...payload } },
-      source,
-    );
-  }
-
-  private async handleAgentMoveBackRequest(
-    msg: Extract<SessionInboundMessage, { type: "agent.move_back.request" }>,
-    source?: object,
-  ): Promise<void> {
-    const payload = await runMove(() =>
-      moveAgentBack(this.moveDeps(), {
-        agentId: msg.agentId,
-        continueWork: msg.continueWork,
-        ...(msg.toAgentId !== undefined ? { toAgentId: msg.toAgentId } : {}),
-      }),
-    );
-    this.emitForSource(
-      { type: "agent.move_back.response", payload: { requestId: msg.requestId, ...payload } },
-      source,
-    );
-  }
-
-  private async handleAgentMoveTargetsRequest(
-    msg: Extract<SessionInboundMessage, { type: "agent.move_targets.list.request" }>,
-    source?: object,
-  ): Promise<void> {
-    let targets: MoveTarget[] = [];
-    let error: string | null = null;
-    try {
-      targets = await this.listMoveTargets(msg.agentId);
-    } catch (err) {
-      this.sessionLogger.warn({ err, agentId: msg.agentId }, "move targets: request failed");
-      error = err instanceof Error ? err.message : String(err);
-    }
-    this.emitForSource(
-      {
-        type: "agent.move_targets.list.response",
-        payload: { requestId: msg.requestId, targets, error },
-      },
-      source,
-    );
-  }
-
-  // Fork delta (usage heads-up): lists the targets through list-move-targets.ts, shared with the
-  // usage watch.
-  private async listMoveTargets(agentId: string): Promise<MoveTarget[]> {
-    const runtime = this.pluginRuntime;
-    const listReports = runtime?.listUsageReportsForScope;
-    return listAgentMoveTargets({
-      agentId,
-      findAgent: async (id) => this.agentManager.getAgent(id) ?? (await this.agentStorage.get(id)),
-      providers: moveTargetProvidersFrom(this.providerSnapshotManager),
-      usageEnabled: this.daemonConfigStore.get().usage?.enabled !== false,
-      listUsageReportsForScope: listReports ? (scope) => listReports.call(runtime, scope) : null,
-      usageLookup: sharedMoveTargetUsage,
-      loginOf: this.agentManager.moveCarry?.targetLogin,
-      logger: this.sessionLogger,
-      now: Date.now(),
-    });
   }
 
   private dispatchAgentRelationshipMessage(msg: SessionInboundMessage): Promise<void> | undefined {
@@ -5530,31 +5417,6 @@ export class Session {
     } finally {
       this.rewindInitiators.delete(msg.agentId);
     }
-  }
-
-  private forwardAgentMoved(event: Extract<AgentManagerEvent, { type: "agent_moved" }>): void {
-    // Internal agents stay hidden from clients, as in forwardAgentRemoved.
-    if (event.internal) return;
-    this.emit({
-      type: "agent.moved",
-      payload: { fromAgentId: event.fromAgentId, toAgentId: event.toAgentId },
-    });
-  }
-
-  private forwardAgentRemoved(event: Extract<AgentManagerEvent, { type: "agent_removed" }>): void {
-    if (event.internal) return;
-    void this.agentUpdates
-      .removeAgent(event.agentId)
-      .then(() => {
-        if (event.workspaceId) return this.emitWorkspaceUpdateForWorkspaceId(event.workspaceId);
-        return undefined;
-      })
-      .catch((error) => {
-        this.sessionLogger.error(
-          { err: error, agentId: event.agentId },
-          "Failed to emit agent removal",
-        );
-      });
   }
 
   private deliverTimelineReplacement(agentId: string, initiatingSource?: object): void {
@@ -9683,8 +9545,6 @@ function isValidGitHubRepoSegment(value: string): boolean {
   return /^[A-Za-z0-9._-]+$/u.test(value);
 }
 
-// Fork delta (session move): the agent.moved case takes this switch over the complexity limit.
-// eslint-disable-next-line complexity
 function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubscription | null {
   switch (message.type) {
     case "project.update":
@@ -9701,7 +9561,6 @@ function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubs
     case "activity_log":
     case "hub.execution.agent.update":
     case "hub.execution.agent.stream":
-    case "agent.moved":
       return message.type;
     case "status":
       switch (message.payload.status) {
@@ -9738,8 +9597,6 @@ function legacyWantsEvent(
       return capabilities.has(CLIENT_CAPS.providerSubagents);
     // Old apps parse outbound messages strictly and do not know this type.
     case "agent.background_work.update":
-    case "agent.moved":
-      // Added with session move; clients from before owned subscriptions do not know it.
       return false;
     default:
       return true;

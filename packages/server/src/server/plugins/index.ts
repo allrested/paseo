@@ -243,10 +243,6 @@ export class PluginService {
     return this.usageSources.listLegacyUsage();
   }
 
-  listUsageReportsForScope(scope: { provider: string; env: Record<string, string> }) {
-    return this.usageSources.listReportsForScope(scope);
-  }
-
   subscribeProviderRegistrations(listener: () => void): () => void {
     this.providerListeners.add(listener);
     return () => this.providerListeners.delete(listener);

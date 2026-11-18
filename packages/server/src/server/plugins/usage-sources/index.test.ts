@@ -981,30 +981,6 @@ test("failed discovery preserves history until discovery confirms account remova
   expect((await registry.listReports())[0]?.lastSuccessful).toBeUndefined();
 });
 
-test("listReportsForScope reports usage for a provider/env without a live agent", async () => {
-  const registry = new UsageSourceRegistry();
-  registry.register(
-    source({
-      id: "claude",
-      discover: async (scope) =>
-        (scope as { kind: string }).kind === "session" &&
-        (scope as { env: Record<string, string> }).env.CLAUDE_CONFIG_DIR === "/w"
-          ? [{ key: "work", label: "work@example.test", input: { dir: "/w" } }]
-          : [],
-      fetch: async () => ({
-        status: "available",
-        windows: [{ id: "five_hour", label: "Session", usedPct: 100 }],
-      }),
-    }),
-  );
-  const [entry] = await registry.listReportsForScope({
-    provider: "claude",
-    env: { CLAUDE_CONFIG_DIR: "/w" },
-  });
-  expect(entry?.account.label).toBe("work@example.test");
-  expect(entry?.report.status).toBe("available");
-});
-
 const PACE_RESETS_AT = "2026-11-06T14:00:00.000Z";
 
 /** A Claude account whose weekly usage takes the next value of `usedPcts` on every fetch. */
@@ -1135,31 +1111,6 @@ test("the host's usage list leaves a projected run-out out of the last successfu
     label: "Weekly",
     usedPct: 60,
     resetsAt: PACE_RESETS_AT,
-  });
-});
-
-test("listReportsForScope fills a rising window's run-out from the scope's fetch history", async () => {
-  let now = Date.parse("2026-11-06T10:00:00.000Z");
-  const registry = new UsageSourceRegistry(() => now);
-  registry.register(risingSource([40, 50]));
-  const scope = { provider: "claude", env: {} };
-
-  expect(firstWindow(await registry.listReportsForScope(scope))).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 40,
-    resetsAt: PACE_RESETS_AT,
-  });
-  now += 20 * 60_000;
-  // 40% to 50% in 20 minutes is 0.5% a minute: the 50% left lasts 100 minutes, to 12:00, and the
-  // 220 minutes to the 14:00 reset add 110% to the 50%.
-  expect(firstWindow(await registry.listReportsForScope(scope))).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 50,
-    resetsAt: PACE_RESETS_AT,
-    runsOutAt: "2026-11-06T12:00:00.000Z",
-    shortfallPct: 60,
   });
 });
 

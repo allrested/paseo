@@ -141,19 +141,6 @@ export class UsageSourceRegistry {
     );
   }
 
-  /** Usage for a launch scope that has no agent yet, e.g. a session-move target. */
-  async listReportsForScope(scope: {
-    provider: string;
-    env: Record<string, string>;
-  }): Promise<UsageReportEntry[]> {
-    const reports = await this.discover({
-      kind: "session",
-      provider: scope.provider,
-      env: scope.env,
-    });
-    return Promise.all([...reports].map(([id, known]) => this.fetchId(id, known)));
-  }
-
   private pruneAgents(): void {
     for (const id of this.byAgent.keys()) {
       if (!this.agents.hasAgent(id)) this.byAgent.delete(id);
