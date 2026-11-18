@@ -24,6 +24,19 @@ export interface CleanupPorts {
   sleep(ms: number): Promise<void>;
 }
 
+/**
+ * The agent ids in the environments of the office's own process and its ancestors. A daemon
+ * started from an agent's shell inherits that agent's id, and so does every child of the daemon
+ * that does not set its own, other plugins' subprocesses among them.
+ */
+async function daemonAgentIds(ports: CleanupPorts): Promise<Set<string>> {
+  const chain = await readAncestors(ports.procRoot, ports.selfPid);
+  const processes = await readAgentProcesses(ports.procRoot);
+  return new Set(
+    processes.filter((process) => chain.has(process.pid)).map((process) => process.agentId),
+  );
+}
+
 async function leftovers(ports: CleanupPorts, agentId: string) {
   const protectedPids = await readAncestors(ports.procRoot, ports.selfPid);
   const processes = await readAgentProcesses(ports.procRoot);
@@ -55,11 +68,17 @@ async function waitForExit(ports: CleanupPorts, agentId: string): Promise<void> 
  * Frees what one agent holds. An idle agent's runtime is closed through Paseo, so its provider
  * and its tools end together and the next prompt resumes them; whatever outlives that, and
  * whatever an already closed agent left, is asked to end. An agent at work is left alone, and so
- * is an id this daemon does not know: its processes may be another daemon's.
+ * is an id this daemon does not know: its processes may be another daemon's. An id the daemon's
+ * own chain carries is refused: its processes include the daemon's children.
  */
 export async function cleanUpAgent(ports: CleanupPorts, agentId: string): Promise<CleanupResult> {
   const fail = (error: string): CleanupResult => ({ agentId, ok: false, error });
   try {
+    if ((await daemonAgentIds(ports)).has(agentId)) {
+      return fail(
+        "This agent's id is the daemon's own: its processes cannot be told from the daemon's",
+      );
+    }
     const agent = await ports.agent(agentId);
     if (agent === null) return fail("This host does not know the agent");
     if (agent.status === "idle") {

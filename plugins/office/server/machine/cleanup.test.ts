@@ -105,18 +105,38 @@ test("an agent at work, one that cannot resume and an unknown id are left alone"
   expect(stopped).toEqual([]);
 });
 
-test("the daemon and its ancestors are never signalled, whatever id they carry", async () => {
+const DAEMON_OWN_ID =
+  "This agent's id is the daemon's own: its processes cannot be told from the daemon's";
+
+test("an id the daemon's own chain carries is refused, and nothing is closed or signalled", async () => {
+  // A daemon started from agent a's shell: it and its children inherit a's id.
+  const { ports, closed, stopped } = await harness(
+    [
+      { pid: 1, ppid: 0, name: "init" },
+      { pid: 30, ppid: 1, agentId: "a", name: "claude" },
+      { pid: 40, ppid: 30, agentId: "a", name: "paseo" },
+      { pid: 45, ppid: 40, agentId: "a", name: "other-plugin" },
+    ],
+    { a: { status: "idle", resumable: true } },
+  );
+  expect(await cleanUpAgent(ports, "a")).toEqual({ agentId: "a", ok: false, error: DAEMON_OWN_ID });
+  expect(closed).toEqual([]);
+  expect(stopped).toEqual([]);
+});
+
+test("an id the daemon does not carry is cleaned as before, beside a daemon that carries another", async () => {
   const { ports, stopped } = await harness(
     [
       { pid: 1, ppid: 0, name: "init" },
       { pid: 30, ppid: 1, agentId: "a", name: "claude" },
       { pid: 40, ppid: 30, agentId: "a", name: "paseo" },
-      { pid: 45, ppid: 40, agentId: "a", name: "worker" },
+      { pid: 45, ppid: 40, agentId: "a", name: "other-plugin" },
+      { pid: 50, ppid: 1, agentId: "b" },
     ],
-    { a: { status: "closed", resumable: true } },
+    { b: { status: "closed", resumable: true } },
   );
-  expect((await cleanUpAgent(ports, "a")).ok).toBe(true);
-  expect(stopped).toEqual([45]);
+  expect(await cleanUpAgent(ports, "b")).toEqual({ agentId: "b", ok: true, error: null });
+  expect(stopped).toEqual([50]);
 });
 
 test("a failed close is reported and nothing is signalled", async () => {
@@ -172,12 +192,12 @@ test("a pid that names another process by the time it is its turn is not signall
 
 test("a plugin that inherited the agent's id is not stopped: the walk starts from its own pid", async () => {
   // The office as an installed plugin: pid 60, a subprocess of the daemon (40). readAncestors puts
-  // the pid it starts from in its result, which is all that protects 60.
+  // the pid it starts from in its result, so 60's id is read as the daemon's own and refused.
   const { ports, stopped } = await harness(
     [...DAEMON, { pid: 60, ppid: 40, agentId: "a" }, { pid: 61, ppid: 1, agentId: "a" }],
     { a: { status: "closed", resumable: false } },
     { selfPid: 60 },
   );
-  expect(await cleanUpAgent(ports, "a")).toEqual({ agentId: "a", ok: true, error: null });
-  expect(stopped).toEqual([61]);
+  expect(await cleanUpAgent(ports, "a")).toEqual({ agentId: "a", ok: false, error: DAEMON_OWN_ID });
+  expect(stopped).toEqual([]);
 });
