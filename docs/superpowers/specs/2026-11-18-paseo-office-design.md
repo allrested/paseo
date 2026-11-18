@@ -80,7 +80,7 @@ Khanh (khanh020905), by message, relayed by the owner on 2026-11-18. These bind 
 
 - `allrested/paseo-office`, public. The plugin is at the root: `paseo-plugin.json`,
   `index.client.tsx`, `index.server.ts`, `client/`, `server/`, `shared/`, `vendor/`, and
-  `dist/world.js`.
+  the generated scene module.
 - One import commit, whose message names the fork commit the files came from. The office's tests
   come with it.
 - `LICENSE`: MIT, "Copyright (c) 2026 allrested", followed by a notice that `vendor/my-office/` is
@@ -96,16 +96,16 @@ Khanh (khanh020905), by message, relayed by the owner on 2026-11-18. These bind 
 
 ### Running on stock Paseo
 
-| Tie to the fork                      | In the plugin                                                                                                                                                                                               |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bundleBrowserScript`, `directory`   | `npm run build:world` bundles the scene into `dist/world.js`, which is committed. The server reads it from beside its own module. CI rebuilds it and fails when the committed file differs.                 |
-| `server.schedules`, `handleSchedule` | A timer in the plugin's server: it works out the next 8:00 in the notes' time zone and the incidents check's next run, and runs them itself. A run missed while the daemon was down is not made up.         |
-| `process.pid` as the daemon          | The plugin's parent process. Where the parent cannot be read, the readings that need it are left out and the clean-up protects the plugin's own ancestors only.                                             |
-| `process.env` as the daemon's        | The subprocess's environment where it carries `PASEO_HOME`; otherwise the default home. The plan's first task reads what a stock daemon passes and settles this.                                            |
-| `cancel()`, `closeRuntime()`         | Used when the host's SDK has them. Without them Stop and the Host card's close are not offered.                                                                                                             |
-| `ScriptFrame`                        | Used when the app's kit has it; otherwise the 2D floor, until sub-project 2.                                                                                                                                |
-| `showBeside` for Resources           | As today: the Host card where the app has no side area or no Resources plugin.                                                                                                                              |
-| `zod`                                | A dependency in `package.json`. The manifest's `build` is `[["npm", "ci", "--omit=dev"]]`, so an install brings it. The plan's first task confirms on a stock daemon that this is what a Git install needs. |
+| Tie to the fork                      | In the plugin                                                                                                                                                                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundleBrowserScript`, `directory`   | A stock daemon runs an installed plugin's server from a compiled bundle, so the scene is embedded: `scripts/build-world.mjs` bundles it into a generated module the server imports, which is committed. CI rebuilds it and fails when the committed module differs. |
+| `server.schedules`, `handleSchedule` | A timer in the plugin's server: it works out the next 8:00 in the notes' time zone and the incidents check's next run, and runs them itself. A run missed while the daemon was down is not made up.                                                                 |
+| `process.pid` as the daemon          | The plugin's parent process. Where the parent cannot be read, the readings that need it are left out and the clean-up protects the plugin's own ancestors only.                                                                                                     |
+| `process.env` as the daemon's        | The subprocess's environment where it carries `PASEO_HOME`; otherwise the default home. The plan's first task reads what a stock daemon passes and settles this.                                                                                                    |
+| `cancel()`, `closeRuntime()`         | Used when the host's SDK has them. Without them Stop and the Host card's close are not offered.                                                                                                                                                                     |
+| `ScriptFrame`                        | Used when the app's kit has it; otherwise the 2D floor, until sub-project 2.                                                                                                                                                                                        |
+| `showBeside` for Resources           | As today: the Host card where the app has no side area or no Resources plugin.                                                                                                                                                                                      |
+| `zod`                                | A dependency in `package.json`. The manifest's `build` is `[["npm", "ci", "--omit=dev"]]`, so an install brings it. The plan's first task confirms on a stock daemon that this is what a Git install needs.                                                         |
 
 - The plugin id stays `office`, and the data files stay where they are
   (`<PASEO_HOME>/office/...`), so boards, chat, notes, incidents and both settings documents carry
@@ -123,7 +123,7 @@ Command Center's "Office settings" open it.
 ### Checks
 
 - CI in the new repo, on GitHub Actions: `npm ci`, typecheck against the published
-  `@getpaseo/plugin`, lint, format, the tests, and "the committed `dist/world.js` is what the
+  `@getpaseo/plugin`, lint, format, the tests, and "the committed scene module is what the
   build makes".
 - A dev daemon from unmodified upstream (`@getpaseo/server` from npm, its own `PASEO_HOME` and
   port, never 6767): `paseo plugin install` from the repo, the plugin's log shows it loaded in a
