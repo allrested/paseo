@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { ImageStyle, TextStyle, ViewStyle } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 
-// The office's conventions (plugins/office/client/styles.ts), so the two built-ins read as one
+// The conventions of the other built-ins, so they read as one
 // app: touch-sized controls in the compact layout or on a touch screen, pill buttons with a
 // fill layer, foreground for the thing acted on and foregroundMuted for context (docs/design.md).
 

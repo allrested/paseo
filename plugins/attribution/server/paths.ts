@@ -1,7 +1,6 @@
 import { join, resolve } from "node:path";
 
-// Copied from plugins/office/server/paths.ts, which mirrors resolvePaseoHome in
-// packages/server/src/server/paseo-home.ts; a built-in can import neither.
+// Mirrors resolvePaseoHome in packages/server/src/server/paseo-home.ts; a built-in cannot import it.
 function expandHomeDir(input: string, home: string): string {
   if (input.startsWith("~/")) return join(home, input.slice(2));
   if (input === "~") return home;

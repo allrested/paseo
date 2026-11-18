@@ -1,7 +1,6 @@
 import type { Clock } from "./timers.js";
 
-// Test helper, as plugins/office/server/fake-clock.ts. Nothing imports it from index.server.ts,
-// so it is not in the bundle.
+// Test helper. Nothing imports it from index.server.ts, so it is not in the bundle.
 export interface FakeClock extends Clock {
   /** Moves time forward, running each due timer in time order, then stops at now + ms. */
   advance(ms: number): void;

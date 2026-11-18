@@ -6,8 +6,7 @@
 #
 # This fork changes docker/**, built-in usage-source plugins in plugins/ (kiro,
 # bddevlab, claude), session move, which spans the server, the CLI and
-# packages/app/src/session-move, ScriptFrame in packages/app (the office
-# plugin's 3D view runs in it on Android), and the fork's APK
+# packages/app/src/session-move, ScriptFrame in packages/app, and the fork's APK
 # (app.config.js's fork variant and fork-android-apk.yml). Upstream already
 # proves the rest of the app, desktop, relay, CLI and SDK on its own runs, so
 # re-testing them here buys nothing and costs ~145 runner-minutes. The seven
@@ -147,8 +146,8 @@ jobs:
         run: npx vitest run design/test/figcraft-contract.real.test.ts --bail=1
 
   # Session move's app and CLI tests, and the app's ScriptFrame and fork-variant
-  # unit tests. Session move's server half and the built-in plugins (the office
-  # among them) run in server-tests; these are the only fork-authored tests
+  # unit tests. Session move's server half and the built-in plugins run in
+  # server-tests; these are the only fork-authored tests
   # outside it.
   session-move-tests:
     runs-on: ubuntu-latest

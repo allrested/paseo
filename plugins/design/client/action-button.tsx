@@ -8,8 +8,7 @@ import {
 } from "react-native";
 import type { DesignStyles } from "./styles.js";
 
-// Copied from the office (plugins/office/client/action-button.tsx), with a danger label for the
-// confirm step of a removal.
+// An action button with a danger label for the confirm step of a removal.
 
 export interface ActionButtonProps {
   label: string;
