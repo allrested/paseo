@@ -485,3 +485,62 @@ test("the floor is not drawn again when the layout flips", async () => {
   expect(hasBar()).toBe(false);
   expect(container.querySelector("#office-list-search")).toBe(search);
 });
+
+/** The wide column's tab of that name. */
+async function pressTab(label: string): Promise<void> {
+  await act(async () =>
+    container
+      .querySelector<HTMLElement>(
+        `[aria-label="Office column"] [role="tab"][aria-label^="${label}"]`,
+      )
+      ?.click(),
+  );
+}
+
+test("a half-typed chat message is still there after a look at another tab", async () => {
+  compact = false;
+  await mount();
+  await act(async () =>
+    deliver?.({
+      type: "snapshot",
+      state: { ...EMPTY_OFFICE, chat: { messages: [], typing: [] } },
+    }),
+  );
+  await pressTab("Chat");
+  const box = () => labelled("Message") as HTMLTextAreaElement | null;
+  const field = box();
+  if (!field) throw new Error("The Chat tab has no Message box");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+      field,
+      "hello",
+    );
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  await pressTab("Sessions");
+  expect(box()).toBeNull();
+  await pressTab("Chat");
+
+  expect(box()?.value).toBe("hello");
+});
+
+test("Attention says why while the subscription is in error or closed", async () => {
+  compact = false;
+  for (const [status, text] of [
+    ["error", "Unable to load the office: the office is out of reach"],
+    ["closed", "Unable to show live agents: the host closed the office. Reopen it."],
+  ] as const) {
+    subscriptionStatus = status;
+    await mount();
+    await act(async () => deliver?.({ type: "snapshot", state: EMPTY_OFFICE }));
+    await openAttention();
+
+    expect(container.textContent).not.toContain("Nothing needs you.");
+    // The floor says it too: the Attention tab's banner is the second.
+    const alerts = [...container.querySelectorAll('[role="alert"]')].filter(
+      (alert) => alert.textContent === text,
+    );
+    expect(alerts).toHaveLength(2);
+  }
+});

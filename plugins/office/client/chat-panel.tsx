@@ -49,7 +49,7 @@ import {
   type MentionOption,
 } from "./chat-text.js";
 import { markChatSeen } from "./chat-seen.js";
-import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
+import type { ChatDraft, ColumnPanelProps, OfficeLink } from "./office-link.js";
 import { hasTouchScreen, readPointer } from "./office-surface.js";
 import type { OfficeStyles } from "./styles.js";
 
@@ -645,12 +645,19 @@ function StickerTray({ onPick, styles }: { onPick(index: number): void; styles: 
  * The Chat tab of the office's column, fed by the surface's subscription: the team conversation,
  * which the surface keeps apart from the floor's state.
  */
-export function ChatPanel({ office, styles, theme, layout, link }: ColumnPanelProps) {
+export function ChatPanel({
+  office,
+  styles,
+  theme,
+  layout,
+  link,
+  draft,
+}: ColumnPanelProps & { draft: ChatDraft }) {
   const { state, subscription, chat } = office;
   const call = useRpc(chatRpc);
   const model = useMemo(() => buildOfficeModel(state), [state]);
-  const [text, setText] = useState("");
-  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  // The surface holds what is typed, so a look at another tab or a closed sheet keeps it.
+  const { text, setText, replyTo, setReplyTo } = draft;
   const [error, setError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
   const all = chat?.messages;
@@ -709,7 +716,7 @@ export function ChatPanel({ office, styles, theme, layout, link }: ColumnPanelPr
     if (!ok) return;
     setText((current) => textAfterSend(current, sent));
     setReplyTo(null);
-  }, [text, replyTo, run]);
+  }, [text, replyTo, run, setText, setReplyTo]);
   const sendSticker = useCallback(
     async (sticker: number) => {
       const ok = await run(
@@ -719,7 +726,7 @@ export function ChatPanel({ office, styles, theme, layout, link }: ColumnPanelPr
       setStickersOpen(false);
       setReplyTo(null);
     },
-    [replyTo, run],
+    [replyTo, run, setReplyTo],
   );
 
   const options = useMemo(() => {
@@ -727,12 +734,15 @@ export function ChatPanel({ office, styles, theme, layout, link }: ColumnPanelPr
     return mention === null ? [] : mentionOptions(model, mention.query);
   }, [text, model]);
   const first = options[0];
-  const pick = useCallback((name: string) => {
-    setText((current) => {
-      const mention = mentionAt(current);
-      return mention === null ? current : putMention(current, mention, name);
-    });
-  }, []);
+  const pick = useCallback(
+    (name: string) => {
+      setText((current) => {
+        const mention = mentionAt(current);
+        return mention === null ? current : putMention(current, mention, name);
+      });
+    },
+    [setText],
+  );
   const onKeyPress = useCallback(
     (event: KeyPress) => {
       // On a touch screen Enter is a new line, and the Send button sends. An IME's Enter picks a word.
@@ -753,7 +763,7 @@ export function ChatPanel({ office, styles, theme, layout, link }: ColumnPanelPr
     [touchScreen, first, pick, send],
   );
   const toggleStickers = useCallback(() => setStickersOpen((open) => !open), []);
-  const closeReply = useCallback(() => setReplyTo(null), []);
+  const closeReply = useCallback(() => setReplyTo(null), [setReplyTo]);
   const typing = typingText(chat?.typing ?? []);
   const counter = counterText(text.length);
   // The glyph at the app's icon sizes, as the header's buttons have it.

@@ -16,7 +16,12 @@ import {
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
-import { notesReadRpc, type IncidentsState, type Machine } from "../shared/contracts.js";
+import {
+  notesReadRpc,
+  type ChatMessage,
+  type IncidentsState,
+  type Machine,
+} from "../shared/contracts.js";
 import {
   OFFICE_VIEWS,
   officeDeviceSettings,
@@ -24,7 +29,7 @@ import {
   type OfficeViewChoice,
 } from "../shared/settings.js";
 import { ActionButton } from "./action-button.js";
-import { ActivityPanel } from "./activity-panel.js";
+import { ActivityPanel, loadProblem } from "./activity-panel.js";
 import { AgentCard } from "./agent-card.js";
 import { sheetLeavesFirstOn } from "./agent-picker-text.js";
 import { AttentionStrip, type StripCard } from "./attention-strip.js";
@@ -50,7 +55,7 @@ import {
 import type { FocusRequest } from "./focus-request.js";
 import { ColumnBar, ColumnSheet } from "./column-sheet.js";
 import { OfficeColumn, type ColumnBadges } from "./office-column.js";
-import type { ColumnPanelProps, OfficeLink } from "./office-link.js";
+import type { ChatDraft, ColumnPanelProps, OfficeLink } from "./office-link.js";
 import { SessionsPanel } from "./sessions-panel.js";
 import { PixelOffice } from "./pixel/pixel-office.js";
 import { StructureView } from "./structure-view.js";
@@ -802,10 +807,12 @@ interface ColumnPanelSwitchProps extends ColumnPanelProps {
   tab: ColumnTab;
   /** The Attention tab's content. */
   attention: ReactNode;
+  /** The Chat tab's box, kept here while another tab is shown. */
+  draft: ChatDraft;
 }
 
 /** The chosen tab's panel. Only that one is mounted: Chat counts as seen while it is. */
-function ColumnPanel({ tab, attention, ...panel }: ColumnPanelSwitchProps) {
+function ColumnPanel({ tab, attention, draft, ...panel }: ColumnPanelSwitchProps) {
   if (tab === "attention") {
     return (
       <ScrollView contentContainerStyle={panel.styles.columnAttention}>{attention}</ScrollView>
@@ -813,11 +820,20 @@ function ColumnPanel({ tab, attention, ...panel }: ColumnPanelSwitchProps) {
   }
   if (tab === "sessions") return <SessionsPanel {...panel} />;
   if (tab === "activity") return <ActivityPanel {...panel} />;
-  return <ChatPanel {...panel} />;
+  return <ChatPanel {...panel} draft={draft} />;
+}
+
+/** What is typed in the Chat tab's box: the surface's, so a tab switch or a closed sheet keeps it. */
+function useChatDraft(): ChatDraft {
+  const [text, setText] = useState("");
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  return useMemo(() => ({ text, setText, replyTo, setReplyTo }), [text, replyTo]);
 }
 
 interface ColumnContentInput {
   live: boolean;
+  /** Why the office is not live, while it is in error or closed. */
+  problem: string | null;
   model: OfficeModel;
   cards: readonly StripCard[];
   chat: OfficeState["chat"];
@@ -830,6 +846,7 @@ interface ColumnContentInput {
 /** What the column shows of the strip: the tabs' counts, and the Attention tab's content. */
 function useColumnContent({
   live,
+  problem,
   model,
   cards,
   chat,
@@ -864,21 +881,21 @@ function useColumnContent({
       })),
     [cards, onLeave],
   );
-  const attention = useMemo(
-    () =>
-      live && (waiting > 0 || cards.length > 0) ? (
-        <AttentionStrip
-          entries={model.attention}
-          cards={leaving}
-          styles={styles}
-          wrap
-          onSelect={select}
-        />
-      ) : (
-        <Text style={styles.sceneStatus}>{NOTHING_WAITS}</Text>
-      ),
-    [live, waiting, cards.length, model.attention, leaving, styles, select],
-  );
+  const attention = useMemo(() => {
+    // Frozen data waits for nothing: say why, as the other tabs do.
+    if (problem !== null) return <ProblemBanner text={problem} styles={styles} />;
+    return live && (waiting > 0 || cards.length > 0) ? (
+      <AttentionStrip
+        entries={model.attention}
+        cards={leaving}
+        styles={styles}
+        wrap
+        onSelect={select}
+      />
+    ) : (
+      <Text style={styles.sceneStatus}>{NOTHING_WAITS}</Text>
+    );
+  }, [problem, live, waiting, cards.length, model.attention, leaving, styles, select]);
   return { badges, attention };
 }
 
@@ -909,6 +926,7 @@ type ColumnSheetState = ReturnType<typeof useColumnSheet>;
 
 interface PhoneSheetProps extends Omit<ColumnPanelProps, "link"> {
   compact: boolean;
+  draft: ChatDraft;
   sheet: ColumnSheetState;
   color: string;
   attention: ReactNode;
@@ -959,6 +977,7 @@ function PhoneBar({ compact, sheet, badges, color, styles }: PhoneBarProps) {
 
 interface WideColumnProps extends ColumnPanelProps {
   compact: boolean;
+  draft: ChatDraft;
   onDragging(dragging: boolean): void;
   column: ColumnState;
   surfaceWidth: number;
@@ -1200,8 +1219,10 @@ export function OfficeSurface(
     ],
   );
   const sheet = useColumnSheet(link);
+  const draft = useChatDraft();
   const { badges, attention } = useColumnContent({
     live,
+    problem: loadProblem(office.subscription),
     model,
     cards,
     chat: office.chat,
@@ -1213,7 +1234,7 @@ export function OfficeSurface(
   const selectedActivity = kept === null ? null : (office.state.activity[kept] ?? null);
   // The panels size their controls for the surface they are in, not only for the device.
   const panelLayout = useMemo(() => ({ ...layout, compact }), [layout, compact]);
-  const panel = { office, styles, theme, layout: panelLayout, attention };
+  const panel = { office, styles, theme, layout: panelLayout, attention, draft };
   const color = theme.colors.foreground;
   // One tree in both layouts, so a flip between them does not draw the floor again: compact adds
   // the sheet in the floor's box and the bar under the row, wide adds the column beside the floor.

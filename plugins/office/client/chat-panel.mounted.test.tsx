@@ -4,7 +4,7 @@
 // The chat panel, mounted as the office's column mounts it: the surface's state arrives as a prop,
 // a test re-renders with the next state, and the chat's call is a mock the test reads one call at
 // a time.
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ScrollViewProps } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
@@ -20,7 +20,7 @@ import type {
 import { getChatSeen, resetChatSeen } from "./chat-seen.js";
 import { CHAT_EMPTY, CHAT_RECALLED, REACTION_CHOICES, STICKERS, remindState } from "./chat-text.js";
 import { ChatPanel } from "./chat-panel.js";
-import type { OfficeLink } from "./office-link.js";
+import type { ChatDraft, OfficeLink } from "./office-link.js";
 import { applyChatEvent, EMPTY_OFFICE } from "./office-state.js";
 import { useOfficeStyles } from "./styles.js";
 import type { OfficeState } from "./use-office.js";
@@ -105,14 +105,18 @@ let root: Root;
 let current: OfficeState;
 let compactLayout: boolean;
 
+/** The panel as the surface draws it: the surface holds the draft. */
 function Harness({ value }: { value: OfficeState }) {
   const layout = { compact: compactLayout, platform: "web" } as const;
+  const [text, setText] = useState("");
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const draft: ChatDraft = { text, setText, replyTo, setReplyTo };
   const styles = useOfficeStyles(THEME, layout.compact, false);
   const link: OfficeLink = {
     select: (agentId) => void selected.push(agentId),
     openSession: (agentId) => void opened.push(agentId),
   };
-  return createElement(ChatPanel, { office: value, styles, theme: THEME, layout, link });
+  return createElement(ChatPanel, { office: value, styles, theme: THEME, layout, link, draft });
 }
 
 const draw = () => act(async () => root.render(createElement(Harness, { value: current })));

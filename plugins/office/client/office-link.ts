@@ -1,5 +1,7 @@
+import type { SetStateAction } from "react";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { ChatMessage } from "../shared/contracts.js";
 import type { OfficeStyles } from "./styles.js";
 import type { OfficeState } from "./use-office.js";
 
@@ -19,4 +21,13 @@ export interface ColumnPanelProps {
   theme: PluginTheme;
   layout: PluginSurfaceProps["layout"];
   link: OfficeLink;
+}
+
+/** What is typed in the chat's box and what it replies to: the surface's, so a tab switch keeps it. */
+export interface ChatDraft {
+  text: string;
+  /** Takes an updater as well: a send that returns keeps what was typed while it was away. */
+  setText(next: SetStateAction<string>): void;
+  replyTo: ChatMessage | null;
+  setReplyTo(next: ChatMessage | null): void;
 }
