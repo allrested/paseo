@@ -320,7 +320,8 @@ export function switchUnsaved(sync: SwitchSync<unknown>): boolean {
   return sync.save?.phase === "given-up";
 }
 
-const UNSAVED_VIEW = "Unable to save the view on this device. It holds until the office is closed.";
+export const UNSAVED_VIEW =
+  "Unable to save the view on this device. It holds until the office is closed.";
 
 /** The view's next request for an agent. Nonces start at 1: the scene counts 0 as handled. */
 export function nextFocusRequest(previous: FocusRequest | null, agentId: string): FocusRequest {
@@ -346,7 +347,7 @@ export function officeView({ choice, problem }: OfficeViewInput): OfficeView {
   return choice === "3d" && problem !== null ? "2d" : choice;
 }
 
-interface ViewChoiceState {
+export interface ViewChoiceState {
   /** The views this device offers. */
   options: readonly OfficeViewChoice[];
   /** The chosen view; null while the device's setting is being read. */
@@ -366,7 +367,7 @@ function viewSync(
 const NONE_RUNG: Record<string, number> = {};
 
 /** The per-device view. The 3D office is loaded only where it is the chosen view. */
-function useViewChoice(platform: Platform): ViewChoiceState {
+export function useViewChoice(platform: Platform): ViewChoiceState {
   const settings = useSettings(officeDeviceSettings);
   const can3d = useMemo(() => canDraw3D(platform, hasWebGL2, hasScriptFrame), [platform]);
   // The view follows the tap at once. A choice the device could not store stays here, so the

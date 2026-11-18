@@ -4,6 +4,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { ActivityPanel } from "./client/activity-panel.js";
 import { ChatPanel } from "./client/chat-panel.js";
 import { ACTIVITY_SCREEN, CHAT_SCREEN, SESSIONS_SCREEN } from "./client/office-link.js";
+import { OfficeSettings } from "./client/office-settings.js";
 import { OfficeSurface } from "./client/office-surface.js";
 import { SessionsPanel } from "./client/sessions-panel.js";
 
@@ -16,8 +17,8 @@ function OfficeItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return <SidebarRow icon={ICON} active={currentScreen?.screenId === SCREEN_ID} onPress={open} />;
 }
 
-// A built-in has no row in Settings > Plugins: the sidebar item and the Command Center item are
-// the ways in. Settings > Sidebar can hide the item.
+// The sidebar item and the Command Center item are the ways in; Settings > Sidebar can hide the
+// item. The office's settings are a screen of the app's Settings.
 export default function contribute(client: PluginClientContext) {
   const removers = [
     client.addScreen({ id: SCREEN_ID, title: "Office", Component: OfficeSurface }),
@@ -32,6 +33,12 @@ export default function contribute(client: PluginClientContext) {
       Component: ActivityPanel,
     }),
     client.addScreen({ id: CHAT_SCREEN, title: "Chat", Component: ChatPanel }),
+    client.addSettingsScreen({
+      id: SCREEN_ID,
+      title: "Office",
+      icon: ICON,
+      Component: OfficeSettings,
+    }),
     client.addSidebarHeaderItem({ id: SCREEN_ID, title: "Office", Component: OfficeItem }),
     client.addWorkspacePanel({
       id: PANEL_ID,
