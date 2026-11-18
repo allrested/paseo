@@ -134,9 +134,12 @@ The owner's review of 0.16.1, on the desktop app:
   screens are.
 - It holds what `HostSwitches` holds: Wake agents, Agent tools, Notes folder, Time zone. It adds
   the default view (3D, 2D, List), which the corner control also changes.
-- A failed switch, an unsaved view and a notes schedule error show on this screen, beside the
-  setting they belong to. Each also adds a card to Attention that opens the screen, so a failure
-  is seen from the office.
+- A failed switch and a refused save show on this screen, beside the setting they belong to, as
+  they happen. An unsaved view shows by whichever view switch was pressed.
+- A schedule that cannot follow the settings (the stand-up notes' or the incidents check's) lasts,
+  so it also adds a Settings card to Attention. A plugin cannot open a screen of the app's
+  Settings (`navigation` has no such call), so the card opens a card of the office that says what
+  failed and names Settings > Office.
 - `HostSwitches` leaves the header; its rows move to the settings screen's component.
 
 ### Working in every app
