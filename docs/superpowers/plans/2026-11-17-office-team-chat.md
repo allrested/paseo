@@ -67,15 +67,15 @@ Decided in this plan, where the spec left it open (each is also in the report th
 
 ## Files shared with other branches
 
-| File                                              | Also edited by                       | How to keep the merge small                                                                          |
-| ------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `plugins/office/shared/contracts.ts`              | other pieces that add state          | One block named for the chat after the incidents block; one field on the snapshot; one event.        |
-| `plugins/office/server/hub.ts`                    | other pieces that add state          | Three methods and one line in `snapshot()`, `onDirectory` and `idle`; nothing else.                  |
-| `plugins/office/index.server.ts`                  | other pieces                         | One block after the incidents block; one line in two hooks; one handler line.                        |
-| `plugins/office/client/office-surface.tsx`        | piece 4 (walk in)                    | `PanelButton` gains an optional count; one more button in `PanelButtons`; no other change.           |
-| `plugins/office/client/use-office.ts`             | none                                 | The chat part of `onEvent` only.                                                                     |
-| `plugins/office/client/world/world-api.ts`, `vendor/my-office/src/office/paseo-entry.js` | piece 4 (walk in) | `gather` is its own method beside `meet`; touch no other line.                                       |
-| `plugins/office/vendor/SOURCES.md`, `import-upstream.mjs` | later upstream imports      | One paragraph in SOURCES.md; one `visit` line in the importer.                                       |
+| File                                                                                     | Also edited by              | How to keep the merge small                                                                   |
+| ---------------------------------------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------- |
+| `plugins/office/shared/contracts.ts`                                                     | other pieces that add state | One block named for the chat after the incidents block; one field on the snapshot; one event. |
+| `plugins/office/server/hub.ts`                                                           | other pieces that add state | Three methods and one line in `snapshot()`, `onDirectory` and `idle`; nothing else.           |
+| `plugins/office/index.server.ts`                                                         | other pieces                | One block after the incidents block; one line in two hooks; one handler line.                 |
+| `plugins/office/client/office-surface.tsx`                                               | piece 4 (walk in)           | `PanelButton` gains an optional count; one more button in `PanelButtons`; no other change.    |
+| `plugins/office/client/use-office.ts`                                                    | none                        | The chat part of `onEvent` only.                                                              |
+| `plugins/office/client/world/world-api.ts`, `vendor/my-office/src/office/paseo-entry.js` | piece 4 (walk in)           | `gather` is its own method beside `meet`; touch no other line.                                |
+| `plugins/office/vendor/SOURCES.md`, `import-upstream.mjs`                                | later upstream imports      | One paragraph in SOURCES.md; one `visit` line in the importer.                                |
 
 Not touched by this plan: `packages/`, `board-service.ts`, `board-store.ts`, `mention-queue.ts`, `activity.ts`, `paseo-directory.ts`.
 
