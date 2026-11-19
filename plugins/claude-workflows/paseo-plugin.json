@@ -1,1 +1,0 @@
-{ "id": "claude-workflows", "requirements": { "paseo": ">=0.15.0" } }

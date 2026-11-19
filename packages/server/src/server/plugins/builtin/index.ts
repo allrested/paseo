@@ -3,26 +3,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const builtinPlugins = [
-  "android",
   "antigravity-provider",
   "claude-usage-source",
-  "claude-workflows",
   "codex-usage-source",
   "copilot-usage-source",
   "cursor-usage-source",
-  "default-skills",
-  "design",
   "fx-provider",
   "grok-usage-source",
-  "heavy-command-gate",
   "hoplite-provider",
   "kimi-usage-source",
   "minimax-usage-source",
   "muse-provider",
   "opencode-go-usage-source",
-  "resource-manager",
-  "shared-mcp",
-  "tasks",
   "worktree-include",
   "zai-usage-source",
 ] as const;

@@ -4,12 +4,8 @@
 # edited, so merges from getpaseo:main never conflict over it. Re-enable it with
 # `gh workflow enable "CI"` for a full 18-job run when that is worth 25 minutes.
 #
-# This fork changes docker/**, built-in usage-source plugins in plugins/ (kiro,
-# bddevlab), ScriptFrame in packages/app, and the fork's APK (app.config.js's fork variant and
-# fork-android-apk.yml). Upstream already
-# proves the rest of the app, desktop, relay, CLI and SDK on its own runs, so
-# re-testing them here buys nothing and costs ~145 runner-minutes. The seven
-# jobs below are the ones that can actually catch a fork-authored mistake.
+# Transitional checks for the remaining fork core and image changes. External plugin
+# tests, including the FigCraft contract, run in the plugin repository.
 #
 # Deliberately not covered:
 #   playwright        browser E2E of packages/app — 4 shards x ~22 min, and each
@@ -129,19 +125,6 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       - name: Run built-in plugin tests
         run: npm run test --workspace=@getpaseo/builtin-plugins
-      # The design plugin's contract with the pinned FigCraft release, against a real
-      # figcraft-server and two real figcraft-cli sessions. The step above skips it without the
-      # binaries; this runs it with them, so a FigCraft upgrade that changes the contract fails.
-      - name: Install FigCraft (pinned)
-        id: figcraft
-        run: bash plugins/design/test/install-figcraft.sh "$RUNNER_TEMP/figcraft" >> "$GITHUB_OUTPUT"
-      - name: Run the real FigCraft contract test
-        working-directory: plugins
-        env:
-          FIGCRAFT_CLI: ${{ steps.figcraft.outputs.FIGCRAFT_CLI }}
-          FIGCRAFT_SERVER_BIN: ${{ steps.figcraft.outputs.FIGCRAFT_SERVER_BIN }}
-        run: npx vitest run design/test/figcraft-contract.real.test.ts --bail=1
-
   # The app's ScriptFrame and fork-variant unit tests. The built-in plugins run in server-tests; these are the only fork-authored
   # tests outside it.
   session-move-tests:
@@ -161,9 +144,6 @@ jobs:
       - name: Run app ScriptFrame and fork-variant tests
         working-directory: packages/app
         run: npx vitest run src/plugins/react-native/script-frame-page.test.ts src/plugins/react-native/script-frame.native.test.tsx src/plugins/evaluate.test.ts app.config.test.ts
-      - name: Check design mode's copy of the Paseo tokens
-        working-directory: packages/app
-        run: npx vitest run src/styles/design-tokens.test.ts
 
   # ScriptFrame's web test, which needs Chromium.
   session-move-e2e:
