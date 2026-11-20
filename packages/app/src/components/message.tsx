@@ -99,6 +99,7 @@ interface UserMessageProps {
   agentId?: string;
   messageId?: string;
   message: string;
+  imageUrls?: string[];
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
   timestamp: number;
@@ -399,6 +400,7 @@ export const UserMessage = memo(function UserMessage({
   agentId,
   messageId,
   message,
+  imageUrls,
   images = [],
   attachments = [],
   timestamp,
@@ -421,6 +423,10 @@ export const UserMessage = memo(function UserMessage({
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const hasText = message.trim().length > 0;
   const hasImages = images.length > 0;
+  const replayImages = useMemo(
+    () => (hasImages ? undefined : imageUrls?.map((url) => `![Image](<${url}>)`).join("\n\n")),
+    [hasImages, imageUrls],
+  );
   const hasAttachments = attachments.length > 0;
   const showTrailingRow = !isPending && hasText && (isCompact || isNative || isHovered);
   const formattedTimestamp = useMemo(
@@ -495,6 +501,9 @@ export const UserMessage = memo(function UserMessage({
                   />
                 ))}
               </View>
+            ) : null}
+            {replayImages ? (
+              <MarkdownRenderer text={replayImages} client={client} serverId={serverId} />
             ) : null}
             {hasAttachments ? (
               <View style={attachmentPreviewContainerStyle}>

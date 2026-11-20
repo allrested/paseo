@@ -223,6 +223,19 @@ function markdownImageSource(value: string): string {
   return value;
 }
 
+/** Only Paseo's own content-addressed uploads can be replayed as user image attachments. */
+export function uploadedImageUrl(file: unknown): string | null {
+  if (typeof file !== "string" || !path.isAbsolute(file)) return null;
+  const dir = path.dirname(file);
+  if (
+    path.dirname(dir) !== os.tmpdir() ||
+    !/^paseo-attachments(?:-[a-zA-Z0-9]+)?$/.test(path.basename(dir)) ||
+    !/^[0-9a-f]{64}\.(?:png|jpg|jpeg|gif|webp|bmp|tiff)$/.test(path.basename(file))
+  )
+    return null;
+  return markdownImageSource(file).replace(/\(/g, "%28").replace(/\)/g, "%29");
+}
+
 function escapeMarkdownImageSource(value: string): string {
   return markdownImageSource(value).replace(/\\/g, "\\\\").replace(/\)/g, "\\)");
 }
