@@ -95,6 +95,59 @@ it("allows all orientations on iPhone and iPad", async () => {
   }
 }, 30_000);
 
+// The Expo loader keeps app.config.js in require.cache, and app.config.js reads APP_VARIANT when it
+// loads. A test that changes the variant drops it before its load and again after, so each load
+// reads the variant the test set.
+function forgetAppConfig() {
+  delete require.cache[require.resolve("./app.config.js")];
+}
+
+it("the fork variant installs beside the store app: its own name and package, no Firebase file", async () => {
+  const before = process.env.APP_VARIANT;
+  process.env.APP_VARIANT = "fork";
+  try {
+    forgetAppConfig();
+    const { exp } = await getPrebuildConfigAsync(__dirname, { platforms: ["android"] });
+    expect({
+      name: exp.name,
+      icon: exp.android.icon,
+      foreground: exp.android.adaptiveIcon.foregroundImage,
+      background: exp.android.adaptiveIcon.backgroundColor,
+      androidPackage: exp.android.package,
+      iosBundle: exp.ios.bundleIdentifier,
+      googleServicesFile: exp.android.googleServicesFile,
+    }).toEqual({
+      name: "AI",
+      icon: "./assets/images/flavours-launcher.png",
+      foreground: "./assets/images/flavours-launcher.png",
+      background: "#ffffff",
+      androidPackage: "sh.paseo.fork",
+      iosBundle: "sh.paseo.fork",
+      googleServicesFile: undefined,
+    });
+  } finally {
+    if (before === undefined) delete process.env.APP_VARIANT;
+    else process.env.APP_VARIANT = before;
+    forgetAppConfig();
+  }
+}, 30_000);
+
+it("the production variant is still the store app", async () => {
+  const before = process.env.APP_VARIANT;
+  delete process.env.APP_VARIANT;
+  try {
+    forgetAppConfig();
+    const { exp } = await getPrebuildConfigAsync(__dirname, { platforms: ["android"] });
+    expect({ name: exp.name, androidPackage: exp.android.package }).toEqual({
+      name: "Paseo",
+      androidPackage: "sh.paseo",
+    });
+  } finally {
+    if (before !== undefined) process.env.APP_VARIANT = before;
+    forgetAppConfig();
+  }
+}, 30_000);
+
 // Scene startup is the integration boundary for the iOS keyboard window.
 describe("hardware keyboard scene integration", () => {
   it("installs observation after Expo creates the scene window and is idempotent", () => {
