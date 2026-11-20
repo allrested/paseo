@@ -1,0 +1,45 @@
+name: Fork CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  script-frame:
+    runs-on: ubuntu-24.04
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      ONNXRUNTIME_NODE_INSTALL: skip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - name: Test fork APK workflow
+        run: node --test scripts/fork-android-apk.test.mjs
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: Install Chromium
+        run: npx playwright install chromium
+      - name: Build app dependencies
+        run: npm run build:app-deps
+      - name: Test ScriptFrame, the plugin evaluator and Android app identity
+        working-directory: packages/app
+        run: >
+          npx vitest run
+          app.config.test.ts
+          src/plugins/evaluate.test.ts
+          src/plugins/react-native/script-frame-page.test.ts
+          src/plugins/react-native/script-frame.native.test.tsx
+          src/plugins/react-native/script-frame.web.browser.test.tsx

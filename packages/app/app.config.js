@@ -92,6 +92,14 @@ const variants = {
       fallbackRelativePath: "./.secrets/GoogleService-Info.debug.plist",
     }),
   },
+  // The fork's own app: it installs beside the store app and pairs on its own. It has no Firebase
+  // file, so push notifications do not work in it.
+  fork: {
+    name: "Paseo Fork",
+    packageId: "sh.paseo.fork",
+    googleServicesFile: undefined,
+    googleServiceInfoPlist: undefined,
+  },
 };
 
 const variant = variants[appVariant] ?? variants.production;

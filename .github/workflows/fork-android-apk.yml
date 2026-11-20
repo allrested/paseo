@@ -1,0 +1,147 @@
+# The fork's Android app: build the arm64 APK of the `fork` variant, sign it with the fork's key,
+# check it, and attach it to a prerelease named after the tag.
+#
+# A pushed fork-android-<version>-<n> tag runs the workflow file of the tagged commit, so a tag
+# push works without this file on the fork's main. workflow_dispatch, which builds an existing tag
+# again, fires only once this file is on the fork's main (GitHub's rule for dispatch). Until then,
+# rebuild a tag with `gh run rerun <run-id> --repo allrested/paseo` or push the next tag. Find the
+# run ID with `gh run list --repo allrested/paseo --workflow fork-android-apk.yml --branch <tag>`.
+# GitHub re-runs a run only within 30 days of it; after that, push the next tag.
+# Any run that reaches the upload step publishes: a tag push, a re-run or a dispatch, and the last
+# two replace the APK already attached. Start one only after the owner agrees to that upload.
+# docs/android.md, "The fork's app", has the key, the two secrets and the commands.
+# Test this workflow locally with node --test scripts/fork-android-apk.test.mjs.
+name: Fork Android APK
+
+on:
+  push:
+    tags:
+      - "fork-android-*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing fork-android-* tag to build again (e.g. fork-android-0.16.0-1)"
+        required: true
+        type: string
+
+concurrency:
+  group: fork-android-apk-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  ONNXRUNTIME_NODE_INSTALL: skip
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse a tag that is not the fork's
+        run: |
+          case "$TAG" in
+            fork-android-*) ;;
+            *)
+              echo "::error::$TAG is not a fork-android-* tag."
+              exit 1
+              ;;
+          esac
+
+      # No token left in .git/config: the build runs third-party code.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Its default package list still names the legacy 'tools', which sdkmanager no longer finds.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      # build-apk.mjs aligns and signs with this version's zipalign and apksigner.
+      - name: Install build tools 35.0.0
+        run: sdkmanager "build-tools;35.0.0"
+
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      # The secrets reach only this step, as env, and go straight to the two files build-apk.mjs
+      # reads on any machine. printf is a bash builtin, so neither value is on a command line.
+      - name: Write the fork's signing key
+        env:
+          FORK_ANDROID_KEYSTORE: ${{ secrets.FORK_ANDROID_KEYSTORE }}
+          FORK_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.FORK_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$FORK_ANDROID_KEYSTORE" ] || [ -z "$FORK_ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::error::Set the repository secrets FORK_ANDROID_KEYSTORE and FORK_ANDROID_KEYSTORE_PASSWORD (docs/android.md, \"The fork's app\")."
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$HOME/.paseo-fork"
+          printf '%s' "$FORK_ANDROID_KEYSTORE" | base64 --decode > "$HOME/.paseo-fork/release.keystore"
+          printf '%s' "$FORK_ANDROID_KEYSTORE_PASSWORD" > "$HOME/.paseo-fork/release.password"
+
+      - name: Build the fork's APK
+        run: npm run build:apk:fork
+
+      # Phones with 16 KB memory pages refuse native libraries that are not aligned to them.
+      - name: Verify the APK
+        run: |
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          APK=artifacts/paseo-fork-arm64.apk
+          ls -l "$APK"
+
+          "$BT/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apksigner.txt" ||
+            { cat "$RUNNER_TEMP/apksigner.txt"; fail "apksigner does not verify $APK."; }
+          cat "$RUNNER_TEMP/apksigner.txt"
+          grep -qx "Signer #1 certificate DN: CN=Paseo Fork" "$RUNNER_TEMP/apksigner.txt" ||
+            fail "The APK is not signed by CN=Paseo Fork."
+
+          "$BT/aapt2" dump badging "$APK" > "$RUNNER_TEMP/badging.txt"
+          grep -E "^(package|application-label|native-code):" "$RUNNER_TEMP/badging.txt"
+          grep -q "^package: name='sh.paseo.fork' " "$RUNNER_TEMP/badging.txt" ||
+            fail "The package is not sh.paseo.fork."
+          grep -qx "application-label:'Paseo Fork'" "$RUNNER_TEMP/badging.txt" ||
+            fail "The app's label is not Paseo Fork."
+          grep -qx "native-code: 'arm64-v8a'" "$RUNNER_TEMP/badging.txt" ||
+            fail "The native code is not arm64-v8a alone."
+
+          "$BT/zipalign" -c -P 16 -v 4 "$APK" > "$RUNNER_TEMP/zipalign.txt" ||
+            { tail -20 "$RUNNER_TEMP/zipalign.txt"; fail "The APK is not aligned for 16 KB pages."; }
+          tail -1 "$RUNNER_TEMP/zipalign.txt"
+
+          frames="$(unzip -p "$APK" assets/index.android.bundle | grep -aFc 'window.paseoFrame = frame' || true)"
+          [ "${frames:-0}" -ge 1 ] || fail "The JS bundle does not carry ScriptFrame (missing native bridge)."
+          echo "ScriptFrame bridge in the JS bundle: $frames"
+
+      - name: Attach the APK to the tag's prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+              --title "Paseo Fork $TAG" \
+              --notes "Paseo Fork (sh.paseo.fork), the allrested fork's Android app for arm64 phones, built from $TAG. It installs beside the store app and pairs on its own."
+          fi
+          gh release upload "$TAG" artifacts/paseo-fork-arm64.apk --repo "$GITHUB_REPOSITORY" --clobber
