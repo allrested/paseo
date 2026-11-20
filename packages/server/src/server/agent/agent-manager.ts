@@ -1,3 +1,4 @@
+import { materializeProviderImage, uploadedImageUrl } from "./providers/provider-image-output.js";
 import type { AttachedAgentTool, PluginAgentToolsRuntime } from "../plugins/agent-tools.js";
 import type { MoveCarry } from "./session-move/move-carry.js";
 import { ProviderOptionsValidationError } from "./provider-options.js";
@@ -3258,7 +3259,9 @@ export class AgentManager {
     onAccepted?.();
     this.touchUpdatedAt(agent);
     if (options?.clientMessageId) {
-      this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted");
+      this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted", {
+        imageUrls: await this.submittedImageUrls(agent.id, prompt),
+      });
       this.emitState(agent);
     }
     const dispatch = (event: AgentStreamEvent): void => {
@@ -3332,20 +3335,26 @@ export class AgentManager {
     pendingRun: PendingForegroundRun;
     prompt: AgentPromptInput;
     options?: AgentRunOptions;
-  }): Promise<string | null> {
+  }): Promise<{ turnId: string; imageUrls?: string[] } | null> {
     const { agent, agentId, pendingRun, prompt, options } = params;
+    let imageUrls: string[] | undefined;
     try {
+      if (options?.clientMessageId && Array.isArray(prompt)) {
+        imageUrls = await this.submittedImageUrls(agentId, prompt);
+        if (pendingRun.settled) throw new AgentTurnStartCanceledError();
+      }
       const result = await agent.session.startTurn(prompt, options);
       if (pendingRun.settled) {
         throw new Error(`Agent ${agentId} run was canceled before its turn started`);
       }
-      return result.turnId;
+      return { turnId: result.turnId, imageUrls };
     } catch (error) {
       if (error instanceof AgentTurnStartCanceledError) {
         if (!pendingRun.settled) {
           if (options?.clientMessageId) {
             this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "rejected", {
               messageId: options.clientMessageId,
+              imageUrls,
             });
           }
           await this.handleStreamEvent(agent, {
@@ -3380,6 +3389,7 @@ export class AgentManager {
         if (options?.clientMessageId) {
           this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "rejected", {
             messageId: options.clientMessageId,
+            imageUrls,
           });
         }
         await this.handleStreamEvent(agent, {
@@ -3493,14 +3503,14 @@ export class AgentManager {
     const streamForwarder = async function* streamForwarder(this: AgentManager) {
       let turnId: string | null;
       let turnStream: ReturnType<AgentRunState["createTurnStream"]> | null = null;
-      turnId = await this.startPendingForegroundTurn({
+      const started = await this.startPendingForegroundTurn({
         agent,
         agentId,
         pendingRun,
         prompt,
         options,
       });
-      if (turnId === null) {
+      if (started === null) {
         const canceledEvent: AgentStreamEvent = {
           type: "turn_canceled",
           provider: agent.provider,
@@ -3510,6 +3520,7 @@ export class AgentManager {
         return;
       }
 
+      turnId = started.turnId;
       if (isReplacement) {
         agent.pendingReplacement = false;
       }
@@ -3538,6 +3549,7 @@ export class AgentManager {
         : undefined;
       if (options?.clientMessageId) {
         this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted", {
+          imageUrls: started.imageUrls,
           messageId: options.clientMessageId,
           turnId,
           providerMessageId:
@@ -3915,6 +3927,7 @@ export class AgentManager {
       return;
     }
     this.recordSubmittedPrompt(agent, prompt, clientMessageId, "accepted", {
+      imageUrls: await this.submittedImageUrls(agent.id, prompt),
       messageId: clientMessageId,
       turnId: expectedTurnId,
       ...(providerMessageId ? { providerMessageId } : {}),
@@ -5861,16 +5874,39 @@ export class AgentManager {
     return event;
   }
 
+  private async submittedImageUrls(agentId: string, prompt: AgentPromptInput): Promise<string[]> {
+    const imageUrls: string[] = [];
+    if (typeof prompt !== "string") {
+      for (const block of prompt) {
+        if (block.type !== "image") continue;
+        try {
+          const image = await materializeProviderImage(block);
+          const url = uploadedImageUrl(image.path);
+          if (url) imageUrls.push(url);
+        } catch {
+          this.logger.warn({ agentId }, "Could not retain a submitted image preview");
+        }
+      }
+    }
+    return imageUrls;
+  }
+
   private recordSubmittedPrompt(
     agent: ActiveManagedAgent,
     prompt: AgentPromptInput,
     clientMessageId: string,
     outcome: "accepted" | "rejected",
-    options?: { messageId?: string; providerMessageId?: string; turnId?: string },
+    options?: {
+      messageId?: string;
+      providerMessageId?: string;
+      turnId?: string;
+      imageUrls?: string[];
+    },
   ): void {
     const items = projectAgentMessages({
       type: "user_message",
       text: submittedPromptText(prompt),
+      ...(options?.imageUrls?.length ? { imageUrls: options.imageUrls } : {}),
       clientMessageId,
       ...(options?.messageId ? { messageId: options.messageId } : {}),
     });

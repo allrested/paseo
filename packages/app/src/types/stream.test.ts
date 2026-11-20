@@ -1536,6 +1536,27 @@ describe("stream reducer canonical tool calls", () => {
     },
   );
 
+  it("restores an image-only user row on a fresh client", () => {
+    const imageUrls = ["file:///tmp/a.png", "file:///tmp/b.png"];
+    const event = {
+      type: "timeline" as const,
+      provider: "codex" as const,
+      item: {
+        type: "user_message" as const,
+        messageId: "upload",
+        text: "",
+        imageUrls,
+      },
+    };
+    const timestamp = new Date("2026-11-20T08:00:00Z");
+    expect(hydrateStreamState([{ event, timestamp }])).toEqual([
+      expect.objectContaining({ kind: "user_message", imageUrls }),
+    ]);
+    expect(applyStreamEvent({ tail: [], head: [], event, timestamp, source: "live" }).tail).toEqual(
+      [expect.objectContaining({ kind: "user_message", imageUrls })],
+    );
+  });
+
   it("preserves submitted user message images when authoritative user message arrives", () => {
     const messageId = "msg-user-images";
     const submittedTimestamp = new Date("2025-01-01T11:10:00Z");
