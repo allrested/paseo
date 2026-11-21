@@ -21,7 +21,6 @@ import {
 } from "@/runtime/host-runtime";
 import type { Theme } from "@/styles/theme";
 import type { ShortcutKey } from "@/utils/format-shortcut";
-import { BesideFrame, useShowBeside } from "./beside";
 import { usePluginHostNavigation } from "./host-navigation";
 import { PluginIconView } from "./icons";
 import { toPluginTheme } from "./theme";
@@ -98,8 +97,7 @@ function SurfaceRenderer({
   params: PluginScreenParams;
   theme: PluginTheme;
 }) {
-  const showBeside = useShowBeside();
-  const navigation = usePluginHostNavigation(host.id, showBeside);
+  const navigation = usePluginHostNavigation(host.id);
   return (
     <PluginInstallationProvider plugin={plugin}>
       <Surface theme={theme} host={host} layout={layout} navigation={navigation} params={params} />
@@ -258,22 +256,20 @@ export function PluginSurfaceScreen() {
       )}
       <View style={styles.body}>
         {plugin && surface && client ? (
-          <BesideFrame surfaceKey={`${serverId}:${pluginId}:${contributionId}`}>
-            <SurfaceErrorBoundary
-              key={`${serverId}/${pluginId}/${identity?.kind}/${contributionId}`}
-              installation={plugin}
+          <SurfaceErrorBoundary
+            key={`${serverId}/${pluginId}/${identity?.kind}/${contributionId}`}
+            installation={plugin}
+            Surface={surface.Component}
+          >
+            <ThemedSurfaceRenderer
               Surface={surface.Component}
-            >
-              <ThemedSurfaceRenderer
-                Surface={surface.Component}
-                plugin={plugin}
-                host={host}
-                layout={layout}
-                params={params}
-                uniProps={pluginThemeMapping}
-              />
-            </SurfaceErrorBoundary>
-          </BesideFrame>
+              plugin={plugin}
+              host={host}
+              layout={layout}
+              params={params}
+              uniProps={pluginThemeMapping}
+            />
+          </SurfaceErrorBoundary>
         ) : (
           <PluginSurfacePlaceholder status={placeholderStatus} />
         )}

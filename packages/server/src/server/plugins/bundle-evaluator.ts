@@ -1,12 +1,10 @@
-import type { OffscreenPages } from "../browser-tools/cdp/offscreen-pages.js";
 import { createRequire } from "node:module";
 import * as pluginSharedRuntime from "@getpaseo/plugin";
 import * as pluginProviderRuntime from "@getpaseo/plugin/server/provider";
 import * as pluginAcpRuntime from "@getpaseo/plugin/server/acp";
 import * as pluginUsageRuntime from "@getpaseo/plugin/server/usage";
 import * as pluginServerRuntime from "@getpaseo/plugin/server";
-import type { PluginServerContext } from "@getpaseo/plugin/server";
-import type { PluginCleanup } from "@getpaseo/plugin";
+import type { PluginServerContribution } from "@getpaseo/plugin/server";
 import * as zod from "zod";
 import { isPluginClientOnlySdkSpecifier } from "./plugin-sdk-specifiers.js";
 
@@ -27,28 +25,7 @@ function runtimeRequire(name: string): unknown {
   return nodeRequire(name);
 }
 
-/** What a built-in's contribution receives beside the server context. Installed plugins get nothing. */
-export interface BuiltinPluginInfo {
-  /** The built-in's own directory, for files it ships beside its code. */
-  directory: string;
-  /**
-   * Fork delta (office stream): pages in the daemon's Chromium that no pane or agent sees.
-   * Absent when the daemon has no Chromium.
-   */
-  offscreenPages?: OffscreenPages;
-  /** Fork delta (office stream): builds one self-contained browser script from an entry file. */
-  bundleBrowserScript?: (entryPath: string) => Promise<string>;
-}
-
-/** What the daemon adds to a built-in's own directory. */
-export type BuiltinPluginExtras = Omit<BuiltinPluginInfo, "directory">;
-
-export type EvaluatedContribution = (
-  server: PluginServerContext,
-  builtin?: BuiltinPluginInfo,
-) => PluginCleanup;
-
-export function evaluateBundle(bundle: string): EvaluatedContribution {
+export function evaluateBundle(bundle: string): PluginServerContribution {
   const evaluate: (source: string) => unknown = globalThis.eval;
   const factory = evaluate(bundle);
   if (typeof factory !== "function") throw new Error("Plugin server bundle is not executable");
@@ -58,5 +35,5 @@ export function evaluateBundle(bundle: string): EvaluatedContribution {
   if (typeof setup !== "function") {
     throw new Error("Plugin server bundle must default export a function");
   }
-  return setup as EvaluatedContribution;
+  return setup as PluginServerContribution;
 }

@@ -13,11 +13,7 @@ import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { PluginIconView } from "../icons";
 import { useInstalledPlugins } from "../registry";
 import type { InstalledPlugin } from "../types";
-import {
-  createPluginResourceAttachment,
-  searchEmptyText,
-  togglePluginResourceAttachment,
-} from "./model";
+import { createPluginResourceAttachment, togglePluginResourceAttachment } from "./model";
 
 const SEARCH_STALE_TIME_MS = 30_000;
 const EMPTY_ATTACHMENT_ITEMS: PluginAttachmentItem[] = [];
@@ -47,6 +43,12 @@ interface PluginAttachmentPickerInput {
 interface PluginAttachmentPickerBinding {
   menuItems: AttachmentMenuItem[];
   picker: ReactElement | null;
+}
+
+function searchEmptyText(error: unknown, isFetching: boolean): string {
+  if (error instanceof Error) return error.message;
+  if (error) return String(error);
+  return isFetching ? "Searching..." : "No results";
 }
 
 function installedAttachmentSources(

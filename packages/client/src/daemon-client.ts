@@ -33,11 +33,7 @@ import type { z } from "zod";
 import type { SessionEventSubscription } from "@getpaseo/protocol/messages";
 import type { LocalSpeechModel } from "@getpaseo/protocol/speech/rpc-schemas";
 import { CLIENT_CAPS, type ClientCapability } from "@getpaseo/protocol/client-capabilities";
-// Fork delta (usage heads-up): the usage reason joins the attention reasons.
-import type {
-  AgentAttentionNotificationPayload,
-  AgentAttentionNotificationReason,
-} from "@getpaseo/protocol/agent-attention-notification";
+import type { AgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
 import { MAX_WEBSOCKET_MESSAGE_BYTES } from "@getpaseo/protocol/websocket-message-limit";
 import {
   AgentCreateFailedStatusPayloadSchema,
@@ -72,6 +68,7 @@ import type {
   GitSetupOptions,
   CheckoutStatusResponse,
   CheckoutCommit,
+  CheckoutWorktree,
   ParsedDiffFile,
   CheckoutCommitResponse,
   CheckoutMergeResponse,
@@ -122,8 +119,8 @@ import type {
   RefreshProvidersSnapshotResponseMessage,
   ProviderDiagnosticResponseMessage,
   ProviderUsageListResponseMessage,
-  // Fork delta (claude accounts): one provider's usage reply.
-  UsageProviderListReportsResponseMessage,
+  ProviderInstallationInspectResponseMessage,
+  ProviderInstallationCheckUpdatesResponseMessage,
   UsageReportEntry,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
@@ -156,7 +153,6 @@ import type {
   AgentSkillSelection,
   AgentSkillsStatus,
   AgentSkillsSaveResult,
-  AgentMoveTarget,
 } from "@getpaseo/protocol/messages";
 import type {
   AgentOptionControl,
@@ -182,23 +178,11 @@ import {
   TerminalStreamOpcode,
   type FileTransferFrame,
   assertPluginWireValue,
-  BROWSER_VIEW_OPCODE,
-  decodeBrowserViewFrame,
   decodePluginFrame,
   encodePluginInputFrame,
   isPluginFrameOpcode,
   PluginFrameOpcode,
 } from "@getpaseo/protocol/binary-frames/index";
-import type {
-  CdpBrowserCookieImportResult,
-  CdpBrowserCookieSource,
-  CdpBrowserElementSelection,
-  CdpBrowserNavigateAction,
-  CdpBrowserProfile,
-  CdpBrowserTabState,
-  CdpBrowserViewInput,
-  CdpBrowserViewport,
-} from "@getpaseo/protocol/browser-automation/cdp-view-schemas";
 import {
   createRelayE2eeTransportFactory,
   createRelayUpgradeTransportFactory,
@@ -510,8 +494,7 @@ export interface SendMessageOptions {
 
 export interface AgentAttentionRequiredNotification {
   agentId: string;
-  // Fork delta (usage heads-up): the reason may be "usage".
-  reason: AgentAttentionNotificationReason;
+  reason: "finished" | "error" | "permission";
   timestamp: string;
   shouldNotify: boolean;
   notification?: AgentAttentionNotificationPayload;
@@ -650,8 +633,13 @@ type GetProvidersSnapshotPayload = GetProvidersSnapshotResponseMessage["payload"
 type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["payload"];
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
-// Fork delta (claude accounts): one provider's usage reply.
-type UsageProviderReportsPayload = UsageProviderListReportsResponseMessage["payload"];
+type ProviderInstallationInspectPayload = ProviderInstallationInspectResponseMessage["payload"];
+type ProviderInstallationCheckUpdatesPayload =
+  ProviderInstallationCheckUpdatesResponseMessage["payload"];
+type ProviderInstallationUpdatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "provider.installation.update.response" }
+>["payload"];
 interface UsageListReportsPayload {
   requestId: string;
   reports: UsageReportEntry[];
@@ -1420,32 +1408,6 @@ function buildFetchAgentsRequest(
       ? { includeBackground: options.includeBackground }
       : {}),
   });
-}
-
-interface MoveAgentOutcome {
-  agentId: string;
-  strategy: "native" | "handoff";
-  fellBackFromNative: boolean;
-}
-
-function unwrapMoveResult(
-  payload: {
-    ok: boolean;
-    agentId: string | null;
-    strategy: "native" | "handoff" | null;
-    fellBackFromNative: boolean;
-    error: string | null;
-  },
-  fallback: string,
-): MoveAgentOutcome {
-  if (!payload.ok || !payload.agentId || !payload.strategy) {
-    throw new Error(payload.error ?? fallback);
-  }
-  return {
-    agentId: payload.agentId,
-    strategy: payload.strategy,
-    fellBackFromNative: payload.fellBackFromNative,
-  };
 }
 
 export class DaemonClient {
@@ -2853,7 +2815,6 @@ export class DaemonClient {
         if (query.type === "workspace.setup.subscribe.request")
           this.requireWorkspaceSetupObservation();
         if (query.type === "plugin.rpc.subscribe.request") this.requirePluginSubscriptions();
-        if (query.type.startsWith("browser.cdp.")) this.requireCdpBrowser();
         const requestId = this.createRequestId(options?.requestId);
         const request = SessionInboundMessageSchema.parse({ ...query, requestId });
         try {
@@ -2907,189 +2868,6 @@ export class DaemonClient {
       { type: "browser.host.register.request", ...registration },
       options,
     );
-  }
-
-  // Fork delta (web browser pane): the daemon-hosted Docker Chromium.
-  // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
-  private requireCdpBrowser(): void {
-    if (this.getLastServerInfoMessage()?.features?.cdpBrowser !== true) {
-      throw new Error("This host has no Docker browser.");
-    }
-  }
-
-  async openCdpBrowserTab(input: {
-    workspaceId: string;
-    url?: string;
-  }): Promise<CdpBrowserTabState> {
-    this.requireCdpBrowser();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.tab.open.response">({
-        message: {
-          type: "browser.cdp.tab.open.request",
-          workspaceId: input.workspaceId,
-          ...(input.url ? { url: input.url } : {}),
-        },
-      });
-    if (!payload.tab) throw new Error(payload.error ?? "browser_unknown_error");
-    return payload.tab;
-  }
-
-  async closeCdpBrowserTab(browserId: string): Promise<void> {
-    this.requireCdpBrowser();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.tab.close.response">({
-        message: { type: "browser.cdp.tab.close.request", browserId },
-      });
-    if (payload.error) throw new Error(payload.error);
-  }
-
-  observeCdpBrowserTabs(
-    input?: { workspaceId?: string },
-    options?: { signal?: AbortSignal },
-  ): OwnedSubscription<CorrelatedResponsePayload<"browser.cdp.tabs.subscribe.response">> {
-    return this.observe(
-      "browser.cdp.tabs.subscribe.response",
-      {
-        type: "browser.cdp.tabs.subscribe.request",
-        ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
-      },
-      options,
-    );
-  }
-
-  /** Frames reach the observer's `binary` callback whole; decode with decodeBrowserViewFrame. */
-  observeCdpBrowserView(
-    input: { browserId: string; width: number; height: number; deviceScaleFactor: number },
-    options?: { signal?: AbortSignal },
-  ): OwnedSubscription<CorrelatedResponsePayload<"browser.cdp.view.subscribe.response">> {
-    return this.observe(
-      "browser.cdp.view.subscribe.response",
-      { type: "browser.cdp.view.subscribe.request", ...input },
-      options,
-    );
-  }
-
-  sendCdpBrowserViewInput(
-    subscriptionId: string,
-    input: CdpBrowserViewInput,
-    viewport?: CdpBrowserViewport,
-  ): void {
-    this.requireCdpBrowser();
-    this.sendSessionMessage({
-      type: "browser.cdp.view.input.request",
-      subscriptionId,
-      input,
-      ...(viewport ? { viewport } : {}),
-    });
-  }
-
-  async navigateCdpBrowserView(browserId: string, action: CdpBrowserNavigateAction): Promise<void> {
-    this.requireCdpBrowser();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.view.navigate.response">({
-        message: { type: "browser.cdp.view.navigate.request", browserId, action },
-      });
-    if (payload.error) throw new Error(payload.error);
-  }
-
-  // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
-  private requireCdpBrowserPick(): void {
-    if (this.getLastServerInfoMessage()?.features?.cdpBrowserPick !== true) {
-      throw new Error("This host cannot pick elements in its browser.");
-    }
-  }
-
-  /**
-   * Makes the tab a picker until the person picks an element, which takes up to 30 s. Resolves
-   * with the element, or with null when the pick ended without one (Escape, a cancel, a
-   * navigation, another pick on the tab). Rejects with the daemon's error code.
-   */
-  async pickCdpBrowserElement(browserId: string): Promise<CdpBrowserElementSelection | null> {
-    this.requireCdpBrowserPick();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.view.pick_element.response">({
-        message: { type: "browser.cdp.view.pick_element.request", browserId },
-      });
-    if (payload.error) throw new Error(payload.error);
-    return payload.selection;
-  }
-
-  /** Ends this client's pick on the tab. The pick's own promise resolves with null. */
-  cancelCdpBrowserElementPick(browserId: string): void {
-    this.requireCdpBrowserPick();
-    this.sendSessionMessage({ type: "browser.cdp.view.cancel_pick.request", browserId });
-  }
-
-  // Fork delta (browser profiles): named profiles of the Docker Chromium.
-  // COMPAT(cdpBrowserProfiles): added in v0.16.0, remove gate after 2027-05-15.
-  private requireCdpBrowserProfiles(): void {
-    if (this.getLastServerInfoMessage()?.features?.cdpBrowserProfiles !== true) {
-      throw new Error("This host has no browser profiles.");
-    }
-  }
-
-  /** The named profiles, and the one the workspace's new tabs open in; null is Shared. */
-  async listCdpBrowserProfiles(
-    workspaceId?: string,
-  ): Promise<{ profiles: CdpBrowserProfile[]; workspaceProfileId: string | null }> {
-    this.requireCdpBrowserProfiles();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.list.response">({
-        message: {
-          type: "browser.cdp.profile.list.request",
-          ...(workspaceId === undefined ? {} : { workspaceId }),
-        },
-      });
-    if (payload.error) throw new Error(payload.error);
-    return { profiles: payload.profiles, workspaceProfileId: payload.workspaceProfileId };
-  }
-
-  /** Rejects with the daemon's error code, such as browser_profile_name_taken. */
-  async createCdpBrowserProfile(name: string): Promise<CdpBrowserProfile> {
-    this.requireCdpBrowserProfiles();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.create.response">({
-        message: { type: "browser.cdp.profile.create.request", name },
-      });
-    if (!payload.profile) throw new Error(payload.error ?? "browser_unknown_error");
-    return payload.profile;
-  }
-
-  /** Closes the profile's tabs and forgets its cookies. Its workspaces go back to Shared. */
-  async deleteCdpBrowserProfile(profileId: string): Promise<void> {
-    this.requireCdpBrowserProfiles();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.delete.response">({
-        message: { type: "browser.cdp.profile.delete.request", profileId },
-      });
-    if (payload.error) throw new Error(payload.error);
-  }
-
-  /** The profile the workspace's new tabs open in; null is Shared. Open tabs keep theirs. */
-  async assignCdpBrowserProfile(workspaceId: string, profileId: string | null): Promise<void> {
-    this.requireCdpBrowserProfiles();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.assign.response">({
-        message: { type: "browser.cdp.profile.assign.request", workspaceId, profileId },
-      });
-    if (payload.error) throw new Error(payload.error);
-  }
-
-  /**
-   * Adds cookies to a named profile, from a cookie file's text or from the Shared profile for the
-   * sites named. Rejects with the daemon's error code, such as browser_cookies_unreadable.
-   */
-  async importCdpBrowserCookies(
-    profileId: string,
-    source: CdpBrowserCookieSource,
-  ): Promise<CdpBrowserCookieImportResult> {
-    this.requireCdpBrowserProfiles();
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"browser.cdp.profile.import.response">({
-        message: { type: "browser.cdp.profile.import.request", profileId, source },
-      });
-    if (!payload.result) throw new Error(payload.error ?? "browser_unknown_error");
-    return payload.result;
   }
 
   observeEvents(
@@ -3866,23 +3644,6 @@ export class DaemonClient {
     }
   }
 
-  async closeAgentRuntime(agentId: string): Promise<void> {
-    // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
-    if (this.getLastServerInfoMessage()?.features?.agentRuntimeClose !== true) {
-      throw new Error("Update the host to close agent runtimes.");
-    }
-    const payload =
-      await this.sendNamespacedCorrelatedSessionRequest<"agent.runtime.close.response">({
-        message: {
-          type: "agent.runtime.close.request",
-          agentId,
-        },
-      });
-    if (!payload.accepted) {
-      throw new Error(payload.error ?? "closeAgentRuntime rejected");
-    }
-  }
-
   async updateAgent(
     agentId: string,
     updates: { name?: string; labels?: Record<string, string> },
@@ -4579,58 +4340,6 @@ export class DaemonClient {
       throw new Error(payload.error ?? "Agent rewind failed");
     }
     return payload;
-  }
-
-  async moveAgent(
-    agentId: string,
-    target: { provider: string; model?: string },
-    options: { continueWork: boolean },
-  ): Promise<MoveAgentOutcome> {
-    const requestId = this.createRequestId();
-    const payload = await this.sendCorrelatedSessionRequest({
-      requestId,
-      message: {
-        type: "agent.move.request",
-        requestId,
-        agentId,
-        target,
-        continueWork: options.continueWork,
-      },
-      responseType: "agent.move.response",
-      timeout: 120_000,
-    });
-    return unwrapMoveResult(payload, "Agent move failed");
-  }
-
-  async moveAgentBack(
-    agentId: string,
-    options: { continueWork: boolean; toAgentId?: string },
-  ): Promise<MoveAgentOutcome> {
-    const requestId = this.createRequestId();
-    const payload = await this.sendCorrelatedSessionRequest({
-      requestId,
-      message: {
-        type: "agent.move_back.request",
-        requestId,
-        agentId,
-        continueWork: options.continueWork,
-        ...(options.toAgentId !== undefined ? { toAgentId: options.toAgentId } : {}),
-      },
-      responseType: "agent.move_back.response",
-      timeout: 120_000,
-    });
-    return unwrapMoveResult(payload, "Agent move back failed");
-  }
-
-  async listMoveTargets(agentId: string): Promise<AgentMoveTarget[]> {
-    const requestId = this.createRequestId();
-    const payload = await this.sendCorrelatedSessionRequest({
-      requestId,
-      message: { type: "agent.move_targets.list.request", requestId, agentId },
-      responseType: "agent.move_targets.list.response",
-    });
-    if (payload.error) throw new Error(payload.error);
-    return payload.targets;
   }
 
   async cancelAgent(agentId: string): Promise<void> {
@@ -5432,6 +5141,23 @@ export class DaemonClient {
       throw new Error(payload.error.message);
     }
     return { baseRef: payload.baseRef, commits: payload.commits };
+  }
+
+  /** Every git worktree of the repository `cwd` is in, whoever created it. */
+  async listCheckoutWorktrees(cwd: string, requestId?: string): Promise<CheckoutWorktree[]> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"checkout.worktrees.list.response">({
+        requestId,
+        message: {
+          type: "checkout.worktrees.list.request",
+          cwd,
+        },
+        timeout: 60000,
+      });
+    if (payload.error) {
+      throw new Error(payload.error.message);
+    }
+    return payload.worktrees;
   }
 
   async getCommitFileDiff(
@@ -6527,23 +6253,76 @@ export class DaemonClient {
     });
   }
 
+  /** Install and update links plus installed state. Requires `features.providerInstallation`. */
+  async inspectProviderInstallation(
+    provider: AgentProvider,
+    options?: { refresh?: boolean; requestId?: string },
+  ): Promise<ProviderInstallationInspectPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"provider.installation.inspect.response">({
+      requestId: options?.requestId,
+      message: {
+        type: "provider.installation.inspect.request",
+        provider,
+        ...(options?.refresh ? { refresh: true } : {}),
+      },
+      timeout: 60_000,
+    });
+  }
+
+  /** Whether the provider reports a newer version. Requires `features.providerInstallation`. */
+  async checkProviderUpdates(
+    provider: AgentProvider,
+    options?: { refresh?: boolean; requestId?: string },
+  ): Promise<ProviderInstallationCheckUpdatesPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"provider.installation.check_updates.response">(
+      {
+        requestId: options?.requestId,
+        message: {
+          type: "provider.installation.check_updates.request",
+          provider,
+          ...(options?.refresh ? { refresh: true } : {}),
+        },
+        timeout: 60_000,
+      },
+    );
+  }
+
+  /** Starts the provider's update, or joins the running one. Follow it with `observeProviderUpdates`. */
+  async updateProvider(
+    provider: AgentProvider,
+    options?: { requestId?: string },
+  ): Promise<ProviderInstallationUpdatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"provider.installation.update.response">({
+      requestId: options?.requestId,
+      message: { type: "provider.installation.update.request", provider },
+      timeout: 60_000,
+    });
+  }
+
+  /**
+   * The provider's latest update, then `provider.installation.update.progress` as updates start,
+   * report output and settle, and `provider.installation.update.cleared` when a refresh drops a
+   * failed update. Survives reconnects: each new snapshot replaces the previous one.
+   */
+  observeProviderUpdates(
+    provider: AgentProvider,
+    options?: { signal?: AbortSignal },
+  ): OwnedSubscription<
+    CorrelatedResponsePayload<"provider.installation.update.subscribe.response">
+  > {
+    return this.observe(
+      "provider.installation.update.subscribe.response",
+      { type: "provider.installation.update.subscribe.request", provider },
+      options,
+    );
+  }
+
   async listProviderUsage(options?: { requestId?: string }): Promise<ProviderUsageListPayload> {
     return this.sendNamespacedCorrelatedSessionRequest({
       requestId: options?.requestId,
       message: {
         type: "provider.usage.list.request",
       },
-    });
-  }
-
-  // Fork delta (claude accounts): one provider's usage, read through its launch scope.
-  async listProviderUsageReports(
-    provider: string,
-    options?: { requestId?: string },
-  ): Promise<UsageProviderReportsPayload> {
-    return this.sendNamespacedCorrelatedSessionRequest<"usage.provider.list_reports.response">({
-      requestId: options?.requestId,
-      message: { type: "usage.provider.list_reports.request", provider },
     });
   }
 
@@ -7875,13 +7654,6 @@ export class DaemonClient {
     }
     if (rawBytes[0] >= 0x40 && rawBytes[0] <= 0x4f) {
       this.diffStreams.receive(rawBytes);
-      return true;
-    }
-    if (rawBytes[0] === BROWSER_VIEW_OPCODE) {
-      const frame = decodeBrowserViewFrame(rawBytes);
-      this.consecutiveLivenessFailures = 0;
-      // The observer gets the whole frame: its metadata sits between the id and the JPEG.
-      if (frame) this.owned.receiveBinary(frame.subscriptionId, rawBytes);
       return true;
     }
     if (isPluginFrameOpcode(rawBytes[0])) {

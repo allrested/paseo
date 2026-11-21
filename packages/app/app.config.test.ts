@@ -110,11 +110,17 @@ it("the fork variant installs beside the store app: its own name and package, no
     const { exp } = await getPrebuildConfigAsync(__dirname, { platforms: ["android"] });
     expect({
       name: exp.name,
+      icon: exp.android.icon,
+      foreground: exp.android.adaptiveIcon.foregroundImage,
+      background: exp.android.adaptiveIcon.backgroundColor,
       androidPackage: exp.android.package,
       iosBundle: exp.ios.bundleIdentifier,
       googleServicesFile: exp.android.googleServicesFile,
     }).toEqual({
-      name: "Paseo Fork",
+      name: "AI",
+      icon: "./assets/images/flavours-launcher.png",
+      foreground: "./assets/images/flavours-launcher.png",
+      background: "#ffffff",
       androidPackage: "sh.paseo.fork",
       iosBundle: "sh.paseo.fork",
       googleServicesFile: undefined,

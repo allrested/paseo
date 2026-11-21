@@ -6,13 +6,10 @@ import type { Logger } from "pino";
 import {
   UsageReportSchema,
   type ProviderUsage,
-  type ProviderUsageWindow,
   type UsageReportEntry,
   type UsageProblem,
   type UsageReport,
 } from "@getpaseo/protocol/messages";
-// Fork delta (usage heads-up): projects run-outs from fetch history.
-import { createUsagePace } from "./pace.js";
 
 export interface UsageSource {
   id: string;
@@ -36,6 +33,9 @@ interface KnownReport {
 export interface AgentUsageLookup {
   hasAgent(id: string): boolean;
   usageSession(id: string): AgentUsageSession | null;
+  resolveLaunch?(
+    provider: string,
+  ): Promise<import("@getpaseo/plugin/server/provider").ProviderLaunch | undefined>;
 }
 
 export interface ListUsageReportsOptions {
@@ -45,34 +45,15 @@ export interface ListUsageReportsOptions {
   onReport?: (report: UsageReportEntry) => void;
 }
 
-interface AgentReports {
-  provider: string;
-  model?: string;
-  sessionKey: string;
-  sessionId?: string;
-  discoveredAt: number;
-  reports: Map<string, KnownReport>;
-}
-
-/**
- * How long an agent's discovered accounts are reused. A source may learn a session's account only
- * minutes after the session starts, and a gateway may later move the session to another account.
- */
-const AGENT_DISCOVERY_TTL_MS = 60_000;
-
-/** Owns account identity, ordered logins for each account, and the five-minute fetch cache. */
+/** Groups discovered logins by account and caches their usage for five minutes. */
 export class UsageSourceRegistry {
   private readonly sources = new Map<string, UsageSource>();
   private readonly known = new Map<string, KnownReport>();
   private defaults = new Map<string, KnownReport>();
-  private readonly byAgent = new Map<string, AgentReports>();
+  private readonly byAgent = new Map<string, Map<string, KnownReport>>();
   private readonly cache = new Map<string, { at: number; entry: UsageReportEntry }>();
   private readonly successful = new Map<string, NonNullable<UsageReportEntry["lastSuccessful"]>>();
   private readonly pending = new Map<string, Promise<UsageReportEntry>>();
-  // Fork delta (usage heads-up): fetch samples behind each window's projected run-out.
-  private readonly pace = createUsagePace();
-  /** The `<report id>:<window id>` of each window whose run-out is the pace's, not its source's. */
-  private readonly projectedRunOuts = new Set<string>();
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -90,21 +71,14 @@ export class UsageSourceRegistry {
   unregister(id: string): void {
     this.sources.delete(id);
     for (const key of this.defaults.keys()) if (key.startsWith(`${id}:`)) this.defaults.delete(key);
-    // Re-discover on the next session query when a source is replaced.
-    for (const [agentId, mapping] of this.byAgent) {
-      if ([...mapping.reports.values()].some((report) => report.source.id === id))
-        this.byAgent.delete(agentId);
+    for (const reports of this.byAgent.values()) {
+      for (const key of reports.keys()) if (key.startsWith(`${id}:`)) reports.delete(key);
     }
     for (const key of this.known.keys()) if (key.startsWith(`${id}:`)) this.known.delete(key);
     for (const key of this.cache.keys()) if (key.startsWith(`${id}:`)) this.cache.delete(key);
     for (const key of this.successful.keys())
       if (key.startsWith(`${id}:`)) this.successful.delete(key);
     for (const key of this.pending.keys()) if (key.startsWith(`${id}:`)) this.pending.delete(key);
-    // Fork delta (usage heads-up): a removed source drops its fetch samples.
-    this.pace.forget(`${id}:`);
-    for (const key of this.projectedRunOuts) {
-      if (key.startsWith(`${id}:`)) this.projectedRunOuts.delete(key);
-    }
   }
 
   async listReports(options: ListUsageReportsOptions = {}): Promise<UsageReportEntry[]> {
@@ -114,12 +88,19 @@ export class UsageSourceRegistry {
     let ids: string[];
     let reports = this.known;
     if (options.agentId !== undefined) {
-      ids = await this.discoverAgent(options.agentId);
-      reports = this.byAgent.get(options.agentId)?.reports ?? new Map();
+      if (!this.agents.hasAgent(options.agentId))
+        throw new Error(`Unknown agent: ${options.agentId}`);
+      reports = await this.discoverAgent(options.agentId);
+      this.mergeKnown();
+      ids = [...reports.keys()];
     } else if (options.reportIds !== undefined) {
       ids = options.reportIds;
     } else {
-      this.defaults = await this.discover({ kind: "global" }, this.defaults);
+      const [defaults] = await Promise.all([
+        this.discover({ kind: "global" }, this.defaults),
+        ...[...this.byAgent.keys()].map((agentId) => this.discoverAgent(agentId)),
+      ]);
+      this.defaults = defaults;
       this.mergeKnown();
       ids = [...this.known.keys()];
     }
@@ -128,30 +109,13 @@ export class UsageSourceRegistry {
         const known = reports.get(id);
         if (!known) return [];
         return [
-          this.fetchId(id, known, options.forceRefresh).then((fetched) => {
-            // Fork delta (usage heads-up): only an agent's own usage warns of a projected
-            // run-out. The host's list shows when each window resets.
-            const entry =
-              options.agentId === undefined ? this.withoutProjectedRunOuts(fetched) : fetched;
+          this.fetchId(id, known, options.forceRefresh).then((entry) => {
             options.onReport?.(entry);
             return entry;
           }),
         ];
       }),
     );
-  }
-
-  /** Usage for a launch scope that has no agent yet, e.g. a session-move target. */
-  async listReportsForScope(scope: {
-    provider: string;
-    env: Record<string, string>;
-  }): Promise<UsageReportEntry[]> {
-    const reports = await this.discover({
-      kind: "session",
-      provider: scope.provider,
-      env: scope.env,
-    });
-    return Promise.all([...reports].map(([id, known]) => this.fetchId(id, known)));
   }
 
   private pruneAgents(): void {
@@ -161,79 +125,49 @@ export class UsageSourceRegistry {
     this.mergeKnown();
   }
 
-  private async discoverAgent(agentId: string): Promise<string[]> {
-    if (!this.agents.hasAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+  private async discoverAgent(agentId: string): Promise<Map<string, KnownReport>> {
     const session = this.agents.usageSession(agentId);
     if (!session) {
       this.byAgent.delete(agentId);
-      this.mergeKnown();
-      return [];
+      return new Map();
     }
     const previous = this.byAgent.get(agentId);
-    const sameLaunch =
-      previous?.sessionKey === session.sessionKey && previous.provider === session.provider;
-    const sameScope =
-      sameLaunch && previous.model === session.model && previous.sessionId === session.sessionId;
-    const discoveredAt = this.now();
-    if (sameScope && discoveredAt - previous.discoveredAt < AGENT_DISCOVERY_TTL_MS)
-      return [...previous.reports.keys()];
-    const reports = await this.discover(
-      {
-        kind: "session",
-        provider: session.provider,
-        model: session.model,
-        env: session.env,
-        ...(session.sessionId !== undefined ? { sessionId: session.sessionId } : {}),
-      },
-      // A failed source keeps its entries only within the launch they were discovered for.
-      sameLaunch ? previous.reports : undefined,
-    );
-    // A query that finishes after a resume must not publish the previous launch's mapping.
-    if (this.agents.usageSession(agentId)?.sessionKey !== session.sessionKey) return [];
-    this.byAgent.set(agentId, {
-      sessionKey: session.sessionKey,
+    const reports = await this.discover({
+      kind: "session",
       provider: session.provider,
       model: session.model,
-      sessionId: session.sessionId,
-      discoveredAt,
-      reports,
+      env: session.env,
+      launch: session.launch,
     });
-    this.mergeKnown();
-    return [...reports.keys()];
+    const current = this.agents.usageSession(agentId);
+    if (
+      current?.sessionKey !== session.sessionKey ||
+      current.provider !== session.provider ||
+      current.model !== session.model
+    ) {
+      if (this.byAgent.get(agentId) === previous) this.byAgent.delete(agentId);
+      return new Map();
+    }
+
+    this.byAgent.set(agentId, reports);
+    return reports;
   }
 
   private mergeKnown(): void {
     this.known.clear();
-    // One login is one account. An agent's mapping can be up to a minute old and can predate its
-    // account being known (e.g. an expired token gets a per-login fallback key), so a login
-    // already shown under another ID stays there. Host discovery is newest, so it wins.
-    const owners = new Map<string, string>();
-    for (const reports of [
-      this.defaults,
-      ...[...this.byAgent.values()].map((agent) => agent.reports),
-    ]) {
-      const claimed: Array<[string, string]> = [];
+    for (const reports of [this.defaults, ...this.byAgent.values()]) {
       for (const [id, report] of reports) {
         if (this.sources.get(report.source.id) !== report.source) continue;
-        const logins = report.logins.filter((login) => {
-          const input = `${report.source.id}:${loginKey({ input: login.input, harness: "" })}`;
-          const owner = owners.get(input);
-          claimed.push([input, owner ?? id]);
-          return owner === undefined || owner === id;
-        });
-        const [first, ...rest] = logins;
-        if (!first) continue;
         const known = this.known.get(id);
         if (!known) {
-          this.known.set(id, { ...report, logins: [first, ...rest] });
+          this.known.set(id, { ...report, logins: [...report.logins] });
           continue;
         }
-        for (const login of logins) {
+        for (const login of report.logins) {
           if (!known.logins.some((existing) => loginKey(existing) === loginKey(login)))
             known.logins.push(login);
         }
       }
-      for (const [input, id] of claimed) if (!owners.has(input)) owners.set(input, id);
     }
     // Fetch freshness expires independently of successful snapshots. Retain only live identities.
     const active = this.activeCacheKeys();
@@ -243,11 +177,9 @@ export class UsageSourceRegistry {
 
   private activeCacheKeys(): Set<string> {
     return new Set(
-      [
-        this.known,
-        this.defaults,
-        ...[...this.byAgent.values()].map((agent) => agent.reports),
-      ].flatMap((reports) => [...reports].map(([id, report]) => cacheIdentity(id, report))),
+      [this.known, this.defaults, ...this.byAgent.values()].flatMap((reports) =>
+        [...reports].map(([id, report]) => cacheIdentity(id, report)),
+      ),
     );
   }
 
@@ -281,8 +213,8 @@ export class UsageSourceRegistry {
           }
         } catch (error) {
           this.logger.warn({ sourceId: source.id, err: error }, "Usage source discovery failed");
-          // A failed store read does not confirm removal. Session discovery for a new launch has
-          // no previous mapping because a resumed agent may use a different launch environment.
+          // A failed store read does not confirm removal. Session discovery has no previous
+          // mapping because a resumed agent may use a different launch environment.
           for (const [id, report] of previous) {
             if (report.source === source) reports.set(id, report);
           }
@@ -331,22 +263,9 @@ export class UsageSourceRegistry {
     const pending = this.pending.get(cacheKey);
     if (pending) return pending;
     const request = (async () => {
-      // Fork delta (usage heads-up): the projection samples usage at the fetch's start.
-      const startedAt = this.now();
-      const fetchedAt = new Date(startedAt).toISOString();
+      const fetchedAt = new Date(this.now()).toISOString();
       const outcome = await this.fetchWithFallback(known);
       const completedAt = new Date(this.now()).toISOString();
-      // Fork delta (usage heads-up): a projection failure keeps the fetched report; it must not
-      // reject this request, whose `.finally` copy below has no rejection handler.
-      let report = outcome.report;
-      try {
-        report = this.projectPace({ id, known, report: outcome.report, at: startedAt });
-      } catch (error) {
-        this.logger.warn(
-          { sourceId: known.source.id, err: error },
-          "Usage run-out projection failed",
-        );
-      }
       const entry: UsageReportEntry = {
         id,
         sourceId: known.source.id,
@@ -355,7 +274,6 @@ export class UsageSourceRegistry {
         account: { label: known.label },
         fetchedAt,
         ...outcome,
-        report,
       };
       if (entry.report.status === "available") {
         entry.successfulAt = completedAt;
@@ -381,63 +299,6 @@ export class UsageSourceRegistry {
       if (this.pending.get(cacheKey) === request) this.pending.delete(cacheKey);
     });
     return request;
-  }
-
-  /**
-   * Fork delta (usage heads-up): fills each window's projected run-out from its fetch history,
-   * sampled at the fetch's start. A source replaced while the fetch ran adds no sample.
-   */
-  private projectPace(input: {
-    id: string;
-    known: KnownReport;
-    report: UsageReport;
-    at: number;
-  }): UsageReport {
-    const { id, known, report, at } = input;
-    if (report.status !== "available" || this.sources.get(known.source.id) !== known.source) {
-      return report;
-    }
-    return {
-      ...report,
-      windows: report.windows.map((window) => {
-        const key = `${id}:${window.id}`;
-        const projected = this.pace.project({ key, window, at });
-        if (window.runsOutAt == null && projected.runsOutAt != null) {
-          this.projectedRunOuts.add(key);
-        } else {
-          this.projectedRunOuts.delete(key);
-        }
-        return projected;
-      }),
-    };
-  }
-
-  /** The entry as its source reported it: the run-outs `projectPace` filled in are taken out. */
-  private withoutProjectedRunOuts(entry: UsageReportEntry): UsageReportEntry {
-    const isProjected = (window: ProviderUsageWindow) =>
-      this.projectedRunOuts.has(`${entry.id}:${window.id}`);
-    const strip = <T extends UsageReport>(report: T): T => {
-      if (report.status !== "available" || !report.windows.some(isProjected)) return report;
-      return {
-        ...report,
-        windows: report.windows.map((window) => {
-          if (!isProjected(window)) return window;
-          const { runsOutAt: _runsOutAt, shortfallPct: _shortfallPct, ...reported } = window;
-          return reported;
-        }),
-      };
-    };
-    const report = strip(entry.report);
-    const kept = entry.lastSuccessful ? strip(entry.lastSuccessful.report) : undefined;
-    // An entry with nothing projected goes out as it is: callers of one fetch share one object.
-    if (report === entry.report && kept === entry.lastSuccessful?.report) return entry;
-    return {
-      ...entry,
-      report,
-      ...(entry.lastSuccessful && kept
-        ? { lastSuccessful: { ...entry.lastSuccessful, report: kept } }
-        : {}),
-    };
   }
 
   private writeCache(id: string, entry: UsageReportEntry): void {

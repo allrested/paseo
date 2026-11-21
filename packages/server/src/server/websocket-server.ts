@@ -29,8 +29,7 @@ import { join } from "path";
 import { getHostName } from "./host-name.js";
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-// Fork delta (usage heads-up): ManagedAgent types the agent of an attention delivery.
-import type { AgentManager, AgentMetricsSnapshot, ManagedAgent } from "./agent/agent-manager.js";
+import type { AgentManager, AgentMetricsSnapshot } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
 import type { DownloadTokenStore } from "./file-download/token-store.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
@@ -99,16 +98,12 @@ import {
   computeNotificationPlan,
   isPushEligibleAttentionReason,
   type ClientPresenceState,
+  type NotificationPlan,
 } from "./agent-attention-policy.js";
 import {
   buildAgentAttentionNotificationPayload,
   findLatestPermissionRequest,
-  // Fork delta (usage heads-up): the types behind the shared attention delivery and the usage
-  // notice.
-  type AgentAttentionNotificationPayload,
-  type AgentAttentionReason,
 } from "@getpaseo/protocol/agent-attention-notification";
-import type { UsageNotice } from "./agent/session-move/usage-watch.js";
 import { createGitHubService } from "../services/github-service.js";
 import type { ForgeService } from "../services/forge-service.js";
 import {
@@ -212,27 +207,6 @@ type WebSocketRuntimeDiagnosticPayload = WebSocketRuntimeDiagnosticSnapshot<
 type WebSocketRuntimeMetricsLogPayload = Omit<WebSocketRuntimeDiagnosticPayload, "collectedAt">;
 
 type TerminalAttentionReason = "finished" | "needs_input";
-
-/**
- * One attention notice for an agent. Fork delta (usage heads-up): the usage watch sends reason
- * "usage" through the same delivery as an agent's own turn.
- */
-type AgentAttentionDelivery = {
-  agentId: string;
-  agent: ManagedAgent;
-  provider: AgentProvider;
-} & (
-  | {
-      reason: AgentAttentionReason;
-      pushEligible: boolean;
-      notification: AgentAttentionNotificationPayload<AgentAttentionReason>;
-    }
-  | {
-      reason: "usage";
-      pushEligible: true;
-      notification: AgentAttentionNotificationPayload<"usage">;
-    }
-);
 
 function resolveTerminalAttentionReason(input: {
   attentionReason?: TerminalActivity["attentionReason"];
@@ -626,6 +600,8 @@ export class VoiceAssistantWebSocketServer {
   private readonly daemonConfigStore: DaemonConfigStore;
   private readonly pushNotifications: PushNotifications;
   private readonly pushNotificationSender: PushNotificationSender;
+  // Per agent, the unread finish (by its attention timestamp) that a notification was delivered for.
+  private readonly notifiedUnreadFinishAt = new Map<string, number>();
   private readonly mcpBaseUrl: string | null;
   private speech!: SpeechService | null;
   private terminalManager!: TerminalManager | null;
@@ -779,6 +755,7 @@ export class VoiceAssistantWebSocketServer {
           prompt: batch.prompt,
           activeTurnBehavior: batch.activeTurnBehavior,
           idleOnly: batch.idleOnly,
+          admit: batch.admit,
           sessionMode: batch.sessionMode,
           clearPendingPermissions: batch.clearPendingPermissions,
           unarchive: batch.unarchive,
@@ -2067,25 +2044,11 @@ export class VoiceAssistantWebSocketServer {
       features: {
         connectedHosts: true,
         hostMultiplexing: true,
-        agentMove: true,
-        // Fork delta (claude accounts): the usage.provider.list_reports RPC.
-        usageProviderReports: true,
-        // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel.
-        usageHeadsUp: true,
-        // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
-        agentRuntimeClose: true,
-        // Fork delta (web browser pane). True when PASEO_BROWSER_CDP_URL is set, reachable or not:
-        // the pane shows "unreachable" with Retry, which is more use than no pane.
-        // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
-        ...(this.browserToolsBroker?.cdpBrowser ? { cdpBrowser: true } : {}),
-        // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
-        ...(this.browserToolsBroker?.cdpBrowser ? { cdpBrowserPick: true } : {}),
-        // COMPAT(cdpBrowserProfiles): added in v0.16.0, remove gate after 2027-05-15.
-        ...(this.browserToolsBroker?.cdpBrowser?.profiles ? { cdpBrowserProfiles: true } : {}),
         // COMPAT(relayProtectedSecurity): added in v0.13.0, remove gate after 2027-04-21.
         relayProtectedSecurity: true,
         usageSetting: true,
         usageSources: true,
+        providerInstallation: true,
         ownedSubscriptions: true,
         providerOptionControls: true,
         entityMetadata: true,
@@ -2099,6 +2062,10 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(backgroundAgents): added in v0.15.0; remove gate after 2027-05-03.
         backgroundAgents: true,
         workspaceBaseBranch: true,
+        // COMPAT(checkoutWorktreeList): added after v0.16.2, remove gate after 2027-11-19.
+        checkoutWorktreeList: true,
+        // COMPAT(worktreeRefActions): added after v0.16.2, remove gate after 2027-11-19.
+        worktreeRefActions: true,
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.
         directorySync: true,
         // COMPAT(workspaceLabels): added in v0.5.0, remove after 2027-08-14.
@@ -2247,6 +2214,8 @@ export class VoiceAssistantWebSocketServer {
         hopliteProvider: this.providerSnapshotManager.supportsConfigRequiredProvider("hoplite"),
         // COMPAT(fxProvider): added after v0.15.3, remove after 2027-05-09 once host floor includes the bundled adapter.
         fxProvider: this.providerSnapshotManager.supportsConfigRequiredProvider("fx"),
+        // COMPAT(gooseProvider): added in v0.17.0, remove after 2027-05-20 once host floor includes the bundled adapter.
+        gooseProvider: this.providerSnapshotManager.supportsConfigRequiredProvider("goose"),
         // COMPAT(importSessionWorkspaceTarget): added in v0.1.110, remove gate after 2027-01-16.
         importSessionWorkspaceTarget: true,
         // COMPAT(importSessionSearch): added in v0.7.3, remove gate after 2027-03-02.
@@ -2959,82 +2928,22 @@ export class VoiceAssistantWebSocketServer {
     agentId: string;
     provider: AgentProvider;
     reason: "finished" | "error" | "permission";
+    attentionTimestamp: Date | null;
   }): Promise<void> {
     const agent = this.agentManager.getAgent(params.agentId);
     if (!agent?.workspaceId) {
       return;
     }
-    // Fork delta (usage heads-up): the delivery moved to deliverAgentAttention, which the usage
-    // notice shares.
-    const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
-    const notification = buildAgentAttentionNotificationPayload({
-      reason: params.reason,
-      serverId: this.serverId,
-      workspaceId: agent.workspaceId,
-      agentId: params.agentId,
-      assistantMessage,
-      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
-    });
-    await this.deliverAgentAttention({
-      agentId: params.agentId,
-      agent,
-      provider: params.provider,
-      reason: params.reason,
-      pushEligible: isPushEligibleAttentionReason(params.reason),
-      notification,
-    });
-  }
-
-  /**
-   * Fork delta (usage heads-up): an agent's account crossed a usage level. In the app it reaches
-   * only clients that advertise usage_notifications; otherwise it is pushed.
-   */
-  async broadcastUsageAttention(notice: UsageNotice): Promise<void> {
-    const agent = this.agentManager.getAgent(notice.agentId);
-    if (!agent?.workspaceId) {
-      return;
-    }
-    await this.deliverAgentAttention({
-      agentId: notice.agentId,
-      agent,
-      provider: notice.provider,
-      reason: "usage",
-      pushEligible: true,
-      notification: {
-        title: notice.title,
-        body: notice.body,
-        data: {
-          serverId: this.serverId,
-          workspaceId: agent.workspaceId,
-          agentId: notice.agentId,
-          reason: "usage",
-        },
-      },
-    });
-  }
-
-  // Fork delta (usage heads-up): the delivery that an agent's own attention and a usage notice
-  // share.
-  private async deliverAgentAttention(delivery: AgentAttentionDelivery): Promise<void> {
     const clientEntries: Array<{
       ws: WebSocketLike;
       state: ClientPresenceState;
     }> = [];
 
     for (const [ws, connection] of this.sessions) {
-      // COMPAT(usageNotifications): added after v0.15.3, remove the gate after 2027-05-07 once
-      // client floor > v0.15.3. Fork delta (usage heads-up): a client that cannot read the usage
-      // reason neither gets it nor counts as present for it.
-      if (
-        delivery.reason === "usage" &&
-        !connection.session.supportsForSource(CLIENT_CAPS.usageNotifications, ws)
-      )
-        continue;
       if (
         connection.session.delivery.isModern(ws)
           ? !connection.session.wantsSourceEvent(ws, "agent_attention_required")
-          : // Fork delta (usage heads-up): the agent comes from the delivery.
-            !(await connection.session.subscribesToAgent(delivery.agent, ws))
+          : !(await connection.session.subscribesToAgent(agent, ws))
       )
         continue;
       clientEntries.push({
@@ -3046,17 +2955,31 @@ export class VoiceAssistantWebSocketServer {
     const notificationEntries = clientEntries.filter(({ ws }) =>
       this.sessions.get(ws)?.session.wantsSourceNotification(ws, "agent_attention_required"),
     );
-    // Fork delta (usage heads-up): the plan, the push and each message read the delivery.
-    const plan = computeNotificationPlan({
-      allStates: notificationEntries.map((entry) => entry.state),
-      focusTarget: { kind: "agent", id: delivery.agentId },
-      pushEligible: delivery.pushEligible,
-      nowMs: Date.now(),
+    const allStates = notificationEntries.map((e) => e.state);
+    const nowMs = Date.now();
+    const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
+    const notification = buildAgentAttentionNotificationPayload({
+      reason: params.reason,
+      serverId: this.serverId,
+      workspaceId: agent.workspaceId,
+      agentId: params.agentId,
+      assistantMessage,
+      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
     });
 
+    const plan = this.planOncePerUnreadFinish(
+      params,
+      computeNotificationPlan({
+        allStates,
+        focusTarget: { kind: "agent", id: params.agentId },
+        pushEligible: isPushEligibleAttentionReason(params.reason),
+        nowMs,
+      }),
+    );
+
     if (plan.shouldPush) {
-      void this.pushNotificationSender.send(delivery.notification).catch((err) => {
-        this.logger.warn({ err, agentId: delivery.agentId }, "Failed to send push notification");
+      void this.pushNotificationSender.send(notification).catch((err) => {
+        this.logger.warn({ err, agentId: params.agentId }, "Failed to send push notification");
       });
     }
 
@@ -3064,64 +2987,63 @@ export class VoiceAssistantWebSocketServer {
       const shouldNotify =
         plan.inAppRecipientIndex !== null &&
         notificationEntries[plan.inAppRecipientIndex]?.ws === ws;
+      const timestamp = new Date().toISOString();
+      const connection = this.sessions.get(ws);
+      const attentionPayload = {
+        agentId: params.agentId,
+        reason: params.reason,
+        timestamp,
+        shouldNotify,
+        notification,
+      };
       const message = wrapSessionMessage(
-        this.agentAttentionMessage({
-          delivery,
-          ws,
-          shouldNotify,
-          timestamp: new Date().toISOString(),
-        }),
+        connection?.session.delivery.isModern(ws) ||
+          connection?.session.supportsForSource(CLIENT_CAPS.selectiveAgentTimeline, ws)
+          ? {
+              type: "agent_attention_required",
+              payload: attentionPayload,
+            }
+          : {
+              type: "agent_stream",
+              payload: {
+                agentId: params.agentId,
+                event: {
+                  type: "attention_required",
+                  provider: params.provider,
+                  reason: params.reason,
+                  timestamp,
+                  shouldNotify,
+                  notification,
+                },
+                timestamp,
+              },
+            },
       );
-      const session = this.sessions.get(ws)?.session;
-      if (message.type === "session" && session?.delivery.isModern(ws))
-        session.publishToSource(ws, message.message);
+
+      if (message.type === "session" && this.sessions.get(ws)?.session.delivery.isModern(ws))
+        this.sessions.get(ws)!.session.publishToSource(ws, message.message);
       else this.sendToClient(ws, message);
     }
   }
 
-  // Fork delta (usage heads-up): builds the attention message; a usage notice always takes the
-  // dedicated one.
-  private agentAttentionMessage(input: {
-    delivery: AgentAttentionDelivery;
-    ws: WebSocketLike;
-    shouldNotify: boolean;
-    timestamp: string;
-  }): SessionOutboundMessage {
-    const { delivery, ws, shouldNotify, timestamp } = input;
-    const session = this.sessions.get(ws)?.session;
-    // The usage reason exists only on the dedicated message, which every client that advertises
-    // usage_notifications reads.
-    if (
-      delivery.reason === "usage" ||
-      session?.delivery.isModern(ws) ||
-      session?.supportsForSource(CLIENT_CAPS.selectiveAgentTimeline, ws)
-    ) {
-      return {
-        type: "agent_attention_required",
-        payload: {
-          agentId: delivery.agentId,
-          reason: delivery.reason,
-          timestamp,
-          shouldNotify,
-          notification: delivery.notification,
-        },
-      };
+  // An agent can finish many times while its first finish is unread, for example when it
+  // reacts to each event of a background task. The user hears about an unread finish once.
+  // A finish that was not delivered, because the user had the agent on screen, does not count.
+  private planOncePerUnreadFinish(
+    params: { agentId: string; reason: string; attentionTimestamp: Date | null },
+    plan: NotificationPlan,
+  ): NotificationPlan {
+    if (params.reason !== "finished" || params.attentionTimestamp === null) {
+      return plan;
     }
-    return {
-      type: "agent_stream",
-      payload: {
-        agentId: delivery.agentId,
-        event: {
-          type: "attention_required",
-          provider: delivery.provider,
-          reason: delivery.reason,
-          timestamp,
-          shouldNotify,
-          notification: delivery.notification,
-        },
-        timestamp,
-      },
-    };
+    const unreadFinishAt = params.attentionTimestamp.getTime();
+    if (this.notifiedUnreadFinishAt.get(params.agentId) === unreadFinishAt) {
+      return { inAppRecipientIndex: null, shouldPush: false };
+    }
+    if (plan.shouldPush || plan.inAppRecipientIndex !== null) {
+      this.notifiedUnreadFinishAt.set(params.agentId, unreadFinishAt);
+    }
+    return plan;
   }
 
   private async broadcastTerminalAttention(params: {

@@ -1,7 +1,5 @@
 import { Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { CdpBrowserPane } from "@/desktop/browser/cdp/cdp-pane";
-import { useHostFeature } from "@/runtime/host-features";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,24 +12,7 @@ interface BrowserPaneProps {
   onFocusPane?: () => void;
 }
 
-export function BrowserPane(props: BrowserPaneProps) {
-  // The feature is on when the host's daemon has a Docker Chromium (PASEO_BROWSER_CDP_URL).
-  const hosted = useHostFeature(props.serverId, "cdpBrowser");
-  if (!hosted) return <BrowserUnavailable {...props} />;
-  // The key gives each tab its own pane, so a stale frame never outlives a tab change.
-  return (
-    <CdpBrowserPane
-      key={props.browserId}
-      browserId={props.browserId}
-      cwd={props.cwd}
-      onFocusPane={props.onFocusPane}
-      serverId={props.serverId}
-      workspaceId={props.workspaceId}
-    />
-  );
-}
-
-function BrowserUnavailable({ browserId }: BrowserPaneProps) {
+export function BrowserPane({ browserId }: BrowserPaneProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const titleStyle = useMemo(

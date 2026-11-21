@@ -60,26 +60,11 @@ interface PluginNavigableHostProps extends PluginHostProps {
       readonly workspaceId: string;
       readonly serverId?: string;
     }) => void;
-    /**
-     * Shows a session or a plugin's screen beside this surface. Absent on hosts without a side
-     * area; false when the target is unavailable.
-     */
-    readonly showBeside?: (target: PluginBesideTarget) => boolean;
   };
 }
 
 /** String keys and values: params travel in the screen's URL. */
 export type PluginScreenParams = Record<string, string>;
-
-export type PluginBesideTarget =
-  | { readonly kind: "agent"; readonly agentId: string; readonly serverId?: string }
-  | {
-      readonly kind: "screen";
-      readonly pluginId: string;
-      readonly screenId: string;
-      readonly params?: PluginScreenParams;
-      readonly serverId?: string;
-    };
 
 export interface PluginOpenScreenInput {
   screenId: string;

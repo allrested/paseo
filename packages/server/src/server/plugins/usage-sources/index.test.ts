@@ -1,15 +1,122 @@
 import { expect, test } from "vitest";
 import { UsageSourceRegistry } from "./index.js";
-import type { ProviderUsageWindow, UsageReportEntry } from "@getpaseo/protocol/messages";
-import type { UsageScope } from "@getpaseo/plugin/server/usage";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  discover as discoverClaude,
+  fetchUsage as fetchClaudeUsage,
+} from "../../../../../../plugins/claude-usage-source/server/usage.js";
+import { inputSchema as claudeInputSchema } from "../../../../../../plugins/claude-usage-source/shared/input.js";
 import {
   discoverSession as discoverCursorSession,
   fetchUsage as fetchCursorUsage,
 } from "../../../../../../plugins/cursor-usage-source/server/usage.js";
 import { inputSchema as cursorInputSchema } from "../../../../../../plugins/cursor-usage-source/shared/input.js";
+
+test("switching a shared Claude home replaces the account without borrowing its usage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "claude-accounts-"));
+  try {
+    const defaultHome = join(root, "default");
+    const otherHome = join(root, "other");
+    await Promise.all([mkdir(defaultHome), mkdir(otherHome)]);
+    const login = (home: string, token: string) =>
+      writeFile(
+        join(home, ".credentials.json"),
+        JSON.stringify({ claudeAiOauth: { accessToken: token } }),
+      );
+    await login(defaultHome, "old");
+
+    const sessions = new Map([
+      [
+        "default",
+        {
+          sessionKey: "first",
+          provider: "claude",
+          env: { HOME: root, CLAUDE_CONFIG_DIR: defaultHome },
+        },
+      ],
+    ]);
+    const registry = new UsageSourceRegistry(Date.now, 300_000, undefined, {
+      hasAgent: (id) => sessions.has(id),
+      usageSession: (id) => sessions.get(id) ?? null,
+    });
+    const usageTokens: string[] = [];
+    const fetchApi: typeof fetch = async (url, init) => {
+      const token = new Headers(init?.headers).get("Authorization")?.split(" ")[1];
+      if (!token) throw new Error("Missing fixture token");
+      const account = token === "rotated" ? "old" : token;
+      if (String(url).endsWith("/profile")) {
+        return Response.json({
+          account: { uuid: account, email: account + "@example.com" },
+          organization: { uuid: "org" },
+        });
+      }
+      usageTokens.push(token);
+      return Response.json({ five_hour: { utilization: account === "old" ? 100 : 17 } });
+    };
+    registry.register({
+      id: "claude",
+      label: "Claude",
+      discover: (scope) =>
+        discoverClaude(
+          scope,
+          {
+            home: root,
+            env: { CLAUDE_CONFIG_DIR: defaultHome },
+            platform: "linux",
+          },
+          fetchApi,
+        ),
+      fetch: (input) => fetchClaudeUsage(claudeInputSchema.parse(input), fetchApi),
+    });
+    const usage = (reports: Awaited<ReturnType<typeof registry.listReports>>) =>
+      Object.fromEntries(
+        reports.map((entry) => [entry.account.label, entry.report.windows?.[0]?.usedPct]),
+      );
+
+    expect(usage(await registry.listReports({ agentId: "default" }))).toEqual({
+      "old@example.com": 100,
+    });
+    await login(defaultHome, "rotated");
+    expect(
+      usage(await registry.listReports({ reportIds: ["claude:old.org"], forceRefresh: true })),
+    ).toEqual({ "old@example.com": 100 });
+    expect(usageTokens).toContain("rotated");
+    await login(defaultHome, "new");
+    usageTokens.length = 0;
+    const [stale] = await registry.listReports({
+      reportIds: ["claude:old.org"],
+      forceRefresh: true,
+    });
+    expect.soft(stale?.report).toEqual({
+      status: "error",
+      error: "This Claude login now belongs to a different account. Refresh the usage list.",
+    });
+    expect.soft(stale?.lastSuccessful?.report.windows[0]?.usedPct).toBe(100);
+    expect.soft(usageTokens).toEqual([]);
+
+    const host = await registry.listReports({ forceRefresh: true });
+    expect.soft(usage(host)).toEqual({ "new@example.com": 17 });
+    expect
+      .soft(usage(await registry.listReports({ agentId: "default" })))
+      .toEqual({ "new@example.com": 17 });
+
+    await login(otherHome, "old");
+    sessions.set("other", {
+      sessionKey: "second",
+      provider: "claude",
+      env: { HOME: root, CLAUDE_CONFIG_DIR: otherHome },
+    });
+    await registry.listReports({ agentId: "other" });
+    expect(usage(await registry.listReports({ forceRefresh: true }))).toEqual({
+      "new@example.com": 17,
+      "old@example.com": 100,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("#7142: host usage retains distinct Cursor accounts after their individual details are read", async () => {
   const root = await mkdtemp(join(tmpdir(), "cursor-accounts-"));
@@ -72,7 +179,7 @@ test("#7142: host usage retains distinct Cursor accounts after their individual 
 
 function source(input: {
   id: string;
-  discover?: (scope?: unknown) => Promise<Array<{ key: string; label?: string; input: unknown }>>;
+  discover?: () => Promise<Array<{ key: string; label?: string; input: unknown }>>;
   fetch?: (value: unknown) => Promise<unknown>;
 }) {
   return {
@@ -375,7 +482,7 @@ test("failed fallbacks preserve the final problem", async () => {
   });
 });
 
-test("session discovery reuses accounts, separates launches, and retains live agent reports globally", async () => {
+test("session discovery rechecks logins, reuses cached usage, and includes live agent reports globally", async () => {
   const sessions = new Map([
     ["one", { provider: "claude", env: { HOME: "/one" }, sessionKey: "launch-1" }],
     ["two", { provider: "claude", env: { HOME: "/two" }, sessionKey: "launch-2" }],
@@ -406,7 +513,7 @@ test("session discovery reuses accounts, separates launches, and retains live ag
   ]);
   await registry.listReports({ agentId: "one" });
   await registry.listReports({ agentId: "two" });
-  expect(discoveries).toEqual(["/one", "/two"]);
+  expect(discoveries).toEqual(["/one", "/one", "/two"]);
   expect(fetches).toBe(2);
   expect((await registry.listReports()).map((r) => r.id)).toEqual([
     "claude:default",
@@ -419,128 +526,6 @@ test("session discovery reuses accounts, separates launches, and retains live ag
   expect((await registry.listReports()).map((r) => r.id)).toEqual(["claude:default", "claude:new"]);
   await expect(registry.listReports({ agentId: "missing" })).rejects.toThrow("Unknown agent");
   await expect(registry.listReports({ agentId: "one", reportIds: [] })).rejects.toThrow("agentId");
-});
-
-test("the session scope a source receives carries the agent's provider session id", async () => {
-  const scopes: UsageScope[] = [];
-  const registry = new UsageSourceRegistry(Date.now, 300_000, undefined, {
-    hasAgent: () => true,
-    usageSession: () => ({
-      provider: "claude",
-      model: "opus",
-      env: { HOME: "/one" },
-      sessionKey: "launch",
-      sessionId: "claude-session-1",
-    }),
-  });
-  registry.register({
-    id: "claude",
-    label: "Claude",
-    discover: async (scope) => {
-      scopes.push(scope);
-      return [];
-    },
-    fetch: async () => ({ status: "available", windows: [] }),
-  });
-  await registry.listReports({ agentId: "agent" });
-  expect(scopes).toEqual([
-    {
-      kind: "session",
-      provider: "claude",
-      model: "opus",
-      env: { HOME: "/one" },
-      sessionId: "claude-session-1",
-    },
-  ]);
-});
-
-test("an agent's accounts are reused for a minute, then discovered again", async () => {
-  let now = 0;
-  let account = "first";
-  let discoveries = 0;
-  const registry = new UsageSourceRegistry(() => now, 300_000, undefined, {
-    hasAgent: () => true,
-    usageSession: () => ({ provider: "claude", env: {}, sessionKey: "launch", sessionId: "s1" }),
-  });
-  registry.register(
-    source({
-      id: "gateway",
-      discover: async () => {
-        discoveries++;
-        return [{ key: account, input: { account } }];
-      },
-    }),
-  );
-  const ids = async () =>
-    (await registry.listReports({ agentId: "agent" })).map((entry) => entry.id);
-  expect(await ids()).toEqual(["gateway:first"]);
-  account = "second";
-  now = 59_999;
-  expect(await ids()).toEqual(["gateway:first"]);
-  expect(discoveries).toBe(1);
-  now = 60_000;
-  expect(await ids()).toEqual(["gateway:second"]);
-  expect(discoveries).toBe(2);
-});
-
-test("a changed provider session id re-discovers the agent's accounts at once", async () => {
-  let sessionId: string | undefined;
-  const scopes: UsageScope[] = [];
-  const registry = new UsageSourceRegistry(() => 0, 300_000, undefined, {
-    hasAgent: () => true,
-    usageSession: () => ({ provider: "claude", env: {}, sessionKey: "launch", sessionId }),
-  });
-  registry.register(
-    source({
-      id: "gateway",
-      discover: async (scope) => {
-        scopes.push(scope as UsageScope);
-        const account = (scope as { sessionId?: string }).sessionId ?? "unknown";
-        return [{ key: account, input: { account } }];
-      },
-    }),
-  );
-  const ids = async () =>
-    (await registry.listReports({ agentId: "agent" })).map((entry) => entry.id);
-  expect(await ids()).toEqual(["gateway:unknown"]);
-  sessionId = "s1";
-  expect(await ids()).toEqual(["gateway:s1"]);
-  expect(scopes.map((scope) => (scope as { sessionId?: string }).sessionId)).toEqual([
-    undefined,
-    "s1",
-  ]);
-});
-
-test("a failed repeat discovery keeps the agent's previous accounts, a new launch does not", async () => {
-  let now = 0;
-  let fails = false;
-  let sessionKey = "launch-1";
-  const registry = new UsageSourceRegistry(
-    () => now,
-    300_000,
-    { warn: () => {} },
-    {
-      hasAgent: () => true,
-      usageSession: () => ({ provider: "claude", env: {}, sessionKey, sessionId: "s1" }),
-    },
-  );
-  registry.register(
-    source({
-      id: "gateway",
-      discover: async () => {
-        if (fails) throw new Error("Gateway unreachable");
-        return [{ key: "work", input: { account: "work" } }];
-      },
-    }),
-  );
-  const ids = async () =>
-    (await registry.listReports({ agentId: "agent" })).map((entry) => entry.id);
-  expect(await ids()).toEqual(["gateway:work"]);
-  fails = true;
-  now = 60_000;
-  expect(await ids()).toEqual(["gateway:work"]);
-  sessionKey = "launch-2";
-  expect(await ids()).toEqual([]);
 });
 
 test("reports arrive independently and a hung fetch settles as an error before completion", async () => {
@@ -616,34 +601,6 @@ test("#6155: agent reports use only their session login despite host and sibling
   await registry.listReports();
   await registry.listReports({ agentId: "opencode-agent" });
   expect((await registry.listReports({ agentId: "codex-agent" }))[0]?.report).toEqual(codexError);
-});
-
-test("host usage shows a login once after an agent pinned it before its account was known", async () => {
-  const sessions = new Map([["work-agent", { provider: "claude", env: {}, sessionKey: "launch" }]]);
-  const registry = new UsageSourceRegistry(Date.now, 300_000, undefined, {
-    hasAgent: (id) => sessions.has(id),
-    usageSession: (id) => sessions.get(id) ?? null,
-  });
-  let identified = false;
-  const login = { route: { store: "claude", path: "/home/me/.claude-work/.credentials.json" } };
-  registry.register(
-    source({
-      id: "claude",
-      discover: async () => [
-        identified
-          ? { key: "account.org", label: "me@example.test", input: login }
-          : { key: "route-hash", label: "claude-work", input: login },
-      ],
-    }),
-  );
-  expect((await registry.listReports({ agentId: "work-agent" })).map((entry) => entry.id)).toEqual([
-    "claude:route-hash",
-  ]);
-  identified = true;
-  const host = await registry.listReports();
-  expect(host.map((entry) => [entry.id, entry.account.label])).toEqual([
-    ["claude:account.org", "me@example.test"],
-  ]);
 });
 
 test("all failed host logins retain each source-supplied harness and remedy", async () => {
@@ -979,206 +936,4 @@ test("failed discovery preserves history until discovery confirms account remova
   expect(await registry.listReports()).toEqual([]);
   present = true;
   expect((await registry.listReports())[0]?.lastSuccessful).toBeUndefined();
-});
-
-test("listReportsForScope reports usage for a provider/env without a live agent", async () => {
-  const registry = new UsageSourceRegistry();
-  registry.register(
-    source({
-      id: "claude",
-      discover: async (scope) =>
-        (scope as { kind: string }).kind === "session" &&
-        (scope as { env: Record<string, string> }).env.CLAUDE_CONFIG_DIR === "/w"
-          ? [{ key: "work", label: "work@example.test", input: { dir: "/w" } }]
-          : [],
-      fetch: async () => ({
-        status: "available",
-        windows: [{ id: "five_hour", label: "Session", usedPct: 100 }],
-      }),
-    }),
-  );
-  const [entry] = await registry.listReportsForScope({
-    provider: "claude",
-    env: { CLAUDE_CONFIG_DIR: "/w" },
-  });
-  expect(entry?.account.label).toBe("work@example.test");
-  expect(entry?.report.status).toBe("available");
-});
-
-const PACE_RESETS_AT = "2026-11-06T14:00:00.000Z";
-
-/** A Claude account whose weekly usage takes the next value of `usedPcts` on every fetch. */
-function risingSource(usedPcts: number[]) {
-  return source({
-    id: "claude",
-    discover: async () => [{ key: "work", input: {} }],
-    fetch: async () => ({
-      status: "available",
-      windows: [
-        { id: "weekly", label: "Weekly", usedPct: usedPcts.shift(), resetsAt: PACE_RESETS_AT },
-      ],
-    }),
-  });
-}
-
-function firstWindow(entries: UsageReportEntry[]): ProviderUsageWindow | undefined {
-  const report = entries[0]?.report;
-  if (report?.status !== "available") throw new Error("Expected an available usage report");
-  return report.windows[0];
-}
-
-/** A registry with one agent, "agent-1", running on the Claude account. */
-function registryWithAgent(now: () => number): UsageSourceRegistry {
-  return new UsageSourceRegistry(now, 300_000, undefined, {
-    hasAgent: (id) => id === "agent-1",
-    usageSession: () => ({ provider: "claude", sessionKey: "agent-1", env: {} }),
-  });
-}
-
-test("an agent's usage fills a rising window's run-out from its fetch history", async () => {
-  let now = Date.parse("2026-11-06T10:00:00.000Z");
-  const registry = registryWithAgent(() => now);
-  registry.register(risingSource([50, 60]));
-
-  expect(firstWindow(await registry.listReports({ agentId: "agent-1" }))).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 50,
-    resetsAt: PACE_RESETS_AT,
-  });
-  now += 20 * 60_000;
-  expect(
-    firstWindow(await registry.listReports({ agentId: "agent-1", forceRefresh: true })),
-  ).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 60,
-    resetsAt: PACE_RESETS_AT,
-    runsOutAt: "2026-11-06T11:40:00.000Z",
-    shortfallPct: 70,
-  });
-});
-
-test("the host's usage list leaves out a projected run-out, so the window shows its reset", async () => {
-  let now = Date.parse("2026-11-06T10:00:00.000Z");
-  const registry = registryWithAgent(() => now);
-  registry.register(risingSource([50, 60]));
-  await registry.listReports();
-  now += 20 * 60_000;
-  const streamed: UsageReportEntry[] = [];
-
-  const listed = await registry.listReports({
-    forceRefresh: true,
-    onReport: (report) => streamed.push(report),
-  });
-
-  const resetOnly = { id: "weekly", label: "Weekly", usedPct: 60, resetsAt: PACE_RESETS_AT };
-  expect(firstWindow(listed)).toEqual(resetOnly);
-  expect(firstWindow(streamed)).toEqual(resetOnly);
-  // The same cached report, read for an agent, still carries the run-out.
-  expect(firstWindow(await registry.listReports({ agentId: "agent-1" }))?.runsOutAt).toBe(
-    "2026-11-06T11:40:00.000Z",
-  );
-});
-
-test("the host's usage list keeps a run-out the source reports itself", async () => {
-  const registry = new UsageSourceRegistry(() => Date.parse("2026-11-06T10:00:00.000Z"));
-  const reported = {
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 60,
-    resetsAt: PACE_RESETS_AT,
-    runsOutAt: "2026-11-06T12:30:00.000Z",
-    shortfallPct: 20,
-  };
-  registry.register(
-    source({
-      id: "claude",
-      discover: async () => [{ key: "work", input: {} }],
-      fetch: async () => ({ status: "available", windows: [reported] }),
-    }),
-  );
-
-  expect(firstWindow(await registry.listReports())).toEqual(reported);
-});
-
-test("the host's usage list leaves a projected run-out out of the last successful report too", async () => {
-  let now = Date.parse("2026-11-06T10:00:00.000Z");
-  const usedPcts = [50, 60];
-  const registry = new UsageSourceRegistry(() => now);
-  registry.register(
-    source({
-      id: "claude",
-      discover: async () => [{ key: "work", input: {} }],
-      fetch: async () => {
-        const usedPct = usedPcts.shift();
-        if (usedPct === undefined) return { status: "error", error: "usage API down" };
-        return {
-          status: "available",
-          windows: [{ id: "weekly", label: "Weekly", usedPct, resetsAt: PACE_RESETS_AT }],
-        };
-      },
-    }),
-  );
-  await registry.listReports();
-  now += 20 * 60_000;
-  await registry.listReports({ forceRefresh: true });
-  now += 60_000;
-
-  const [entry] = await registry.listReports({ forceRefresh: true });
-
-  expect(entry?.report.status).toBe("error");
-  const kept = entry?.lastSuccessful?.report;
-  if (kept?.status !== "available") throw new Error("Expected a kept successful report");
-  expect(kept.windows[0]).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 60,
-    resetsAt: PACE_RESETS_AT,
-  });
-});
-
-test("listReportsForScope fills a rising window's run-out from the scope's fetch history", async () => {
-  let now = Date.parse("2026-11-06T10:00:00.000Z");
-  const registry = new UsageSourceRegistry(() => now);
-  registry.register(risingSource([40, 50]));
-  const scope = { provider: "claude", env: {} };
-
-  expect(firstWindow(await registry.listReportsForScope(scope))).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 40,
-    resetsAt: PACE_RESETS_AT,
-  });
-  now += 20 * 60_000;
-  // 40% to 50% in 20 minutes is 0.5% a minute: the 50% left lasts 100 minutes, to 12:00, and the
-  // 220 minutes to the 14:00 reset add 110% to the 50%.
-  expect(firstWindow(await registry.listReportsForScope(scope))).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 50,
-    resetsAt: PACE_RESETS_AT,
-    runsOutAt: "2026-11-06T12:00:00.000Z",
-    shortfallPct: 60,
-  });
-});
-
-test("a re-registered source starts its pace over", async () => {
-  let now = Date.parse("2026-11-06T10:00:00.000Z");
-  const usedPcts = [50, 60, 70];
-  const registry = new UsageSourceRegistry(() => now);
-  registry.register(risingSource(usedPcts));
-  await registry.listReports();
-  now += 20 * 60_000;
-  await registry.listReports({ forceRefresh: true });
-
-  registry.unregister("claude");
-  registry.register(risingSource(usedPcts));
-  now += 20 * 60_000;
-  expect(firstWindow(await registry.listReports())).toEqual({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 70,
-    resetsAt: PACE_RESETS_AT,
-  });
 });

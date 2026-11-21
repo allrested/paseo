@@ -1,12 +1,12 @@
 /**
  * @vitest-environment jsdom
  */
-// ScriptFrame on Android, with a fake WebView that records what the frame hands it.
+// Native ScriptFrame, with a fake WebView that records what the frame hands it.
 import React, { act, createRef } from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScriptFrameHandle } from "@getpaseo/plugin/client/ui";
-import { SCRIPT_FRAME_BASE_URL, SCRIPT_FRAME_CSP } from "./script-frame-page";
+import { SCRIPT_FRAME_CSP } from "./script-frame-page";
 import { ScriptFrame } from "./script-frame.native";
 
 /** The props of the frame's WebView that the tests call or read; the settings ride along. */
@@ -67,11 +67,11 @@ function mount(overrides: Partial<React.ComponentProps<typeof ScriptFrame>> = {}
   return { handle, onMessage, onError };
 }
 
-describe("ScriptFrame on Android", () => {
-  it("runs the script in a page of its own origin with the spec's settings", () => {
+describe("Native ScriptFrame", () => {
+  it("runs a local script with storage, file access and new windows disabled", () => {
     mount();
     const props = webview.props!;
-    expect(props.source.baseUrl).toBe(SCRIPT_FRAME_BASE_URL);
+    expect(props.source.baseUrl).toMatch(/^https:\/\/[a-f0-9-]+\.invalid\/$/);
     expect(props.source.html).toContain("window.answer = 1;");
     expect(props.source.html).toContain(SCRIPT_FRAME_CSP);
     expect({
@@ -86,7 +86,7 @@ describe("ScriptFrame on Android", () => {
       accessibilityLabel: props.accessibilityLabel,
     }).toEqual({
       javaScriptEnabled: true,
-      domStorageEnabled: true,
+      domStorageEnabled: false,
       allowFileAccess: false,
       allowFileAccessFromFileURLs: false,
       setSupportMultipleWindows: false,
@@ -97,12 +97,19 @@ describe("ScriptFrame on Android", () => {
     });
   });
 
+  it("gives separately mounted frames distinct origins", () => {
+    mount();
+    const first = webview.props!.source.baseUrl;
+    mount();
+    expect(webview.props!.source.baseUrl).not.toBe(first);
+  });
+
   it("allows the first load of its own address and nothing else", () => {
     mount();
     const allow = webview.props!.onShouldStartLoadWithRequest as (r: { url: string }) => boolean;
     expect(allow({ url: "https://example.com/" })).toBe(false);
-    expect(allow({ url: SCRIPT_FRAME_BASE_URL })).toBe(true);
-    expect(allow({ url: SCRIPT_FRAME_BASE_URL })).toBe(false);
+    expect(allow({ url: webview.props!.source.baseUrl })).toBe(true);
+    expect(allow({ url: webview.props!.source.baseUrl })).toBe(false);
     // react-native-webview opens a URL that fails `originWhitelist` in the system browser
     // without asking `onShouldStartLoadWithRequest`, so every URL has to pass it.
     expect(webview.props!.originWhitelist).toEqual(["*"]);
@@ -149,12 +156,16 @@ describe("ScriptFrame on Android", () => {
     const { rerender } = render(
       <ScriptFrame ref={handle} script="a" title="t" onMessage={onMessage} />,
     );
-    expect(webview.props!.onShouldStartLoadWithRequest({ url: SCRIPT_FRAME_BASE_URL })).toBe(true);
+    expect(
+      webview.props!.onShouldStartLoadWithRequest({ url: webview.props!.source.baseUrl }),
+    ).toBe(true);
     fromPage({ paseoFrame: "ready" });
     rerender(<ScriptFrame ref={handle} script="b" title="t" onMessage={onMessage} />);
     act(() => handle.current?.post("after reload"));
     expect(webview.injected).toEqual([]);
-    expect(webview.props!.onShouldStartLoadWithRequest({ url: SCRIPT_FRAME_BASE_URL })).toBe(true);
+    expect(
+      webview.props!.onShouldStartLoadWithRequest({ url: webview.props!.source.baseUrl }),
+    ).toBe(true);
     fromPage({ paseoFrame: "ready" });
     expect(webview.injected).toHaveLength(1);
   });

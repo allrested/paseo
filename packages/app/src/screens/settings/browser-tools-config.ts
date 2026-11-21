@@ -1,5 +1,4 @@
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
-import { branded } from "@/brand/brand";
 
 export const BROWSER_TOOLS_TITLE = "Browser tools";
 export const BROWSER_TOOLS_WARNING =
@@ -26,7 +25,7 @@ export function getBrowserToolsCardState(input: {
     isVisible: input.isConnected,
     isEnabled: input.config?.browserTools.enabled === true,
     title: BROWSER_TOOLS_TITLE,
-    warning: branded(BROWSER_TOOLS_WARNING),
+    warning: BROWSER_TOOLS_WARNING,
   };
 }
 

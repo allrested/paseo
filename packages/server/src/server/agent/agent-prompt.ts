@@ -6,7 +6,6 @@ import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import { ForegroundPromptStart } from "./agent-run-state.js";
 import type { AgentStorage } from "./agent-storage.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
-import { takePendingMovePrompt } from "./session-move/pending-context.js";
 import { isStaleProviderSessionError } from "./stale-provider-session-error.js";
 import type { ActiveTurnBehavior } from "@getpaseo/protocol/messages";
 
@@ -29,6 +28,7 @@ export class AgentTurnBusyError extends Error {}
 
 export interface StartAgentRunOptions {
   idleOnly?: boolean;
+  admit?: () => boolean;
   /** Called after selecting the run, before consuming its events. */
   onDispatch?: (disposition: PromptDispatchDisposition) => void;
   replaceRunning?: boolean;
@@ -128,11 +128,17 @@ export async function startAgentRun(
   // Out-of-band commands (e.g. /goal pause) must run WITHOUT canceling an
   // in-flight turn — replaceAgentRun would interrupt the running turn. The
   // intercept lives at this layer so it covers every prompt entrypoint.
-  if (await agentManager.tryRunOutOfBand(agentId, prompt, options?.runOptions)) {
+  const admit = options?.admit;
+  const admitCommand = admit
+    ? () => {
+        if (!admit()) throw new Error("Queued agent message was withdrawn");
+      }
+    : undefined;
+  if (await agentManager.tryRunOutOfBand(agentId, prompt, options?.runOptions, admitCommand)) {
     options?.onDispatch?.("out_of_band");
     return { disposition: "out_of_band" };
   }
-  const promptStart = new ForegroundPromptStart(agentId);
+  const promptStart = new ForegroundPromptStart(agentId, admit);
   try {
     try {
       await agentManager.reloadStalePluginSession(agentId);
@@ -245,6 +251,7 @@ export async function unarchiveAgentState(
 
 export interface SendPromptToAgentParams {
   idleOnly?: boolean;
+  admit?: StartAgentRunOptions["admit"];
   /** Awaited after the agent is loaded and its mode is set, before the prompt is handed to a run. */
   beforeDispatch?: () => Promise<void>;
   onDispatch?: StartAgentRunOptions["onDispatch"];
@@ -340,7 +347,7 @@ async function resolvePromptSource(
   manager: Pick<AgentManager, "getAgent">,
   storage: AgentStorage,
 ): Promise<AgentPromptSource | undefined> {
-  if (!source || source.title) return source;
+  if (!source || source.kind === "change-request-update" || source.title) return source;
   const title = (
     manager.getAgent(source.agentId)?.config.title ?? (await storage.get(source.agentId))?.title
   )?.trim();
@@ -412,16 +419,13 @@ export async function sendPreparedPromptToAgent(
   }
 
   await params.beforeDispatch?.();
-  // Cleared before the run starts: a failed start must not resend the history twice.
-  const prompt = await takePendingMovePrompt({
-    agentStorage: params.agentStorage,
-    agentId: params.agentId,
-    prompt: params.prompt,
-  });
-
-  return await startAgentRun(params.agentManager, params.agentId, prompt, params.logger, {
+  if (!params.idleOnly && params.admit?.() === false) {
+    throw new Error("Queued agent message was withdrawn");
+  }
+  return await startAgentRun(params.agentManager, params.agentId, params.prompt, params.logger, {
     replaceRunning: !params.idleOnly,
     idleOnly: params.idleOnly,
+    admit: params.admit,
     onDispatch: params.onDispatch,
     activeTurnBehavior: params.activeTurnBehavior,
     clearPendingPermissions: params.clearPendingPermissions,

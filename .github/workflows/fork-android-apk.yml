@@ -10,7 +10,7 @@
 # Any run that reaches the upload step publishes: a tag push, a re-run or a dispatch, and the last
 # two replace the APK already attached. Start one only after the owner agrees to that upload.
 # docs/android.md, "The fork's app", has the key, the two secrets and the commands.
-# scripts/fork-android-apk.test.mjs tests this file in fork-ci.yml's docker-tests job.
+# Test this workflow locally with node --test scripts/fork-android-apk.test.mjs.
 name: Fork Android APK
 
 on:
@@ -122,8 +122,8 @@ jobs:
           grep -E "^(package|application-label|native-code):" "$RUNNER_TEMP/badging.txt"
           grep -q "^package: name='sh.paseo.fork' " "$RUNNER_TEMP/badging.txt" ||
             fail "The package is not sh.paseo.fork."
-          grep -qx "application-label:'Paseo Fork'" "$RUNNER_TEMP/badging.txt" ||
-            fail "The app's label is not Paseo Fork."
+          grep -qx "application-label:'AI'" "$RUNNER_TEMP/badging.txt" ||
+            fail "Expected the AI launcher label."
           grep -qx "native-code: 'arm64-v8a'" "$RUNNER_TEMP/badging.txt" ||
             fail "The native code is not arm64-v8a alone."
 
@@ -131,9 +131,9 @@ jobs:
             { tail -20 "$RUNNER_TEMP/zipalign.txt"; fail "The APK is not aligned for 16 KB pages."; }
           tail -1 "$RUNNER_TEMP/zipalign.txt"
 
-          frames="$(unzip -p "$APK" assets/index.android.bundle | grep -ac 'script-frame\.invalid' || true)"
-          [ "${frames:-0}" -ge 1 ] || fail "The JS bundle does not carry ScriptFrame (no script-frame.invalid)."
-          echo "ScriptFrame's base URL in the JS bundle: $frames"
+          frames="$(unzip -p "$APK" assets/index.android.bundle | grep -aFc 'window.paseoFrame = frame' || true)"
+          [ "${frames:-0}" -ge 1 ] || fail "The JS bundle does not carry ScriptFrame (missing native bridge)."
+          echo "ScriptFrame bridge in the JS bundle: $frames"
 
       - name: Attach the APK to the tag's prerelease
         env:
@@ -141,7 +141,7 @@ jobs:
         run: |
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
-              --title "Paseo Fork $TAG" \
-              --notes "Paseo Fork (sh.paseo.fork), the allrested fork's Android app for arm64 phones, built from $TAG. It installs beside the store app and pairs on its own."
+              --title "AI $TAG" \
+              --notes "AI (sh.paseo.fork), the allrested fork's Android app for arm64 phones, built from $TAG. It installs beside the store app and pairs on its own."
           fi
           gh release upload "$TAG" artifacts/paseo-fork-arm64.apk --repo "$GITHUB_REPOSITORY" --clobber

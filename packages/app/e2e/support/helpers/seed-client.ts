@@ -132,7 +132,6 @@ export interface SeedDaemonClient {
         status: string;
         title?: string | null;
         metadata?: Record<string, unknown>;
-        labels: Record<string, string>;
       };
     }>;
   }>;

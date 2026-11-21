@@ -363,9 +363,61 @@ Provider 选项是一个记录，即 `session.open` 中的 `ProviderSessionConfi
 
 Paseo 刷新 Agent 的方式是关闭它当前的 Provider 会话，再用当前的配置和持久化值打开它。Provider 在 `session.open` 期间重新读取外部状态。
 
-使用 `@getpaseo/plugin/server/acp` 中的 `runAcpProvider()` 适配一个基于命令的 ACP。只针对厂商在发现、配置、通知或工具调用方面的差异添加转换器钩子。
+使用 `@getpaseo/plugin/server/acp` 中的 `runAcpProvider()` 适配一个基于命令的 ACP。使用转换器钩子处理厂商特有的行为。参见[适配 ACP Agent](/docs/plugins/providers#adapt-an-acp-agent)。
+
+在 `discover` 和 `configure` 中，调用 `context.request(method, params)` 发送 ACP 扩展请求。
+Promise 返回 JSON 值，或以 Agent 的 JSON-RPC 错误拒绝。
+
+使用 `config(state, context)` 返回 Paseo 显示的配置快照。
+Paseo 在会话就绪、收到配置通知或提交配置更改时调用此同步钩子。
+使用 `configure` 向 Agent 发送更改。
 
 `ProviderRegistration.icon` 是相对于插件目录的文件路径，例如 `icon.svg`。它必须解析到该目录内一个遵循 [SVG 图标规则](#svg-rules)的普通文件。Paseo 在插件启动时读取并校验该文件；这个字符串从不是内联 SVG 或 URL。
+
+#### Provider 安装 {#provider-installation}
+
+**需要 Paseo 0.17**。较旧的版本会忽略 `installation`。`ProviderRegistration.installation` 填充 Provider 设置中的 **安装** 部分。每个成员都是可选的。`inspect` 和 `installUrl` 都没有声明时，Paseo 会隐藏这个部分。完整示例见[报告安装与更新](/docs/plugins/providers#report-installation-and-updates)。类型从 `@getpaseo/plugin/server/provider` 导入。
+
+```ts
+interface ProviderInstallation {
+  installUrl?: string;
+  updateUrl?: string;
+  inspect?(context: ProviderInstallationContext): Promise<ProviderInspection>;
+  checkForUpdates?(context: ProviderUpdateCheckContext): Promise<ProviderUpdateCheck>;
+  update?(context: ProviderUpdateContext): Promise<ProviderUpdateResult>;
+}
+```
+
+| 成员              | 调用时机                                          | 期限  | 结果保留时间                                    |
+| ----------------- | ------------------------------------------------- | ----- | ----------------------------------------------- |
+| `inspect`         | 打开 Provider 设置时                              | 20 秒 | 30 秒                                           |
+| `checkForUpdates` | `inspect` 回答 `installed` 之后，或没有 `inspect` | 25 秒 | `current` 或 `available` 为一小时，其他为 30 秒 |
+| `update`          | 用户选择 **更新** 时，每个 Provider 同一时间一个  | 无    | `succeeded` 之后 Paseo 重新读取两个结果         |
+
+Provider 设置中的 **刷新** 会跳过保留的结果，并清除失败的更新。Paseo 从不在会话开始前或按计划调用这些成员。超过期限或抛出异常会变成显示该消息的错误。
+
+`installUrl` 和 `updateUrl` 是 Paseo 在浏览器中打开的 `http` 或 `https` 页面。其中任何一个是其他类型的 URL 时，插件无法启动。
+
+上下文：
+
+| 字段               | 类型                                      | 含义                                                                                                                      |
+| ------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `launch`           | `ProviderInstallationLaunch \| undefined` | 会话将使用的启动配置，带有 `resolved`。注册没有声明 `command` 时不存在。                                                  |
+| `signal`           | `AbortSignal`                             | 当 Paseo 停止等待或 daemon 停止时中止。                                                                                   |
+| `installedVersion` | `string \| undefined`                     | 仅用于 `checkForUpdates`。`inspect` 报告的 `version`，按原样传入。`inspect` 没有报告版本或你没有声明 `inspect` 时不存在。 |
+| `report`           | `(event: ProviderUpdateReport) => void`   | 仅用于 `update`。按顺序向用户显示 `{ type: "stdout" \| "stderr" \| "message", text }`。                                   |
+
+`ProviderInstallationLaunch` 是 `{ command, args, env, resolved }`。`resolved: true` 时，`command` 是可执行文件的路径。`resolved: false` 时，Paseo 没有找到可执行文件，`command` 是配置中写的名称。
+
+结果：
+
+| 类型                   | 取值                                                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `ProviderInspection`   | `{ status: "installed", version?: string }` 或 `{ status: "not_installed" }`                                                           |
+| `ProviderUpdateCheck`  | `{ status: "current" }`、`{ status: "available", versions?: string[], message?: string }` 或 `{ status: "unknown", message?: string }` |
+| `ProviderUpdateResult` | `{ status: "succeeded", message?: string }` 或 `{ status: "failed", message: string }`                                                 |
+
+Paseo 按原样显示 `version`、`versions` 和 `message`，不解析或排序它们。只要 `inspect` 报告的 `version` 不变，Paseo 会在最长一小时内复用 `current` 或 `available` 的结果。它保留 `report` 输出的最后 65,536 个字符。不符合这些结构的结果是错误。只要 `inspect` 报告 CLI 已安装且你声明了 `update`，就会出现 **更新**，与 `checkForUpdates` 的回答以及是否声明它无关；没有 `update` 时，Paseo 在同样条件下提供 `updateUrl`。
 
 ### 用量来源 {#usage-sources}
 
@@ -383,13 +435,7 @@ interface UsageAccount {
 
 type UsageScope =
   | { kind: "global" }
-  | {
-      kind: "session";
-      provider: string;
-      model?: string;
-      env: Record<string, string>;
-      sessionId?: string;
-    };
+  | { kind: "session"; provider: string; model?: string; env: Record<string, string> };
 
 interface UsageSourceRegistration {
   id: string;
@@ -420,8 +466,6 @@ type UsageProblem =
 会话发现只返回该 Agent 运行时使用的那个登录。Agent 弹出框只使用这些输入；它从不尝试来自全局发现或其他 Agent 的登录。对于其他任何 Provider，返回 `[]`。全局发现会列出每个账号，包括已过期的登录。
 
 从会话的启动环境中解析会话账号。没有登录时返回 `[]`。不要在会话发现中扫描默认存储，也不要在全局发现中扫描 Agent。发现是一种查询，没有 Agent 生命周期钩子。已关闭的 Agent 在恢复之前没有会话范围。
-
-`sessionId` 是 Provider 自己为该会话分配的 ID（如果有）；对 Claude 来说就是 Claude Code 的会话 ID。会话还没有 ID 时，以及 Provider 不提供它时，该字段不存在。位于 API 网关之后的来源可以用它查出网关把该会话路由到了哪个账号。Paseo 会把一个 Agent 的会话发现结果复用最多一分钟，之后在下一次请求时再次调用 `discover()`；`sessionId` 变化时会立即重新调用。重新调用失败时，该 Agent 保留你的来源在上一次调用中返回的账号。`discover()` 要轻量且没有副作用，因为每个 Agent 每分钟都可能调用它一次。
 
 输入指定凭据存储的位置；不要把凭据放进输入或报告中。Paseo 在调用 `fetch()` 之前会按你的 schema 校验每个输入。在任何范围内，相同的键就是同一份报告；只有当有序的登录输入一致时，获取才会共享五分钟的缓存。每次登录获取有 20 秒的截止时间。
 
@@ -581,52 +625,19 @@ export default function contribute(client: PluginClientContext) {
 
 `PluginScreenProps` 包含：
 
-| 字段         | 含义                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme`      | 当前 Paseo 主题的带类型 `PluginTheme` 颜色令牌。                                                                                                                                                                                                                                                                                                                                                                              |
-| `host`       | 所选主机的 `id` 和显示用的 `label`。                                                                                                                                                                                                                                                                                                                                                                                          |
-| `layout`     | `compact` 以及 `ios`、`android` 或 `web` 平台。                                                                                                                                                                                                                                                                                                                                                                               |
-| `params`     | 打开界面时传入的参数，键和值都是字符串。没有参数时为 `{}`。                                                                                                                                                                                                                                                                                                                                                                   |
-| `navigation` | 可选的客户端导航。`openAgent({ agentId, serverId? })` 和 `openWorkspace({ workspaceId, serverId? })` 在 `serverId` 上打开目标，省略时在所选主机上打开。`openBrowser({ url, workspaceId, serverId? })` 仅在 Electron 上可用；见[链接和浏览器](#external-links-and-workspace-browsers)。`showBeside(target)` 在你的界面旁边显示一个会话或一个界面；见[在你的界面旁边显示会话或界面](#show-a-session-or-a-screen-beside-yours)。 |
+| 字段         | 含义                                                                                                                                                                                                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`      | 当前 Paseo 主题的带类型 `PluginTheme` 颜色令牌。                                                                                                                                                                                                                                       |
+| `host`       | 所选主机的 `id` 和显示用的 `label`。                                                                                                                                                                                                                                                   |
+| `layout`     | `compact` 以及 `ios`、`android` 或 `web` 平台。                                                                                                                                                                                                                                        |
+| `params`     | 打开界面时传入的参数，键和值都是字符串。没有参数时为 `{}`。                                                                                                                                                                                                                            |
+| `navigation` | 可选的客户端导航。`openAgent({ agentId, serverId? })` 和 `openWorkspace({ workspaceId, serverId? })` 在 `serverId` 上打开目标，省略时在所选主机上打开。`openBrowser({ url, workspaceId, serverId? })` 仅在 Electron 上可用；见[链接和浏览器](#external-links-and-workspace-browsers)。 |
 
 路由、标题栏、关闭操作、主机选择器、错误边界和 query client 由 Paseo 负责。界面主体由插件负责。
 
 `addScreen({ id, title, Component })` 注册一个界面。`title` 是界面标题栏的[显示文本](#runtime-translations)，也可以是接收界面参数并返回显示文本的函数。参数或语言变化时，该函数会再次运行。无效标题和空字符串标题会被拒绝。如果标题函数抛出错误或解析为空字符串，会改为显示界面 ID；界面仍然会渲染。
 
 `openScreen({ screenId, params })` 以参数打开一个界面，例如机器人界面要显示的那个机器人。参数保存在界面 URL 的查询字符串中，因此重新加载、前进后退以及指向该界面的链接都会保留它们。任何字符串键都可以；值必须是字符串，其他类型会抛出错误。用其他参数打开同一个界面会显示新的参数。
-
-### 在你的界面旁边显示会话或界面 {#show-a-session-or-a-screen-beside-yours}
-
-`navigation.showBeside(target): boolean` 在你的界面或面板旁边的侧边区域中显示一个 Agent 的会话或一个插件界面，让用户留在你的页面上。界面、工作区面板和 Agent 面板会收到它；设置界面、文件面板和侧边栏项不会。没有侧边区域的应用不提供它，所以要先检查，再退回其他方式。下面这一行在你的界面旁边打开会话，否则在 Agent 的工作区中打开：
-
-```tsx
-import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import { Pressable, Text } from "react-native";
-
-type SessionRowProps = Pick<PluginScreenProps, "navigation" | "theme"> & { agentId: string };
-
-export function SessionRow({ agentId, navigation, theme }: SessionRowProps) {
-  if (!navigation) return null;
-  const open = () => {
-    if (navigation.showBeside?.({ kind: "agent", agentId })) return;
-    navigation.openAgent({ agentId });
-  };
-  return (
-    <Pressable accessibilityRole="button" onPress={open}>
-      <Text style={{ color: theme.colors.foreground }}>Open session</Text>
-    </Pressable>
-  );
-}
-```
-
-| 目标                                                         | 显示内容                                                                                                                                                                                      |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{ kind: "agent", agentId, serverId? }`                      | 该 Agent 的完整会话，与它在工作区中一样。标题栏中有 **Open in workspace** 和 **关闭**。从会话中的链接打开文件或标签页会进入该 Agent 的工作区；从 Composer 标签打开**更改**或子 Agent 则不会。 |
-| `{ kind: "screen", pluginId, screenId, params?, serverId? }` | 该插件的界面，带上它的参数、`layout.compact: true`，自身没有 `showBeside`，调用的是它自己插件的 RPC。标题栏中有 **Open {title}** 和 **关闭**。                                                |
-
-`serverId` 默认为你的界面的 `host.id`。显示了目标时，调用返回 `true`。主机不认识该 Agent、没有安装该插件或该插件没有这个界面时，它返回 `false`，不会抛出错误。
-
-侧边区域一次只显示一个目标：新的目标会替换它，再次传入同一个目标则保持原样。宽布局中它是右侧带拖动手柄的面板；紧凑布局中它是盖在你的内容上的底部面板。它可以从标题栏关闭，用户离开你的界面或面板时也会关闭，下次访问时不会恢复。
 
 ### 侧边栏项 {#sidebar-items}
 
@@ -1591,27 +1602,11 @@ hook 的重新读取会采用磁盘上的版本，因此下一次写入会覆盖
 
 ### ScriptFrame {#scriptframe}
 
-从 `@getpaseo/plugin/client/ui` 导入 `ScriptFrame`，在隔离的页面中运行你自己的脚本，并与它互传文本。React Native 画不出来的内容（例如 WebGL 场景）可以用它。
+从 `@getpaseo/plugin/client/ui` 导入 `ScriptFrame`，在插件界面中运行自包含的浏览器视图，例如 WebGL 场景。通过 `script` 提供受信任的 JavaScript 字符串，通过 `title` 提供无障碍名称，并用 `onMessage(text)` 接收消息。可选属性为 `testID` 和 `onError(message)`。更改脚本会加载新页面。
 
-| 属性        | 必填 | 含义                                           |
-| ----------- | ---- | ---------------------------------------------- |
-| `script`    | 是   | JavaScript，在空的标准模式页面加载后运行一次。 |
-| `onMessage` | 是   | 页面每发送一个字符串就调用一次。               |
-| `onError`   | 否   | 脚本抛出错误或页面无法启动时，以消息调用。     |
-| `title`     | 是   | 屏幕阅读器对该框架的称呼。                     |
-| `testID`    | 否   | 该框架的测试标识。                             |
+插件通过 `ref.current.post(text)` 发送字符串。脚本运行完毕前，消息会按顺序排队。在页面初始化时设置 `window.paseoFrame.onMessage = (text) => { … }`，用 `window.paseoFrame.post(text)` 回复。结构化数据可用 JSON。对于旧版客户端，使用 UI 模块的命名空间导入 `ui` 检查 `"ScriptFrame" in ui`。
 
-通过 ref 可以调用 `post(text)`，向页面发送字符串。页面就绪之前的 `post` 会等待，并按顺序送达。在页面中，`window.paseoFrame.post(text)` 用于发送，`window.paseoFrame.onMessage = (text) => { ... }` 用于接收。请在脚本首次运行结束之前设置 `window.paseoFrame.onMessage`，在它未设置期间到达的 `post` 会被丢弃。只有字符串能够跨越边界，需要结构化数据时请发送 JSON。
-
-页面没有网络，其策略为 `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'`。页面没有文件访问，也不能打开新窗口；在 Android 上，框架只允许首次加载。请只在框架中运行你自己的脚本：该策略不涵盖 WebRTC；在 Web 上，页面可以把自己的框架导航到其他地址，新页面不再受该策略约束；在 Android 上，如果应用没有在 250 ms 内（react-native-webview 的默认值）回应框架的加载检查，导航就会照常进行。
-
-| 平台    | 页面                                                                                                                                                                                   |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Android | 启用 JavaScript 和 `localStorage` 的 WebView。所有 `ScriptFrame` 共用一个永远无法解析的来源 `script-frame.invalid`，因此其中的 `localStorage` 由各插件共享，并且在插件移除后仍然保留。 |
-| Web     | 不带 `allow-same-origin` 的沙箱 `iframe`。其中 `localStorage` 会抛出错误，需要它的脚本必须先检查。已测试。                                                                             |
-| iOS     | 与 Android 相同的 WebView 组件。未测试。                                                                                                                                               |
-
-渲染之前先检查：`"ScriptFrame" in ui`，其中 `import * as ui from "@getpaseo/plugin/client/ui"`。商店构建的应用无论版本号是多少都没有它，因此请为没有它的应用保留其他视图。
+Android 和 iOS 使用具有独立来源的 WebView，禁用文件访问，并通过导航回调限制初始文档之后的导航。Web 和桌面端使用不透明来源的沙箱 iframe。需要持久保存的状态应由插件管理。初始页面的内容策略阻止 fetch 和外部子资源，允许内联脚本、样式和本地媒体。仅运行受信任的代码；该策略不提供任意网页内容的隔离，也不涵盖 WebRTC。静态文档预览使用 `DocumentFrame`。
 
 ### 版本要求与示例 {#version-requirement-and-examples}
 
@@ -1921,13 +1916,13 @@ export default function contribute(client: PluginClientContext) {
 
 `useNewWorkspace()` 返回该项所在的设置：
 
-| 字段或命令                  | 含义                                                                                                                                                                                                                                                                                                                                                                    |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `host`、`project`           | 用户的选择，分别是 `{ id, label }` 和 `{ id, name } \| null`。只读：项不能切换主机或项目。                                                                                                                                                                                                                                                                              |
-| `isolation`、`setIsolation` | `"local"` 或 `"worktree"`。无法创建 worktree 的项目读取为 `"local"`，此时 `setIsolation("worktree")` 会被拒绝。                                                                                                                                                                                                                                                         |
-| `baseRef`、`setBaseRef`     | 新 worktree 的起点：`{ type: "branch", name }`、`{ type: "change-request", number }`，默认值未知时为 `null`。分支的 `name` 是创建时实际使用的完整 ref，例如 `refs/remotes/origin/main`，所以 `setBaseRef(newWorkspace.baseRef)` 不会改变任何内容。`setBaseRef` 接受 Base 选择器提供的任何 ref，或一个裸分支名，Paseo 会按其他地方一贯的方式解析。未选择项目时会被拒绝。 |
-| `branch`、`setBranch`       | 新 worktree 所创建的分支名称。`null` 表示由 Paseo 选择名称。隔离为本地或起点为变更请求时会保留该值，它为任何新建分支的 worktree 命名，起点可以是默认基线或所选分支；检出已有分支或变更请求的 worktree 不适用。                                                                                                                                                          |
-| `metadata`、`setMetadata`   | 所创建工作区的[元数据](/docs/plugins/hooks#metadata)，而不是第一个 Agent 的元数据。顶层键替换，`null` 删除该键。主机不支持元数据时以 “Update the host to use metadata.” 拒绝。                                                                                                                                                                                          |
+| 字段或命令                  | 含义                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`、`project`           | 用户的选择，分别是 `{ id, label }` 和 `{ id, name } \| null`。只读：项不能切换主机或项目。                                                                                                                                                                                                                                                                                                                                    |
+| `isolation`、`setIsolation` | `"local"` 或 `"worktree"`。**已有 worktree** 读取为 `"local"`，因为工作区是该 worktree 目录上的本地工作区；调用 `setIsolation` 会离开它。无法创建 worktree 的项目读取为 `"local"`，此时 `setIsolation("worktree")` 会被拒绝。                                                                                                                                                                                                 |
+| `baseRef`、`setBaseRef`     | 新 worktree 的起点：`{ type: "branch", name }`、`{ type: "change-request", number }`，默认值未知时为 `null`。分支的 `name` 是创建时实际使用的完整 ref，例如 `refs/remotes/origin/main`，所以 `setBaseRef(newWorkspace.baseRef)` 不会改变任何内容。`setBaseRef` 接受 Base 选择器提供的任何 ref，或一个裸分支名，Paseo 会按其他地方一贯的方式解析。新 worktree 会从它新建分支，分支列表会切换到新建分支。未选择项目时会被拒绝。 |
+| `branch`、`setBranch`       | 新 worktree 所创建的分支名称。`null` 表示由 Paseo 选择名称。隔离为本地或起点为变更请求时会保留该值，它为任何新建分支的 worktree 命名，起点可以是默认基线或所选分支；检出已有分支或变更请求的 worktree 不适用。                                                                                                                                                                                                                |
+| `metadata`、`setMetadata`   | 所创建工作区的[元数据](/docs/plugins/hooks#metadata)，而不是第一个 Agent 的元数据。顶层键替换，`null` 删除该键。主机不支持元数据时以 “Update the host to use metadata.” 拒绝。                                                                                                                                                                                                                                                |
 
 命令遵循 [Composer 项](#composer-items)的规则：每个命令都按界面运行时的状态执行，所以 `await newWorkspace.setBranch(name)` 之后再调用 `newWorkspace.setMetadata(patch)` 会同时生效，命令的 Promise 在更改生效后完成。命令从组件的第一个 effect 起即可使用，包括挂载时的 effect。载荷是 JSON 值。你的项针对某一台主机上的某一个项目挂载。用户更改其中任何一个时，Paseo 会重新挂载你的项并清除 `branch` 和 `metadata`，因此上一个项目的状态和 `Combobox` 结果不会保留；在挂载 effect 中做初始化的项会针对新项目再次初始化。在其项目或主机已被离开之后才调用的命令（例如用户切换项目时被放弃的查询最终返回）会以 "The New workspace screen moved to another project or host; this item belongs to the previous one." 拒绝，并且不做任何更改；为新项目挂载的项不受影响。`host`、`project`、`baseRef` 和 `metadata` 是冻结的。界面创建工作区期间会被锁定：你的字段显示为禁用，所有命令都会以 "The New workspace screen is locked while the workspace is being created." 拒绝。返回 Promise 的回调在完成之前会让控件保持禁用，被拒绝时会以错误提示向用户显示。
 

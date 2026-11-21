@@ -13,9 +13,6 @@ import { asInternals, createStub } from "./test-utils/class-mocks.js";
 import { createProviderSnapshotManagerStub } from "./test-utils/session-stubs.js";
 import type { PushNotificationSender, PushPayload } from "./push/index.js";
 import type { WorkspaceAutoName } from "./workspace-auto-name.js";
-import type { AgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
-import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
-import type { UsageNotice } from "./agent/session-move/usage-watch.js";
 
 const WORKSPACE_ID = "workspace-1";
 
@@ -194,7 +191,7 @@ function connectClient(
     appVisible: boolean;
     appVisibilityChangedAt?: Date;
   } | null,
-  options: { subscribed?: boolean; capabilities?: readonly string[] } = {},
+  options: { subscribed?: boolean } = {},
 ) {
   const ws = createOpenSocket();
   const delivery = new SessionDelivery(() => {});
@@ -203,7 +200,6 @@ function connectClient(
     kind: "trusted",
     session: {
       ...createSessionWithActivity(activity, options.subscribed ?? true),
-      supportsForSource: (capability: string) => (options.capabilities ?? []).includes(capability),
       delivery,
       wantsSourceNotification: () => true,
     },
@@ -225,45 +221,6 @@ function readAttentionRequiredMessage(ws: ReturnType<typeof createOpenSocket>) {
   expect(message.message.type).toBe("agent_stream");
   expect(message.message.payload.event.type).toBe("attention_required");
   return message.message.payload.event;
-}
-
-function readDedicatedAttentionPayload(ws: ReturnType<typeof createOpenSocket>) {
-  const rawMessage = ws.send.mock.calls[0]?.[0];
-  expect(typeof rawMessage).toBe("string");
-  if (typeof rawMessage !== "string") throw new Error("Expected string WebSocket frame");
-  const message = JSON.parse(rawMessage);
-  expect(message.type).toBe("session");
-  expect(message.message.type).toBe("agent_attention_required");
-  return message.message.payload;
-}
-
-const USAGE_NOTICE: UsageNotice = {
-  agentId: "agent-1",
-  provider: "claude-work",
-  title: "Claude (work) 81% of Weekly",
-  body: "Fix login · Move to Claude · 12%",
-};
-
-const USAGE_NOTIFICATION: AgentAttentionNotificationPayload<"usage"> = {
-  title: "Claude (work) 81% of Weekly",
-  body: "Fix login · Move to Claude · 12%",
-  data: { serverId: "srv-test", workspaceId: WORKSPACE_ID, agentId: "agent-1", reason: "usage" },
-};
-
-interface ClientActivity {
-  deviceType: "web" | "mobile";
-  focusedAgentId: string | null;
-  lastActivityAt: Date;
-  appVisible: boolean;
-}
-
-function presentElsewhere(): ClientActivity {
-  return {
-    deviceType: "web",
-    appVisible: true,
-    focusedAgentId: "agent-2",
-    lastActivityAt: new Date(),
-  };
 }
 
 describe("VoiceAssistantWebSocketServer notification payloads", () => {
@@ -289,6 +246,7 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
       agentId: "agent-1",
       provider: "claude",
       reason: "finished",
+      attentionTimestamp: new Date(),
     });
 
     expect(unsubscribed.send).not.toHaveBeenCalled();
@@ -313,6 +271,7 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
       agentId: "agent-1",
       provider: "claude",
       reason: "finished",
+      attentionTimestamp: new Date(),
     });
 
     expect(pushNotifications.sent).toEqual([
@@ -347,6 +306,7 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
       agentId: "agent-2",
       provider: "claude",
       reason: "finished",
+      attentionTimestamp: new Date(),
     });
 
     expect(pushNotifications.sent).toHaveLength(1);
@@ -373,6 +333,7 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
       agentId: "agent-X",
       provider: "claude",
       reason: "finished",
+      attentionTimestamp: new Date(),
     });
 
     expect(readAttentionRequiredMessage(electronWs).shouldNotify).toBe(true);
@@ -388,6 +349,7 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
       agentId: "agent-no-heartbeat",
       provider: "claude",
       reason: "finished",
+      attentionTimestamp: new Date(),
     });
 
     expect(readAttentionRequiredMessage(ws).shouldNotify).toBe(false);
@@ -402,65 +364,60 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
       agentId: "agent-no-heartbeat",
       provider: "claude",
       reason: "error",
+      attentionTimestamp: new Date(),
     });
 
     expect(readAttentionRequiredMessage(ws).shouldNotify).toBe(false);
     expect(pushNotifications.sent).toEqual([]);
   });
-
-  it("sends a usage notice only to clients that advertise usage notifications, and pushes it", async () => {
+  it("notifies once while an agent's finish stays unread", async () => {
     const { server, pushNotifications } = createServer();
-    const capable = connectClient(server, null, {
-      capabilities: [CLIENT_CAPS.usageNotifications],
-    });
-    const older = connectClient(server, null);
+    const broadcast = (attentionTimestamp: Date) =>
+      asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+        agentId: "agent-1",
+        provider: "claude",
+        reason: "finished",
+        attentionTimestamp,
+      });
+    const firstUnreadFinish = new Date(1_000);
 
-    await server.broadcastUsageAttention(USAGE_NOTICE);
+    await broadcast(firstUnreadFinish);
+    await broadcast(firstUnreadFinish);
+    await broadcast(firstUnreadFinish);
+    expect(pushNotifications.sent).toHaveLength(1);
 
-    expect(readDedicatedAttentionPayload(capable)).toEqual({
-      agentId: "agent-1",
-      reason: "usage",
-      timestamp: expect.any(String),
-      shouldNotify: false,
-      notification: USAGE_NOTIFICATION,
-    });
-    expect(older.send).not.toHaveBeenCalled();
-    expect(pushNotifications.sent).toEqual([USAGE_NOTIFICATION]);
+    // After the user reads the agent (or marks it unread), its next unread finish is new.
+    await broadcast(new Date(2_000));
+    expect(pushNotifications.sent).toHaveLength(2);
   });
 
-  it("pushes a usage notice past a present client that cannot show it", async () => {
+  it("notifies a repeated finish when the user had the agent on screen for the first one", async () => {
     const { server, pushNotifications } = createServer();
-    const older = connectClient(server, presentElsewhere());
+    const activity = {
+      deviceType: "web" as const,
+      appVisible: true,
+      focusedAgentId: "agent-1" as string | null,
+      lastActivityAt: new Date(),
+    };
+    connectClient(server, activity);
+    const unreadFinish = new Date(1_000);
+    const broadcast = () =>
+      asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+        agentId: "agent-1",
+        provider: "claude",
+        reason: "finished",
+        attentionTimestamp: unreadFinish,
+      });
 
-    await server.broadcastUsageAttention(USAGE_NOTICE);
-
-    expect(older.send).not.toHaveBeenCalled();
-    expect(pushNotifications.sent).toEqual([USAGE_NOTIFICATION]);
-  });
-
-  it("shows a usage notice in a present capable client instead of pushing it", async () => {
-    const { server, pushNotifications } = createServer();
-    const capable = connectClient(server, presentElsewhere(), {
-      capabilities: [CLIENT_CAPS.usageNotifications],
-    });
-
-    await server.broadcastUsageAttention(USAGE_NOTICE);
-
-    expect(readDedicatedAttentionPayload(capable).shouldNotify).toBe(true);
+    await broadcast();
     expect(pushNotifications.sent).toEqual([]);
-  });
 
-  it("sends no usage notice for an agent outside a workspace", async () => {
-    const { server, pushNotifications } = createServer({
-      getAgent: vi.fn(() => ({ pendingPermissions: new Map() })),
-    });
-    const capable = connectClient(server, null, {
-      capabilities: [CLIENT_CAPS.usageNotifications],
-    });
-
-    await server.broadcastUsageAttention(USAGE_NOTICE);
-
-    expect(capable.send).not.toHaveBeenCalled();
-    expect(pushNotifications.sent).toEqual([]);
+    // The user leaves; the agent keeps finishing turns it starts on its own.
+    activity.appVisible = false;
+    activity.focusedAgentId = null;
+    activity.lastActivityAt = new Date(Date.now() - 600_000);
+    await broadcast();
+    await broadcast();
+    expect(pushNotifications.sent).toHaveLength(1);
   });
 });

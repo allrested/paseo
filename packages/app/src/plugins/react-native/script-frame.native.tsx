@@ -10,7 +10,6 @@ import {
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import type { ScriptFrameHandle, ScriptFrameProps } from "@getpaseo/plugin/client/ui";
 import {
-  SCRIPT_FRAME_BASE_URL,
   createPostQueue,
   deliverScript,
   parsePageMessage,
@@ -25,8 +24,7 @@ const frameStyle = { flex: 1, backgroundColor: "transparent" };
 const originWhitelist = ["*"];
 
 /**
- * Runs a plugin's script in a WebView with JavaScript and `localStorage` on and nothing else: no
- * files, no windows, no network (the page's policy), and no load after the first.
+ * Give each frame a distinct origin and restrict navigation to its initial inline document.
  */
 export const ScriptFrame = forwardRef<ScriptFrameHandle, ScriptFrameProps>(function ScriptFrame(
   { script, onMessage, onError, title, testID },
@@ -38,7 +36,8 @@ export const ScriptFrame = forwardRef<ScriptFrameHandle, ScriptFrameProps>(funct
     createPostQueue((text) => webView.current?.injectJavaScript(deliverScript(text))),
   );
   const html = useMemo(() => scriptFrameHtml(script, "native"), [script]);
-  const source = useMemo(() => ({ html, baseUrl: SCRIPT_FRAME_BASE_URL }), [html]);
+  const [baseUrl] = useState(() => `https://${crypto.randomUUID()}.invalid/`);
+  const source = useMemo(() => ({ html, baseUrl }), [html, baseUrl]);
   const firstLoad = useRef(true);
   const handlers = useRef({ onMessage, onError });
   useEffect(() => {
@@ -51,11 +50,14 @@ export const ScriptFrame = forwardRef<ScriptFrameHandle, ScriptFrameProps>(funct
   }, [html, queue]);
   useImperativeHandle(ref, () => ({ post: queue.post }), [queue]);
 
-  const allowLoad = useCallback((request: { url: string }) => {
-    if (request.url !== SCRIPT_FRAME_BASE_URL || !firstLoad.current) return false;
-    firstLoad.current = false;
-    return true;
-  }, []);
+  const allowLoad = useCallback(
+    (request: { url: string }) => {
+      if (request.url !== baseUrl || !firstLoad.current) return false;
+      firstLoad.current = false;
+      return true;
+    },
+    [baseUrl],
+  );
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
       let value: unknown;
@@ -92,8 +94,10 @@ export const ScriptFrame = forwardRef<ScriptFrameHandle, ScriptFrameProps>(funct
       onMessage={handleMessage}
       onError={handleError}
       onRenderProcessGone={handleProcessGone}
+      onContentProcessDidTerminate={handleProcessGone}
       javaScriptEnabled
-      domStorageEnabled
+      domStorageEnabled={false}
+      allowUniversalAccessFromFileURLs={false}
       allowFileAccess={false}
       allowFileAccessFromFileURLs={false}
       setSupportMultipleWindows={false}

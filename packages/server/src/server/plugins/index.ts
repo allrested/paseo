@@ -3,7 +3,7 @@ import type { PluginLifecycle } from "./lifecycle/index.js";
 import path from "node:path";
 import { stat, rm } from "node:fs/promises";
 import type pino from "pino";
-import type { ProviderRegistration } from "@getpaseo/plugin/server/provider";
+import type { ProviderInstallation, ProviderRegistration } from "@getpaseo/plugin/server/provider";
 import {
   PluginIdSchema,
   type PluginLogEntry,
@@ -24,12 +24,13 @@ import { type ManagedPluginCandidate, ManagedPluginSources } from "./managed-sou
 import { readPluginManifest } from "./manifest.js";
 import { expandTilde } from "../../utils/path.js";
 import { runPluginBuild } from "./preparation.js";
-import { PluginRuntime, type PluginScheduleHost } from "./runtime.js";
-import type { PluginScheduleRun } from "../schedule/service.js";
+import { PluginRuntime } from "./runtime.js";
 import type { PluginRuntimeSubscription } from "./runtime-subscription.js";
 import { BuiltinPluginLoader, type BuiltinPlugin } from "./builtin/index.js";
-import type { BuiltinPluginExtras } from "./bundle-evaluator.js";
-import type { PluginProviderMetadata } from "./plugin-process-protocol.js";
+import type {
+  PluginProviderInstallationMetadata,
+  PluginProviderMetadata,
+} from "./plugin-process-protocol.js";
 import { readPluginProviderIcon } from "./provider-icon.js";
 import {
   type AgentUsageLookup,
@@ -37,11 +38,8 @@ import {
   UsageSourceRegistry,
 } from "./usage-sources/index.js";
 import type { PluginUsageSourceMetadata } from "./plugin-process-protocol.js";
-import { withTimeout } from "../../utils/promise-timeout.js";
 
 const BUILTIN_PROVIDER_ID_SET: ReadonlySet<string> = new Set(BUILTIN_PROVIDER_IDS);
-// Starting can include building a plugin from source.
-const PLUGIN_STARTUP_WAIT_MS = 5 * 60_000;
 
 interface PluginRuntimePort {
   subscribeSessionOpenChanges?: PluginRuntime["subscribeSessionOpenChanges"];
@@ -64,8 +62,9 @@ interface PluginRuntimePort {
   connectProvider: PluginRuntime["connectProvider"];
   getProviderCatalogCacheKey?: PluginRuntime["getProviderCatalogCacheKey"];
   getProviderStatus?: PluginRuntime["getProviderStatus"];
-  bindSchedules?: PluginRuntime["bindSchedules"];
-  runSchedule?: PluginRuntime["runSchedule"];
+  inspectProviderInstallation?: PluginRuntime["inspectProviderInstallation"];
+  checkProviderUpdates?: PluginRuntime["checkProviderUpdates"];
+  updateProvider?: PluginRuntime["updateProvider"];
   validatePlugin?(path: string): Promise<void>;
   startPlugin(pluginId: string, path: string, canPublish: () => boolean): Promise<void>;
   startBuiltinPlugin?(plugin: BuiltinPlugin): Promise<void>;
@@ -81,8 +80,6 @@ interface PluginServiceDependencies {
   runtime?: PluginRuntimePort;
   managedSources?: ManagedPluginSources;
   builtinPlugins?: BuiltinPluginLoader;
-  /** Fork delta (office stream): what every built-in receives beside its directory. */
-  builtinExtras?: BuiltinPluginExtras;
 }
 
 function resolvePluginStatus(input: {
@@ -114,11 +111,6 @@ export class PluginService {
     { kind: "disable" | "remove"; completion: Promise<void> }
   >();
   private started = false;
-  private settleStartup: () => void = () => undefined;
-  /** Settles once start() has tried every plugin the daemon starts with, or the plugins stop. */
-  private readonly startup = new Promise<void>((resolve) => {
-    this.settleStartup = resolve;
-  });
   private readonly settingsListeners = new Set<(pluginId: string, settingsId: string) => void>();
 
   constructor(
@@ -138,7 +130,6 @@ export class PluginService {
       dependencies.runtime ??
       new PluginRuntime(logger, daemonVersion, {
         settingsDirectory: dependencies.settingsDirectory,
-        builtinExtras: dependencies.builtinExtras,
         onSettingsChanged: (pluginId, settingsId) => {
           for (const listener of this.settingsListeners) listener(pluginId, settingsId);
         },
@@ -215,22 +206,6 @@ export class PluginService {
     this.runtime.bindPaseoSessionHost(sessionHost);
   }
 
-  bindSchedules(schedules: PluginScheduleHost): void {
-    this.runtime.bindSchedules?.(schedules);
-  }
-
-  async runSchedule(run: PluginScheduleRun): Promise<void> {
-    // The daemon's schedules start before its plugins, so a run that comes due while the daemon
-    // starts waits for them.
-    await withTimeout({
-      promise: this.startup,
-      timeoutMs: PLUGIN_STARTUP_WAIT_MS,
-      label: "waiting for plugins to start",
-    });
-    if (!this.runtime.runSchedule) throw new Error(`Plugin is not available: ${run.pluginId}`);
-    await this.runtime.runSchedule(run);
-  }
-
   getProviderRegistrations(): readonly ProviderRegistration[] {
     return [...this.providers.values()].sort((left, right) => left.id.localeCompare(right.id));
   }
@@ -243,10 +218,6 @@ export class PluginService {
     return this.usageSources.listLegacyUsage();
   }
 
-  listUsageReportsForScope(scope: { provider: string; env: Record<string, string> }) {
-    return this.usageSources.listReportsForScope(scope);
-  }
-
   subscribeProviderRegistrations(listener: () => void): () => void {
     this.providerListeners.add(listener);
     return () => this.providerListeners.delete(listener);
@@ -255,38 +226,34 @@ export class PluginService {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
-    try {
-      const config = this.configStore.get();
-      this.globalStartsBlocked = config.pluginsEnabled !== true;
-      await this.builtinPlugins.load(async (plugin) => {
-        try {
-          await this.runtime.startBuiltinPlugin?.(plugin);
-          await this.publishProviderRegistrations(plugin.id, plugin.directory);
-          this.publishUsageSources(plugin.id);
-        } catch (error) {
-          this.logger.error({ err: error, pluginId: plugin.id }, "Failed to start built-in plugin");
-        }
-      });
-      if (config.pluginsEnabled === true) {
-        let earlierPublished: Promise<unknown> = Promise.resolve();
-        await Promise.all(
-          Object.entries(config.plugins ?? {})
-            .filter(([, source]) => source.enabled !== false)
-            .map(async ([pluginId]) => {
-              const publishTurn = earlierPublished;
-              const starting = this.startConfigured(pluginId, publishTurn);
-              earlierPublished = Promise.all([publishTurn, starting]);
-              await starting;
-              this.notify(pluginId);
-            }),
-        );
+    const config = this.configStore.get();
+    this.globalStartsBlocked = config.pluginsEnabled !== true;
+    await this.builtinPlugins.load(async (plugin) => {
+      try {
+        await this.runtime.startBuiltinPlugin?.(plugin);
+        await this.publishProviderRegistrations(plugin.id, plugin.directory);
+        this.publishUsageSources(plugin.id);
+      } catch (error) {
+        this.logger.error({ err: error, pluginId: plugin.id }, "Failed to start built-in plugin");
       }
-      this.configStore.onFieldChange("pluginsEnabled", (value) => {
-        this.handleGlobalSwitch(value === true);
-      });
-    } finally {
-      this.settleStartup();
+    });
+    if (config.pluginsEnabled === true) {
+      let earlierPublished: Promise<unknown> = Promise.resolve();
+      await Promise.all(
+        Object.entries(config.plugins ?? {})
+          .filter(([, source]) => source.enabled !== false)
+          .map(async ([pluginId]) => {
+            const publishTurn = earlierPublished;
+            const starting = this.startConfigured(pluginId, publishTurn);
+            earlierPublished = Promise.all([publishTurn, starting]);
+            await starting;
+            this.notify(pluginId);
+          }),
+      );
     }
+    this.configStore.onFieldChange("pluginsEnabled", (value) => {
+      this.handleGlobalSwitch(value === true);
+    });
   }
 
   async listPlugins(): Promise<PluginListItem[]> {
@@ -594,7 +561,6 @@ export class PluginService {
   }
 
   async stopAllPlugins(): Promise<void> {
-    this.settleStartup();
     this.globalStartsBlocked = true;
     const stopping = this.stopAll();
     await this.enqueue(async () => {
@@ -703,12 +669,39 @@ export class PluginService {
     const registered: string[] = [];
     try {
       for (const source of metadata) {
+        if (
+          source.provider &&
+          !this.runtime
+            .getProviderRegistrations?.(pluginId)
+            .some((provider) => provider.id === source.provider)
+        ) {
+          throw new Error(
+            `Usage source ${source.id} references a provider outside plugin ${pluginId}`,
+          );
+        }
         this.usageSources.register({
           id: source.id,
           label: source.label,
           icon: source.icon,
           discover: async (scope) => {
-            const result = await this.runtime.discoverUsage(pluginId, source.id, scope);
+            const launch =
+              scope.kind === "global" && source.provider
+                ? await this.dependencies.usageAgents?.resolveLaunch?.(source.provider)
+                : undefined;
+            const scoped =
+              scope.kind === "session" && source.provider !== scope.provider
+                ? {
+                    kind: "session" as const,
+                    provider: scope.provider,
+                    model: scope.model,
+                    env: scope.env,
+                  }
+                : scope;
+            const result = await this.runtime.discoverUsage(
+              pluginId,
+              source.id,
+              scoped.kind === "global" && launch ? { ...scoped, launch } : scoped,
+            );
             if (!Array.isArray(result))
               throw new Error(`Invalid usage discovery from ${source.id}`);
             return result;
@@ -767,6 +760,9 @@ export class PluginService {
                 return this.runtime.getProviderCatalogCacheKey(pluginId, provider.id, options);
               }
             : undefined,
+          installation: provider.installation
+            ? this.providerInstallation(pluginId, provider.id, provider.installation)
+            : undefined,
           icon: provider.iconPath
             ? await readPluginProviderIcon(pluginDirectory, provider.iconPath)
             : undefined,
@@ -784,6 +780,38 @@ export class PluginService {
       this.providerIdsByPlugin.set(pluginId, ids);
       this.notifyProviderRegistrations();
     }
+  }
+
+  private providerInstallation(
+    pluginId: string,
+    providerId: string,
+    metadata: PluginProviderInstallationMetadata,
+  ): ProviderInstallation {
+    return {
+      installUrl: metadata.installUrl,
+      updateUrl: metadata.updateUrl,
+      inspect: metadata.hasInspect
+        ? (context) => {
+            if (!this.runtime.inspectProviderInstallation)
+              throw new Error("Plugin runtime cannot inspect provider installations");
+            return this.runtime.inspectProviderInstallation(pluginId, providerId, context);
+          }
+        : undefined,
+      checkForUpdates: metadata.hasCheckForUpdates
+        ? (context) => {
+            if (!this.runtime.checkProviderUpdates)
+              throw new Error("Plugin runtime cannot check provider updates");
+            return this.runtime.checkProviderUpdates(pluginId, providerId, context);
+          }
+        : undefined,
+      update: metadata.hasUpdate
+        ? (context) => {
+            if (!this.runtime.updateProvider)
+              throw new Error("Plugin runtime cannot update providers");
+            return this.runtime.updateProvider(pluginId, providerId, context);
+          }
+        : undefined,
+    };
   }
 
   private removeProviderRegistrations(pluginId: string): void {

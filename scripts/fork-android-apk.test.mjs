@@ -1,5 +1,4 @@
-// The fork's APK workflow. Upstream's ci.yml is disabled on the fork, so this runs in fork-ci.yml's
-// docker-tests job, which has no npm install: node built-ins only. The guard, key, verify and
+// The fork's APK workflow tests use Node built-ins only. The guard, key, verify and
 // release steps run here in bash, with stand-ins for the Android build tools, unzip and gh.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -248,13 +247,13 @@ const goodTools = {
   aapt2: {
     out: [
       "package: name='sh.paseo.fork' versionCode='16000' versionName='0.16.0'",
-      "application-label:'Paseo Fork'",
+      "application-label:'AI'",
       "native-code: 'arm64-v8a'",
       "",
     ].join("\n"),
   },
   zipalign: { out: `Verifying alignment of ${apk} (4)...\nVerification succesful\n` },
-  unzip: { out: 'var SCRIPT_FRAME_BASE_URL="https://script-frame.invalid/";\n' },
+  unzip: { out: "window.paseoFrame = frame;\n" },
 };
 
 function runVerify(t, script, overrides = {}) {
@@ -303,7 +302,7 @@ test("the verify step fails the run on any mismatch", (t) => {
       },
     },
     "the store package": { aapt2: { out: badging.replace("'sh.paseo.fork'", "'sh.paseo'") } },
-    "the store label": { aapt2: { out: badging.replace("'Paseo Fork'", "'Paseo'") } },
+    "the store label": { aapt2: { out: badging.replace("'AI'", "'Paseo'") } },
     "more than arm64": { aapt2: { out: badging.replace("'arm64-v8a'", "'arm64-v8a' 'x86_64'") } },
     "not 16 KB aligned": { zipalign: { out: "Verification FAILED\n", code: 1 } },
     "no ScriptFrame in the bundle": { unzip: { out: "var other = 1;\n" } },
@@ -362,7 +361,7 @@ test("attaches the APK to a prerelease named after the tag, made only when it is
     create.filter((arg) => arg.startsWith("--") && arg !== "--notes" && arg !== "--title"),
     ["--repo", "--verify-tag", "--prerelease"],
   );
-  assert.equal(create[create.indexOf("--title") + 1], `Paseo Fork ${tag}`);
+  assert.equal(create[create.indexOf("--title") + 1], `AI ${tag}`);
   assert.match(create[create.indexOf("--notes") + 1], new RegExp(`sh\\.paseo\\.fork.*${tag}`));
   assert.deepEqual(uploaded, upload);
   assert.deepEqual(rest, []);

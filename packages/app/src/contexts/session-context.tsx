@@ -19,8 +19,7 @@ import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import { parseServerInfoStatusPayload } from "@getpaseo/protocol/messages";
 import {
   buildAgentAttentionNotificationPayload,
-  // Fork delta (usage heads-up): the usage reason joins the attention reasons.
-  type AgentAttentionNotificationReason,
+  type AgentAttentionReason,
   type AgentAttentionNotificationPayload,
   type NotificationPermissionRequest,
 } from "@getpaseo/protocol/agent-attention-notification";
@@ -137,8 +136,7 @@ const getLatestPermissionRequest = (
 
 interface AgentAttentionNotificationInput {
   notification?: AgentAttentionNotificationPayload;
-  // Fork delta (usage heads-up): the reason may be "usage".
-  reason: AgentAttentionNotificationReason;
+  reason: AgentAttentionReason;
   serverId: string;
   workspaceId: string | undefined;
   agentId: string;
@@ -153,10 +151,6 @@ function resolveAgentAttentionNotification(
     return input.notification.data.workspaceId ? input.notification : null;
   }
   if (!input.workspaceId) {
-    return null;
-  }
-  // Fork delta (usage heads-up): the daemon always writes a usage notice; there is no local copy.
-  if (input.reason === "usage") {
     return null;
   }
   return buildAgentAttentionNotificationPayload({
@@ -262,8 +256,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   const notifyAgentAttention = useCallback(
     (params: {
       agentId: string;
-      // Fork delta (usage heads-up): the reason may be "usage".
-      reason: AgentAttentionNotificationReason;
+      reason: "finished" | "error" | "permission";
       timestamp: string;
       notification?: AgentAttentionNotificationPayload;
     }) => {

@@ -1,4 +1,3 @@
-import { branded } from "@/brand/brand";
 import type { HostRuntimeConnectionStatus } from "@/runtime/host-runtime";
 import type { WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceRecoveryModel } from "@/workspace-recovery/model";
@@ -85,7 +84,7 @@ export function resolveWorkspaceRouteState(input: {
       return {
         kind: "recoveryUnavailable",
         hostName: input.hostName,
-        message: branded("Update Paseo to recover this workspace."),
+        message: "Update Paseo to recover this workspace.",
       };
     case "inspectionFailed":
       return {

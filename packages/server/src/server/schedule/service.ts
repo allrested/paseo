@@ -9,7 +9,6 @@ import type { AgentStorage } from "../agent/agent-storage.js";
 import { curateAgentActivity } from "../agent/activity-curator.js";
 import { ensureAgentLoaded } from "../agent/agent-loading.js";
 import { startAgentRun, type AgentRunController } from "../agent/agent-prompt.js";
-import { takePendingMovePrompt } from "../agent/session-move/pending-context.js";
 import { resolveCreateAgentTitles } from "../agent/create-agent-title.js";
 import { type BoundCreateAgentCommand, formatProviderModel } from "../agent/create-agent/create.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
@@ -19,7 +18,6 @@ import { computeNextRunAt, validateScheduleCadence } from "./cron.js";
 import { foldFeatureValues } from "../agent/option-controls.js";
 import type {
   CreateScheduleInput,
-  ScheduleCadence,
   ScheduleExecutionResult,
   ScheduleRun,
   ScheduleTarget,
@@ -245,26 +243,13 @@ type ScheduleAgentManager = Pick<
     | "runAgent"
     | "waitForAgentEvent"
     | "waitForAgentClose"
+    | "setDaemonBackgroundWork"
+    | "removeDaemonBackgroundWork"
   >;
 
 interface ScheduleWorkspaceCreateInput {
   cwd: string;
   firstAgentContext: FirstAgentContext;
-}
-
-export interface PluginScheduleRun {
-  pluginId: string;
-  handler: string;
-  scheduleId: string;
-  runId: string;
-}
-
-export interface UpsertPluginScheduleInput {
-  pluginId: string;
-  name: string;
-  handler: string;
-  prompt: string;
-  cadence: ScheduleCadence;
 }
 
 export interface ScheduleServiceOptions {
@@ -282,7 +267,6 @@ export interface ScheduleServiceOptions {
   archiveWorkspace: (workspaceId: string) => Promise<void>;
   now?: () => Date;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
-  runPluginSchedule?: (input: PluginScheduleRun) => Promise<void>;
 }
 
 export class ScheduleService {
@@ -303,14 +287,19 @@ export class ScheduleService {
     schedule: StoredSchedule,
     runId: string,
   ) => Promise<ScheduleExecutionResult>;
-  private readonly runPluginSchedule: ((input: PluginScheduleRun) => Promise<void>) | null;
   private readonly runningScheduleIds = new Set<string>();
+  private readonly heartbeatStops = new Map<string, () => Promise<void>>();
+  private recovering = false;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: ScheduleServiceOptions) {
     this.logger = options.logger.child({ module: "schedule-service" });
-    this.store = new ScheduleStore(join(options.paseoHome, "schedules"), this.logger);
     this.agentManager = options.agentManager;
+    this.store = new ScheduleStore(
+      join(options.paseoHome, "schedules"),
+      this.logger,
+      (schedule, change) => this.syncHeartbeat(schedule, change),
+    );
     this.agentStorage = options.agentStorage;
     this.createAgent = options.createAgent;
     this.createDirectoryWorkspace = options.createDirectoryWorkspace;
@@ -318,14 +307,21 @@ export class ScheduleService {
     this.archiveWorkspace = options.archiveWorkspace;
     this.now = options.now ?? (() => new Date());
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
-    this.runPluginSchedule = options.runPluginSchedule ?? null;
   }
 
   async start(): Promise<void> {
-    await this.recoverInterruptedRuns();
-    await this.sweepOrphanedSchedules();
     if (this.tickTimer) {
       return;
+    }
+    this.recovering = true;
+    try {
+      await this.recoverInterruptedRuns();
+      await this.sweepOrphanedSchedules();
+    } finally {
+      this.recovering = false;
+    }
+    for (const schedule of await this.store.list()) {
+      this.syncHeartbeat(schedule, "write");
     }
     const timer = setInterval(() => {
       void this.tick().catch((error) => {
@@ -420,58 +416,6 @@ export class ScheduleService {
         };
       },
     });
-  }
-
-  // A plugin and a name pick one schedule, so the plugin can change its handler and
-  // cadence in place. The cadence is replaced whole: unlike createOrReplace, an omitted
-  // time zone does not keep the stored one.
-  async upsertPluginSchedule(input: UpsertPluginScheduleInput): Promise<StoredSchedule> {
-    const name = trimOptionalName(input.name);
-    if (name === null) {
-      throw new Error("Schedule name is required");
-    }
-    const prompt = normalizePrompt(input.prompt);
-    validateScheduleCadence(input.cadence);
-    const target: ScheduleTarget = {
-      type: "plugin",
-      pluginId: input.pluginId,
-      handler: input.handler,
-    };
-    return this.store.upsertByNameAndTarget(name, target, {
-      create: async () =>
-        this.buildScheduleRecord(
-          { prompt, cadence: input.cadence, target },
-          { name, prompt, target },
-        ),
-      update: async (current) => {
-        const now = this.now();
-        return {
-          ...current,
-          name,
-          prompt,
-          cadence: input.cadence,
-          target,
-          status: "active",
-          pausedAt: null,
-          nextRunAt: computeNextRunAt(input.cadence, now).toISOString(),
-          updatedAt: now.toISOString(),
-        };
-      },
-    });
-  }
-
-  async removePluginSchedule(pluginId: string, name: string): Promise<boolean> {
-    const owned = (await this.listPluginSchedules(pluginId)).filter(
-      (schedule) => schedule.name === name.trim(),
-    );
-    await Promise.all(owned.map((schedule) => this.store.delete(schedule.id)));
-    return owned.length > 0;
-  }
-
-  async listPluginSchedules(pluginId: string): Promise<StoredSchedule[]> {
-    return (await this.store.list()).filter(
-      (schedule) => schedule.target.type === "plugin" && schedule.target.pluginId === pluginId,
-    );
   }
 
   async list(): Promise<StoredSchedule[]> {
@@ -577,28 +521,47 @@ export class ScheduleService {
     await this.store.delete(id);
   }
 
-  /**
-   * Points every not-completed schedule aimed at `fromAgentId` at `toAgentId` and returns their
-   * ids. A session move calls this before it archives the agent it leaves, so the archive finds
-   * nothing to complete.
-   */
-  async retargetAgent(fromAgentId: string, toAgentId: string): Promise<string[]> {
-    const updatedAt = this.now().toISOString();
-    const retargeted: string[] = [];
-    for (const candidate of await this.store.list()) {
-      await this.store.update(candidate.id, (schedule) => {
-        if (
-          schedule.target.type !== "agent" ||
-          schedule.target.agentId !== fromAgentId ||
-          schedule.status === "completed"
-        ) {
-          return schedule;
-        }
-        retargeted.push(schedule.id);
-        return { ...schedule, target: { ...schedule.target, agentId: toAgentId }, updatedAt };
-      });
+  private syncHeartbeat(schedule: StoredSchedule, change: "write" | "delete"): void {
+    if (schedule.target.type !== "agent") {
+      return;
     }
-    return retargeted;
+    const { agentId } = schedule.target;
+    const { id, name, createdAt } = schedule;
+    if (change === "delete" || schedule.status !== "active") {
+      this.heartbeatStops.delete(id);
+      this.agentManager.removeDaemonBackgroundWork({ agentId, namespace: "heartbeat", id });
+      return;
+    }
+    if (this.recovering) {
+      return;
+    }
+    let stop = this.heartbeatStops.get(id);
+    if (!stop) {
+      const stopHeartbeat = () =>
+        this.store.delete(id, (current) => {
+          // A queued Stop can reach the store after a pause and resume replaced its row.
+          if (
+            current?.status !== "active" ||
+            current.target.type !== "agent" ||
+            current.target.agentId !== agentId ||
+            this.heartbeatStops.get(id) !== stopHeartbeat
+          ) {
+            throw new ScheduleStateConflictError("Background work is no longer available to stop");
+          }
+        });
+      this.heartbeatStops.set(id, stopHeartbeat);
+      stop = stopHeartbeat;
+    }
+    this.agentManager.setDaemonBackgroundWork({
+      agentId,
+      namespace: "heartbeat",
+      id,
+      kind: "heartbeat",
+      countsAsRunning: false,
+      description: name,
+      startedAt: createdAt,
+      stop,
+    });
   }
 
   async completeForAgent(agentId: string): Promise<number> {
@@ -686,7 +649,7 @@ export class ScheduleService {
   }
 
   private async completeScheduleIfDue(scheduleId: string, now: Date): Promise<void> {
-    const updated = await this.store.update(scheduleId, (schedule) => {
+    await this.store.update(scheduleId, (schedule) => {
       if (
         schedule.status !== "active" ||
         !schedule.nextRunAt ||
@@ -696,7 +659,6 @@ export class ScheduleService {
       }
       return completeSchedule(schedule, now);
     });
-    requireSchedule(updated, scheduleId);
   }
 
   private async recoverInterruptedRuns(): Promise<void> {
@@ -742,10 +704,14 @@ export class ScheduleService {
           error: "Daemon restarted before the scheduled run completed",
         };
         updated = { ...updated, runs };
-        if (shouldCompleteSchedule(updated, now)) {
-          updated = completeSchedule(updated, now);
-        }
         dirty = true;
+      }
+
+      if (
+        (updated.status === "active" || runningIndex !== -1) &&
+        shouldCompleteSchedule(updated, now)
+      ) {
+        return completeSchedule(updated, now);
       }
 
       if (
@@ -840,8 +806,6 @@ export class ScheduleService {
         ({ schedule: scheduleWithRun, runId } = claimed);
       }
 
-      const targetAgentId =
-        scheduleWithRun.target.type === "agent" ? scheduleWithRun.target.agentId : null;
       try {
         const result = await this.runner(scheduleWithRun, runId);
         await this.finishRun({
@@ -852,7 +816,6 @@ export class ScheduleService {
           output: result.output,
           error: null,
           targetGone: false,
-          targetAgentId,
           manual,
         });
       } catch (error) {
@@ -864,7 +827,6 @@ export class ScheduleService {
           output: null,
           error: error instanceof Error ? error.message : String(error),
           targetGone: error instanceof ScheduleTargetGoneError,
-          targetAgentId,
           manual,
         });
       }
@@ -878,7 +840,7 @@ export class ScheduleService {
     now: Date,
   ): Promise<{ schedule: StoredSchedule; runId: string } | null> {
     let claimed: { schedule: StoredSchedule; runId: string } | null = null;
-    const updatedSchedule = await this.store.update(scheduleId, (schedule) => {
+    await this.store.update(scheduleId, (schedule) => {
       if (
         schedule.status !== "active" ||
         !schedule.nextRunAt ||
@@ -921,7 +883,6 @@ export class ScheduleService {
       claimed = { schedule: updated, runId };
       return updated;
     });
-    requireSchedule(updatedSchedule, scheduleId);
     return claimed;
   }
 
@@ -945,11 +906,10 @@ export class ScheduleService {
     output: string | null;
     error: string | null;
     targetGone: boolean;
-    /** The agent the run was claimed for, when the schedule aimed at one. */
-    targetAgentId: string | null;
     manual: boolean;
   }): Promise<void> {
-    const updatedSchedule = await this.store.update(params.scheduleId, (schedule) => {
+    // A Stop can delete the schedule while its already launched turn is still running.
+    await this.store.update(params.scheduleId, (schedule) => {
       const now = this.now();
       const completedRuns = schedule.runs.map((run) =>
         run.id === params.runId
@@ -970,13 +930,7 @@ export class ScheduleService {
         updatedAt: now.toISOString(),
       };
 
-      // A session move re-pointed the schedule while this run was in flight: the agent the run
-      // found gone is no longer its target.
-      const retargeted =
-        params.targetAgentId !== null &&
-        schedule.target.type === "agent" &&
-        schedule.target.agentId !== params.targetAgentId;
-      if (params.targetGone && !retargeted) {
+      if (params.targetGone) {
         // The target is permanently gone; retrying only burns the schedule down to
         // its expiry, so complete it now regardless of manual/scheduled origin.
         updated = completeSchedule(updated, now);
@@ -1008,7 +962,6 @@ export class ScheduleService {
 
       return updated;
     });
-    requireSchedule(updatedSchedule, params.scheduleId);
   }
 
   private async recordRunWorkspace(params: {
@@ -1037,15 +990,6 @@ export class ScheduleService {
     schedule: StoredSchedule,
     runId: string,
   ): Promise<ScheduleExecutionResult> {
-    if (schedule.target.type === "plugin") {
-      return this.executePluginSchedule({
-        pluginId: schedule.target.pluginId,
-        handler: schedule.target.handler,
-        scheduleId: schedule.id,
-        runId,
-      });
-    }
-
     if (schedule.target.type === "agent") {
       const wrappedPrompt = formatSystemNotificationPrompt(buildScheduleFireBody(schedule, runId));
       const record = await this.agentStorage.get(schedule.target.agentId);
@@ -1064,13 +1008,7 @@ export class ScheduleService {
       if (this.agentManager.hasInFlightRun(agent.id)) {
         throw new Error(`Agent ${agent.id} already has an active run`);
       }
-      // Fork delta (session move): a moved agent's first turn may be a schedule fire.
-      const prompt = await takePendingMovePrompt({
-        agentStorage: this.agentStorage,
-        agentId: agent.id,
-        prompt: wrappedPrompt,
-      });
-      await startAgentRun(this.agentManager, agent.id, prompt, this.logger, {
+      await startAgentRun(this.agentManager, agent.id, wrappedPrompt, this.logger, {
         replaceRunning: true,
         activeTurnBehavior: "steer",
       });
@@ -1093,7 +1031,10 @@ export class ScheduleService {
       };
     }
 
-    const config = schedule.target.config;
+    const config = schedule.target.type === "new-agent" ? schedule.target.config : null;
+    if (!config) {
+      throw new Error(`Schedule ${schedule.id} target changed during execution`);
+    }
     await this.assertNewAgentCwdDirectory(config.cwd);
     let workspace: PersistedWorkspaceRecord | null = null;
     let agentId: string | null = null;
@@ -1177,14 +1118,6 @@ export class ScheduleService {
         }
       }
     }
-  }
-
-  private async executePluginSchedule(run: PluginScheduleRun): Promise<ScheduleExecutionResult> {
-    if (!this.runPluginSchedule) {
-      throw new Error("Plugin schedules are not available");
-    }
-    await this.runPluginSchedule(run);
-    return { agentId: null, output: null };
   }
 
   private async createScheduleRunWorkspace(

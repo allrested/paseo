@@ -11,8 +11,6 @@ import {
   resolveUsageView,
   settleReports,
   upsertReport,
-  usageResetsUnderBars,
-  usageWindowCountdown,
   usageWindowRowLabel,
   type UsageHost,
   type UsageQueryState,
@@ -181,60 +179,6 @@ describe("usageWindowRowLabel", () => {
     expect(usageWindowRowLabel({ pinLabel: "Pin Codex Weekly", value: "—", trailing: null })).toBe(
       "Pin Codex Weekly, —",
     );
-  });
-});
-
-describe("usageWindowCountdown", () => {
-  const now = Date.parse("2026-11-11T00:00:00.000Z");
-  const atRisk = { runsOutAt: "2026-11-11T02:00:00.000Z", shortfallPct: 12 };
-  const notAtRisk = { runsOutAt: null, shortfallPct: null };
-
-  it("shows the run-out for a window on pace to run out", () => {
-    expect(usageWindowCountdown({ window: atRisk, retained: false, now })).toBe("runsOut");
-  });
-
-  it("shows the reset for a window not on pace to run out", () => {
-    expect(usageWindowCountdown({ window: notAtRisk, retained: false, now })).toBe("reset");
-  });
-
-  it("shows the reset for a retained report whose run-out time has passed", () => {
-    const passed = { runsOutAt: "2026-11-10T23:00:00.000Z", shortfallPct: 12 };
-    expect(usageWindowCountdown({ window: passed, retained: true, now })).toBe("reset");
-  });
-});
-
-describe("usageResetsUnderBars", () => {
-  const now = Date.parse("2026-11-11T00:00:00.000Z");
-  const window = (input: Partial<UsageWindow>): UsageWindow => ({
-    id: "weekly",
-    label: "Weekly",
-    usedPct: 81,
-    resetsAt: "2026-11-11T09:00:00.000Z",
-    runsOutAt: null,
-    shortfallPct: null,
-    ...input,
-  });
-  const runningOut = window({ runsOutAt: "2026-11-11T06:00:00.000Z", shortfallPct: 11 });
-  const steady = window({ id: "weekly_fable", label: "Weekly · Fable", usedPct: 53 });
-
-  it("lists the reset of each window whose row shows its run-out", () => {
-    expect(usageResetsUnderBars({ windows: [runningOut, steady], retained: false, now })).toEqual([
-      runningOut,
-    ]);
-  });
-
-  it("lists nothing when every row shows its own reset", () => {
-    expect(usageResetsUnderBars({ windows: [steady], retained: false, now })).toEqual([]);
-  });
-
-  it("leaves out a window that reports no reset time", () => {
-    const noReset = window({ ...runningOut, resetsAt: null });
-    expect(usageResetsUnderBars({ windows: [noReset], retained: false, now })).toEqual([]);
-  });
-
-  it("lists nothing for a retained report whose run-out time has passed", () => {
-    const later = Date.parse("2026-11-11T07:00:00.000Z");
-    expect(usageResetsUnderBars({ windows: [runningOut], retained: true, now: later })).toEqual([]);
   });
 });
 

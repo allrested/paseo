@@ -12,8 +12,6 @@ import type { WorkspaceBaseBranchSetRequest } from "@getpaseo/protocol/messages"
 
 import { searchTimeline } from "./agent/chat-search/index.js";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
-import { CdpProfileSession } from "./browser-tools/cdp/profiles/profile-session.js";
-import { CdpViewSession } from "./browser-tools/cdp/view-session.js";
 import { BrowserAutomationHostCapabilitySchema } from "@getpaseo/protocol/browser-automation/capabilities";
 import type {
   SessionEventSubscription,
@@ -25,7 +23,10 @@ import { isAbsolute } from "node:path";
 import { CreationService, type CreatedAgent } from "./creation/index.js";
 import type { CreationSnapshot, AgentCreateRequest } from "@getpaseo/protocol/messages";
 import type { MessageReceipts } from "./message-receipts/index.js";
-import type { AgentBackgroundWorkItem } from "./agent/background-work/index.js";
+import {
+  isDaemonBackgroundWorkItem,
+  type AgentBackgroundWorkItem,
+} from "./agent/background-work/index.js";
 import equal from "fast-deep-equal";
 import { WorkspaceSetupObservation } from "./workspace-setup-observation.js";
 import { SessionDelivery, type OwnedSubscription } from "./session/owned-subscriptions/index.js";
@@ -121,7 +122,6 @@ import {
 
 import { AgentManager, AgentRunCancellationError } from "./agent/agent-manager.js";
 import { buildTimelinePromptIndex } from "./agent/timeline-prompt-index.js";
-// Fork delta (usage heads-up): the launch info type moved out with the move target listing.
 import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import type {
   AgentManagerEvent,
@@ -153,20 +153,6 @@ import {
 } from "./agent/agent-timeline-content.js";
 import { parsePluginClientId } from "./plugins/plugin-session-identity.js";
 import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
-import {
-  moveAgent,
-  moveAgentBack,
-  runMove,
-  type MoveAgentDeps,
-} from "./agent/session-move/move-agent.js";
-// Fork delta (usage heads-up): move targets are listed in list-move-targets.ts, shared with the
-// usage watch.
-import type { MoveTarget } from "./agent/session-move/move-targets.js";
-import {
-  listAgentMoveTargets,
-  moveTargetProvidersFrom,
-  sharedMoveTargetUsage,
-} from "./agent/session-move/list-move-targets.js";
 import { buildAgentPrompt } from "./agent/prompt-attachments.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
 import {
@@ -590,10 +576,6 @@ export interface SessionOptions {
       reportIds?: string[];
     }): Promise<UsageReportEntry[]>;
     listLegacyUsage(): Promise<{ fetchedAt: string; providers: ProviderUsage[] }>;
-    listUsageReportsForScope?(scope: {
-      provider: string;
-      env: Record<string, string>;
-    }): Promise<UsageReportEntry[]>;
   };
   orchestrationSkills?: import("./orchestration-skills/index.js").OrchestrationSkills;
   mcpBaseUrl?: string | null;
@@ -792,8 +774,6 @@ export class Session {
       ),
   );
   private readonly browserToolsBroker: SessionOptions["browserToolsBroker"];
-  private readonly cdpView: CdpViewSession;
-  private readonly cdpProfiles: CdpProfileSession;
   private readonly clientId: string;
   private readonly authorization: SessionAuthorization;
   private appVersion: string | null;
@@ -999,14 +979,6 @@ export class Session {
       clientId: this.clientId,
       sessionId: this.sessionId,
     });
-    this.cdpView = new CdpViewSession(
-      () => this.browserToolsBroker?.cdpBrowser ?? null,
-      this.sessionLogger,
-    );
-    this.cdpProfiles = new CdpProfileSession(
-      () => this.browserToolsBroker?.cdpBrowser ?? null,
-      this.sessionLogger,
-    );
     this.workspaceFilesSession = new WorkspaceFilesSession({
       host: {
         emit: (msg, source) => this.emitForSource(msg, source),
@@ -1147,14 +1119,6 @@ export class Session {
       isEnabled: () => daemonConfigStore.get().usage?.enabled !== false,
       emit: (msg) => this.emit(msg),
       runtime: pluginRuntime,
-      // Fork delta (claude accounts): a provider's usage is keyed by its family and override env,
-      // and read through the move dialog's cache, the way the dialog reads a target's.
-      resolveProviderScope: (provider) => {
-        if (!providerSnapshotManager.hasProvider(provider)) return null;
-        const info = providerSnapshotManager.getProviderLaunchInfo(provider);
-        return info ? { provider: info.family, env: info.env } : null;
-      },
-      scopeLookup: sharedMoveTargetUsage,
       logger: this.sessionLogger,
     });
     this.speechModelsSession = new SpeechModelsSession({
@@ -1443,6 +1407,8 @@ export class Session {
             type: "browser.host.register.request" as const,
             requestId: uuidv4(),
             hostKind: host.data.hostKind,
+            label: host.data.label,
+            instanceId: host.data.instanceId,
             supportedCommands: host.data.supportedCommands,
           };
           void this.delivery
@@ -1896,8 +1862,7 @@ export class Session {
       this.wantsEvent("agent_permission_request") ||
       this.wantsEvent("agent_permission_resolved") ||
       this.wantsEvent("agent.provider_subagents.update") ||
-      this.wantsEvent("agent.background_work.update") ||
-      this.wantsEvent("agent.moved");
+      this.wantsEvent("agent.background_work.update");
     if (agents && !this.unsubscribeAgentEvents) this.subscribeToAgentEvents();
     if (!agents) {
       this.unsubscribeAgentEvents?.();
@@ -2182,7 +2147,20 @@ export class Session {
         }
 
         if (event.type === "agent_removed") {
-          this.forwardAgentRemoved(event);
+          if (event.internal) return;
+          void this.agentUpdates
+            .removeAgent(event.agentId)
+            .then(() => {
+              if (event.workspaceId)
+                return this.emitWorkspaceUpdateForWorkspaceId(event.workspaceId);
+              return undefined;
+            })
+            .catch((error) => {
+              this.sessionLogger.error(
+                { err: error, agentId: event.agentId },
+                "Failed to emit agent removal",
+              );
+            });
           return;
         }
 
@@ -2207,12 +2185,12 @@ export class Session {
         }
 
         if (event.type === "background_work") {
-          this.forwardBackgroundWork(event);
-          return;
-        }
-
-        if (event.type === "agent_moved") {
-          this.forwardAgentMoved(event);
+          void this.forwardBackgroundWork(event.agentId).catch((error) =>
+            this.sessionLogger.error(
+              { err: error, agentId: event.agentId },
+              "Failed to emit background work update",
+            ),
+          );
           return;
         }
 
@@ -2295,16 +2273,34 @@ export class Session {
     this.forwardProviderSubagentUpdate(event);
   }
 
-  private forwardBackgroundWork(
-    event: Extract<AgentManagerEvent, { type: "background_work" }>,
-  ): void {
-    const agent = this.agentManager.getAgent(event.agentId);
-    if (agent?.internal) return;
+  private async forwardBackgroundWork(agentId: string): Promise<void> {
+    const target = await this.resolveBackgroundWorkAgent(agentId);
+    if ("error" in target) return;
+    const { agent, record } = target;
+    // The inventory may have changed while resolving a dormant agent.
+    const items = this.agentManager.getAgentBackgroundWorkSummary(agentId)
+      ? this.agentManager.listAgentBackgroundWork(agentId)
+      : [];
     this.emit({
       type: "agent.background_work.update",
-      payload: { agentId: event.agentId, items: event.items },
+      payload: { agentId, items: this.projectBackgroundWorkItems(items) },
     });
-    if (agent) void this.agentUpdates.forwardLiveAgent(agent);
+    if (agent) await this.agentUpdates.forwardLiveAgent(agent);
+    else if (record) await this.agentUpdates.forwardStoredAgent(record);
+  }
+
+  private projectBackgroundWorkItems(items: AgentBackgroundWorkItem[]): AgentBackgroundWorkItem[] {
+    if (
+      this.authorization.allowsPermission("automation.manage") &&
+      this.authorization.allowsInbound({ type: "agent.background_work.stop.request" })
+    ) {
+      return items;
+    }
+    return items.map((item) => {
+      if (!isDaemonBackgroundWorkItem(item)) return item;
+      const { canStop: _canStop, stopToken: _stopToken, ...visible } = item;
+      return visible;
+    });
   }
 
   private emitProviderSubagentWorkspaceUpdate(event: ProviderSubagentManagerEvent): void {
@@ -2339,10 +2335,12 @@ export class Session {
   }
 
   private async enrichAgentPayload(payload: AgentSnapshotPayload): Promise<AgentSnapshotPayload> {
-    payload.backgroundWork = this.agentManager.getAgentBackgroundWorkSummary(payload.id);
     const storedRecord = await this.agentStorage.get(payload.id);
     payload.title = storedRecord?.title ?? null;
     payload.archivedAt = storedRecord?.archivedAt ?? null;
+    if (!payload.internal && !storedRecord?.internal && !payload.archivedAt) {
+      payload.backgroundWork = this.agentManager.getAgentBackgroundWorkSummary(payload.id);
+    }
     return payload;
   }
 
@@ -2354,8 +2352,11 @@ export class Session {
     record: StoredAgentRecord,
     registeredProviderIds = new Set(this.providerSnapshotManager.listRegisteredProviderIds()),
   ): AgentSnapshotPayload {
-    return buildStoredAgentPayload(record, registeredProviderIds, (provider, own) =>
-      this.agentManager.effectiveOptionsFor(provider, own),
+    return buildStoredAgentPayload(
+      record,
+      registeredProviderIds,
+      (provider, own) => this.agentManager.effectiveOptionsFor(provider, own),
+      this.agentManager.getAgentBackgroundWorkSummary(record.id),
     );
   }
 
@@ -2572,6 +2573,8 @@ export class Session {
       unregister = this.browserToolsBroker.registerClient({
         id: owner.id,
         hostKind: request.hostKind,
+        label: request.label,
+        instanceId: request.instanceId,
         supportedCommands: request.supportedCommands,
         sendBrowserAutomationRequest: (message) => owner.emit(message),
       });
@@ -2625,12 +2628,39 @@ export class Session {
     });
   }
 
+  private async subscribeProviderUpdates(
+    request: Extract<
+      SessionInboundMessage,
+      { type: "provider.installation.update.subscribe.request" }
+    >,
+  ): Promise<void> {
+    if (!this.delivery.isModern(this.delivery.currentSource))
+      throw new Error("Provider update observation requires owned subscriptions");
+    const installations = this.providerSnapshotManager.installations;
+    let stop: (() => void) | undefined;
+    const owner = this.delivery.begin("provider-update", undefined, () => stop?.());
+    // Register and read in one synchronous turn so no progress falls between them.
+    stop = installations.observeUpdates(request.provider, (event) => owner.emit(event));
+    this.emit({
+      type: "provider.installation.update.subscribe.response",
+      payload: {
+        requestId: request.requestId,
+        subscriptionId: owner.responseId,
+        provider: request.provider,
+        update: installations.getUpdate(request.provider),
+        error: null,
+      },
+    });
+  }
+
   private dispatchSubscriptionMessage(
     msg: SessionInboundMessage,
     source?: object,
   ): Promise<void> | undefined {
     if (msg.type === "workspace.setup.subscribe.request") return this.subscribeWorkspaceSetup(msg);
     if (msg.type === "browser.host.register.request") return this.registerBrowserHost(msg);
+    if (msg.type === "provider.installation.update.subscribe.request")
+      return this.subscribeProviderUpdates(msg);
     if (msg.type === "browser.automation.execute.response") {
       if (source)
         this.browserToolsBroker?.receiveResponse(
@@ -2648,44 +2678,7 @@ export class Session {
         return undefined;
       });
     }
-    return this.dispatchCdpBrowserMessage(msg);
-  }
-
-  // Fork delta (web browser pane): the daemon-hosted Docker Chromium.
-  private dispatchCdpBrowserMessage(msg: SessionInboundMessage): Promise<void> | undefined {
-    const emit = (reply: SessionOutboundMessage) => this.emit(reply);
-    switch (msg.type) {
-      case "browser.cdp.tabs.subscribe.request":
-        return this.cdpView.subscribeTabs(msg, this.delivery, emit);
-      case "browser.cdp.view.subscribe.request":
-        return this.cdpView.subscribeView(msg, this.delivery, emit);
-      case "browser.cdp.view.input.request":
-        this.cdpView.input(msg);
-        return Promise.resolve();
-      case "browser.cdp.view.navigate.request":
-        return this.cdpView.navigate(msg, emit);
-      case "browser.cdp.view.pick_element.request":
-        return this.cdpView.pickElement(msg, emit);
-      case "browser.cdp.view.cancel_pick.request":
-        this.cdpView.cancelPick(msg);
-        return Promise.resolve();
-      case "browser.cdp.tab.open.request":
-        return this.cdpView.openTab(msg, emit);
-      case "browser.cdp.tab.close.request":
-        return this.cdpView.closeTab(msg, emit);
-      case "browser.cdp.profile.list.request":
-        return this.cdpProfiles.list(msg, emit);
-      case "browser.cdp.profile.create.request":
-        return this.cdpProfiles.create(msg, emit);
-      case "browser.cdp.profile.delete.request":
-        return this.cdpProfiles.delete(msg, emit);
-      case "browser.cdp.profile.assign.request":
-        return this.cdpProfiles.assign(msg, emit);
-      case "browser.cdp.profile.import.request":
-        return this.cdpProfiles.importCookies(msg, emit);
-      default:
-        return undefined;
-    }
+    return undefined;
   }
 
   private async dispatchInboundMessage(msg: SessionInboundMessage, source?: object): Promise<void> {
@@ -2717,7 +2710,6 @@ export class Session {
   ): Promise<void> | undefined {
     return (
       this.dispatchAgentRewindMessage(msg, source) ??
-      this.dispatchAgentMoveMessage(msg, source) ??
       this.dispatchAgentRelationshipMessage(msg) ??
       this.dispatchAgentTimelineMessage(msg, source)
     );
@@ -3156,112 +3148,10 @@ export class Session {
     }
   }
 
-  private dispatchAgentMoveMessage(
-    msg: SessionInboundMessage,
-    source?: object,
-  ): Promise<void> | undefined {
-    switch (msg.type) {
-      case "agent.move.request":
-        return this.handleAgentMoveRequest(msg, source);
-      case "agent.move_back.request":
-        return this.handleAgentMoveBackRequest(msg, source);
-      case "agent.move_targets.list.request":
-        return this.handleAgentMoveTargetsRequest(msg, source);
-      default:
-        return undefined;
-    }
-  }
-
-  private moveDeps(): MoveAgentDeps {
-    return {
-      agentManager: this.agentManager,
-      agentStorage: this.agentStorage,
-      providerSnapshotManager: this.providerSnapshotManager,
-      logger: this.sessionLogger,
-      paseoHome: this.paseoHome,
-      worktreesRoot: this.worktreesRoot,
-    };
-  }
-
-  private async handleAgentMoveRequest(
-    msg: Extract<SessionInboundMessage, { type: "agent.move.request" }>,
-    source?: object,
-  ): Promise<void> {
-    const payload = await runMove(() =>
-      moveAgent(this.moveDeps(), {
-        agentId: msg.agentId,
-        target: msg.target,
-        continueWork: msg.continueWork,
-      }),
-    );
-    this.emitForSource(
-      { type: "agent.move.response", payload: { requestId: msg.requestId, ...payload } },
-      source,
-    );
-  }
-
-  private async handleAgentMoveBackRequest(
-    msg: Extract<SessionInboundMessage, { type: "agent.move_back.request" }>,
-    source?: object,
-  ): Promise<void> {
-    const payload = await runMove(() =>
-      moveAgentBack(this.moveDeps(), {
-        agentId: msg.agentId,
-        continueWork: msg.continueWork,
-        ...(msg.toAgentId !== undefined ? { toAgentId: msg.toAgentId } : {}),
-      }),
-    );
-    this.emitForSource(
-      { type: "agent.move_back.response", payload: { requestId: msg.requestId, ...payload } },
-      source,
-    );
-  }
-
-  private async handleAgentMoveTargetsRequest(
-    msg: Extract<SessionInboundMessage, { type: "agent.move_targets.list.request" }>,
-    source?: object,
-  ): Promise<void> {
-    let targets: MoveTarget[] = [];
-    let error: string | null = null;
-    try {
-      targets = await this.listMoveTargets(msg.agentId);
-    } catch (err) {
-      this.sessionLogger.warn({ err, agentId: msg.agentId }, "move targets: request failed");
-      error = err instanceof Error ? err.message : String(err);
-    }
-    this.emitForSource(
-      {
-        type: "agent.move_targets.list.response",
-        payload: { requestId: msg.requestId, targets, error },
-      },
-      source,
-    );
-  }
-
-  // Fork delta (usage heads-up): lists the targets through list-move-targets.ts, shared with the
-  // usage watch.
-  private async listMoveTargets(agentId: string): Promise<MoveTarget[]> {
-    const runtime = this.pluginRuntime;
-    const listReports = runtime?.listUsageReportsForScope;
-    return listAgentMoveTargets({
-      agentId,
-      findAgent: async (id) => this.agentManager.getAgent(id) ?? (await this.agentStorage.get(id)),
-      providers: moveTargetProvidersFrom(this.providerSnapshotManager),
-      usageEnabled: this.daemonConfigStore.get().usage?.enabled !== false,
-      listUsageReportsForScope: listReports ? (scope) => listReports.call(runtime, scope) : null,
-      usageLookup: sharedMoveTargetUsage,
-      loginOf: this.agentManager.moveCarry?.targetLogin,
-      logger: this.sessionLogger,
-      now: Date.now(),
-    });
-  }
-
   private dispatchAgentRelationshipMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "agent.detach.request":
         return this.handleDetachAgentRequest(msg.agentId, msg.requestId);
-      case "agent.runtime.close.request":
-        return this.handleCloseAgentRuntimeRequest(msg.agentId, msg.requestId);
       default:
         return undefined;
     }
@@ -3463,6 +3353,8 @@ export class Session {
         return this.checkoutSession.handleStatusRequest(msg);
       case "checkout.commits.list.request":
         return this.checkoutSession.handleCommitsListRequest(msg);
+      case "checkout.worktrees.list.request":
+        return this.checkoutSession.handleWorktreesListRequest(msg);
       case "checkout.commits.file_diff.request":
         return this.checkoutSession.handleCommitFileDiffRequest(msg, this.delivery.requestSignal);
       case "validate_branch_request":
@@ -3666,13 +3558,16 @@ export class Session {
         return this.providerCatalogSession.handleRefreshProvidersSnapshotRequest(msg);
       case "provider_diagnostic_request":
         return this.providerCatalogSession.handleProviderDiagnosticRequest(msg);
+      case "provider.installation.inspect.request":
+        return this.providerCatalogSession.handleInspectProviderInstallationRequest(msg);
+      case "provider.installation.check_updates.request":
+        return this.providerCatalogSession.handleCheckProviderUpdatesRequest(msg);
+      case "provider.installation.update.request":
+        return this.providerCatalogSession.handleUpdateProviderRequest(msg);
       case "provider.usage.list.request":
         return this.usageSession.handleLegacyList(msg);
       case "usage.list_reports.request":
         return this.usageSession.handleListReports(msg);
-      // Fork delta (claude accounts): one provider's usage.
-      case "usage.provider.list_reports.request":
-        return this.usageSession.handleProviderReports(msg);
       default:
         return undefined;
     }
@@ -3975,36 +3870,6 @@ export class Session {
           accepted: false,
           error: message,
         },
-      });
-    }
-  }
-
-  private async handleCloseAgentRuntimeRequest(agentId: string, requestId: string): Promise<void> {
-    this.sessionLogger.info({ agentId, requestId }, "Closing agent runtime");
-
-    try {
-      const knownAgent =
-        this.agentManager.getAgent(agentId) ?? (await this.agentStorage.get(agentId));
-      if (!knownAgent) {
-        this.emit({
-          type: "agent.runtime.close.response",
-          payload: { requestId, agentId, accepted: false, error: `Agent ${agentId} not found` },
-        });
-        return;
-      }
-
-      // The manager makes idle collection's checks; a refusal comes back as its reason.
-      const refusal = await this.agentManager.closeRuntimeIfIdle(agentId);
-      this.emit({
-        type: "agent.runtime.close.response",
-        payload: { requestId, agentId, accepted: refusal === null, error: refusal },
-      });
-    } catch (error) {
-      const message = getErrorMessageOr(error, "Failed to close agent runtime");
-      this.sessionLogger.error({ err: error, agentId, requestId }, "Failed to close agent runtime");
-      this.emit({
-        type: "agent.runtime.close.response",
-        payload: { requestId, agentId, accepted: false, error: message },
       });
     }
   }
@@ -5541,31 +5406,6 @@ export class Session {
     } finally {
       this.rewindInitiators.delete(msg.agentId);
     }
-  }
-
-  private forwardAgentMoved(event: Extract<AgentManagerEvent, { type: "agent_moved" }>): void {
-    // Internal agents stay hidden from clients, as in forwardAgentRemoved.
-    if (event.internal) return;
-    this.emit({
-      type: "agent.moved",
-      payload: { fromAgentId: event.fromAgentId, toAgentId: event.toAgentId },
-    });
-  }
-
-  private forwardAgentRemoved(event: Extract<AgentManagerEvent, { type: "agent_removed" }>): void {
-    if (event.internal) return;
-    void this.agentUpdates
-      .removeAgent(event.agentId)
-      .then(() => {
-        if (event.workspaceId) return this.emitWorkspaceUpdateForWorkspaceId(event.workspaceId);
-        return undefined;
-      })
-      .catch((error) => {
-        this.sessionLogger.error(
-          { err: error, agentId: event.agentId },
-          "Failed to emit agent removal",
-        );
-      });
   }
 
   private deliverTimelineReplacement(agentId: string, initiatingSource?: object): void {
@@ -8915,10 +8755,13 @@ export class Session {
   ): Promise<void> {
     let error: string | null = null;
     try {
+      const target = await this.resolveBackgroundWorkAgent(msg.agentId);
+      if ("error" in target) throw new Error(target.error);
       await this.agentManager.stopAgentBackgroundWork({
         agentId: msg.agentId,
         itemId: msg.itemId,
         stopToken: msg.stopToken,
+        canManageAutomation: this.authorization.allowsPermission("automation.manage"),
       });
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -8960,23 +8803,27 @@ export class Session {
     }
   }
 
-  // Background work lives only in memory, so an agent that is not loaded has none.
-  // Answering from storage keeps a read from resuming a dormant agent.
   private async readAgentBackgroundWork(agentId: string): Promise<AgentBackgroundWorkItem[]> {
-    if (this.agentManager.getAgent(agentId)) {
-      if (!this.agentManager.getAgentBackgroundWorkSummary(agentId)) {
-        throw new Error("Background work inventory is unavailable");
-      }
-      return this.agentManager.listAgentBackgroundWork(agentId);
+    const target = await this.resolveBackgroundWorkAgent(agentId);
+    if ("error" in target) throw new Error(target.error);
+    if (!this.agentManager.getAgentBackgroundWorkSummary(agentId)) {
+      throw new Error("Background work inventory is unavailable");
     }
+    return this.projectBackgroundWorkItems(this.agentManager.listAgentBackgroundWork(agentId));
+  }
+
+  private async resolveBackgroundWorkAgent(
+    agentId: string,
+  ): Promise<{ agent: ManagedAgent | null; record: StoredAgentRecord | null } | { error: string }> {
     const record = await this.agentStorage.get(agentId);
-    if (!record || record.internal) {
-      throw new Error(`Unknown agent '${agentId}'`);
+    const agent = this.agentManager.getAgent(agentId);
+    if ((!agent && !record) || agent?.internal || record?.internal) {
+      return { error: `Unknown agent '${agentId}'` };
     }
-    if (record.archivedAt) {
-      throw new Error(`Agent is archived: ${agentId}`);
+    if (record?.archivedAt) {
+      return { error: `Agent is archived: ${agentId}` };
     }
-    throw new Error("Background work inventory is unavailable");
+    return { agent, record };
   }
 
   private async handleProviderSubagentTimelineRequest(
@@ -9613,8 +9460,6 @@ export class Session {
     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
     this.isCleanedUp = true;
     this.unsubscribeSetupObservation();
-    // Fork delta (web browser pane): a pick this session left open would keep a page a picker.
-    this.cdpView.endPicks();
     await this.delivery.close();
 
     if (this.unsubscribeAgentEvents) {
@@ -9694,8 +9539,6 @@ function isValidGitHubRepoSegment(value: string): boolean {
   return /^[A-Za-z0-9._-]+$/u.test(value);
 }
 
-// Fork delta (session move): the agent.moved case takes this switch over the complexity limit.
-// eslint-disable-next-line complexity
 function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubscription | null {
   switch (message.type) {
     case "project.update":
@@ -9712,7 +9555,6 @@ function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubs
     case "activity_log":
     case "hub.execution.agent.update":
     case "hub.execution.agent.stream":
-    case "agent.moved":
       return message.type;
     case "status":
       switch (message.payload.status) {
@@ -9749,8 +9591,6 @@ function legacyWantsEvent(
       return capabilities.has(CLIENT_CAPS.providerSubagents);
     // Old apps parse outbound messages strictly and do not know this type.
     case "agent.background_work.update":
-    case "agent.moved":
-      // Added with session move; clients from before owned subscriptions do not know it.
       return false;
     default:
       return true;

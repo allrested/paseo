@@ -2,7 +2,7 @@
 title: Plugin reference
 description: Local plugin files, client and server runtimes, platform limits, contributions, RPCs, lifecycle, hosts, and CLI commands.
 nav: Reference
-order: 49
+order: 50
 category: Plugins
 ---
 
@@ -433,18 +433,88 @@ Paseo refreshes an agent by closing its current provider session and opening it 
 configuration and persistence. Providers re-read external state during `session.open`.
 
 Use `runAcpProvider()` from `@getpaseo/plugin/server/acp` to adapt a command-backed ACP. Add transformer
-hooks only for a vendor's discovery, configuration, notification, or tool-call differences.
+hooks for vendor behavior. See [Adapt an ACP agent](/docs/plugins/providers#adapt-an-acp-agent).
+
+In `discover` and `configure`, call `context.request(method, params)` to send an ACP extension
+request. The promise returns a JSON value or rejects with the agent's JSON-RPC error.
+
+Use `config(state, context)` to return the configuration snapshot that Paseo displays.
+Paseo calls this synchronous hook for initial, notification, and committed configuration snapshots.
+Use `configure` to send changes to the agent.
 
 `ProviderRegistration.icon` is a file path relative to the plugin directory, such as `icon.svg`.
 It must resolve inside that directory to a regular file that follows the
 [SVG icon rules](#svg-rules). Paseo reads and validates the file when the plugin starts; the string
 is never inline SVG or a URL.
 
+#### Provider installation
+
+**Requires Paseo 0.17.** Older versions ignore `installation`.
+`ProviderRegistration.installation` fills the **Installation** section of the provider's settings.
+Every member is optional. Paseo hides the section when you declare neither `inspect` nor
+`installUrl`. [Report installation and updates](/docs/plugins/providers#report-installation-and-updates)
+has a complete example. Import the types from `@getpaseo/plugin/server/provider`.
+
+```ts
+interface ProviderInstallation {
+  installUrl?: string;
+  updateUrl?: string;
+  inspect?(context: ProviderInstallationContext): Promise<ProviderInspection>;
+  checkForUpdates?(context: ProviderUpdateCheckContext): Promise<ProviderUpdateCheck>;
+  update?(context: ProviderUpdateContext): Promise<ProviderUpdateResult>;
+}
+```
+
+| Member            | Called                                                       | Deadline | Answer kept                                      |
+| ----------------- | ------------------------------------------------------------ | -------- | ------------------------------------------------ |
+| `inspect`         | When the provider list or a provider's page shows            | 20 s     | 30 s                                             |
+| `checkForUpdates` | After `inspect` answers `installed`, or without `inspect`    | 25 s     | 1 hour for `current` or `available`, else 30 s   |
+| `update`          | When the user selects **Update**, one at a time per provider | None     | Paseo reads both answers again after `succeeded` |
+
+**Refresh** in the provider's settings skips the kept answers and clears a failed update. Paseo
+never calls these members before a session or on a schedule. A deadline or a throw becomes an error that shows the message.
+
+`installUrl` and `updateUrl` are `http` or `https` pages that Paseo opens in the browser. The
+plugin fails to start when either is another kind of URL.
+
+The context:
+
+| Field              | Type                                      | Meaning                                                                                                                         |
+| ------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `launch`           | `ProviderInstallationLaunch \| undefined` | The launch a session would use, with `resolved`. Absent when the registration declares no `command`.                            |
+| `signal`           | `AbortSignal`                             | Aborts when Paseo stops waiting or the daemon stops.                                                                            |
+| `installedVersion` | `string \| undefined`                     | `checkForUpdates` only. The `version` `inspect` reported, as written. Absent when it reported none or you declare no `inspect`. |
+| `report`           | `(event: ProviderUpdateReport) => void`   | `update` only. Shows `{ type: "stdout" \| "stderr" \| "message", text }` to the user in order.                                  |
+
+`ProviderInstallationLaunch` is `{ command, args, env, resolved }`. With `resolved: true`, `command`
+is the executable's path. With `resolved: false`, Paseo did not find the executable and `command`
+is the configured name.
+
+Answers:
+
+| Type                   | Values                                                                                                                                  |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `ProviderInspection`   | `{ status: "installed", version?: string }` or `{ status: "not_installed" }`                                                            |
+| `ProviderUpdateCheck`  | `{ status: "current" }`, `{ status: "available", versions?: string[], message?: string }`, or `{ status: "unknown", message?: string }` |
+| `ProviderUpdateResult` | `{ status: "succeeded", message?: string }` or `{ status: "failed", message: string }`                                                  |
+
+Paseo shows `version`, `versions` and `message` as written and does not parse or sort them. It
+reuses a `current` or `available` answer for up to an hour while `inspect` reports the same
+`version`. It keeps the last 65,536 characters of `report` output. An answer that does not match these
+shapes is an error. **Update** appears once `inspect` reports the CLI installed and you declare
+`update`, whatever `checkForUpdates` answers and whether you declare it; without `update`, Paseo
+offers `updateUrl` on the same terms.
+
 ### Usage sources
 
 **Requires Paseo 0.11.** Register a source from your server entry with
 `server.registerUsageSource()`. Import its contract and helpers from
 `@getpaseo/plugin/server/usage`.
+
+A source that needs its plugin's provider command may set `provider` to that provider's ID.
+The daemon supplies the resolved launch in `scope.launch` for global discovery and for that
+provider's sessions. The launch includes the trusted process environment; keep it daemon-side and
+use an opaque store locator as the input. It is absent when the provider is unavailable.
 
 A source implements two calls:
 
@@ -457,19 +527,20 @@ interface UsageAccount {
 }
 
 type UsageScope =
-  | { kind: "global" }
+  | { kind: "global"; launch?: ProviderLaunch }
   | {
       kind: "session";
       provider: string;
       model?: string;
       env: Record<string, string>;
-      sessionId?: string;
+      launch?: ProviderLaunch;
     };
 
 interface UsageSourceRegistration {
   id: string;
   label: string;
   icon?: string;
+  provider?: string;
   input: ZodType;
   discover(scope: UsageScope): Promise<UsageAccount[]>;
   fetch(input: unknown): Promise<UsageReport>;
@@ -500,14 +571,6 @@ Resolve the session account from that session's launch environment. Return `[]` 
 Never scan default stores from session discovery or scan agents from global discovery. Discovery is a query, with no agent
 lifecycle hooks. Closed agents have no session scope until resumed.
 
-`sessionId` is the provider's own id for the session, when it has one; for Claude it is the
-Claude Code session id. It is absent before the session has one and for providers that do not
-report it. A source behind an API gateway can use it to look up the account the gateway routes the
-session to. Paseo reuses an agent's session discovery for up to a minute, then calls `discover()`
-again on the next request, and at once when `sessionId` changes. When that repeat call fails, the
-agent keeps your source's accounts from the previous call. Keep `discover()` cheap and free of side
-effects, because it can run once a minute for each agent.
-
 Inputs name credential stores; never put credentials in inputs or reports. Paseo validates each
 input against your schema before calling `fetch()`. The same key in any scope is the same report;
 fetches share a five-minute cache only when their ordered login inputs match. Each login fetch
@@ -515,18 +578,15 @@ has a 20-second deadline.
 
 Built-in session routes:
 
-| Source                 | Session                                                     | Login store                                                                                    |
-| ---------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Claude                 | `claude`                                                    | `CLAUDE_CONFIG_DIR`, or the default; on macOS, the directory's Keychain entry takes precedence |
-| Claude                 | `pi`, `omp` with `anthropic/…` model                        | That harness's Anthropic login store                                                           |
-| Codex                  | `codex`                                                     | `CODEX_HOME/auth.json`, or the default                                                         |
-| Codex                  | `pi`, `opencode`, `omp` with `openai/…` model               | That harness's OpenAI login store                                                              |
-| Cursor                 | `cursor`                                                    | cursor-agent's `auth.json` for that session's `XDG_CONFIG_HOME`, `APPDATA`, or home directory  |
-| Muse                   | `muse`                                                      | That session's own Muse launch/config                                                          |
-| Kiro CLI               | `kiro`                                                      | That session's `~/.local/share/kiro-cli/data.sqlite3`                                          |
-| BDDevLab               | Any, with `bddevlab/…` model                                | `BDDEVLAB_API_KEY` in the daemon environment                                                   |
-| BDDevLab               | `claude`, launched with `ANTHROPIC_BASE_URL` at the gateway | The token in the matching provider entry's `env` in `$PASEO_HOME/config.json`                  |
-| Other built-in sources | Any                                                         | No session discovery                                                                           |
+| Source                 | Session                                       | Login store                                                                                    |
+| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Claude                 | `claude`                                      | `CLAUDE_CONFIG_DIR`, or the default; on macOS, the directory's Keychain entry takes precedence |
+| Claude                 | `pi`, `omp` with `anthropic/…` model          | That harness's Anthropic login store                                                           |
+| Codex                  | `codex`                                       | `CODEX_HOME/auth.json`, or the default                                                         |
+| Codex                  | `pi`, `opencode`, `omp` with `openai/…` model | That harness's OpenAI login store                                                              |
+| Cursor                 | `cursor`                                      | cursor-agent's `auth.json` for that session's `XDG_CONFIG_HOME`, `APPDATA`, or home directory  |
+| Muse                   | `muse`                                        | That session's own Muse launch/config                                                          |
+| Other built-in sources | Any                                           | No session discovery                                                                           |
 
 Claude excludes Bedrock, Vertex, and foreign `ANTHROPIC_BASE_URL` sessions. Codex excludes sessions
 with `OPENAI_BASE_URL` set. Cursor excludes sessions that authenticate with `CURSOR_API_KEY` or
@@ -568,10 +628,10 @@ window IDs across all accounts, so users must select the corrected window again.
 effective selection for cards, the sidebar, and toggles. The first edit snapshots those defaults;
 an explicit empty selection stays empty.
 
-Re-read the selected store in `fetch()` so the CLI's token rotations take effect. Never redeem
-refresh tokens or write credential stores: refreshing elsewhere can invalidate the CLI's copy,
-and rewriting parsed files can discard fields you do not model. If the store disappeared after
-discovery, throw; the card shows the error until the next discovery removes it.
+Re-read the selected store in `fetch()` so the CLI's token rotations take effect. If you discover
+a specific account, pass its identity in the input and verify it before returning usage.
+Throw if the store disappears or the login changes accounts. The next discovery updates the card.
+Only the CLI should redeem its refresh tokens or write its credential stores.
 
 Use `unavailable(problem)` to explain why an existing login cannot supply quota. It requires a
 problem; there is no zero-argument form. `expiresAt` is an ISO timestamp. A rejected login carries
@@ -615,19 +675,17 @@ export default function contribute(server: PluginServerContext) {
 ```
 
 Built-in Claude discovery prefers the macOS Keychain login and uses the Claude Code credential
-file only when Keychain is empty. `CLAUDE_CONFIG_DIR` selects that file's directory. Global discovery
-also reads every `.claude*` directory in the home as a Claude profile, so a login made with
-`CLAUDE_CONFIG_DIR=~/.claude-work claude` gets its own card; a profile without a login is skipped,
-and one whose account has no email is labeled with its directory name. Fresh tokens
+file only when Keychain is empty. `CLAUDE_CONFIG_DIR` selects that file's directory. Fresh tokens
 use the OAuth profile's account and organization IDs; expired or rejected profiles use a locator
 hash. Codex prefers Codex CLI, OpenCode, Pi, then OMP and groups by the ChatGPT account ID from stored
 metadata or JWT claims. Pi and OMP logins remain discoverable when expired. OMP requires
 `node:sqlite`.
 
-`usage.list_reports` discovers accounts when called without IDs. With IDs, it refreshes known
-accounts without rediscovering identity. If a store switches accounts, the existing card shows the
-new login's quota until the next discovery. Reports are cached for five minutes; `forceRefresh`
-bypasses that cache. Entries carry `id`, `account.label`, and `fetchedAt`. Failed accounts also carry optional
+`usage.list_reports` discovers accounts for the requested agent. A host-wide request discovers
+the defaults and revisits the agents whose usage Paseo has already queried. A request with report
+IDs fetches known reports using their existing discovery inputs. Reports are cached for five minutes.
+Set `forceRefresh` to bypass that cache. Entries carry `id`, `account.label`, and `fetchedAt`.
+Failed accounts also carry optional
 `loginErrors` entries with `harness` and each login's failed `report`. Clients gate the feature
 on `server_info.features.usageSources`. The older `provider.usage.list` RPC maps the same reports
 for 0.10 clients and renders problems into its `error` string.
@@ -723,13 +781,13 @@ export default function contribute(client: PluginClientContext) {
 
 `PluginScreenProps` contains:
 
-| Field        | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `theme`      | Typed `PluginTheme` color tokens for the active Paseo theme.                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `host`       | Selected host `id` and display `label`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `layout`     | `compact` and the `ios`, `android`, or `web` platform.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `params`     | The params the screen was opened with, as string keys and values. `{}` when none.                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `navigation` | Optional client navigation. `openAgent({ agentId, serverId? })` and `openWorkspace({ workspaceId, serverId? })` open targets on `serverId`, or on the selected host when omitted. `openBrowser({ url, workspaceId, serverId? })` is available only on Electron; see [links and browsers](#external-links-and-workspace-browsers). `showBeside(target)` shows a session or a screen next to yours; see [show a session or a screen beside yours](#show-a-session-or-a-screen-beside-yours). |
+| Field        | Meaning                                                                                                                                                                                                                                                                                                                           |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`      | Typed `PluginTheme` color tokens for the active Paseo theme.                                                                                                                                                                                                                                                                      |
+| `host`       | Selected host `id` and display `label`.                                                                                                                                                                                                                                                                                           |
+| `layout`     | `compact` and the `ios`, `android`, or `web` platform.                                                                                                                                                                                                                                                                            |
+| `params`     | The params the screen was opened with, as string keys and values. `{}` when none.                                                                                                                                                                                                                                                 |
+| `navigation` | Optional client navigation. `openAgent({ agentId, serverId? })` and `openWorkspace({ workspaceId, serverId? })` open targets on `serverId`, or on the selected host when omitted. `openBrowser({ url, workspaceId, serverId? })` is available only on Electron; see [links and browsers](#external-links-and-workspace-browsers). |
 
 Paseo owns the route, header, close action, host picker, error boundary, and query client. The plugin owns the screen body.
 
@@ -743,48 +801,6 @@ ID instead; the screen still renders.
 Params live in the screen's URL query, so a reload, back and forward, and a link to the screen keep
 them. Any string key works; values must be strings, and anything else throws. Opening the same
 screen with other params shows the new params.
-
-### Show a session or a screen beside yours
-
-`navigation.showBeside(target): boolean` shows an agent's session or a plugin screen in a side
-area next to your screen or panel, so the user stays on your page. Screens, workspace panels and
-agent panels receive it; settings screens, file panels and sidebar items do not. Apps without a
-side area leave it undefined, so check it and fall back. This row opens a session beside your
-screen, or in the agent's workspace:
-
-```tsx
-import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import { Pressable, Text } from "react-native";
-
-type SessionRowProps = Pick<PluginScreenProps, "navigation" | "theme"> & { agentId: string };
-
-export function SessionRow({ agentId, navigation, theme }: SessionRowProps) {
-  if (!navigation) return null;
-  const open = () => {
-    if (navigation.showBeside?.({ kind: "agent", agentId })) return;
-    navigation.openAgent({ agentId });
-  };
-  return (
-    <Pressable accessibilityRole="button" onPress={open}>
-      <Text style={{ color: theme.colors.foreground }}>Open session</Text>
-    </Pressable>
-  );
-}
-```
-
-| Target                                                       | Shows                                                                                                                                                                                                                                        |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{ kind: "agent", agentId, serverId? }`                      | The agent's full session, as in its workspace. The header has Open in workspace and Close. Opening a file or a tab from the session's links goes to the agent's workspace; opening Changes or a subagent from the composer's pills does not. |
-| `{ kind: "screen", pluginId, screenId, params?, serverId? }` | That plugin's screen with its params, `layout.compact: true` and no `showBeside` of its own, calling its own plugin's RPCs. The header has Open {title} and Close.                                                                           |
-
-`serverId` defaults to your surface's `host.id`. The call returns `true` when it shows the target.
-It returns `false`, and does not throw, when the host does not know the agent, does not have the
-plugin installed, or the plugin has no such screen.
-
-The area shows one target at a time: a new target replaces it, and the same target again leaves it
-as it is. Wide layouts show it as a panel on the right with a drag handle; compact layouts show it
-as a sheet over your content. It closes from its header and when the user leaves your screen or
-panel, and it is not restored on the next visit.
 
 ### Sidebar items
 
@@ -1925,40 +1941,11 @@ Inline PDF rendering needs a daemon from Paseo 0.13.0 or later; older daemons re
 
 ### ScriptFrame
 
-Import `ScriptFrame` from `@getpaseo/plugin/client/ui` to run your own script in an isolated page
-and pass text to it and back. Use it for what React Native cannot draw, such as a WebGL scene.
+Use `ScriptFrame` from `@getpaseo/plugin/client/ui` to mount a self-contained browser view, such as a WebGL scene, in a plugin screen or panel. Supply a trusted JavaScript string in `script`, an accessible `title` and `onMessage(text)`. Optional props are `testID` and `onError(message)`. Changing the script starts a new page.
 
-| Prop        | Required | Meaning                                                                |
-| ----------- | -------- | ---------------------------------------------------------------------- |
-| `script`    | Yes      | JavaScript, run once after an empty standards-mode page loads.         |
-| `onMessage` | Yes      | Called with each string the page posts.                                |
-| `onError`   | No       | Called with a message when the script throws or the page cannot start. |
-| `title`     | Yes      | What a screen reader calls the frame.                                  |
-| `testID`    | No       | Test identifier for the frame.                                         |
+The plugin sends strings with `ref.current.post(text)`. The frame queues them until the script has run. Inside the page, set `window.paseoFrame.onMessage = (text) => { … }` during initialization and send replies with `window.paseoFrame.post(text)`. Use JSON for structured data. The plugin can check for the component on older clients with `"ScriptFrame" in ui`, where `ui` is a namespace import of the UI kit.
 
-A ref gives `post(text)`, which sends a string to the page. Posts made before the page is ready
-wait and are delivered in order. In the page, `window.paseoFrame.post(text)` sends and
-`window.paseoFrame.onMessage = (text) => { ... }` receives. Set `window.paseoFrame.onMessage`
-before your script's first run ends; posts that arrive while it is unset are dropped. Only strings
-cross, so send JSON for anything structured.
-
-The page has no network: its policy is `default-src 'none'; script-src 'unsafe-inline';
-style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:;
-form-action 'none'`. It has no files and no new windows, and on Android the frame allows only its
-first load. Run only your own script in the frame: the policy does not cover WebRTC, on the web the
-page can navigate its own frame to another address, where the policy no longer applies, and on
-Android a navigation goes through when the app does not answer the frame's load check within 250 ms
-(react-native-webview's default).
-
-| Platform | The page                                                                                                                                                                                                    |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Android  | A WebView with JavaScript and `localStorage` on. Every `ScriptFrame` shares one origin that never resolves, `script-frame.invalid`, so `localStorage` there is shared across plugins and outlives a plugin. |
-| Web      | A sandboxed `iframe` without `allow-same-origin`. `localStorage` throws there, so a script that needs it must check. Tested.                                                                                |
-| iOS      | The same WebView component as Android. Not tested.                                                                                                                                                          |
-
-Check for it before you render it: `"ScriptFrame" in ui`, with `import * as ui from
-"@getpaseo/plugin/client/ui"`. The store build does not have it, whatever its version, so keep
-another view for apps without it.
+Android and iOS use a WebView with a per-frame origin, file access disabled and a navigation handler for the initial document. Web and desktop use a sandboxed iframe with an opaque origin. Keep durable state in the plugin. The initial page’s content policy blocks fetches and external subresources and allows inline scripts, styles and local media. Use this API only for code you trust. The policy does not isolate arbitrary web content or cover WebRTC. Use `DocumentFrame` for passive file previews.
 
 ### Version requirement and examples
 
@@ -2327,13 +2314,13 @@ export default function contribute(client: PluginClientContext) {
 
 `useNewWorkspace()` returns the setup the item sits in:
 
-| Field or command            | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `host`, `project`           | The user's choices, `{ id, label }` and `{ id, name } \| null`. Read-only: an item cannot switch host or project.                                                                                                                                                                                                                                                                                                                                     |
-| `isolation`, `setIsolation` | `"local"` or `"worktree"`. A project that cannot make worktrees reads `"local"`, and `setIsolation("worktree")` rejects.                                                                                                                                                                                                                                                                                                                              |
-| `baseRef`, `setBaseRef`     | What a new worktree starts from: `{ type: "branch", name }`, `{ type: "change-request", number }`, or `null` until the default is known. A branch's `name` is the exact ref creation uses, such as `refs/remotes/origin/main`, so `setBaseRef(newWorkspace.baseRef)` changes nothing. `setBaseRef` takes any ref the Base picker offers, or a bare branch name, which Paseo resolves as it does anywhere else. It rejects while no project is chosen. |
-| `branch`, `setBranch`       | The name of the branch a new worktree is created on. `null` lets Paseo pick one. It is kept while isolation is local or the base is a change request, and it names the new branch of any worktree that cuts one, from the default base or a chosen branch. It does not apply to a worktree that checks out an existing branch or change request.                                                                                                      |
-| `metadata`, `setMetadata`   | The created workspace's [metadata](/docs/plugins/hooks#metadata), not the first agent's. Top-level keys replace; `null` removes a key. Rejects on a host that does not support metadata with "Update the host to use metadata."                                                                                                                                                                                                                       |
+| Field or command            | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`, `project`           | The user's choices, `{ id, label }` and `{ id, name } \| null`. Read-only: an item cannot switch host or project.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `isolation`, `setIsolation` | `"local"` or `"worktree"`. **Existing worktree** reads `"local"`, since the workspace is a local one at the worktree's directory, and `setIsolation` leaves it. A project that cannot make worktrees reads `"local"`, and `setIsolation("worktree")` rejects.                                                                                                                                                                                                                                                                         |
+| `baseRef`, `setBaseRef`     | What a new worktree starts from: `{ type: "branch", name }`, `{ type: "change-request", number }`, or `null` until the default is known. A branch's `name` is the exact ref creation uses, such as `refs/remotes/origin/main`, so `setBaseRef(newWorkspace.baseRef)` changes nothing. `setBaseRef` takes any ref the Base picker offers, or a bare branch name, which Paseo resolves as it does anywhere else. The new worktree branches off it, and the Branches list switches to Branch off. It rejects while no project is chosen. |
+| `branch`, `setBranch`       | The name of the branch a new worktree is created on. `null` lets Paseo pick one. It is kept while isolation is local or the base is a change request, and it names the new branch of any worktree that cuts one, from the default base or a chosen branch. It does not apply to a worktree that checks out an existing branch or change request.                                                                                                                                                                                      |
+| `metadata`, `setMetadata`   | The created workspace's [metadata](/docs/plugins/hooks#metadata), not the first agent's. Top-level keys replace; `null` removes a key. Rejects on a host that does not support metadata with "Update the host to use metadata."                                                                                                                                                                                                                                                                                                       |
 
 Commands follow the [composer item](#composer-items) rules: each one acts on the screen's state
 when it runs, so `await newWorkspace.setBranch(name)` followed by `newWorkspace.setMetadata(patch)`

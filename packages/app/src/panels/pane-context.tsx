@@ -79,11 +79,6 @@ export function usePaneHost(): PaneHost | null {
   return useContext(PaneContext)?.host ?? null;
 }
 
-/** The focus of the pane around this component, or null on a screen with no panes. */
-export function usePaneFocusIfAny(): PaneFocusContextValue | null {
-  return useContext(PaneFocusContext);
-}
-
 export function usePaneFocus(): PaneFocusContextValue {
   const value = useContext(PaneFocusContext);
   invariant(value, "PaneFocusContext is required");

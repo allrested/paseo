@@ -26,6 +26,7 @@ import {
   resolveSnapshotCwd,
 } from "./provider-snapshot-manager.js";
 import { OpenCodeAgentClient } from "./providers/opencode-agent.js";
+import { getClaudeModels } from "./providers/claude/models.js";
 
 const TEST_CAPABILITIES = {
   supportsStreaming: false,
@@ -311,6 +312,29 @@ describe("ProviderSnapshotManager public surface", () => {
     }
   });
 
+  test("accepts a legacy Ultra Code choice on a model with an independent effort catalog", async () => {
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      extraClients: {
+        claude: createExtraClient("claude", {
+          isAvailable: async () => true,
+          fetchCatalog: async () => ({ models: getClaudeModels("2.1.284"), modes: [] }),
+        }),
+      },
+    });
+    try {
+      await expect(
+        manager.validateAgentConfiguration({
+          provider: "claude",
+          model: "claude-opus-4-8",
+          thinkingOptionId: "ultracode",
+        }),
+      ).resolves.toEqual([]);
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("reports an unavailable Hub agent provider at the authored provider field", async () => {
     const manager = new ProviderSnapshotManager({ logger: createTestLogger() });
     try {
@@ -331,51 +355,6 @@ describe("ProviderSnapshotManager public surface", () => {
       expect(ids).toEqual(
         expect.arrayContaining(["claude", "codex", "opencode", "copilot", "pi", "omp"]),
       );
-    } finally {
-      manager.destroy();
-    }
-  });
-
-  test("getProviderLaunchInfo resolves a derived provider's family and env", () => {
-    const manager = new ProviderSnapshotManager({
-      logger: createTestLogger(),
-      providerOverrides: {
-        "claude-work": {
-          extends: "claude",
-          label: "Claude (work)",
-          env: { CLAUDE_CONFIG_DIR: "/home/me/.claude-work" },
-        },
-      },
-    });
-    try {
-      expect(manager.getProviderLaunchInfo("claude-work")).toEqual({
-        providerId: "claude-work",
-        family: "claude",
-        label: "Claude (work)",
-        enabled: true,
-        env: { CLAUDE_CONFIG_DIR: "/home/me/.claude-work" },
-      });
-      expect(manager.getProviderLaunchInfo("claude")).toMatchObject({
-        family: "claude",
-        enabled: true,
-        env: {},
-      });
-      expect(manager.getProviderLaunchInfo("missing")).toBeNull();
-    } finally {
-      manager.destroy();
-    }
-  });
-
-  test("getProviderLaunchInfo reports a disabled provider", () => {
-    const manager = new ProviderSnapshotManager({
-      logger: createTestLogger(),
-      providerOverrides: { codex: { enabled: false } },
-    });
-    try {
-      expect(manager.getProviderLaunchInfo("codex")).toMatchObject({
-        providerId: "codex",
-        enabled: false,
-      });
     } finally {
       manager.destroy();
     }

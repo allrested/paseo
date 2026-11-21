@@ -3,7 +3,6 @@ import {
   createPluginResourceAttachment,
   PluginResourceComposerAttachmentSchema,
   pluginResourceAttachmentToAgentAttachment,
-  searchEmptyText,
   togglePluginResourceAttachment,
 } from "./model";
 import { splitComposerAttachmentsForSubmit } from "@/composer/attachments/submit";
@@ -66,29 +65,5 @@ describe("plugin resource attachments", () => {
       images: [],
       attachments: [agentAttachment],
     });
-  });
-});
-
-describe("searchEmptyText", () => {
-  it("says a search is running, and that it found nothing", () => {
-    expect(searchEmptyText(null, true)).toBe("Searching...");
-    expect(searchEmptyText(null, false)).toBe("No results");
-  });
-
-  it("shows a plugin's reason without what the daemon and the client wrap it in", () => {
-    const error = Object.assign(
-      new Error(
-        "Request failed: No tracker is connected. requestType=plugin.rpc.invoke.request code=handler_error",
-      ),
-      { name: "DaemonRpcError" },
-    );
-    expect(searchEmptyText(error, false)).toBe("No tracker is connected.");
-  });
-
-  it("shows any other error as it is", () => {
-    expect(searchEmptyText(new Error("Plugin host is offline"), false)).toBe(
-      "Plugin host is offline",
-    );
-    expect(searchEmptyText("offline", false)).toBe("offline");
   });
 });

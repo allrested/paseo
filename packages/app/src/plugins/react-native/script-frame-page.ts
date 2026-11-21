@@ -2,9 +2,6 @@
 // Native and web build the same page; only how a message crosses differs. Nothing here touches
 // the DOM: the app's unit tests load it in Node.
 
-/** A `.invalid` name never resolves. It gives the native page an origin, so `localStorage` works. */
-export const SCRIPT_FRAME_BASE_URL = "https://script-frame.invalid/";
-
 export const SCRIPT_FRAME_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; form-action 'none'";
 

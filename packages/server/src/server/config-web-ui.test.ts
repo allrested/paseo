@@ -125,31 +125,4 @@ describe("daemon web UI config", () => {
 
     expect(config.webUi.distDir).toBe(path.resolve(envDir));
   });
-
-  test("no brand variable leaves the web UI config without a brand", async () => {
-    const home = await createPaseoHome({ version: 1 });
-
-    expect(loadConfig(home, { env: {} }).webUi).not.toHaveProperty("brand");
-    expect(loadConfig(home, { env: { PASEO_BRAND_NAME: "  " } }).webUi).not.toHaveProperty("brand");
-  });
-
-  test("the brand variables are passed on, with their paths resolved against the Paseo home", async () => {
-    const home = await createPaseoHome({ version: 1 });
-
-    const config = loadConfig(home, {
-      env: {
-        PASEO_BRAND_NAME: "Acme Agents",
-        PASEO_BRAND_LOGO: "brand/logo.svg",
-        PASEO_BRAND_ICON: "/srv/brand/icon.png",
-        PASEO_BRAND_COLOR: "#112233",
-      },
-    });
-
-    expect(config.webUi.brand).toEqual({
-      name: "Acme Agents",
-      logo: path.join(home, "brand", "logo.svg"),
-      icon: "/srv/brand/icon.png",
-      color: "#112233",
-    });
-  });
 });
