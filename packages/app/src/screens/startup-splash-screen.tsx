@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Image, ScrollView, Text, View, type ImageSourcePropType } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { getDesktopDaemonLogs, type DesktopDaemonLogs } from "@/desktop/daemon/desktop-daemon";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { isNative, isWeb } from "@/constants/platform";
+import { isForkBuild } from "@/constants/build-profile";
 import { CODE_SURFACE_DATASET } from "@/styles/code-surface";
 
 interface StartupSplashScreenProps {
@@ -31,6 +32,8 @@ interface StartupSplashScreenProps {
 
 const GITHUB_ISSUE_URL = "https://github.com/getpaseo/paseo/issues/new";
 const DOCS_URL = "https://paseo.sh/docs";
+
+const FORK_LOGO = require("../../assets/images/flavours-launcher.png");
 
 const LOGO_SIZE = 96;
 const SHIMMER_PEAK_WIDTH = 120;
@@ -82,6 +85,10 @@ function ensureWebSplashShimmerKeyframes() {
 function LogoShimmer() {
   const { theme } = useUnistyles();
 
+  if (isForkBuild) {
+    return <NativeLogoShimmer color={theme.colors.foreground} image={FORK_LOGO} />;
+  }
+
   if (isWeb) {
     return <WebLogoShimmer color={theme.colors.foreground} />;
   }
@@ -115,7 +122,7 @@ function WebLogoShimmer({ color }: { color: string }) {
   return <View style={shimmerStyle as never} />;
 }
 
-function NativeLogoShimmer({ color }: { color: string }) {
+function NativeLogoShimmer({ color, image }: { color: string; image?: ImageSourcePropType }) {
   const shimmerTranslateX = useSharedValue(-SHIMMER_PEAK_WIDTH);
 
   useEffect(() => {
@@ -150,17 +157,25 @@ function NativeLogoShimmer({ color }: { color: string }) {
   const maskElement = useMemo(
     () => (
       <View style={styles.shimmerMask}>
-        <PaseoLogo size={LOGO_SIZE} color="#000000" />
+        {image ? (
+          <Image source={image} style={styles.logoImage} />
+        ) : (
+          <PaseoLogo size={LOGO_SIZE} color="#000000" />
+        )}
       </View>
     ),
-    [],
+    [image],
   );
 
   return (
     <MaskedView style={trackStyle} maskElement={maskElement}>
       <View style={trackStyle}>
         <View style={styles.nativeShimmerBase}>
-          <PaseoLogo size={LOGO_SIZE} color={color} />
+          {image ? (
+            <Image source={image} style={styles.logoImage} />
+          ) : (
+            <PaseoLogo size={LOGO_SIZE} color={color} />
+          )}
         </View>
         <Animated.View style={peakCombinedStyle}>
           <Svg width="100%" height="100%" preserveAspectRatio="none">
@@ -278,6 +293,10 @@ const styles = StyleSheet.create((theme) => ({
     height: LOGO_SIZE,
     alignItems: "center",
     justifyContent: "center",
+  },
+  logoImage: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
   },
   nativeShimmerTrack: {
     overflow: "hidden",
