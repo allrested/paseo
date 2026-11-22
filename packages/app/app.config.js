@@ -98,6 +98,7 @@ const variants = {
   fork: {
     name: "AI",
     androidIcon: "./assets/images/flavours-launcher.png",
+    splashImage: "./assets/images/flavours-launcher.png",
     packageId: "sh.paseo.fork",
     googleServicesFile: undefined,
     googleServiceInfoPlist: undefined,
@@ -164,12 +165,13 @@ export default {
       [
         "expo-splash-screen",
         {
-          image: "./assets/images/splash-icon.png",
+          image: variant.splashImage ?? "./assets/images/splash-icon.png",
           imageWidth: 200,
           resizeMode: "contain",
           backgroundColor: "#ffffff",
           dark: {
-            backgroundColor: "#000000",
+            // The fork's logo sits on a white tile, so its splash stays white in dark mode.
+            backgroundColor: variant.splashImage ? "#ffffff" : "#000000",
           },
         },
       ],
@@ -204,6 +206,7 @@ export default {
     },
     extra: {
       fdroidBuild: isFdroidBuild,
+      forkBuild: appVariant === "fork",
       profileBuild: isProfileBuild,
       watchdogBuild: isWatchdogBuild,
       diagnosticRevision: process.env.PASEO_DIAGNOSTIC_REVISION,
