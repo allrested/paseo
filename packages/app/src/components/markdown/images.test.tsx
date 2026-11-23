@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import type { FileReadResult } from "@getpaseo/client/internal/daemon-client";
 import { __setAttachmentStoreForTests } from "@/attachments/store";
 import type { AttachmentStore } from "@/attachments/types";
-import { useMarkdownSource, type MarkdownImageContext } from "./images";
+import { useFileImagePreviews, useMarkdownSource, type MarkdownImageContext } from "./images";
 import { PENDING_MARKDOWN_IMAGE } from "./source";
 
 const memoryStore: AttachmentStore = {
@@ -100,4 +100,34 @@ it("shows the alt text of a file image in Markdown that belongs to no host", asy
   await waitFor(() =>
     expect(result.current.markdown.replace(PENDING_MARKDOWN_IMAGE, "pending")).toBe("Chart"),
   );
+});
+
+it("reads the files behind a sent message's images into previews, in the order sent", async () => {
+  // Each stored image has its own preview URL, as in the real stores.
+  __setAttachmentStoreForTests({
+    ...memoryStore,
+    resolvePreviewUrl: async ({ attachment }) => `blob:${attachment.fileName}`,
+  });
+  const files = createHostFiles();
+  const first = `file:///tmp/paseo-attachments-abc123/${"a".repeat(64)}.png`;
+  const second = `file:///tmp/paseo-attachments-abc123/${"b".repeat(64)}.png`;
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  const sent = [first, second];
+
+  const { result } = renderHook(
+    () => useFileImagePreviews(sent, { serverId: "srv_test", client: files }),
+    { wrapper },
+  );
+
+  expect(result.current).toEqual([null, null]);
+  await waitFor(() =>
+    expect(result.current).toEqual([`blob:${"a".repeat(64)}.png`, `blob:${"b".repeat(64)}.png`]),
+  );
+  expect(files.reads).toEqual([
+    { cwd: "/", path: `/tmp/paseo-attachments-abc123/${"a".repeat(64)}.png` },
+    { cwd: "/", path: `/tmp/paseo-attachments-abc123/${"b".repeat(64)}.png` },
+  ]);
 });

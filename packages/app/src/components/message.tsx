@@ -8,7 +8,9 @@ import {
   AttachmentFrame,
   AttachmentLabel,
   AttachmentThumbnail,
+  AttachmentThumbnailImage,
 } from "@/components/attachment-pill";
+import { useFileImagePreviews } from "@/components/markdown/images";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import {
@@ -103,6 +105,7 @@ interface UserMessageProps {
   agentId?: string;
   messageId?: string;
   message: string;
+  imageUrls?: string[];
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
   timestamp: number;
@@ -394,6 +397,82 @@ function UserMessageImagePill({ image, onOpen, accessibilityLabel }: UserMessage
   );
 }
 
+interface SentImagePillsProps {
+  files: string[];
+  client: UserMessageProps["client"];
+  serverId?: string;
+  onOpen: (uri: string) => void;
+  accessibilityLabel: string;
+}
+
+interface SentImagesProps extends Omit<SentImagePillsProps, "files"> {
+  /** The daemon's copies of the message's images, when its row names any. */
+  files?: string[];
+  /** True in the sender's window, which shows the images it holds itself. */
+  hidden: boolean;
+  style: StyleProp<ViewStyle>;
+}
+
+/** The images of a message this window did not send: the daemon's copies, as the sender's pills. */
+function SentImages({ files, hidden, style, ...pills }: SentImagesProps) {
+  if (hidden || !files?.length) return null;
+  return (
+    <View style={style}>
+      <SentImagePills files={files} {...pills} />
+    </View>
+  );
+}
+
+function SentImagePills({
+  files,
+  client,
+  serverId,
+  onOpen,
+  accessibilityLabel,
+}: SentImagePillsProps) {
+  // The same image attached twice is one file.
+  const unique = useMemo(() => [...new Set(files)], [files]);
+  const previews = useFileImagePreviews(unique, { client, serverId });
+  return unique.map((file, index) => (
+    <SentImagePill
+      key={file}
+      uri={previews[index]}
+      onOpen={onOpen}
+      accessibilityLabel={accessibilityLabel}
+    />
+  ));
+}
+
+function SentImagePill({
+  uri,
+  onOpen,
+  accessibilityLabel,
+}: Pick<SentImagePillsProps, "onOpen" | "accessibilityLabel"> & { uri: string | null }) {
+  const handlePress = useCallback(() => {
+    if (uri) onOpen(uri);
+  }, [onOpen, uri]);
+  return (
+    <AttachmentFrame onPress={handlePress} accessibilityLabel={accessibilityLabel}>
+      <AttachmentThumbnailImage uri={uri} />
+    </AttachmentFrame>
+  );
+}
+
+/** One lightbox for a message's images, whether this window holds them or reads the daemon's. */
+function useUserMessageLightbox() {
+  const [metadata, openAttachment] = useState<UserMessageImageAttachment | null>(null);
+  const [uri, openUri] = useState<string | null>(null);
+  const close = useCallback(() => {
+    openAttachment(null);
+    openUri(null);
+  }, []);
+  const source = useMemo<ImageLightboxSource | null>(() => {
+    if (metadata) return { type: "attachment", metadata };
+    return uri ? { type: "uri", uri } : null;
+  }, [metadata, uri]);
+  return { source, openAttachment, openUri, close };
+}
+
 const MESSAGE_TEXT_DATASET = { messageText: "true" };
 
 export const UserMessage = memo(function UserMessage({
@@ -403,6 +482,7 @@ export const UserMessage = memo(function UserMessage({
   agentId,
   messageId,
   message,
+  imageUrls,
   images = [],
   attachments = [],
   timestamp,
@@ -416,12 +496,7 @@ export const UserMessage = memo(function UserMessage({
   const isCompact = useIsCompactFormFactor();
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
-  const [lightboxMetadata, setLightboxMetadata] = useState<UserMessageImageAttachment | null>(null);
-  const handleLightboxClose = useCallback(() => setLightboxMetadata(null), []);
-  const lightboxSource = useMemo<ImageLightboxSource | null>(
-    () => (lightboxMetadata ? { type: "attachment", metadata: lightboxMetadata } : null),
-    [lightboxMetadata],
-  );
+  const lightbox = useUserMessageLightbox();
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const hasText = message.trim().length > 0;
   const hasImages = images.length > 0;
@@ -494,12 +569,21 @@ export const UserMessage = memo(function UserMessage({
                   <UserMessageImagePill
                     key={image.id}
                     image={image}
-                    onOpen={setLightboxMetadata}
+                    onOpen={lightbox.openAttachment}
                     accessibilityLabel={t("composer.attachments.openImage")}
                   />
                 ))}
               </View>
             ) : null}
+            <SentImages
+              files={imageUrls}
+              hidden={hasImages}
+              style={imagePreviewContainerStyle}
+              client={client}
+              serverId={serverId}
+              onOpen={lightbox.openUri}
+              accessibilityLabel={t("composer.attachments.openImage")}
+            />
             {hasAttachments ? (
               <View style={attachmentPreviewContainerStyle}>
                 {attachments.map((attachment, index) => {
@@ -550,7 +634,7 @@ export const UserMessage = memo(function UserMessage({
           </View>
         ) : null}
       </View>
-      <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
+      <AttachmentLightbox source={lightbox.source} onClose={lightbox.close} />
     </View>
   );
 });

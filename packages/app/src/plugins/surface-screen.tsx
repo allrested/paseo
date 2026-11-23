@@ -5,6 +5,7 @@ import { X } from "lucide-react-native";
 import { useCallback, useMemo, type ComponentType } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { AssistantFileLinkResolverProvider } from "@/assistant-file-links";
 import { HeaderIconBadge } from "@/components/headers/header-icon-badge";
 import { HeaderToggleButton } from "@/components/headers/header-toggle-button";
 import { CompactHeader } from "@/components/headers/compact-header";
@@ -256,20 +257,23 @@ export function PluginSurfaceScreen() {
       )}
       <View style={styles.body}>
         {plugin && surface && client ? (
-          <SurfaceErrorBoundary
-            key={`${serverId}/${pluginId}/${identity?.kind}/${contributionId}`}
-            installation={plugin}
-            Surface={surface.Component}
-          >
-            <ThemedSurfaceRenderer
+          // A screen sits outside any workspace, so its Markdown reads file images from its host.
+          <AssistantFileLinkResolverProvider client={client} serverId={serverId}>
+            <SurfaceErrorBoundary
+              key={`${serverId}/${pluginId}/${identity?.kind}/${contributionId}`}
+              installation={plugin}
               Surface={surface.Component}
-              plugin={plugin}
-              host={host}
-              layout={layout}
-              params={params}
-              uniProps={pluginThemeMapping}
-            />
-          </SurfaceErrorBoundary>
+            >
+              <ThemedSurfaceRenderer
+                Surface={surface.Component}
+                plugin={plugin}
+                host={host}
+                layout={layout}
+                params={params}
+                uniProps={pluginThemeMapping}
+              />
+            </SurfaceErrorBoundary>
+          </AssistantFileLinkResolverProvider>
         ) : (
           <PluginSurfacePlaceholder status={placeholderStatus} />
         )}

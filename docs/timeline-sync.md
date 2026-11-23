@@ -297,6 +297,14 @@ row is recorded before handler output. The app tracks submission transactions on
 capability. Older hosts keep the shipped untracked optimistic-row behavior and roll that row back on RPC
 rejection.
 
+The canonical row of a prompt sent with images also carries `imageUrls`: one `file:` URL per image,
+naming the daemon's own copy in its attachments folder. The sending window keeps showing the images
+it holds. Every other window, and the sender's after a reload, reads the daemon's copies and shows
+them as the same thumbnails. The copies last as long as the daemon's timeline does. After a restart
+the timeline is rebuilt from provider history: Claude's journal holds the image bytes, so the copies
+are written again; Codex history names the old files, which work while they still exist; other
+providers replay the text alone.
+
 Turn activity has one client-side replica. Lifecycle events can attach `turnId`, and agent snapshots can
 expose `activeTurn: { turnId, startedAt } | null`. An identified terminal cannot close a different
 identified turn; an unnamed legacy terminal can close the current turn. Snapshots, stream events,

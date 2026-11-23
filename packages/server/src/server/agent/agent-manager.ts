@@ -1,3 +1,4 @@
+import { materializeProviderImage, uploadedImageUrl } from "./providers/provider-image-output.js";
 import type { AttachedAgentTool, PluginAgentToolsRuntime } from "../plugins/agent-tools.js";
 import { ProviderOptionsValidationError } from "./provider-options.js";
 import type { AgentToolResult } from "@getpaseo/plugin/server";
@@ -46,6 +47,7 @@ import {
   type AgentPermissionResult,
   type AgentPersistenceHandle,
   type AgentProviderNotice,
+  type AgentPromptContentBlock,
   type AgentPromptInput,
   type AgentProvider,
   type AgentRunOptions,
@@ -149,6 +151,15 @@ function submittedPromptText(prompt: AgentPromptInput): string {
     .flatMap((block) => (block.type === "text" && !("mimeType" in block) ? [block.text] : []))
     .join("\n")
     .trim();
+}
+
+type PromptImage = Extract<AgentPromptContentBlock, { type: "image" }>;
+
+function promptImages(prompt: AgentPromptInput): PromptImage[] {
+  if (typeof prompt === "string") {
+    return [];
+  }
+  return prompt.filter((block): block is PromptImage => block.type === "image");
 }
 
 export class AgentManagerShuttingDownError extends Error {
@@ -3102,7 +3113,10 @@ export class AgentManager {
     onAccepted?.();
     this.touchUpdatedAt(agent);
     if (options?.clientMessageId) {
-      this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted");
+      const images = promptImages(prompt);
+      this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted", {
+        imageUrls: images.length ? await this.submittedImageUrls(agent.id, images) : undefined,
+      });
       this.emitState(agent);
     }
     const dispatch = (event: AgentStreamEvent): void => {
@@ -3177,24 +3191,31 @@ export class AgentManager {
     prompt: AgentPromptInput;
     options?: AgentRunOptions;
     promptStart?: ForegroundPromptStart;
-  }): Promise<string | null> {
+  }): Promise<{ turnId: string; imageUrls?: string[] } | null> {
     const { agent, agentId, pendingRun, prompt, options, promptStart } = params;
     if (promptStart?.admit?.() === false) {
       this.runs.settleForegroundRun(agentId, pendingRun.token);
       return null;
     }
+    let imageUrls: string[] | undefined;
     try {
+      const images = options?.clientMessageId ? promptImages(prompt) : [];
+      if (images.length) {
+        imageUrls = await this.submittedImageUrls(agentId, images);
+        if (pendingRun.settled) throw new AgentTurnStartCanceledError();
+      }
       const result = await agent.session.startTurn(prompt, options);
       if (pendingRun.settled) {
         throw new Error(`Agent ${agentId} run was canceled before its turn started`);
       }
-      return result.turnId;
+      return { turnId: result.turnId, imageUrls };
     } catch (error) {
       if (error instanceof AgentTurnStartCanceledError) {
         if (!pendingRun.settled) {
           if (options?.clientMessageId) {
             this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "rejected", {
               messageId: options.clientMessageId,
+              imageUrls,
             });
           }
           await this.handleStreamEvent(agent, {
@@ -3229,6 +3250,7 @@ export class AgentManager {
         if (options?.clientMessageId) {
           this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "rejected", {
             messageId: options.clientMessageId,
+            imageUrls,
           });
         }
         await this.handleStreamEvent(agent, {
@@ -3342,7 +3364,7 @@ export class AgentManager {
     const streamForwarder = async function* streamForwarder(this: AgentManager) {
       let turnId: string | null;
       let turnStream: ReturnType<AgentRunState["createTurnStream"]> | null = null;
-      turnId = await this.startPendingForegroundTurn({
+      const started = await this.startPendingForegroundTurn({
         agent,
         agentId,
         pendingRun,
@@ -3350,7 +3372,7 @@ export class AgentManager {
         options,
         promptStart,
       });
-      if (turnId === null) {
+      if (started === null) {
         const canceledEvent: AgentStreamEvent = {
           type: "turn_canceled",
           provider: agent.provider,
@@ -3359,6 +3381,7 @@ export class AgentManager {
         yield canceledEvent;
         return;
       }
+      turnId = started.turnId;
 
       if (isReplacement) {
         agent.pendingReplacement = false;
@@ -3394,6 +3417,7 @@ export class AgentManager {
             stagedSubmittedPromptEcho?.item.type === "user_message"
               ? stagedSubmittedPromptEcho.item.messageId
               : undefined,
+          imageUrls: started.imageUrls,
         });
       }
       for (const stagedEvent of pendingRun.stagedEvents.splice(0)) {
@@ -3764,10 +3788,12 @@ export class AgentManager {
     if (!clientMessageId) {
       return;
     }
+    const images = promptImages(prompt);
     this.recordSubmittedPrompt(agent, prompt, clientMessageId, "accepted", {
       messageId: clientMessageId,
       turnId: expectedTurnId,
       ...(providerMessageId ? { providerMessageId } : {}),
+      imageUrls: images.length ? await this.submittedImageUrls(agent.id, images) : undefined,
     });
     this.emitState(agent);
   }
@@ -5691,16 +5717,38 @@ export class AgentManager {
     return event;
   }
 
+  // The prompt's image bytes go to the provider and are gone after the turn, so the row
+  // keeps a file each viewer can open: the sender's own copy never leaves its window.
+  private async submittedImageUrls(agentId: string, images: PromptImage[]): Promise<string[]> {
+    const imageUrls: string[] = [];
+    for (const block of images) {
+      try {
+        const image = await materializeProviderImage(block);
+        const url = uploadedImageUrl(image.path);
+        if (url) imageUrls.push(url);
+      } catch {
+        this.logger.warn({ agentId }, "Could not retain a submitted image preview");
+      }
+    }
+    return imageUrls;
+  }
+
   private recordSubmittedPrompt(
     agent: ActiveManagedAgent,
     prompt: AgentPromptInput,
     clientMessageId: string,
     outcome: "accepted" | "rejected",
-    options?: { messageId?: string; providerMessageId?: string; turnId?: string },
+    options?: {
+      messageId?: string;
+      providerMessageId?: string;
+      turnId?: string;
+      imageUrls?: string[];
+    },
   ): void {
     const items = projectAgentMessages({
       type: "user_message",
       text: submittedPromptText(prompt),
+      ...(options?.imageUrls?.length ? { imageUrls: options.imageUrls } : {}),
       clientMessageId,
       ...(options?.messageId ? { messageId: options.messageId } : {}),
     });

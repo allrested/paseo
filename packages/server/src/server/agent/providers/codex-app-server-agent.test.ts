@@ -6,7 +6,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { CodexInstructionSnapshot } from "./codex/instruction-snapshot.js";
 
 import type {
@@ -31,7 +31,28 @@ import {
   mapCodexPlanToToolCall,
   normalizeCodexOutputSchema,
   toAgentUsage,
+  threadItemToTimeline,
 } from "./codex-app-server-agent.js";
+
+test("replays uploaded Codex images with their user message and ignores unrelated paths", async () => {
+  const first = path.join(tmpdir(), "paseo-attachments-abc123", "a".repeat(64) + ".png");
+  const second = path.join(tmpdir(), "paseo-attachments-abc123", "b".repeat(64) + ".jpg");
+  const row = await threadItemToTimeline({
+    type: "userMessage",
+    id: "u1",
+    content: [
+      { type: "local_image", path: first },
+      { type: "localImage", path: second },
+      { type: "localImage", path: path.join(tmpdir(), "other.png") },
+    ],
+  });
+  expect(row).toEqual({
+    type: "user_message",
+    text: "",
+    messageId: "u1",
+    imageUrls: [first, second].map((file) => pathToFileURL(file).href),
+  });
+});
 
 describe("mapCodexPlanUpdateToTodo", () => {
   test("preserves checklist progress without creating a plan card", () => {
