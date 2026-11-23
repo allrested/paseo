@@ -6867,9 +6867,9 @@ async function mapAssistantHistoryBlocksWithMessageId(
   return items;
 }
 
-function convertClaudeHistoryEntryPreamble(
+async function convertClaudeHistoryEntryPreamble(
   entry: ClaudeHistoryEntry,
-): { shortCircuit: AgentTimelineItem[] } | { proceed: { content: unknown } } {
+): Promise<{ shortCircuit: AgentTimelineItem[] } | { proceed: { content: unknown } }> {
   if (entry.type === "system" && entry.subtype === "compact_boundary") {
     const compactMetadata = readCompactionMetadata(entry);
     return {
@@ -6895,7 +6895,7 @@ function convertClaudeHistoryEntryPreamble(
   if (entry.type === "user" && isSyntheticHistoryUserEntry(entry)) {
     return { shortCircuit: [] };
   }
-  const steeredPrompt = readSteeredPromptHistoryItem(entry);
+  const steeredPrompt = await readSteeredPromptHistoryItem(entry);
   if (steeredPrompt) {
     return { shortCircuit: [steeredPrompt] };
   }
@@ -6930,19 +6930,19 @@ function isProviderImageMessage(item: AgentTimelineItem): boolean {
  * queued_command attachment in prompt mode, under the uuid Paseo minted for the message, which is
  * also what a rewind to it resolves. The other modes carry task notifications, not user messages.
  */
-function readSteeredPromptHistoryItem(entry: ClaudeHistoryEntry): AgentTimelineItem | null {
+async function readSteeredPromptHistoryItem(
+  entry: ClaudeHistoryEntry,
+): Promise<AgentTimelineItem | null> {
   if (entry.type !== "attachment") return null;
   const attachment = toObjectRecord(entry.attachment);
   if (attachment?.type !== "queued_command" || attachment.commandMode !== "prompt") return null;
-  const text = extractUserMessageText(attachment.prompt);
-  if (!text) return null;
-  const messageId = readTrimmedString(attachment.source_uuid);
-  return { type: "user_message", text, ...(messageId ? { messageId } : {}) };
+  return replayedUserMessage(attachment.prompt, readTrimmedString(attachment.source_uuid) ?? null);
 }
 
-// The journal keeps an uploaded image as a base64 block of its user entry. The timeline is
-// rebuilt from the journal after a daemon restart, so each one is written back to a file the
-// row can point at. Images inside a tool_result are nested deeper and stay with their tool call.
+// The journal keeps an uploaded image as a base64 block of its user entry, or of the
+// queued_command attachment when the message was steered. The timeline is rebuilt from the
+// journal after a daemon restart, so each one is written back to a file the row can point at.
+// Images inside a tool_result are nested deeper and stay with their tool call.
 async function replayedUserImageUrls(content: unknown): Promise<string[]> {
   const imageUrls: string[] = [];
   for (const block of Array.isArray(content) ? content : []) {
@@ -6983,7 +6983,7 @@ export async function convertClaudeHistoryEntry(
     content: string | ClaudeContentChunk[],
   ) => AgentTimelineItem[] | Promise<AgentTimelineItem[]>,
 ): Promise<AgentTimelineItem[]> {
-  const preamble = convertClaudeHistoryEntryPreamble(entry);
+  const preamble = await convertClaudeHistoryEntryPreamble(entry);
   if ("shortCircuit" in preamble) {
     return preamble.shortCircuit;
   }

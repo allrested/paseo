@@ -210,6 +210,65 @@ describe("convertClaudeHistoryEntry", () => {
     ]);
   });
 
+  test("replays the uploaded image of a message steered into a running turn", async () => {
+    const entry = {
+      type: "attachment",
+      uuid: "attachment-steered",
+      attachment: {
+        type: "queued_command",
+        commandMode: "prompt",
+        source_uuid: "steered-with-image",
+        prompt: [
+          { type: "text", text: "use this one instead" },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: ONE_PIXEL_PNG },
+          },
+        ],
+      },
+    };
+
+    const rows = await convertClaudeHistoryEntry(entry, () => []);
+
+    expect(rows).toEqual([
+      {
+        type: "user_message",
+        text: "use this one instead",
+        imageUrls: [expect.stringMatching(/^file:\/\/.*\/[0-9a-f]{64}\.png$/)],
+        messageId: "steered-with-image",
+      },
+    ]);
+    const [url] = rows[0].type === "user_message" ? (rows[0].imageUrls ?? []) : [];
+    expect((await fs.readFile(fileURLToPath(url))).toString("base64")).toBe(ONE_PIXEL_PNG);
+  });
+
+  test("replays a steered message that holds only an image", async () => {
+    const entry = {
+      type: "attachment",
+      uuid: "attachment-steered-image-only",
+      attachment: {
+        type: "queued_command",
+        commandMode: "prompt",
+        source_uuid: "steered-image-only",
+        prompt: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: ONE_PIXEL_PNG },
+          },
+        ],
+      },
+    };
+
+    expect(await convertClaudeHistoryEntry(entry, () => [])).toEqual([
+      {
+        type: "user_message",
+        text: "",
+        imageUrls: [expect.stringMatching(/^file:\/\/.*\/[0-9a-f]{64}\.png$/)],
+        messageId: "steered-image-only",
+      },
+    ]);
+  });
+
   test("converts compact boundary metadata variants", async () => {
     const fixtures = [
       {
