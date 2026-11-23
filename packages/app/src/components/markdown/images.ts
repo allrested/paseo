@@ -149,3 +149,18 @@ export function useMarkdownSource(
     imageSources: Object.fromEntries([...resolved].map(([source, url]) => [url, source])),
   };
 }
+
+/**
+ * Preview URLs for images the daemon keeps as files, such as those of a sent message: one per
+ * file, null until it is read. They are read and kept exactly as a Markdown image is.
+ */
+export function useFileImagePreviews(
+  files: readonly string[],
+  context: MarkdownImageContext,
+): (string | null)[] {
+  const text = useMemo(() => files.map((file) => `![Image](<${file}>)`).join("\n\n"), [files]);
+  const { imageSources } = useMarkdownSource(text, context);
+  return files.map(
+    (file) => Object.keys(imageSources).find((url) => imageSources[url] === file) ?? null,
+  );
+}

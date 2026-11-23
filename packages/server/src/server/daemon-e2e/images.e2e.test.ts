@@ -1,7 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
+import { fileURLToPath } from "url";
+import { DaemonClient } from "../test-utils/daemon-client.js";
 import { createDaemonTestContext, type DaemonTestContext } from "../test-utils/index.js";
 import { createMessageCollector, type MessageCollector } from "../test-utils/message-collector.js";
 
@@ -141,4 +143,39 @@ describe("sendImages", () => {
     await ctx.client.deleteAgent(agent.id);
     rmSync(cwd, { recursive: true, force: true });
   }, 180000); // 3 minute timeout for Claude API call
+
+  test("another client reads the image of a message it did not send", async () => {
+    const cwd = tmpCwd();
+    const agent = await ctx.client.createAgent({
+      provider: "claude",
+      cwd,
+      title: "Image Row Agent",
+    });
+    await ctx.client.sendMessage(agent.id, "look at this", {
+      images: [{ data: MINIMAL_PNG_BASE64, mimeType: "image/png" }],
+    });
+    await ctx.client.waitForFinish(agent.id, 120000);
+
+    const other = new DaemonClient({ url: `ws://127.0.0.1:${ctx.daemon.port}/ws` });
+    await other.connect();
+    try {
+      const timeline = await other.fetchAgentTimeline(agent.id, { direction: "tail", limit: 0 });
+      const rows = timeline.entries
+        .map((entry) => entry.item)
+        .filter((item) => item.type === "user_message");
+      expect(rows).toEqual([
+        expect.objectContaining({
+          text: "look at this",
+          imageUrls: [expect.stringMatching(/^file:\/\/.*\/[0-9a-f]{64}\.png$/)],
+        }),
+      ]);
+      const [url] = rows[0].imageUrls ?? [];
+      expect(readFileSync(fileURLToPath(url)).toString("base64")).toBe(MINIMAL_PNG_BASE64);
+    } finally {
+      await other.close();
+    }
+
+    await ctx.client.deleteAgent(agent.id);
+    rmSync(cwd, { recursive: true, force: true });
+  }, 180000);
 });

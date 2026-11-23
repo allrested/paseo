@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import pino from "pino";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -56,6 +57,9 @@ function isPermissionResolvedEvent(
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+const ONE_PIXEL_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
 
 describe("convertClaudeHistoryEntry", () => {
   test("maps user tool results to timeline items", async () => {
@@ -147,6 +151,61 @@ describe("convertClaudeHistoryEntry", () => {
       {
         type: "user_message",
         text: "Run npm test",
+      },
+    ]);
+  });
+
+  test("replays a user entry's uploaded image as a file beside its text", async () => {
+    const entry = {
+      type: "user",
+      uuid: "user-with-image",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "look at this" },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: ONE_PIXEL_PNG },
+          },
+        ],
+      },
+    };
+
+    const rows = await convertClaudeHistoryEntry(entry, () => []);
+
+    expect(rows).toEqual([
+      {
+        type: "user_message",
+        text: "look at this",
+        imageUrls: [expect.stringMatching(/^file:\/\/.*\/[0-9a-f]{64}\.png$/)],
+        messageId: "user-with-image",
+      },
+    ]);
+    const [url] = rows[0].type === "user_message" ? (rows[0].imageUrls ?? []) : [];
+    expect((await fs.readFile(fileURLToPath(url))).toString("base64")).toBe(ONE_PIXEL_PNG);
+  });
+
+  test("replays a user entry that holds only an image", async () => {
+    const entry = {
+      type: "user",
+      uuid: "image-only",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: ONE_PIXEL_PNG },
+          },
+        ],
+      },
+    };
+
+    expect(await convertClaudeHistoryEntry(entry, () => [])).toEqual([
+      {
+        type: "user_message",
+        text: "",
+        imageUrls: [expect.stringMatching(/^file:\/\/.*\/[0-9a-f]{64}\.png$/)],
+        messageId: "image-only",
       },
     ]);
   });

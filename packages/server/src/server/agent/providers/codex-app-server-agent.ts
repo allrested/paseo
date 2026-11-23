@@ -112,6 +112,7 @@ import {
 } from "./codex/thread-history.js";
 import {
   materializeProviderImage,
+  uploadedImageUrl,
   renderProviderImageOutputAsAssistantMarkdown,
   type ProviderImageOutput,
 } from "./provider-image-output.js";
@@ -1910,6 +1911,14 @@ function mapCodexThreadUserMessageItem(
     return null;
   }
   const text = extractUserText(normalizedItem.content) ?? "";
+  const imageUrls: string[] = [];
+  for (const block of Array.isArray(normalizedItem.content) ? normalizedItem.content : []) {
+    const value = toObjectRecord(block);
+    if (value?.type === "localImage" || value?.type === "local_image") {
+      const url = uploadedImageUrl(value.path);
+      if (url) imageUrls.push(url);
+    }
+  }
   const messageId = nonEmptyString(normalizedItem.id);
   const clientMessageId = nonEmptyString(
     normalizedItem.clientId ?? normalizedItem.client_id ?? normalizedItem.clientUserMessageId,
@@ -1917,6 +1926,7 @@ function mapCodexThreadUserMessageItem(
   return {
     type: "user_message",
     text,
+    ...(imageUrls.length ? { imageUrls } : {}),
     ...(messageId ? { messageId } : {}),
     ...(clientMessageId ? { clientMessageId } : {}),
   };

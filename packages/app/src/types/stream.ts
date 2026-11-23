@@ -103,6 +103,7 @@ export interface UserMessageItem {
   timelineCursor?: TimelinePosition;
   text: string;
   timestamp: Date;
+  imageUrls?: string[];
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
 }
@@ -115,6 +116,7 @@ export interface UserMessageInput {
   timelineCursor?: TimelinePosition;
   text: string;
   timestamp: Date;
+  imageUrls?: string[];
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
 }
@@ -133,6 +135,7 @@ export function createUserMessage(input: UserMessageInput): UserMessageItem {
     ...(input.timelineCursor ? { timelineCursor: input.timelineCursor } : {}),
     text: input.text,
     timestamp: input.timestamp,
+    ...(input.imageUrls?.length ? { imageUrls: input.imageUrls } : {}),
     ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
     ...(input.attachments && input.attachments.length > 0
       ? { attachments: input.attachments }
@@ -262,6 +265,7 @@ function produceUserMessage(
   const presentation = presentationPolicy === "incoming" ? incoming : existing;
   const merged = createUserMessage({
     ...presentation,
+    imageUrls: incoming.imageUrls ?? existing.imageUrls,
     clientMessageId: incoming.clientMessageId ?? existing.clientMessageId,
     messageId: incoming.messageId ?? existing.messageId,
     timelineCursor: incoming.timelineCursor ?? existing.timelineCursor,
@@ -273,6 +277,7 @@ function produceUserMessage(
     existing.timelineCursor === merged.timelineCursor &&
     existing.text === merged.text &&
     existing.timestamp === merged.timestamp &&
+    existing.imageUrls === merged.imageUrls &&
     existing.images === merged.images &&
     existing.attachments === merged.attachments
   ) {
@@ -914,6 +919,11 @@ export function handoffCreatedAgentUserMessageToStream(params: {
   });
 }
 
+function userMessageContent(text: string, imageUrls?: string[]) {
+  const content = normalizeChunk(text);
+  return { chunk: content.chunk, hasContent: content.hasContent || Boolean(imageUrls?.length) };
+}
+
 function appendUserMessage(
   state: StreamItem[],
   text: string,
@@ -923,8 +933,9 @@ function appendUserMessage(
   clientMessageId?: string,
   timelineCursor?: TimelinePosition,
   turnId?: string,
+  imageUrls?: string[],
 ): StreamItem[] {
-  const { chunk, hasContent } = normalizeChunk(text);
+  const { chunk, hasContent } = userMessageContent(text, imageUrls);
   if (!hasContent) {
     return state;
   }
@@ -937,6 +948,7 @@ function appendUserMessage(
     timelineCursor,
     turnId,
     text: chunk,
+    imageUrls,
     timestamp,
   });
   return upsertUserMessage(state, nextItem);
@@ -1546,6 +1558,7 @@ function reduceTimelineEvent(
         item.clientMessageId,
         timelineCursor,
         event.turnId,
+        item.imageUrls,
       );
     case "assistant_message":
       return appendAssistantMessage(
@@ -1897,7 +1910,7 @@ function applyCanonicalUserMessageEvent(params: {
 }): ApplyStreamEventResult | null {
   const { tail, head, event, timestamp, timelineCursor, unmatchedInsert = "tail" } = params;
   if (event.type !== "timeline" || event.item.type !== "user_message") return null;
-  const normalized = normalizeChunk(event.item.text);
+  const normalized = userMessageContent(event.item.text, event.item.imageUrls);
 
   const flushedTail = head.length > 0 ? flushHeadToTail(tail, head) : tail;
   const flushedHead = head.length > 0 ? [] : head;
@@ -1910,6 +1923,7 @@ function applyCanonicalUserMessageEvent(params: {
     turnId: event.turnId,
     timelineCursor,
     text: normalized.chunk,
+    imageUrls: event.item.imageUrls,
     timestamp,
   });
   if (unmatchedInsert === "head") {

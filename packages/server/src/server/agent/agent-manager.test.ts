@@ -1814,20 +1814,31 @@ test("steering records concurrent early echoes as canonical submitted prompts", 
       workspaceId: undefined,
     });
     agentId = agent.id;
-    const stream = manager.streamAgent(agent.id, "start");
+    const image = { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" };
+    const stream = manager.streamAgent(agent.id, [image], { clientMessageId: "start-image" });
     void (async () => {
       for await (const _event of stream) {
       }
     })();
     await manager.waitForAgentRunStart(agent.id);
     await Promise.all([
-      manager.steerAgentRun(agent.id, "one", { clientMessageId: "client-one" }),
+      manager.steerAgentRun(agent.id, [image], { clientMessageId: "client-one" }),
       manager.steerAgentRun(agent.id, "two", { clientMessageId: "client-two" }),
     ]);
     const rows = manager.getTimeline(agent.id).filter((item) => item.type === "user_message");
     expect(rows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ messageId: "client-one", clientMessageId: "client-one" }),
+        expect.objectContaining({
+          clientMessageId: "start-image",
+          text: "",
+          imageUrls: [expect.stringMatching(/^file:.*\.png$/)],
+        }),
+        expect.objectContaining({
+          messageId: "client-one",
+          clientMessageId: "client-one",
+          text: "",
+          imageUrls: [expect.stringMatching(/^file:.*\.png$/)],
+        }),
         expect.objectContaining({ messageId: "client-two", clientMessageId: "client-two" }),
       ]),
     );

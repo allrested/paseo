@@ -111,6 +111,7 @@ import {
   isProviderImageMarkdown,
   materializeProviderImage,
   renderProviderImageOutputAsAssistantMarkdown,
+  uploadedImageUrl,
   type ProviderImageOutput,
 } from "../provider-image-output.js";
 
@@ -6939,6 +6940,43 @@ function readSteeredPromptHistoryItem(entry: ClaudeHistoryEntry): AgentTimelineI
   return { type: "user_message", text, ...(messageId ? { messageId } : {}) };
 }
 
+// The journal keeps an uploaded image as a base64 block of its user entry. The timeline is
+// rebuilt from the journal after a daemon restart, so each one is written back to a file the
+// row can point at. Images inside a tool_result are nested deeper and stay with their tool call.
+async function replayedUserImageUrls(content: unknown): Promise<string[]> {
+  const imageUrls: string[] = [];
+  for (const block of Array.isArray(content) ? content : []) {
+    const image = toBase64ImageOutput(block);
+    if (!image?.data) continue;
+    try {
+      const file = await materializeProviderImage({
+        data: image.data,
+        mimeType: image.mimeType ?? null,
+      });
+      const url = uploadedImageUrl(file.path);
+      if (url) imageUrls.push(url);
+    } catch {
+      // An image that cannot be decoded is left out; the entry's text still replays.
+    }
+  }
+  return imageUrls;
+}
+
+async function replayedUserMessage(
+  content: unknown,
+  messageId: string | null,
+): Promise<AgentTimelineItem | null> {
+  const text = extractUserMessageText(content);
+  const imageUrls = await replayedUserImageUrls(content);
+  if (!text && !imageUrls.length) return null;
+  return {
+    type: "user_message",
+    text: text ?? "",
+    ...(imageUrls.length ? { imageUrls } : {}),
+    ...(messageId ? { messageId } : {}),
+  };
+}
+
 export async function convertClaudeHistoryEntry(
   entry: ClaudeHistoryEntry,
   mapBlocks: (
@@ -6972,14 +7010,8 @@ export async function convertClaudeHistoryEntry(
   const timeline: AgentTimelineItem[] = [];
 
   if (entry.type === "user") {
-    const text = extractUserMessageText(content);
-    if (text) {
-      timeline.push({
-        type: "user_message",
-        text,
-        ...(userMessageId ? { messageId: userMessageId } : {}),
-      });
-    }
+    const userMessage = await replayedUserMessage(content, userMessageId);
+    if (userMessage) timeline.push(userMessage);
   }
 
   if (hasToolBlock && normalizedBlocks) {
