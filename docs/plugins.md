@@ -97,573 +97,18 @@ The author contract is in [runtime translations](../public-docs/plugins/referenc
 Built-in plugins ship from `plugins/<id>/`, with `paseo-plugin.json`, `index.server.ts`,
 `server/`, and optional client entry and icon. Add the plugin ID to `builtinPlugins` in
 `packages/server/src/server/plugins/builtin/index.ts`; the workspace, build copy, and CI
-checks cover that registry. Unlisted directories do not load. A built-in's default export gets its
-own directory as a second argument, `{ directory }`, for files it ships beside its code; the build
-copy and Docker image carry every file under `plugins/` except tests, `test/` folders and
-`node_modules`. Installed plugins get no second argument.
+checks cover that registry. Unlisted directories do not load.
 
 The `worktree-include` built-in copies gitignored files selected by
 [`.worktreeinclude`](../public-docs/worktrees.md#copy-local-files-with-worktreeinclude)
 before setup and agents, through `worktree.create.after`.
 
-The `shared-mcp` built-in runs each MCP server in its settings once, over HTTP on the server's own
-port, so agents connect to one copy instead of each starting its own. A server that already
-answers on its port shows as `external` and keeps running when the daemon stops. Orphan reclaim
-and RSS read Linux `/proc`. Without it, a server left running by a crashed daemon comes back as
-`external`. Probe, restart, and backoff rules are in the
-[design](superpowers/specs/2026-11-06-shared-mcp-plugin-design.md#supervisor).
-
-Point a definition's `command` at an installed binary, not `npx -y <package>`: npx keeps an
-`npm exec` parent of about 165 MB alive next to each server, which costs most of what sharing the
-server saves. The fork's agents image installs the npm servers it uses at pinned versions; the list
-is in [docker/README.md](../docker/README.md#the-compose-stack). A definition that still uses
-`npx -y` keeps working.
-
-A definition with `bearerToken` puts the plugin's token in the server's env under the `serverEnv`
-name, and in every agent's env under the `agentEnv` name, for configs that send
-`Authorization: Bearer ${VAR}`. Claude Code and Kiro CLI both expand that header. An agent
-receives the token only when its session opens, so after you add a `bearerToken` definition or
-rename an `agentEnv`, reload the agents that were already running. Agents get the token for a
-disabled bearer server too, so switching one on needs no agent reload. Shells Paseo did not open
-as an agent, such as Paseo terminals and SSH sessions, do not get the token. Read it from
-`$PASEO_HOME/shared-mcp/token` (mode 0600) in your shell profile.
-
-Built-ins have no row in Settings > Plugins, so open the settings screens from the "Shared MCP
-servers" Command Center item, which appears once a workspace on that host is open. Saving a change
-to `command`, `cwd`, `env`, `requires`, or `bearerToken.serverEnv` restarts that server, as Restart
-does. That server's agent sessions drop and the agents reconnect on their own. Turning `enabled`
-off stops the server. After a `port` change, agents reconnect only once their MCP configs name the
-new port. `label`, `healthPath`, and `agentEnv` apply in place (`needsRestart` in
-`plugins/shared-mcp/server/supervisor.ts`). Nothing watches
-`$PASEO_HOME/plugin-settings/shared-mcp/servers.json`, so a hand edit applies at the next daemon
-start.
-
-Each server's output goes to `$PASEO_HOME/shared-mcp/logs/<id>.log`, and its tail to the Servers
-tab. The plugin's own messages go to the daemon log, not to `paseo plugin logs shared-mcp`.
-
-The `heavy-command-gate` built-in queues the memory-heavy commands that agents start, such as
-typechecks, test suites and installs. By default one runs at a time, when free memory covers its
-estimate plus a 1 GB reserve. At every start the plugin writes
-`$PASEO_HOME/heavy-command-gate/gate.mjs`, links it as `npm`, `npx`, `pnpm`, `tsc`, `tsgo`,
-`vitest`, `jest`, `gradle`, `gradlew` and `pytest` in `bin/`, and puts that directory first on the
-`PATH` of every agent session that opens. A shim asks the plugin over `gate.sock` before a heavy
-command starts and keeps the connection open until the command exits, so a crash or a cancel frees
-the slot. When the gate cannot be reached, gives no answer within 10 s, or closes the connection
-before letting the command start, the command runs ungated after one warning line. A watch command,
-such as `tsc --watch`, holds its slot until it exits, so with one slot every other heavy command
-waits for it until then or until Gate heavy commands is turned off.
-Admission rules are in the
-[design](superpowers/specs/2026-11-06-heavy-command-gate-design.md#admission).
-
-A heavy command that a shim let through after asking the gate runs with `PASEO_HEAVY_GATE_HELD=1`,
-whether the gate admitted it or did not answer, and its children inherit it unless a runner clears
-the environment. The shim that asked does not carry it. A shim runs straight through when the flag
-is in its own environment or, for a heavy command on Linux, in the environment of an ancestor that
-still has the shim directory on its `PATH`. So a nested command never waits for its own parent, even
-under Turborepo, whose default strict env mode drops the flag. Without `/proc`, pass the flag
-through such a runner; for Turborepo, add `"globalPassThroughEnv": ["PASEO_HEAVY_GATE_HELD"]` to
-`turbo.json`. Other tools can find held commands by the flag in `/proc/<pid>/environ`, but it is a
-hint, not proof of a held slot: it is missing below a runner that clears the environment, and a
-long-lived process that a held command started, such as a Gradle daemon, keeps it after the command
-ends. With Gate heavy commands off, or when a shim cannot read its config or classify the command,
-the command runs without asking and without the flag.
-
-Agents get the shim directory only when their session opens, so reload the agents that were
-running before the first daemon start with this built-in. While the gate is available, a `PATH` set
-in a provider's `env` is replaced by the daemon's `PATH` with the shim directory first, so put such
-directories on the daemon's `PATH`. Commands typed in Paseo terminals, run by absolute path, run
-from `node_modules/.bin` directly, or found in a directory that a provider's shell puts ahead of
-the shim directory, such as `~/.local/bin` in Kiro sessions, do not pass the gate. Neither does a
-tool that a light npm script runs, such as `tsc` inside `npm run build`: npm finds it in
-`node_modules/.bin` first, so add the script itself, `npm run build`, to the patterns to gate it.
-Free memory is
-the smaller of `MemAvailable` and the cgroup v2 headroom, which is `memory.max` minus
-`memory.current` plus `inactive_file` from `memory.stat` (page cache the kernel can reclaim);
-without `/proc`, only the slot count applies. The shims run on the daemon's own `node`, or under
-the desktop app on the first `node` on the daemon's `PATH`. Without one, and on Windows, the gate
-reports itself unavailable and agents run unchanged. Open the Commands and Limits screens from the
-"Heavy commands" Command Center item, which appears once a workspace on that host is open. The
-patterns on Limits name a command as npm runs it, so `tsc` matches `npx tsc` and `npm run build`
-matches `pnpm build`. A command whose arguments before `--` include `--version` or `--help` is never
-heavy.
-
-The `claude-workflows` built-in replaces the card of Claude Code's `Workflow` tool with a live card
-once the tool result names a run. The card shows the run's state and, for each agent inside it, its
-phase, state, tool calls, last tool, tokens and last activity. The card no longer shows the workflow
-script. A Running card polls `claude-workflows.run.request` every 3 s and stops once the run is not
-Running; the daemon runs no timer or watcher for it. The plugin reads Claude Code's undocumented
-files as of 2.1.x, so after an update that changes them you get a partial card or Unavailable. It
-looks for runs under the daemon's `CLAUDE_CONFIG_DIR`, `~/.claude` and each `~/.claude-<name>`; a
-provider profile that points `CLAUDE_CONFIG_DIR` elsewhere is not searched, so its cards read
-"Run files not found". Running needs a live Claude process for the run's session, found through
-Linux `/proc`; on other systems a run shows Stopped until it completes or is killed. A client
-without `daemon.manage` loads no plugin code and keeps the plain card. File formats are in the
-[design](superpowers/specs/2026-11-07-claude-workflows-design.md#where-the-data-lives).
-
-The `resource-manager` built-in adds a Resources item to the sidebar. Each tab is a stack of cards
-that start closed. A closed card shows a status in words, its meters, and the age of its reading;
-tap it for the rest. The first tab has a card for this instance: container memory, load, and host
-memory, with swap and the load averages inside. Its Agents and Groups cards show totals and open to
-memory and CPU for each agent and for four groups: the daemon, the shared MCP servers, commands the
-heavy-command gate is running, and everything else. A process counts against the agent named by
-`PASEO_AGENT_ID` in its environment, and children inherit it, so an agent's MCP servers count
-against that agent. An OpenCode server that agents share carries no `PASEO_AGENT_ID` and counts
-under the daemon or everything else. Close, on an agent's row in the open Agents card, ends an idle
-agent's runtime; the agent stays, and its next prompt resumes it. When one of the
-[runtime residency](agent-lifecycle.md#runtime-residency) checks fails, the row says why the
-runtime stays open. The readings come from Linux `/proc` and cgroup v2, so on
-macOS and Windows the tab shows none. Settings > Sidebar can hide the item.
-
-Under an agent's or a group's row, "Listening on" lists the TCP ports its processes listen on, each
-with how far it can be reached: local only, one interface, or all interfaces. A tap copies the
-port's address on the host, `http://localhost:<port>`. The ports and the socket inodes come from
-`/proc/net/tcp` and `/proc/net/tcp6`; the process whose `/proc/<pid>/fd` links hold a socket owns
-its port, and a port goes to the agent or group that process counts against. A socket no readable
-process holds, such as another user's server, shows under everything else. A parent and its
-workers share one socket; the lowest pid gets it. UDP is not read, and the server tabs show no
-ports.
-
-A card reads Warning at 80% of memory, a 1-minute load equal to the core count, or a disk at 85%,
-and Critical at 90%, twice the core count, or 95%. Swap does not change the status. The thresholds
-are constants in `plugins/resource-manager/client/cards.ts`. An open card draws memory and load
-from the readings the screen has received since it opened, 30 at most; they and the open cards are
-gone when the screen closes.
-
-The Stack tab, next to the first, checks the rest of this instance's stack from the daemon's host
-once a minute while it is open: Paseo's version and uptime, FigCraft, the Android device, and the
-newest deploy. A part shows Off, naming the variable to set, until that variable is there.
-`FIGCRAFT_URL` turns on the FigCraft card, which asks the server and `FIGCRAFT_WEB_URL` for an
-answer (a figcraft-server with no proxy in front answers no GET, so there it only connects) and
-checks that `FIGCRAFT_SERVER_KEY_FILE` is not empty, never reading the key out.
-`PASEO_ANDROID_ADB` turns on the device card, which runs `adb get-state` against it and looks for
-`maestro` on `PATH`. `PASEO_DEPLOY_REPO`, such as `allrested/paseo`, turns on the deploy card, which
-reads the newest `v*` tag's `docker.yml` run and its `deploy` job with `gh`, so `gh` needs a login or
-`GH_TOKEN` for the daemon's user. The Paseo card warns when that tag is not the version it runs. The
-version comes from `@getpaseo/server`'s `package.json`, which the desktop app does not ship, so there
-it reads as not available.
-
-Every stdio MCP entry that runs `ssh-mcp` gets a read-only tab of its own: entries in the user scope
-of `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set), in its local scope
-for each Paseo workspace's folder, and in each workspace's `.mcp.json` when Claude Code trusts that
-folder or one above it. A `.mcp.json` in a folder Claude Code does not trust is skipped, and the
-screen names it when it lists an ssh-mcp entry. Entries that expand to the same command, arguments
-and env share one tab, under the first source. When the tab opens, the plugin starts the entry's
-server, connects to it as an MCP client, and sends one fixed command that reads memory, load,
-disks, and processes. An entry with one host shows one card. An entry with several ssh-mcp 2.x
-profiles shows one card per host, the hosts that need attention first, under a count of them: each
-reading lists the hosts with `list-connections` and sends the command to each one through
-`run-command` with its `profile`, over the entry's one session, so a profile that `reload-config`
-adds shows at the next reading. That is one command per host every 30 s while the tab is open, and
-each counts against the profile's `commandQuotaPerDay` when one is set. The session closes 2
-minutes after the tab closes, and counts under the daemon group while it runs. An entry shows even
-where `disabledMcpjsonServers` keeps Claude from starting it, and a config change shows the next
-time the screen opens, at most a minute later.
-Each session's pid file is in `$PASEO_HOME/resource-manager/run/`, and on Linux the next daemon
-start stops any session a crashed daemon left behind.
-
-`${VAR}` and `${VAR:-default}` in an entry resolve against the daemon's environment without
-Paseo's own `PASEO_*` variables and the keys Paseo strips from every server it starts; the entry's
-own `env` block is not used. An entry that names a `PASEO_*` variable without a default still gets
-a tab, which shows an error naming the variable; with a default, the server starts with the
-default.
-
-ssh-mcp returns at most 1 MiB of output, so on a host with about 40,000 processes or more the
-process list is cut short without an error. `df` fails on a stale network mount, and the host's
-card then shows its error over the last reading's meters once there was one. A hung NFS mount
-holds the reading until ssh-mcp's 60 s timeout. With several hosts, each host has these limits on its own,
-and while one hangs, the tab still shows the hosts that answered.
-
-`plugins/resource-manager/server/local/procfs.ts` is a byte-for-byte copy of
-`plugins/shared-mcp/server/procfs.ts`, because a built-in cannot import another built-in's files.
-`procfs-copy.test.ts` fails when the two differ, so change both together.
-
-The `claude-accounts` built-in manages several Claude Code logins on one host. Each account is a
-directory `~/.claude-<name>` with its own login, launched by the provider `claude-<name>`, whose
-`env` sets `CLAUDE_CONFIG_DIR`. Open the "Claude accounts" screen from the sidebar footer; it
-works before any workspace is open. Add account creates the directory and the provider entry,
-links the main profile's settings, `CLAUDE.md`, skills, plugins, commands and agents into it, and
-opens `claude auth login` in a terminal of your most recent workspace, so open a project first.
-Add account and Sign in need macOS or Linux. The reasons are in the
-[design](superpowers/specs/2026-11-06-claude-accounts-design.md).
-
-`.claude.json` holds each login's own state, so it cannot be a link. The plugin keeps each
-account's user-scope `mcpServers` equal to the main profile's: every 5 s it compares them and
-rewrites a copy that differs, under Claude Code's own file lock, which also undoes a Claude Code
-write that drops the copy. It writes only into accounts it added, recorded in
-`$PASEO_HOME/claude-accounts/added.json`. A `~/.claude-<name>` made by hand shows a problem on its
-row until you add the same name again, which adopts it. Links are made at Add, so an entry the main
-profile gains later is shared once you add the account again.
-
-The default account on that screen applies to every agent created with plain `claude`. Auto picks
-the signed-in account with the most room; it skips an account whose usage is unknown, whose
-provider is off or not ready, or that is at 95% or more or on pace to run out within 30 minutes,
-and keeps plain `claude` when none is left. A named default that cannot take agents also keeps
-plain `claude`, and an agent started on a named account stays on it. A move to plain `claude` from
-the Move dialog or the CLI that falls back to a history handoff creates its successor through the
-same choice, so it can land on another account. Move idle agents skips agents in a turn, and an
-agent it moves to the main account stays on plain `claude`. The agents it moves lose their
-background shells, `Monitor` watches, background subagents and a running Workflow, which live in
-the Claude process. On macOS the login is in the Keychain, so the screen learns it from the usage
-source: with usage off, every account shows as not signed in, Auto keeps plain `claude`, and Move
-idle agents refuses every account.
-
-Remove on an account's row retires the account; the main account has no Remove. After you confirm,
-it deletes the `claude-<name>` provider entry, drops the name from `added.json`, and renames
-`~/.claude-<name>` to `~/.claude-<name>.removed-<yyyymmdd-hhmmss>`, stamped in UTC. The renamed
-folder keeps the account's chat history and login, and discovery skips it because an account name
-cannot contain a dot. Remove changes nothing and says why while the account has agents that are not
-archived, while Move idle agents moves agents to or from it, or when Paseo did not add it; to remove
-a hand-made account, add the same name first. A plugin's server cannot write the plugin's settings,
-so when the default account is the removed one, the screen saves plain `claude` as the default
-after the removal. If that save fails, its error shows under the default account picker, and the
-stale default keeps plain `claude`. To restore an account, rename its folder back to
-`~/.claude-<name>`, then add the same name again.
-
-The `default-skills` built-in installs third-party Claude Code skills that were reviewed at a
-pinned commit: ub-mode, the AI design skills, Anti Slop, UI/UX Pro Max and unslop. At every daemon
-start, and whenever its settings are saved, it copies each skill that is on from
-`plugins/default-skills/vendor/` into `skills/` of the main Claude config folder
-(`$CLAUDE_CONFIG_DIR`, else `~/.claude`). `claude-accounts` links that folder into each account it
-adds, so one copy serves every account; an account added before the folder existed needs Add
-again. It writes no other agent's skills folder. Each folder it creates is recorded with a hash of
-its content in `$PASEO_HOME/default-skills/installed.json`, and a folder counts as the plugin's only
-while it still matches that hash. A folder you made, or one of its folders you edited, is never
-replaced or removed; the skill shows "skipped: a folder with this name exists" on the Skills screen,
-which the "Default skills" Command Center item opens. That screen groups the four design skills as
-"Good Paseo design": its first switch saves all four switches at once and stores nothing of its
-own. Turning a skill off removes the plugin's folders. Agents see a change when their session
-starts. UI/UX Pro Max runs `python3`, which the fork's agents image installs. unslop ships without
-its Playwright scripts, so its live-site snapshot and story video steps are unavailable. To update
-a pin, follow
-[`vendor/SOURCES.md`](../plugins/default-skills/vendor/SOURCES.md), which also lists every file left
-out or edited and why; the next daemon start replaces the plugin's copies whose content changed.
-`oxlint` and `oxfmt` skip the vendored files, so they stay as reviewed.
-
-The `saved-prompts` built-in keeps prompts the user writes often. The list is the plugin's host
-settings, so the web app and the phone on one host share it: up to 100 prompts, each a name of at
-most 40 characters, unique whatever its case, and a text of at most 20,000. The composer's Prompts
-control reads the list each time it opens and puts the picked prompt at the cursor; it never sends.
-Typing a name nothing has yet, with text in the composer, offers to save that text under the name.
-`/prompt <name>` in an agent's composer takes a whole name or the start of exactly one and replaces
-the composer's text, which Paseo has just cleared; no match, or several, shows the saved names
-instead. There is one command for every prompt because the app reads a plugin's slash commands
-when the plugin loads, so a command per prompt would not follow the list. The "Saved prompts"
-Command Center item opens the settings screen, which adds, edits and deletes prompts. It finds an
-open prompt by the name it had when opened, so a save from another device cannot land it on a
-neighbour. The control and the command read and write through `settingsRpc`, the calls
-`useSettings` makes, since neither has a settings screen's state to hold. The plugin needs an app
-with composer items, 0.16.0 or later.
-
-The `chat-search` built-in finds words in every Claude Code and Kiro CLI chat on the host. "Search
-chats" in the Command Center opens a screen with one field. It has no sidebar row: the sidebar's
-Search row opens the Command Center, and a second row named "Search chats" beside it did not say
-which was which. The search reads the providers' own transcripts and not Paseo's timelines: a chat
-whose agent is not loaded has its text nowhere else, and `agent.timeline.search.request` loads the
-agent, which starts its runtime. `grep` does the reading in its own process. It names the files that
-hold the words, then hands over only the lines that do, so the daemon parses a few lines of each
-chat. Over 700 MB of cached transcripts that takes under a second; reading the matching files in the
-daemon took up to six. A host without `grep`, Windows among them, shows an error instead of
-results. The words are one phrase of at least three characters, in any case, with any white space
-between them. Only what the user typed and what the agent wrote is searched: tool output, thinking,
-text the provider injected and subagent side chats are not. A search reads the 40 newest chats that
-match and counts up to ten messages in each. A chat that belongs to an agent, archived or not, opens
-on a tap. The others, started in a terminal or by another Paseo home, are listed under "Not in
-Paseo" with their session id and folder, and cannot be opened.
-
-Each provider is a store (`plugins/chat-search/server/stores.ts`): where its transcripts are and how
-one line becomes a message. A provider whose chats are JSON lines in files named after the session
-is one more store; one that keeps them in SQLite (OpenCode's `opencode.db`) is not, because `grep`
-cannot hand over a row.
-
-| Provider    | Transcripts                                                                                                                 | Title and folder                                         |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Claude Code | `projects/<folder>/<session>.jsonl` under `$CLAUDE_CONFIG_DIR` or `~/.claude`, and under every `~/.claude-*` account folder | The newest `ai-title` line, else the first prompt; `cwd` |
-| Kiro CLI    | `~/.kiro/sessions/cli/<session>.jsonl`                                                                                      | `<session>.json` beside it, else the first prompt; `cwd` |
-
-Kiro's other layout, `~/.kiro/sessions/<hash>/sess_<id>/messages.jsonl`, is not read.
-
-The `feed` built-in lists what the agents on a host did while you looked elsewhere: a turn that
-finished, a turn that failed, and a permission an agent waits on. A Feed item in the sidebar opens
-it and shows how many entries are unread, on any device; "Open feed" is in the Command Center. An
-entry is unread when it came since the feed was last opened, or when you marked it with the button
-on its row. A mark stays until you mark the entry read or open its agent from the row. A row has
-the agent's title, its folder, how long ago, and one line: the first line of the agent's last
-message for a finished turn, the error for a failed one, what is asked for a permission. Tapping a
-row opens the agent. The field at the top keeps the rows that hold every word typed, in the title,
-the folder's name, the line, or what happened ("failed", "running"). A stopped turn makes no
-entry, and helper agents (`background`) are left out.
-
-The daemon writes the entries from the `agent.turn.after` and `agent.permission.before` hooks and
-keeps the newest 200 in `$PASEO_HOME/feed/feed.json`, with the unread marks. A finished turn's
-line is read from the newest 30 entries of the agent's timeline, so a turn with more than that
-after its last message has a row without a line. A permission's entry goes when the permission is
-answered, when the agent's turn ends, and when the agent closes or is archived. Those still in the
-file when the daemon starts are dropped: the process that asked is gone. A screen is not told
-whether it is in front, and the Feed screen stays mounted under the agent it opened, so the feed
-counts as seen when it opens and when it is pressed. An entry that comes while the screen is up
-stays in the count until then.
-
-Above the entries, the feed lists the agents in a turn now, under "Running". The app gives a
-plugin screen no agent state (`useAgents` and the other state hooks throw there; they work in a
-workspace panel, a popover, a timeline view, a file panel and an item host), so the daemon keeps
-this list from the `agent.turn.before` and `agent.turn.after` hooks and sends it with the feed.
-It is in memory only. A turn that began before the plugin started is found through `agents.list`
-when a device first opens the feed, and its row has no start time: the daemon does not keep when a
-turn began.
-
-The `agent-stats` built-in counts the agents' turns. A Stats item in the sidebar ("Agent stats" in
-the Command Center) shows, for the last 7, 30 or 90 days, how many turns ended, how many failed,
-and the time agents spent in turns, by day and by workspace. Agent time adds every agent up, so
-two agents at once count twice. Helper agents (`background`) are left out: a helper works inside
-its parent's turn.
-
-The daemon counts from the `agent.turn.before` and `agent.turn.after` hooks into hours of UTC,
-per workspace, in `$PASEO_HOME/stats/stats.json`, and keeps 120 days. The client adds the hours
-up into its own days, so a day is the reader's day wherever the daemon runs; in a zone half an
-hour off, the hour that holds midnight goes to the day it starts in. A turn counts in the hour
-it ended, and its time in every hour it ran through. A turn that was running when the daemon
-started has no start and counts without time, and a turn cut off by a daemon stop is not counted.
-Counting begins when the plugin first runs; the screen says since when if that is inside the
-range. A workspace that is gone keeps its numbers under its folder's name.
-
-The chart's bars are neutral ink, not the accent: the accent is under 3:1 against a dark surface
-in several themes. The chart is for a pointer and a finger. The table button beside its title
-gives the same days as text, which is what a keyboard and a screen reader get.
-
-The `attribution` built-in records which lines each agent wrote. The Attribution workspace
-panel ("Show line attribution" in the Command Center) lists the files agents changed in the
-workspace's checkout, and shows one file line by line: the agents are numbered, each line an agent
-wrote carries a mark, and choosing a line gives its turn and opens the agent.
-
-The daemon takes a snapshot of the checkout when a turn starts and when it ends
-(`agent.turn.before`, `agent.turn.after`); what changed in between is that agent's. A change
-made while several agents ran in one checkout is credited to all of them, and a background
-agent's edits to its parent. Each change is a commit in a shadow history under
-`$PASEO_HOME/attribution/<hash of the checkout's path>/`, so `git blame` on that history answers
-who wrote a line and follows it across later edits and moves. Only the files agents changed enter
-it. Edits between turns read as nobody's.
-
-The checkout's own repository is never written. A snapshot runs Git in the checkout with
-`GIT_INDEX_FILE` and `GIT_OBJECT_DIRECTORY` pointed at the shadow store and the repository's
-objects as an alternate: ignore rules, line endings and filters are the checkout's, and no ref,
-object or index entry of it changes. Run every Git command through `server/git.ts`, which drops
-the daemon's own `GIT_` variables first; an inherited `GIT_DIR` would aim the command at
-another repository.
-
-Blame runs against a commit, not against the file on disk: `git blame --contents` cannot name a
-revision before Git 2.41, and it would read the file without the checkout's line-ending settings.
-The reader hashes the file in the checkout and, when it differs from the last recorded version,
-blames an unreferenced commit of it. Its lines read as nobody's.
-
-Limits: Git checkouts only, files up to 1 MiB, no binary files, a turn of up to 300 changed
-files. Attribution stays in the checkout it was recorded in and does not follow a merge into
-another one. A turn that was running across a daemon restart is not recorded. The store of a
-checkout that is gone is removed at the next daemon start.
-
-The `tasks` built-in lists the open tasks of whoever connected a tracker: Jira Cloud issues
-assigned to the token's user and not done, open GitLab and GitHub issues assigned to them, and
-open GitLab merge requests and GitHub pull requests that ask for their review or are assigned to
-them. A Tasks item in the sidebar
-opens the list, and so does "Open tasks" in the Command Center. A row opens the task's page on the
-same screen: its facts, its description, its newest 20 comments, a box that posts a comment, and
-the statuses it can move to. For a Jira issue those are the transitions its workflow offers from
-where it stands, named by the status they lead to. A transition that needs a field (a resolution,
-say) is refused, and the page shows Jira's reason under the button. A GitLab or GitHub issue
-closes and reopens. A merge request or pull request is read and commented on; it is merged or
-closed on its tracker. A task the saved account is not assigned to has "Assign to me", which adds the account and
-keeps who already has it. GitLab and GitHub write Markdown and the page renders it. Jira's rich
-text is flattened to plain text (`plugins/tasks/server/adf.ts`), a comment goes to Jira as plain
-paragraphs, and a description over 20,000 characters is cut.
-
-A GitLab merge request's page lists its review threads between the description and the
-comments. An open thread shows in full, with the file and line it is about, a reply box and
-"Resolve thread"; the resolved ones wait behind a button and have "Reopen thread". The comments
-below leave the thread notes out. The threads are GitLab's discussions that can be resolved,
-read 100 at a time for up to five pages; system notes fill those pages too, and a review longer
-than that says GitLab holds more. Resolving takes the Developer role or the request's
-authorship, and without it the button shows that GitLab did not allow the change. A GitHub pull
-request's threads stay in the workspace's pull request pane.
-
-The pictures of a description show under its text: a Jira issue's image attachments, a GitLab
-description's uploads, a GitHub description's attached images. Where one stood, the text says
-`(image: name)`. The client has no sign-in, so the daemon reads each picture
-(`tasks.images.read`) and hands the bytes over, up to 4 MiB. The first four load with the page
-and the rest on a button. GitLab hands an upload out through its API from 17.4 on; an older
-server answers 404 and the page says so. A picture from any other address stays in the Markdown
-and the renderer loads it.
-
-The plus beside the list's search, and "New issue" in the Command Center, open a form on the
-same screen: the tracker when several are connected, then the Jira or GitLab project or the
-GitHub repository, a title and a description. GitLab lists the projects the account is a member
-of, and GitHub the 100 repositories it pushed to last that take issues. A Jira project also asks
-for the kind of issue; subtasks are left out because they need a parent. The issue is made
-first and assigned second, so one that cannot be assigned is still made and a toast says why. A
-Jira project that requires a field the form does not have refuses, and the form shows Jira's
-reason. The next form starts in the place the last issue went to. A plugin screen opens screens
-and cannot replace one, so on a phone Back from the new issue's page returns to the form, which
-is empty by then.
-
-A Task field on the New workspace screen names the new branch after the pick
-(`BWLT-12-add-the-webhook`, or GitLab's and GitHub's own form `7-rate-limit-the-login-form`) and
-leaves `tasks.id`, `tasks.key` and `tasks.url` in the workspace's metadata. "Use for the next
-workspace" on an issue's page fills that field ahead of time. Once a task is picked, the composer
-on that screen has a Task prompt control. It puts the saved template, filled with the task, at
-the cursor and sends nothing. The template is on the connections screen and holds `{key}`,
-`{title}`, `{description}` and `{url}`; an empty one is the default. "Attach Task" in a
-composer's attach menu sends an issue's or a merge request's key, title, status and description
-as text. A Jira key typed in a search finds that issue whoever has it. The connections screen
-opens from the Task field and from the list while no tracker is connected, and from "Task
-connections" in the Command Center, which lists plugin items only on a screen that belongs to a
-host (a workspace, a plugin screen), not on New workspace or the start page.
-
-A workspace that carries a task shows it under its name in the sidebar, with the task's status
-(`BWLT-12 · In Review`) coloured by where the status stands. The task's page has "Open
-workspace", and its row in the list is marked. A client cannot read a workspace's metadata, so
-one RPC (`tasks.workspaces.linked`) lists the host's workspaces and asks the trackers once for
-each task, and every sidebar row, the list and the page read that one answer. The app asks again
-every five minutes, after a move made on a task's page, and when a row appears for a workspace
-the last answer did not know. A tracker that fails leaves the key with no status. A workspace
-made before `tasks.id` was kept is matched by its key: a Jira key is the issue's id, so its
-status shows; a GitLab key holds the project's path where the API wants its number, so that
-workspace shows the key alone. The phone app is upstream's, and one from before sidebar rows
-took plugin items registers no badge (`plugins/tasks/index.client.tsx`).
-
-The addresses are the plugin's host settings. The tokens are not, because every client reads the
-settings: they are in `$PASEO_HOME/tasks/tokens.json`, mode 600, and the RPCs about them say
-whether one is saved and replace or remove it. No RPC returns a token. Every comment and move is
-made as the token's user, for whoever uses the host. A GitLab token with `read_api` reads; a
-comment, a reply, a close, a new issue or an assignment needs `api`, and without it the page
-says the tracker did not allow the change. GitHub needs no address: a token alone connects github.com, and the address field is for
-a GitHub Enterprise server, whose API is read under `/api/v3`. A classic GitHub token needs
-`repo`; a fine-grained one needs Issues and Pull requests, with write access to comment, make
-an issue or assign one, and lists only the repositories it was given. GitHub's lists come from its issue search, which allows 30 requests a minute. A
-tracker's address must be https (http on loopback only), and requests follow no redirect, because
-the token's header would go with it. A picture is the exception: trackers hand files out through
-a signed link on another host, so the daemon follows one redirect to an https address and sends
-no sign-in header there. When one tracker fails and
-the other answers, the list shows the other's tasks under a line that names the failure; "Test" on
-the connections screen shows it too.
-
-The `viewers` built-in adds three read-only file panels: Table for `.csv` and `.tsv`, Notebook
-for `.ipynb`, and PDF. The first two claim text files, so they compete with Source and the first
-open of each extension asks which to use; a PDF has no other panel and opens without a question.
-Nothing runs in the daemon: each panel reads through its `PluginFile` handle and follows the file
-when it changes on disk.
-
-- **Table.** The first line names the columns. A `.tsv` splits at tabs; any other file splits at
-  whichever of `,` `;` and tab its first line holds most of, because a spreadsheet set to a comma
-  decimal writes `;` into a `.csv`. A press on a column's name sorts up, then down, then back to
-  the file's order; a column sorts as numbers when every cell that holds something is one, and
-  empty cells sort last both ways. The search keeps the rows that hold every word. A cell is cut
-  to its column on one line, and a press on its row shows the row in full. React Native lays out
-  no table, so each column's width is estimated from its name and its first 200 rows
-  (`client/table/layout.ts`), and the rows have one height so the list knows its length before it
-  draws them. A file over 10 MiB is not read: every cell is held in memory.
-- **Notebook.** Format 4 and later. Text cells go through the host's Markdown renderer, and so
-  does code, as a fenced block, which is where its highlighting comes from. Under a code cell are
-  its printed text, its errors without the terminal's colour codes, and a result as its PNG or
-  JPEG, else its Markdown, else its plain text. A result's HTML is not drawn: it is whatever the
-  code wrote, and showing it would take a sandboxed frame per output. Such a result falls back to
-  its plain text, which Jupyter saves beside the HTML, or to a line naming its types. One output
-  is cut at 20,000 characters, and a file over 20 MiB is not read.
-- **PDF.** The file's local URL in `DocumentFrame`, so the browser's viewer draws it on the web
-  and the desktop app and the system's on iOS. Android's WebView has none, and the frame says so.
-
-The office, which shows every agent on the host in one place, is a plugin of its own at
-https://github.com/allrested/paseo-office. Install it with `paseo plugin install git:allrested/paseo-office`;
-its documentation lives in that repository.
-
-The `design` built-in keeps a workspace's design files on the host's own FigCraft server (deploy
-it with [docker.md](docker.md#figcraft-design-mode)). It is off until `FIGCRAFT_URL` names that
-server; `FIGCRAFT_WEB_URL` names its browser editor, and the server key is read from the file
-`FIGCRAFT_SERVER_KEY_FILE` names. The key is never an env variable, because the daemon's env is
-every agent's and terminal's: the plugin turns itself off when `FIGCRAFT_SERVER_KEY` is set. The
-Designs workspace panel ("Open designs" in the Command Center) lists the project's files, keyed by
-the repo, in `$PASEO_HOME/design/files.json`. Remove forgets a file in Paseo only; it stays on the
-server. Opening a file starts a bridge, a `figcraft-cli mcp` child that joins the file as "Paseo"
-and stops 5 minutes after the last viewer or agent leaves; at most 3 run at once. On desktop the
-panel frames FigCraft's editor, and FigCraft asks you to confirm the join once. A phone, in the app
-or a compact browser, gets the bridge's picture of the page instead: tap a spot to comment, and send
-an open thread to an agent. Its Edit switch makes a tap pick the layer there; tools under the
-picture change its text, bind its fill to a colour token, nudge its place and size, duplicate or
-delete it, and undo; the bridge makes those edits as its own member, so its Undo leaves other
-members' edits alone ([design](superpowers/specs/2026-11-14-design-phone-editing-design.md)). New comments reach the agent that last joined the file as one prompt, at
-most one per turn.
-
-On open, the bridge imports `design/tokens.json` (W3C design tokens) into one FigCraft variable
-collection, `Tokens`, with one mode; composite types such as shadows stay in the file only, and
-the repo wins. While a file is open, each 10 s tick first takes edits made to `design/tokens.json`
-(the repo wins again, also over a FigCraft edit in the same tick; a file that does not parse is
-skipped), then writes FigCraft's token edits back to it, uncommitted. A repo without the file gets
-Paseo's own tokens instead, `server/paseo-tokens.json`: one mode per app theme, imported only into
-a file with no `Tokens` collection yet, so edits stay in FigCraft and nothing is written to the
-repo. When the repo gains a tokens file, Paseo's collection is deleted before the repo's goes in,
-so none of it is written back; layers bound to it keep their values. `packages/app/src/styles/design-tokens.test.ts`
-fails when the copy drifts from `theme.ts`; `UPDATE_DESIGN_TOKENS=1` rewrites it. Interactive agent sessions in a workspace get the `design_join` and `design_compare` tools and a
-`figcraft` MCP server behind `bin/figcraft-guard.mjs`. `design_compare` places a screenshot from the
-workspace right of a frame, at its width. A headless FigCraft member, the bridge included, takes in
-the other members' edits only when it runs `collab.peers`, so the bridge runs it before every
-picture. The guard refuses sharing, publishing, hosting, plugin
-directories and anything that names another server, and joins only links to ours. Neither the
-bridge nor the agents' FigCraft runs with automation roots: FigCraft 0.18.1 turns live sessions
-off in a process that has them. `test/figcraft-contract.real.test.ts` pins that and the rest of
-the FigCraft contract, and CI runs it against the pinned release. Design:
-[the spec](superpowers/specs/2026-11-13-design-mode-figcraft-design.md).
-
-The `android` built-in gives agents an Android device over `adb`. It does nothing unless
-`PASEO_ANDROID_ADB` names a device (`host:port` or a serial) and `adb` is on the daemon's `PATH`;
-see [docker.md](docker.md) for the device in the stack. Interactive agent sessions get eleven tools,
-`android_snapshot`, `android_tap`, `android_type`, `android_key`, `android_swipe`,
-`android_screenshot`, `android_record_start`, `android_record_stop`, `android_install`,
-`android_launch` and `android_logs`, unless the host's
-`agentTools` setting is off when the session opens. A snapshot lists up to 200 screen elements with
-refs such as `@a3`; `android_tap` takes a ref from that agent's own latest snapshot, or a point. Every call
-is `adb -s <serial> ...` with an argument list and a timeout, and everything sent to the device's
-shell is single-quoted. `android_install` takes only a `.apk` inside the agent's workspace or the
-home folder; `android_screenshot` saves a PNG under `<workspace>/.paseo/android/` and answers its
-path. `android_record_start` runs `screenrecord` on the device, one recording per host, which
-Android stops after 3 minutes; `android_record_stop` sends it SIGINT (a kill leaves the MP4
-unplayable), pulls the MP4 into the same folder and answers its path. When the device does not answer, every tool says "The Android device is unreachable" and the
-next call tries again.
-
-The same built-in has a panel, a sidebar screen and a Command Center item, all drawn with React
-Native primitives so the store-built mobile app can run them. The client entry is always
-registered, because a plugin cannot know the host's state before it mounts; with no device it shows
-"No Android device on this host" (the host answers a call the plugin does not serve with "Unknown
-RPC method", which the panel reads as no device). The host sends the screen as PNGs over
-`android.stream`, one every 500 ms at most and only when the bytes changed, to at most two viewers;
-a viewer silent for 30 seconds is closed and the panel speaks every 10 seconds. A touch goes back
-through `android.stream.input.request` in device pixels, mapped from the letterboxed picture: a
-press and release within 8 view pixels is a tap, anything else one swipe with the gesture's own
-duration (50 to 3000 ms). The panel also has Back, Home and Recents, a text field that types on the
-device (printable ASCII only), and the "Agent tools" switch for the host setting. In a workspace,
-when `maestro` is on the host's PATH, the panel also lists the workspace's Maestro flows and runs one
-at a time per host, with its files under `$PASEO_HOME/android/maestro-runs/`; a finished run can go to
-an agent. Agents' own `maestro` runs are not coordinated with it
-([design](superpowers/specs/2026-11-14-android-maestro-panel-design.md)). A hidden or
-backgrounded panel closes its stream; Retry opens it again. The client folder may not import
-`server/`, even for a type: the plugin compiler refuses it, so shapes both sides use live in
-`shared/`.
-
-`scripts/builtin-plugins-dist.test.mjs` starts every built-in in process, and first points `HOME`
-and `PASEO_HOME` at a temporary folder with `CLAUDE_CONFIG_DIR` unset. Give any other test or local
-run that starts the real built-ins the same environment. Otherwise `default-skills` copies its
-skills into your real Claude skills folder, and
-`shared-mcp`, `heavy-command-gate` and `resource-manager` work in the real `$PASEO_HOME/shared-mcp`,
-`$PASEO_HOME/heavy-command-gate` and `$PASEO_HOME/resource-manager`, and write the gate's shims,
-config and socket there when no daemon owns `gate.sock`; `worktree-include` and `claude-workflows`
-write nothing there, since they act only when a worktree is created or a card asks for a run.
-`claude-accounts` discovers your real Claude profiles from `HOME` and `CLAUDE_CONFIG_DIR`, and syncs
-`mcpServers` into the accounts that the real `$PASEO_HOME/claude-accounts/added.json` records.
-
 Desktop packaging ships the entire built-in plugin directory as an external resource,
 including declarations. The external esbuild compiler cannot read Electron's `app.asar`
 filesystem, and packaging dependencies excludes `.d.ts` files needed for import validation.
-Built-ins can import only the host modules in
-[runtime modules](../public-docs/plugins/reference.md#runtime-modules), and only server code may
-import Node built-ins. Outside the archive, nothing resolves an npm dependency, even a type-only
-one. The dist build test compiles the built-ins from a copy in a temporary folder for this reason:
-inside the repository, the `node_modules` above them resolve imports the app cannot.
+Built-ins can import only host modules (`@getpaseo/plugin/*`, `zod`) and Node built-ins:
+outside the archive, nothing resolves an npm dependency, and the dist build test cannot catch
+one because it resolves through the repository's `node_modules`.
 The packaged-app smoke check requires every listed built-in to start without relying on
 account credentials.
 
@@ -684,7 +129,7 @@ availability and a diagnostic after the daemon resolves the executable. Configur
 environment, or enablement overrides under `agents.providers.muse`. Omit `extends` to keep
 the bundled integration; an entry with `extends` shadows it with a custom provider. See
 [provider contributions](#contribute-a-provider) for the contract and
-[Muse Code](../public-docs/muse-code.md) for setup, per-agent options, and version limitations.
+[Muse Code](../public-docs/supported-providers/muse-code.md) for setup, per-agent options, and version limitations.
 
 ## Install from a registry
 
@@ -988,37 +433,9 @@ existing agent-context instances, but it cannot create an agent panel without an
 Command Center callbacks use the selected host's existing `PaseoApi` for normal Paseo operations.
 They use typed plugin RPC only for plugin-specific backend work. Surface and panel navigation
 belongs to the app; plugins do not receive Expo Router or workspace-layout store access.
-See the public [navigation fields](../public-docs/plugins/reference.md#screens-and-sidebar-items),
-[external links and workspace browsers](../public-docs/plugins/reference.md#external-links-and-workspace-browsers)
-and [showBeside](../public-docs/plugins/reference.md#show-a-session-or-a-screen-beside-yours)
+See the public [navigation fields](../public-docs/plugins/reference.md#screens-and-sidebar-items)
+and [external links and workspace browsers](../public-docs/plugins/reference.md#external-links-and-workspace-browsers)
 for the author-facing contract.
-
-### The side area
-
-`navigation.showBeside` asks the app to draw a side area beside a plugin screen or workspace panel;
-the plugin never renders it. An agent's pane needs the app's own contexts (composer editing, file
-links, the sheet stack), and one plugin rendering another's screen would run it outside that
-plugin's installation, so the SDK hands out the call and no components
-([design](superpowers/specs/2026-11-17-office-one-page-design.md)).
-
-- `packages/app/src/plugins/beside/` holds it. `BesideFrame` wraps the plugin's content in
-  `surface-screen.tsx` and `workspace-panels/panel.tsx` and owns `showBeside` for that surface.
-  The area belongs to the mounted frame, not to the surface's key (the screen's host, plugin and
-  screen id, or the panel's tab), which only names the area's tab. A panel's frame remounts when
-  the window crosses the compact breakpoint, and the stack can hold several copies of one screen;
-  an area keyed by the surface would reach frames that never opened it.
-- Each target kind registers itself with `registerBesideKind`, and the folder's `index.ts` imports
-  the kind modules. `agent-beside.tsx` imports the panel registry, which imports the panel that
-  imports the barrel, so it calls `ensurePanelsRegistered()` at render time, never at import.
-- The width lives in memory and never touches `explorerWidth`. It clamps against the frame's
-  measured width, not the window's, because the left sidebar or the Explorer can share the window.
-- The area adds no route and is not restored ([expo-router.md](expo-router.md)). Workspace panels
-  stay mounted when their tab is switched away, so the frame closes the area when the tab turns
-  inactive or the route loses focus, not only on unmount.
-- The agent's pane uses host `"main"` in the panel and in the sheet. A `"sheet"` pane hides the
-  composer, Stop and the archived callout, and the area shows the full session.
-- A press inside an iframe, such as the office's 3D scene, reaches no listener in the app's
-  document, so the agent pane gives up the keyboard on the window's blur.
 
 ### Plugin icons
 
@@ -1062,41 +479,6 @@ The same holds for a hook that runs inside an agent's lifecycle lane: an `agent.
 an option, model, thinking or mode change) waits on the open, which waits on the hook. The hooks
 reference tells plugin authors to start such a write without awaiting it.
 
-## Schedules
-
-`server.schedules` keeps a plugin's own schedules, and `server.handleSchedule(handler, run)` answers
-them. `upsert` creates or updates the schedule of that `name` and replaces its whole cadence;
-`remove` and `list` see only this plugin's schedules. A `name` is unique per plugin. `prompt` is a
-label. When a schedule is due, the daemon calls the `run` registered for its `handler`, and the
-promise `run` returns ends the run. A rejection, an unregistered handler, or 10 minutes without an
-answer fails that run.
-
-The daemon stores the schedule, so it keeps running after a restart without another `upsert`. As
-with every schedule, a run that came due while the daemon was down is skipped: on start the daemon
-moves the schedule to its next time. A run that comes due while the daemon starts waits, for up to
-5 minutes, until the daemon has started its plugins. A schedule whose plugin is not loaded fails
-that run and stays active, so a later run reaches the plugin once it is back. The daemon takes the
-plugin id from the process that calls, never from the call, so a plugin cannot reach another
-plugin's schedules. The app's schedule screens and the `list_schedules` tool do not list plugin
-schedules.
-
-```ts
-import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { writeSummary } from "./server/summary";
-
-export default function contribute(server: PluginServerContext) {
-  server.schedules
-    .upsert({
-      name: "daily-summary",
-      handler: "summary",
-      prompt: "Daily summary",
-      cadence: { type: "cron", expression: "0 8 * * 1-5", timezone: "Europe/Berlin" },
-    })
-    .catch((error) => console.error("Daily summary schedule failed", error));
-  return server.handleSchedule("summary", ({ paseo, runId }) => writeSummary(paseo, runId));
-}
-```
-
 ## Contribute a provider
 
 Register a provider from `index.server.ts`. The provider connection is callback-based and owns all
@@ -1127,6 +509,18 @@ that effective launch. Return `{ available: true }` or
 before calling status; it exposes your diagnostic through the normal provider diagnostic command.
 A command-backed provider without status is available when its executable resolves. Providers with
 neither command nor status retain connection-based availability.
+
+Implement optional `installation` to fill the **Installation** section of provider settings. The
+bridge sends each callback as a `provider.installation.*` request carrying the launch `status`
+receives plus `resolved`. `resolved: false` means the executable was not found and `command` is
+the configured name, so answer `not_installed` instead of spawning it. Inspect and update-check
+requests use the 30 s plugin request timeout; the daemon's 25 s update-check deadline sits below
+it, so a slow check reports that deadline. `update` has no request timeout and streams output
+through `provider.installation.report`. When the daemon stops waiting on any of the three, it
+sends `provider.installation.cancel`, which aborts the callback's `signal`.
+The rules shared with built-ins are in [providers.md](providers.md#installation-and-updates); the
+author contract is in the
+[public provider guide](../public-docs/plugins/providers.md#report-installation-and-updates).
 
 A same-ID config entry without `extends` overrides the plugin's `enabled`, `command`, `env`, label,
 description, and model configuration through the normal provider registry. `enabled: false` disables
@@ -1196,7 +590,7 @@ string is never inline SVG or a URL.
 
 ## Usage sources
 
-Register a usage source from `index.server.ts` with `server.registerUsageSource()`. Import `UsageSourceRegistration` and normalization helpers from `@getpaseo/plugin/server/usage`. The plugin owns account discovery, harness labels, and credential-store reads; the daemon owns account grouping, the fetch cache, and the run-out projection. When a window has no `runsOutAt`, the daemon fills it and `shortfallPct` from its own fetches of that window over the last two hours, once two fetches at least 10 minutes apart show usage rising, and only when the run-out falls before `resetsAt`; a drop in usage starts the samples over. Set `runsOutAt` only from data the provider reports: the daemon never replaces a source's own value. The projected run-out goes out only with an agent's usage (a `usage.list_reports.request` with `agentId`), which the context-window popover reads, and to move targets. The host's list leaves it out, so the Usage modal, the sidebar and `paseo usage` show when a window resets; a run-out the source reports itself stays everywhere. The app picks the countdown from what it receives, so the daemon decides this for clients that cannot be changed, such as the store app. Agent popovers use only the agent's own login. The host-wide Usage modal falls back across an account's logins; any success shows usage only, and all failures show every login's labeled error and remedy. Follow the [usage source discovery contract](../public-docs/plugins/reference.md#usage-sources). The resolved launch environment crosses into the trusted, unsandboxed plugin subprocess for session discovery. Usage queries never run lifecycle hooks. Inputs are validated in the plugin process and remain daemon-side. `icon` uses the same SVG file rules as provider icons.
+Register a usage source from `index.server.ts` with `server.registerUsageSource()`. Import `UsageSourceRegistration` and normalization helpers from `@getpaseo/plugin/server/usage`. The plugin owns account discovery, harness labels, and credential-store reads; the daemon owns account grouping and the fetch cache. Agent popovers use only the agent's own login. The host-wide Usage modal falls back across an account's logins; any success shows usage only, and all failures show every login's labeled error and remedy. Follow the [usage source discovery contract](../public-docs/plugins/reference.md#usage-sources). The resolved launch environment crosses into the trusted, unsandboxed plugin subprocess for session discovery. Usage queries never run lifecycle hooks. Inputs are validated in the plugin process and remain daemon-side. `icon` uses the same SVG file rules as provider icons.
 
 When the host’s **Check usage** switch is off, the daemon rejects usage requests before discovery, without reading logins or calling vendors. Otherwise, the daemon calls discovery for `usage.list_reports`; the client gates this RPC on `server_info.features.usageSources`. The old `provider.usage.list` RPC maps discovered reports for older clients.
 
@@ -1274,11 +668,8 @@ The handle checks every write against the version it last read or wrote, so two 
 and an agent cannot silently overwrite each other. The daemon reports the file's kind (text,
 image, binary) with its stat from a bounded sniff, which is how Source claims text files without a
 read. See the [public file panel reference](../public-docs/plugins/reference.md#file-panels) for
-the author API, selection, `DocumentFrame`, and the version requirement, and the [`ScriptFrame`
-reference](../public-docs/plugins/reference.md#scriptframe) for a script of your own in an isolated
-page. The examples live in `plugin-examples/pdf-panel` and `plugin-examples/markdown-panel`; the
-`viewers` built-in (`plugins/viewers`) holds three read-only panels, with a mounted test for each
-that stands a fake `PluginFile` in for the host's (`client/testing.ts`).
+the author API, selection, `DocumentFrame`, and the version requirement. The examples live in
+`plugin-examples/pdf-panel` and `plugin-examples/markdown-panel`.
 
 ## Contribute buttons
 
@@ -1409,14 +800,15 @@ is the [New workspace items reference](../public-docs/plugins/reference.md#new-w
 
 The screen's choices that a plugin may change live in one plain store,
 `createNewWorkspaceSetup` (`packages/app/src/screens/new-workspace/setup-model.ts`): the base
-picker selection, the manual isolation, the branch name and the workspace metadata. The pickers and
+picker selection, the manual isolation, the chosen existing worktree, the Branch off or Check out
+action per ref list, the branch name and the workspace metadata. The pickers and
 the plugin commands write to it, so a command sees what an earlier command left. Project and host
 stay in the screen's hooks (`useNewWorkspaceHostSelector` reconciles them against each other), and
 they are read-only to plugins; a command that switched them would unmount the item that called it.
 
 The store is built in the render that creates the screen, with what the screen derives from its
 hooks (the lock, the project, whether the project can make worktrees, whether the host supports
-metadata), so a command is valid from a child's first effect, which runs before the screen's own
+metadata and ref actions, the project's git worktrees), so a command is valid from a child's first effect, which runs before the screen's own
 effects. `syncInputs` refreshes those inputs in a layout effect on every commit, and commands read
 them when they run, never from the render that built them. The pickers and the commands pick
 through the same `chooseBase` and `chooseIsolation`, so a plugin command has the effects of a
@@ -1499,11 +891,6 @@ restart. A row without an installed renderer shows an unavailable placeholder. `
 Serialized `data` must be at most 64 KiB; the daemon rejects a larger append instead of storing a
 payload that cannot be rendered intact. The daemon advertises this RPC through
 `server_info.features.pluginTimelineItems`.
-
-In the **Collapse turns** chat display, the app's default, a finished turn folds its work into one
-summary line but keeps plugin rows in view, rows that replace a tool call or reasoning included, so
-their components stay mounted. A row that replaces an assistant message counts as that message: the
-turn's last one stays in view as its reply, and earlier ones fold.
 
 ## Contribute client slash commands
 

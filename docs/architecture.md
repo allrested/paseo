@@ -166,7 +166,7 @@ traffic. Workspace assignments stay on the workspace directory sequence.
 
 Commander.js CLI with Docker-style commands. Common agent operations are also exposed at the top level (e.g. `paseo ls`, `paseo run`).
 
-- `paseo agent ls/run/import/attach/logs/stop/delete/send/inspect/wait/archive/move/move-back/reload/update/mode`
+- `paseo agent ls/run/import/attach/logs/stop/delete/send/inspect/wait/archive/reload/update/mode`
 - `paseo daemon start/run/stop/restart/status/reload/config/pair/set-password`
 - `paseo terminal ls/create/capture/send-keys/kill`
 - `paseo script ls/start/stop`
@@ -325,11 +325,6 @@ File downloads keep the existing `FileBegin`/`FileChunk`/`FileEnd` framing and s
 from one stable file handle. Each transfer awaits completion of its own physical WebSocket send before
 reading the next chunk; it is scoped to the requesting physical socket and does not queue unrelated
 messages or transfers.
-
-Browser view frames use opcode `0x50` (`packages/protocol/src/binary-frames/browser-view.ts`): a JPEG screencast frame
-of a Docker Chromium tab plus its viewport metadata, sent only to the client that subscribed with
-`browser.cdp.view.subscribe.request`. The daemon is a browser tools host when
-`PASEO_BROWSER_CDP_URL` is set; see [docs/docker.md](docker.md#browser).
 
 ### Compatibility rules
 
@@ -511,5 +506,5 @@ Agent and terminal environments are unchanged. System proxy settings and SOCKS-o
 ## Deployment models
 
 1. **Local daemon** (default): `paseo daemon start` on `127.0.0.1:6767`
-2. **Managed desktop**: Electron uses the server package’s local-instance lifecycle capability for sanitized launch, published readiness, and captured-PID stop. Only a matching `{pid, startedAt}` from a spawn in the current Desktop session authorizes automatic stop or binary replacement. Preexisting instances, including legacy `desktopManaged` records, are attach-only. Keep-running survivors attach in the next session. Explicit attached Stop requires a confirmation naming the captured home/PID. Ordinary Restart uses the worker RPC on every app platform.
+2. **Managed desktop**: Electron uses the server package’s local-instance lifecycle capability for sanitized launch, published readiness, and captured-PID stop. Only Desktop's own launch writes `desktopManaged: true` to `paseo.pid`. The CLI launch path removes the flag. While Desktop manages the built-in daemon, an app update or a version mismatch replaces any `desktopManaged` daemon, including one that an earlier Desktop session left running. Bundled CLIs before v0.9.0 exported the flag, so a daemon that one of them started also carries it and is replaced. Quit, Settings, and host removal stop only a daemon that the current session launched, matched by `{pid, startedAt}`. A daemon that the user started through the CLI is attach-only. Explicit attached Stop requires a confirmation naming the captured home/PID. Ordinary Restart uses the worker RPC on every app platform.
 3. **Remote + relay**: Daemon behind firewall, relay bridges with E2E encryption

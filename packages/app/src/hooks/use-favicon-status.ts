@@ -6,9 +6,8 @@ import { createMacDockBadgeCountSelector } from "@/utils/desktop-badge-state";
 import { createFaviconStatusSelector, type FaviconStatus } from "@/utils/favicon-status";
 import { isNative } from "@/constants/platform";
 import { useSessionStore } from "@/stores/session-store";
+import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { useHosts } from "@/runtime/host-runtime";
-import { getBrand } from "@/brand/brand";
-import { brandFaviconHref } from "@/brand/favicon";
 
 type ColorScheme = "dark" | "light";
 
@@ -49,28 +48,9 @@ function getOrCreateFaviconLink(): HTMLLinkElement | null {
   return link;
 }
 
-/** The status the tab's icon was last asked to show: a slower drawing must not overtake it. */
-let wantedBrandStatus: FaviconStatus | null = null;
-
-async function updateBrandFavicon(link: HTMLLinkElement, iconUrl: string, status: FaviconStatus) {
-  wantedBrandStatus = status;
-  const href = await brandFaviconHref(iconUrl, status);
-  if (wantedBrandStatus === status && link.getAttribute("href") !== href) {
-    link.type = "image/png";
-    link.href = href;
-  }
-}
-
 function updateFavicon(status: FaviconStatus, colorScheme: ColorScheme) {
   const link = getOrCreateFaviconLink();
   if (!link) return;
-
-  // Under a host's own icon the three drawings are that icon, with the status dot drawn on.
-  const iconUrl = getBrand()?.iconUrl;
-  if (iconUrl) {
-    void updateBrandFavicon(link, iconUrl, status);
-    return;
-  }
 
   const newHref = getFaviconUri(status, colorScheme);
   if (link.href !== newHref) {
@@ -106,8 +86,16 @@ export function useFaviconStatus() {
   // The favicon reads the whole fleet, so it has to keep every host's directory loading even
   // though it no longer subscribes to the agent maps.
   useAllDirectoryDemand({ serverIds, enabled: !isNative });
-  const selectFaviconStatus = useMemo(createFaviconStatusSelector, []);
-  const selectMacDockBadgeCount = useMemo(createMacDockBadgeCountSelector, []);
+  // Background workspaces count exactly when the sidebar shows them.
+  const showBackground = useSidebarViewStore((state) => state.showBackground);
+  const selectFaviconStatus = useMemo(
+    () => createFaviconStatusSelector({ showBackground }),
+    [showBackground],
+  );
+  const selectMacDockBadgeCount = useMemo(
+    () => createMacDockBadgeCountSelector({ showBackground }),
+    [showBackground],
+  );
   const status = useSessionStore(selectFaviconStatus);
   const dockBadgeCount = useSessionStore(selectMacDockBadgeCount);
   const [colorScheme, setColorScheme] = useState<ColorScheme>(getSystemColorScheme);

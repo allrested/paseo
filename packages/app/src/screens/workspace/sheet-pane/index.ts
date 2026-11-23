@@ -8,7 +8,6 @@
 export {
   SheetPaneHostProvider,
   useSheetPaneBridge,
-  useSheetPaneBridgeAnywhere,
   useSheetPaneHost,
   useSheetPaneHostIfAny,
   type SheetPaneHost,

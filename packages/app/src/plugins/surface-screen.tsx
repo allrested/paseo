@@ -5,6 +5,7 @@ import { X } from "lucide-react-native";
 import { useCallback, useMemo, type ComponentType } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { AssistantFileLinkResolverProvider } from "@/assistant-file-links";
 import { HeaderIconBadge } from "@/components/headers/header-icon-badge";
 import { HeaderToggleButton } from "@/components/headers/header-toggle-button";
 import { CompactHeader } from "@/components/headers/compact-header";
@@ -21,7 +22,6 @@ import {
 } from "@/runtime/host-runtime";
 import type { Theme } from "@/styles/theme";
 import type { ShortcutKey } from "@/utils/format-shortcut";
-import { BesideFrame, useShowBeside } from "./beside";
 import { usePluginHostNavigation } from "./host-navigation";
 import { PluginIconView } from "./icons";
 import { toPluginTheme } from "./theme";
@@ -98,8 +98,7 @@ function SurfaceRenderer({
   params: PluginScreenParams;
   theme: PluginTheme;
 }) {
-  const showBeside = useShowBeside();
-  const navigation = usePluginHostNavigation(host.id, showBeside);
+  const navigation = usePluginHostNavigation(host.id);
   return (
     <PluginInstallationProvider plugin={plugin}>
       <Surface theme={theme} host={host} layout={layout} navigation={navigation} params={params} />
@@ -258,7 +257,8 @@ export function PluginSurfaceScreen() {
       )}
       <View style={styles.body}>
         {plugin && surface && client ? (
-          <BesideFrame surfaceKey={`${serverId}:${pluginId}:${contributionId}`}>
+          // A screen sits outside any workspace, so its Markdown reads file images from its host.
+          <AssistantFileLinkResolverProvider client={client} serverId={serverId}>
             <SurfaceErrorBoundary
               key={`${serverId}/${pluginId}/${identity?.kind}/${contributionId}`}
               installation={plugin}
@@ -273,7 +273,7 @@ export function PluginSurfaceScreen() {
                 uniProps={pluginThemeMapping}
               />
             </SurfaceErrorBoundary>
-          </BesideFrame>
+          </AssistantFileLinkResolverProvider>
         ) : (
           <PluginSurfacePlaceholder status={placeholderStatus} />
         )}

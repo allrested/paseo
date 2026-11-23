@@ -4,7 +4,17 @@ import type { PluginWireBeforeRequests, PluginBeforeResults } from "./lifecycle/
 import type { SessionOpenWireRequest, AttachedAgentTool } from "./agent-tools.js";
 import type { UsageScope } from "@getpaseo/plugin/server/usage";
 import {
+  ProviderInspectionSchema,
+  ProviderUpdateCheckSchema,
+  ProviderUpdateResultSchema,
   ProviderStatusSchema,
+  type ProviderInspection,
+  type ProviderUpdateCheck,
+  type ProviderUpdateContext,
+  type ProviderUpdateReport,
+  type ProviderUpdateResult,
+  type ProviderInstallationContext,
+  type ProviderUpdateCheckContext,
   type ProviderStatus,
   type ProviderStatusRequest,
 } from "@getpaseo/plugin/server/provider";
@@ -31,7 +41,6 @@ import type {
   PluginProcessMessage,
   PluginProcessRequest,
   PluginProviderMetadata,
-  PluginSchedulesCall,
   PluginUsageSourceMetadata,
 } from "./plugin-process-protocol.js";
 import { PluginProcessMessageSchema } from "./plugin-process-protocol.js";
@@ -41,14 +50,10 @@ import {
 } from "./runtime-subscription.js";
 import { PluginSessionSocket } from "./session-socket.js";
 import { InternalPluginChild } from "./internal-child.js";
-import { evaluateBundle, type BuiltinPluginExtras } from "./bundle-evaluator.js";
-import type { PluginScheduleRun, ScheduleService } from "../schedule/service.js";
-import type { StoredSchedule } from "@getpaseo/protocol/schedule/types";
-import type { PluginSchedule } from "@getpaseo/plugin/server";
+import { evaluateBundle } from "./bundle-evaluator.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const TOOL_CALL_TIMEOUT_MS = 10 * 60_000;
-const SCHEDULE_RUN_TIMEOUT_MS = 10 * 60_000;
 const MAX_LOG_ENTRIES = 500;
 const MAX_LOG_BYTES = 256 * 1024;
 const MAX_LOG_LINE_BYTES = 16 * 1024;
@@ -73,7 +78,15 @@ interface PluginChild {
 interface PendingInvocation {
   resolve: (output: unknown) => void;
   reject: (error: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
+  /** Absent for requests without a deadline. */
+  timeout?: ReturnType<typeof setTimeout>;
+  report?: (report: ProviderUpdateReport) => void;
+}
+
+interface PluginRequestOptions {
+  signal?: AbortSignal;
+  /** Receives `provider.installation.report` messages for the request. */
+  report?: (report: ProviderUpdateReport) => void;
 }
 
 interface LoadedPlugin {
@@ -136,8 +149,6 @@ interface RemoteProviderConnection {
 }
 
 interface PluginRuntimeDependencies {
-  /** Fork delta (office stream): what every built-in receives beside its directory. */
-  builtinExtras?: BuiltinPluginExtras;
   settingsDirectory?: string;
   onSettingsChanged?: (pluginId: string, settingsId: string) => void;
   spawnChild?: () => PluginChild;
@@ -217,12 +228,6 @@ class PluginOutputCapture {
   }
 }
 
-/** The daemon's schedules, as plugins reach them. */
-export type PluginScheduleHost = Pick<
-  ScheduleService,
-  "upsertPluginSchedule" | "removePluginSchedule" | "listPluginSchedules"
->;
-
 export interface PluginPaseoSessionHost {
   attachPluginSocket(
     pluginId: string,
@@ -280,6 +285,21 @@ function jsonTransportValue<Value>(value: Value): Value {
   return JSON.parse(encoded) as Value;
 }
 
+function isInstallationRequest(message: PluginProcessRequest): boolean {
+  return (
+    message.type === "provider.installation.inspect" ||
+    message.type === "provider.installation.check_updates" ||
+    message.type === "provider.installation.update"
+  );
+}
+
+function requestTimeoutMs(message: PluginProcessRequest): number | null {
+  if (message.type === "tool.call") return TOOL_CALL_TIMEOUT_MS;
+  // An updater runs as long as it needs; daemon shutdown aborts it.
+  if (message.type === "provider.installation.update") return null;
+  return REQUEST_TIMEOUT_MS;
+}
+
 function send(child: PluginChild, message: PluginProcessRequest): Promise<void> {
   return new Promise((resolve, reject) => {
     child.send(message, (error) => {
@@ -299,7 +319,6 @@ export class PluginRuntime {
   private readonly logger: pino.Logger;
   private readonly spawnChild: () => PluginChild;
   private sessionHost: PluginPaseoSessionHost | null;
-  private schedules: PluginScheduleHost | null = null;
   private readonly listeners = new Set<(pluginId: string, error?: string) => void>();
   private readonly sessionOpenListeners = new Set<() => void>();
 
@@ -317,10 +336,6 @@ export class PluginRuntime {
     if (this.plugins.size > 0)
       throw new Error("Cannot replace the plugin session host while running");
     this.sessionHost = sessionHost;
-  }
-
-  bindSchedules(schedules: PluginScheduleHost): void {
-    this.schedules = schedules;
   }
 
   subscribe(listener: (pluginId: string, error?: string) => void): () => void {
@@ -371,14 +386,11 @@ export class PluginRuntime {
     const bundles = await compileDirectoryPlugin(directory, this.daemonVersion, input.id);
     const { manifest } = bundles;
     if (!bundles.serverBundle) throw new Error(`Built-in plugin ${input.id} needs a server entry`);
-    const contribute = evaluateBundle(bundles.serverBundle);
     const loaded = await this.launchPlugin({
       pluginId: input.id,
       pluginDirectory: directory,
       requirements: manifest.requirements,
-      child: new InternalPluginChild((server) =>
-        contribute(server, { directory, ...this.dependencies.builtinExtras }),
-      ),
+      child: new InternalPluginChild(evaluateBundle(bundles.serverBundle)),
       bundle: "",
       clientBundle: bundles.clientBundle ?? "",
     });
@@ -456,6 +468,69 @@ export class PluginRuntime {
         providerId,
         request,
       }),
+    );
+  }
+
+  async inspectProviderInstallation(
+    pluginId: string,
+    providerId: string,
+    context: ProviderInstallationContext,
+  ): Promise<ProviderInspection> {
+    const loaded = this.plugins.get(pluginId);
+    if (!loaded) throw new Error(`Plugin is not available: ${pluginId}`);
+    return ProviderInspectionSchema.parse(
+      await this.request(
+        loaded,
+        {
+          type: "provider.installation.inspect",
+          requestId: randomUUID(),
+          providerId,
+          request: { launch: context.launch },
+        },
+        { signal: context.signal },
+      ),
+    );
+  }
+
+  async checkProviderUpdates(
+    pluginId: string,
+    providerId: string,
+    context: ProviderUpdateCheckContext,
+  ): Promise<ProviderUpdateCheck> {
+    const loaded = this.plugins.get(pluginId);
+    if (!loaded) throw new Error(`Plugin is not available: ${pluginId}`);
+    return ProviderUpdateCheckSchema.parse(
+      await this.request(
+        loaded,
+        {
+          type: "provider.installation.check_updates",
+          requestId: randomUUID(),
+          providerId,
+          request: { launch: context.launch, installedVersion: context.installedVersion },
+        },
+        { signal: context.signal },
+      ),
+    );
+  }
+
+  async updateProvider(
+    pluginId: string,
+    providerId: string,
+    context: ProviderUpdateContext,
+  ): Promise<ProviderUpdateResult> {
+    const loaded = this.plugins.get(pluginId);
+    if (!loaded) throw new Error(`Plugin is not available: ${pluginId}`);
+    return ProviderUpdateResultSchema.parse(
+      await this.request(
+        loaded,
+        {
+          type: "provider.installation.update",
+          requestId: randomUUID(),
+          providerId,
+          request: { launch: context.launch },
+        },
+        { signal: context.signal, report: (report) => context.report(report) },
+      ),
     );
   }
 
@@ -540,18 +615,6 @@ export class PluginRuntime {
     if (!loaded.methods.has(method))
       throw new Error(`Plugin ${pluginId} does not contribute RPC ${method}`);
     return this.request(loaded, { type: "invoke", requestId: randomUUID(), method, input });
-  }
-
-  async runSchedule(run: PluginScheduleRun): Promise<void> {
-    const loaded = this.plugins.get(run.pluginId);
-    if (!loaded) throw new Error(`Plugin is not available: ${run.pluginId}`);
-    await this.request(loaded, {
-      type: "schedule.run",
-      requestId: randomUUID(),
-      handler: run.handler,
-      scheduleId: run.scheduleId,
-      runId: run.runId,
-    });
   }
 
   /** Starts one subscriber's handler in the plugin process. */
@@ -765,7 +828,7 @@ export class PluginRuntime {
       return (await this.request(
         loaded,
         { type: "tool.call", requestId, agent, name, input },
-        signal,
+        { signal },
       )) as AgentToolResult;
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -776,8 +839,9 @@ export class PluginRuntime {
   private request(
     loaded: LoadedPlugin,
     message: Extract<PluginProcessRequest, { requestId: string }>,
-    signal?: AbortSignal,
+    options: PluginRequestOptions = {},
   ): Promise<unknown> {
+    const { signal, report } = options;
     const child = loaded.child;
     const pluginId = loaded.id;
     if (!child) throw new Error(`Plugin ${pluginId} has no server entry`);
@@ -789,24 +853,34 @@ export class PluginRuntime {
         loaded.pending.delete(requestId);
         if (message.type === "tool.call")
           void send(child, { type: "tool.cancel", requestId }).catch(() => {});
+        if (isInstallationRequest(message))
+          void send(child, { type: "provider.installation.cancel", requestId }).catch(() => {});
         signal?.removeEventListener("abort", cancel);
         reject(signal?.reason ?? new Error("Tool call canceled"));
       };
-      const timeout = setTimeout(() => {
-        loaded.pending.delete(requestId);
-        signal?.removeEventListener("abort", cancel);
-        if (message.type === "tool.call")
-          void send(child, { type: "tool.cancel", requestId }).catch(() => {});
-        if (message.type === "hook") {
-          void send(child, { type: "hook.cancel", requestId }).catch(() => {});
-        }
-        // The handler may still start after the daemon gave up on it.
-        if (message.type === "subscribe") {
-          const { subscriptionId } = message;
-          void send(child, { type: "unsubscribe", subscriptionId }).catch(() => {});
-        }
-        reject(new Error(`Plugin RPC timed out: ${pluginId}.${message.type}`));
-      }, requestTimeoutMs(message.type));
+      const timeoutMs = requestTimeoutMs(message);
+      const timeout =
+        timeoutMs === null
+          ? undefined
+          : setTimeout(() => {
+              loaded.pending.delete(requestId);
+              signal?.removeEventListener("abort", cancel);
+              if (message.type === "tool.call")
+                void send(child, { type: "tool.cancel", requestId }).catch(() => {});
+              if (message.type === "hook") {
+                void send(child, { type: "hook.cancel", requestId }).catch(() => {});
+              }
+              // The handler may still start after the daemon gave up on it.
+              if (message.type === "subscribe") {
+                const { subscriptionId } = message;
+                void send(child, { type: "unsubscribe", subscriptionId }).catch(() => {});
+              }
+              if (isInstallationRequest(message))
+                void send(child, { type: "provider.installation.cancel", requestId }).catch(
+                  () => {},
+                );
+              reject(new Error(`Plugin RPC timed out: ${pluginId}.${message.type}`));
+            }, timeoutMs);
       signal?.addEventListener("abort", cancel, { once: true });
       loaded.pending.set(requestId, {
         resolve: (value) => {
@@ -818,6 +892,7 @@ export class PluginRuntime {
           reject(error);
         },
         timeout,
+        report,
       });
       void send(child, message).catch((error) => {
         clearTimeout(timeout);
@@ -952,9 +1027,6 @@ export class PluginRuntime {
               resolve(message);
             } else if (message.type === "fatal") {
               fail(new Error(message.error));
-            } else if (message.type === "schedules.call") {
-              // A contribution may call before the plugin is ready.
-              this.answerSchedulesCall(pluginId, child, message);
             } else if (loaded) {
               this.handleChildMessage(loaded, message);
             }
@@ -1011,33 +1083,6 @@ export class PluginRuntime {
       "Loaded plugin",
     );
     return loaded;
-  }
-
-  // The plugin id is the one this child was started as. The message names none, so a plugin
-  // reaches only its own schedules.
-  private answerSchedulesCall(
-    pluginId: string,
-    child: PluginChild,
-    message: Extract<PluginProcessMessage, { type: "schedules.call" }>,
-  ): void {
-    const { requestId } = message;
-    void this.callSchedules(pluginId, message.call)
-      .then(
-        (output) => send(child, { type: "schedules.result", requestId, output }),
-        (error) => send(child, { type: "schedules.error", requestId, error: describeError(error) }),
-      )
-      .catch(() => undefined);
-  }
-
-  private async callSchedules(pluginId: string, call: PluginSchedulesCall): Promise<unknown> {
-    const schedules = this.schedules;
-    if (!schedules) throw new Error("Plugin schedules are not available");
-    if (call.method === "upsert") {
-      const kept = await schedules.upsertPluginSchedule({ pluginId, ...call.input });
-      return { id: kept.id, nextRunAt: kept.nextRunAt };
-    }
-    if (call.method === "remove") return schedules.removePluginSchedule(pluginId, call.name);
-    return (await schedules.listPluginSchedules(pluginId)).flatMap(describePluginSchedule);
   }
 
   /**
@@ -1113,6 +1158,10 @@ export class PluginRuntime {
     }
     if (message.type === "settings.changed") {
       this.dependencies.onSettingsChanged?.(loaded.id, message.settingsId);
+      return;
+    }
+    if (message.type === "provider.installation.report") {
+      loaded.pending.get(message.requestId)?.report?.(message.report);
       return;
     }
     if (message.type.startsWith("provider.")) {
@@ -1525,26 +1574,6 @@ export class PluginRuntime {
   private notify(pluginId: string, error?: string): void {
     for (const listener of this.listeners) listener(pluginId, error);
   }
-}
-
-function requestTimeoutMs(type: PluginProcessRequest["type"]): number {
-  if (type === "tool.call") return TOOL_CALL_TIMEOUT_MS;
-  // A run's promise is the plugin's whole job, which may outlast an RPC.
-  if (type === "schedule.run") return SCHEDULE_RUN_TIMEOUT_MS;
-  return REQUEST_TIMEOUT_MS;
-}
-
-function describePluginSchedule(schedule: StoredSchedule): PluginSchedule[] {
-  if (schedule.target.type !== "plugin" || schedule.name === null) return [];
-  return [
-    {
-      id: schedule.id,
-      name: schedule.name,
-      handler: schedule.target.handler,
-      cadence: schedule.cadence,
-      nextRunAt: schedule.nextRunAt,
-    },
-  ];
 }
 
 function isSessionHelloFrame(input: { frame: string | Uint8Array; isBinary: boolean }): boolean {

@@ -36,18 +36,6 @@ describe("usePluginHostNavigation", () => {
     });
   });
 
-  it("hands showBeside targets to the given side area on the rendering host", () => {
-    const showBeside = vi.fn(() => true);
-    const { result } = renderHook(() => usePluginHostNavigation("host-1", showBeside));
-
-    expect(result.current.showBeside!({ kind: "agent", agentId: "agent-1" })).toBe(true);
-    expect(showBeside).toHaveBeenCalledWith({
-      kind: "agent",
-      agentId: "agent-1",
-      serverId: "host-1",
-    });
-  });
-
   it("keeps the capability stable until the rendering host changes", () => {
     const { result, rerender } = renderHook(({ serverId }) => usePluginHostNavigation(serverId), {
       initialProps: { serverId: "host-1" },

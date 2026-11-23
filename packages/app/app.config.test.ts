@@ -110,14 +110,30 @@ it("the fork variant installs beside the store app: its own name and package, no
     const { exp } = await getPrebuildConfigAsync(__dirname, { platforms: ["android"] });
     expect({
       name: exp.name,
+      icon: exp.android.icon,
+      foreground: exp.android.adaptiveIcon.foregroundImage,
+      background: exp.android.adaptiveIcon.backgroundColor,
       androidPackage: exp.android.package,
       iosBundle: exp.ios.bundleIdentifier,
       googleServicesFile: exp.android.googleServicesFile,
+      splash: exp.plugins.find(
+        (p: unknown) => Array.isArray(p) && p[0] === "expo-splash-screen",
+      )[1],
+      forkBuild: exp.extra.forkBuild,
     }).toEqual({
-      name: "Paseo Fork",
+      name: "AI",
+      icon: "./assets/images/flavours-launcher.png",
+      foreground: "./assets/images/flavours-launcher.png",
+      background: "#ffffff",
       androidPackage: "sh.paseo.fork",
       iosBundle: "sh.paseo.fork",
       googleServicesFile: undefined,
+      splash: expect.objectContaining({
+        image: "./assets/images/flavours-launcher.png",
+        backgroundColor: "#ffffff",
+        dark: { backgroundColor: "#ffffff" },
+      }),
+      forkBuild: true,
     });
   } finally {
     if (before === undefined) delete process.env.APP_VARIANT;

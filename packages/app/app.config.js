@@ -96,7 +96,9 @@ const variants = {
   // The fork's own app: it installs beside the store app and pairs on its own. It has no Firebase
   // file, so push notifications do not work in it.
   fork: {
-    name: "Paseo Fork",
+    name: "AI",
+    androidIcon: "./assets/images/flavours-launcher.png",
+    splashImage: "./assets/images/flavours-launcher.png",
     packageId: "sh.paseo.fork",
     googleServicesFile: undefined,
     googleServiceInfoPlist: undefined,
@@ -129,9 +131,10 @@ export default {
       buildNumber: nativeReleaseVersion.iosBuildNumber,
     },
     android: {
+      ...(variant.androidIcon ? { icon: variant.androidIcon } : {}),
       adaptiveIcon: {
-        backgroundColor: "#000000",
-        foregroundImage: "./assets/images/android-icon-foreground.png",
+        backgroundColor: variant.androidIcon ? "#ffffff" : "#000000",
+        foregroundImage: variant.androidIcon ?? "./assets/images/android-icon-foreground.png",
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
@@ -162,12 +165,13 @@ export default {
       [
         "expo-splash-screen",
         {
-          image: "./assets/images/splash-icon.png",
+          image: variant.splashImage ?? "./assets/images/splash-icon.png",
           imageWidth: 200,
           resizeMode: "contain",
           backgroundColor: "#ffffff",
           dark: {
-            backgroundColor: "#000000",
+            // The fork's logo sits on a white tile, so its splash stays white in dark mode.
+            backgroundColor: variant.splashImage ? "#ffffff" : "#000000",
           },
         },
       ],
@@ -202,6 +206,7 @@ export default {
     },
     extra: {
       fdroidBuild: isFdroidBuild,
+      forkBuild: appVariant === "fork",
       profileBuild: isProfileBuild,
       watchdogBuild: isWatchdogBuild,
       diagnosticRevision: process.env.PASEO_DIAGNOSTIC_REVISION,

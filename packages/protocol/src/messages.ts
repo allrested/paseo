@@ -115,34 +115,6 @@ import {
   BrowserAutomationExecuteRequestSchema,
   BrowserAutomationExecuteResponseSchema,
 } from "./browser-automation/rpc-schemas.js";
-import {
-  BrowserCdpProfileAssignRequestSchema,
-  BrowserCdpProfileAssignResponseSchema,
-  BrowserCdpProfileCreateRequestSchema,
-  BrowserCdpProfileCreateResponseSchema,
-  BrowserCdpProfileDeleteRequestSchema,
-  BrowserCdpProfileDeleteResponseSchema,
-  BrowserCdpProfileImportRequestSchema,
-  BrowserCdpProfileImportResponseSchema,
-  BrowserCdpProfileListRequestSchema,
-  BrowserCdpProfileListResponseSchema,
-  BrowserCdpTabCloseRequestSchema,
-  BrowserCdpTabCloseResponseSchema,
-  BrowserCdpTabOpenRequestSchema,
-  BrowserCdpTabOpenResponseSchema,
-  BrowserCdpTabsSubscribeRequestSchema,
-  BrowserCdpTabsSubscribeResponseSchema,
-  BrowserCdpTabsUpdateSchema,
-  BrowserCdpViewCancelPickRequestSchema,
-  BrowserCdpViewInputRequestSchema,
-  BrowserCdpViewNavigateRequestSchema,
-  BrowserCdpViewNavigateResponseSchema,
-  BrowserCdpViewPickElementRequestSchema,
-  BrowserCdpViewPickElementResponseSchema,
-  BrowserCdpViewSubscribeRequestSchema,
-  BrowserCdpViewSubscribeResponseSchema,
-  BrowserCdpViewUpdateSchema,
-} from "./browser-automation/cdp-view-schemas.js";
 import { BrowserAutomationHostCapabilitySchema } from "./browser-automation/capabilities.js";
 import {
   PaseoConfigRawSchema,
@@ -932,6 +904,14 @@ const AgentActiveTurnPayloadSchema = z.object({
   startedAt: z.string().nullable(),
 });
 
+export const AgentBackgroundWorkSummarySchema = z.object({
+  count: z.number().int().nonnegative(),
+  /** Defaults to the total count when omitted. */
+  runningCount: z.number().int().nonnegative().optional(),
+});
+
+export type AgentBackgroundWorkSummary = z.infer<typeof AgentBackgroundWorkSummarySchema>;
+
 export const AgentSnapshotPayloadSchema = z.object({
   id: z.string(),
   provider: AgentProviderSchema,
@@ -949,7 +929,7 @@ export const AgentSnapshotPayloadSchema = z.object({
   updatedAt: z.string(),
   lastUserMessageAt: z.string().nullable(),
   status: AgentStatusSchema,
-  backgroundWork: z.object({ count: z.number().int().nonnegative() }).optional(),
+  backgroundWork: AgentBackgroundWorkSummarySchema.optional(),
   activeTurn: AgentActiveTurnPayloadSchema.nullable().optional(),
   capabilities: AgentCapabilityFlagsSchema,
   currentModeId: z.string().nullable(),
@@ -961,7 +941,6 @@ export const AgentSnapshotPayloadSchema = z.object({
   usageScopeKey: z.string().optional(),
   lastUsage: AgentUsageSchema.optional(),
   lastError: z.string().optional(),
-  limitReached: z.object({ at: z.string(), message: z.string() }).optional(),
   title: z.string().nullable(),
   labels: z.record(z.string(), z.string()).default({}),
   metadata: EntityMetadataSchema.optional(),
@@ -988,7 +967,7 @@ export const AgentListItemPayloadSchema = z.object({
   thinkingOptionId: z.string().nullable().optional(),
   effectiveThinkingOptionId: z.string().nullable().optional(),
   status: AgentStatusSchema,
-  backgroundWork: z.object({ count: z.number().int().nonnegative() }).optional(),
+  backgroundWork: AgentBackgroundWorkSummarySchema.optional(),
   cwd: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -2004,6 +1983,34 @@ export const ProviderDiagnosticRequestMessageSchema = z.object({
   requestId: z.string(),
 });
 
+export const ProviderInstallationInspectRequestMessageSchema = z.object({
+  type: z.literal("provider.installation.inspect.request"),
+  provider: AgentProviderSchema,
+  /** Skip the daemon's short result cache and ask the provider again. */
+  refresh: z.boolean().optional(),
+  requestId: z.string(),
+});
+
+export const ProviderInstallationCheckUpdatesRequestMessageSchema = z.object({
+  type: z.literal("provider.installation.check_updates.request"),
+  provider: AgentProviderSchema,
+  /** Skip the daemon's update-check cache and ask the provider again. */
+  refresh: z.boolean().optional(),
+  requestId: z.string(),
+});
+
+export const ProviderInstallationUpdateRequestMessageSchema = z.object({
+  type: z.literal("provider.installation.update.request"),
+  provider: AgentProviderSchema,
+  requestId: z.string(),
+});
+
+export const ProviderInstallationUpdateSubscribeRequestMessageSchema = z.object({
+  type: z.literal("provider.installation.update.subscribe.request"),
+  provider: AgentProviderSchema,
+  requestId: z.string(),
+});
+
 export const ProviderUsageListRequestMessageSchema = z.object({
   type: z.literal("provider.usage.list.request"),
   requestId: z.string(),
@@ -2015,14 +2022,6 @@ export const UsageListReportsRequestMessageSchema = z.object({
   requestId: z.string(),
   reportIds: z.array(z.string()).optional(),
   forceRefresh: z.boolean().optional(),
-});
-
-// Fork delta (claude accounts): one provider's usage, read through its launch scope as the move
-// dialog reads a target's.
-export const UsageProviderListReportsRequestMessageSchema = z.object({
-  type: z.literal("usage.provider.list_reports.request"),
-  requestId: z.string(),
-  provider: z.string(),
 });
 
 export const ResumeAgentRequestMessageSchema = z.object({
@@ -2266,19 +2265,6 @@ export const AgentDetachResponseMessageSchema = z.object({
   payload: AgentActionResponsePayloadSchema,
 });
 
-// Ends an idle agent's runtime; the agent stays and its next prompt resumes it. The daemon makes
-// idle collection's checks first and answers accepted: false with the reason when one fails.
-export const AgentRuntimeCloseRequestMessageSchema = z.object({
-  type: z.literal("agent.runtime.close.request"),
-  agentId: z.string(),
-  requestId: z.string(),
-});
-
-export const AgentRuntimeCloseResponseMessageSchema = z.object({
-  type: z.literal("agent.runtime.close.response"),
-  payload: AgentActionResponsePayloadSchema,
-});
-
 export const AgentRewindModeSchema = z.enum(["conversation", "files", "both"]);
 
 export const AgentRewindRequestMessageSchema = z.object({
@@ -2297,78 +2283,6 @@ export const AgentRewindResponseMessageSchema = z.object({
     ok: z.boolean(),
     error: z.string().nullable(),
   }),
-});
-
-const AgentMoveResultPayloadSchema = z.object({
-  requestId: z.string(),
-  ok: z.boolean(),
-  agentId: z.string().nullable(),
-  strategy: z.enum(["native", "handoff"]).nullable(),
-  fellBackFromNative: z.boolean(),
-  error: z.string().nullable(),
-});
-
-export const AgentMoveRequestMessageSchema = z.object({
-  type: z.literal("agent.move.request"),
-  requestId: z.string(),
-  agentId: z.string(),
-  target: z.object({ provider: z.string(), model: z.string().optional() }),
-  continueWork: z.boolean(),
-});
-
-export const AgentMoveResponseMessageSchema = z.object({
-  type: z.literal("agent.move.response"),
-  payload: AgentMoveResultPayloadSchema,
-});
-
-export const AgentMoveBackRequestMessageSchema = z.object({
-  type: z.literal("agent.move_back.request"),
-  requestId: z.string(),
-  agentId: z.string(),
-  continueWork: z.boolean(),
-  // An earlier agent in the move chain; the direct moved-from agent when absent.
-  toAgentId: z.string().min(1).optional(),
-});
-
-export const AgentMoveBackResponseMessageSchema = z.object({
-  type: z.literal("agent.move_back.response"),
-  payload: AgentMoveResultPayloadSchema,
-});
-
-export const AgentMoveTargetSchema = z.object({
-  provider: z.string(),
-  label: z.string(),
-  family: z.string(),
-  available: z.boolean(),
-  current: z.boolean(),
-  usedPct: z.number().nullable(),
-  resetsAt: z.string().nullable(),
-  // Fork delta (usage heads-up): the tightest window's projected run-out and label.
-  runsOutAt: z.string().nullable().optional(),
-  windowLabel: z.string().nullable().optional(),
-  // Fork delta (session move): the target's own CLI says nobody is signed in. Such a target is
-  // also not `available`, which is all an older app reads.
-  signedOut: z.boolean().optional(),
-});
-
-export const AgentMoveTargetsRequestMessageSchema = z.object({
-  type: z.literal("agent.move_targets.list.request"),
-  requestId: z.string(),
-  agentId: z.string(),
-});
-
-export const AgentMoveTargetsResponseMessageSchema = z.object({
-  type: z.literal("agent.move_targets.list.response"),
-  payload: z.object({
-    requestId: z.string(),
-    targets: z.array(AgentMoveTargetSchema),
-    error: z.string().nullable().optional(),
-  }),
-});
-
-export const AgentMovedMessageSchema = z.object({
-  type: z.literal("agent.moved"),
-  payload: z.object({ fromAgentId: z.string(), toAgentId: z.string() }),
 });
 
 export const UpdateAgentResponseMessageSchema = z.object({
@@ -2731,6 +2645,12 @@ const CheckoutCommitSchema = z.object({
 
 export const CheckoutCommitsListRequestSchema = z.object({
   type: z.literal("checkout.commits.list.request"),
+  cwd: z.string(),
+  requestId: z.string(),
+});
+
+export const CheckoutWorktreesListRequestSchema = z.object({
+  type: z.literal("checkout.worktrees.list.request"),
   cwd: z.string(),
   requestId: z.string(),
 });
@@ -3599,7 +3519,6 @@ export const SessionEventSubscriptionSchema = z.enum([
   "activity_log",
   "hub.execution.agent.update",
   "hub.execution.agent.stream",
-  "agent.moved",
 ]);
 export type SessionEventSubscription = z.infer<typeof SessionEventSubscriptionSchema>;
 export const SessionEventsSetSubscriptionRequestSchema = z.object({
@@ -3617,6 +3536,8 @@ export const BrowserHostRegisterRequestSchema = z.object({
   type: z.literal("browser.host.register.request"),
   requestId: z.string(),
   hostKind: z.string().min(1),
+  label: z.string().min(1).max(160).optional(),
+  instanceId: z.uuid().optional(),
   supportedCommands: z.array(z.enum(BROWSER_AUTOMATION_COMMAND_NAMES)).min(1),
 });
 export const BrowserHostRegisterResponseSchema = z.object({
@@ -3652,19 +3573,6 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   HubExecutionAgentValidateRequestSchema,
   HubExecutionControlRequestSchema,
   BrowserAutomationExecuteResponseSchema,
-  BrowserCdpTabOpenRequestSchema,
-  BrowserCdpTabCloseRequestSchema,
-  BrowserCdpTabsSubscribeRequestSchema,
-  BrowserCdpViewSubscribeRequestSchema,
-  BrowserCdpViewInputRequestSchema,
-  BrowserCdpViewNavigateRequestSchema,
-  BrowserCdpViewPickElementRequestSchema,
-  BrowserCdpViewCancelPickRequestSchema,
-  BrowserCdpProfileListRequestSchema,
-  BrowserCdpProfileCreateRequestSchema,
-  BrowserCdpProfileDeleteRequestSchema,
-  BrowserCdpProfileAssignRequestSchema,
-  BrowserCdpProfileImportRequestSchema,
   VoiceAudioChunkMessageSchema,
   AbortRequestMessageSchema,
   AudioPlayedMessageSchema,
@@ -3747,9 +3655,12 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   GetProvidersSnapshotRequestMessageSchema,
   RefreshProvidersSnapshotRequestMessageSchema,
   ProviderDiagnosticRequestMessageSchema,
+  ProviderInstallationInspectRequestMessageSchema,
+  ProviderInstallationCheckUpdatesRequestMessageSchema,
+  ProviderInstallationUpdateRequestMessageSchema,
+  ProviderInstallationUpdateSubscribeRequestMessageSchema,
   ProviderUsageListRequestMessageSchema,
   UsageListReportsRequestMessageSchema,
-  UsageProviderListReportsRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -3772,11 +3683,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
   AgentDetachRequestMessageSchema,
-  AgentRuntimeCloseRequestMessageSchema,
   AgentRewindRequestMessageSchema,
-  AgentMoveRequestMessageSchema,
-  AgentMoveBackRequestMessageSchema,
-  AgentMoveTargetsRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
   DiffSubscribeRequestSchema,
   DiffUnsubscribeRequestSchema,
@@ -3796,6 +3703,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   CheckoutForgeSetAutoMergeRequestSchema,
   CheckoutGithubSetAutoMergeRequestSchema,
   CheckoutCommitsListRequestSchema,
+  CheckoutWorktreesListRequestSchema,
   CheckoutCommitFileDiffRequestSchema,
   CheckoutForgeGetCheckDetailsRequestSchema,
   CheckoutGithubGetCheckDetailsRequestSchema,
@@ -4075,29 +3983,11 @@ export const ServerInfoStatusPayloadSchema = z
         providersSnapshot: z.boolean().optional(),
         connectedHosts: z.boolean().optional(),
         hostMultiplexing: z.boolean().optional(),
-        // Fork delta (session move): the agent.move* and agent.move_targets RPCs, agent.moved.
-        agentMove: z.boolean().optional(),
-        // Fork delta (claude accounts): the usage.provider.list_reports RPC.
-        // COMPAT(usageProviderReports): added in v0.15.3, remove gate after 2027-05-07.
-        usageProviderReports: z.boolean().optional(),
-        // Fork delta (usage heads-up): move targets carry runsOutAt and windowLabel, and usage
-        // windows a projected run-out.
-        usageHeadsUp: z.boolean().optional(),
-        // Fork delta (resource manager): the agent.runtime.close RPC.
-        // COMPAT(agentRuntimeClose): added in v0.15.3, remove gate after 2027-05-07.
-        agentRuntimeClose: z.boolean().optional(),
-        // Fork delta (web browser pane): the daemon hosts a Docker Chromium; browser.cdp.* RPCs.
-        // COMPAT(cdpBrowser): added in v0.15.5, remove gate after 2027-05-10.
-        cdpBrowser: z.boolean().optional(),
-        // Fork delta (web browser pane): browser.cdp.view.pick_element and cancel_pick.
-        // COMPAT(cdpBrowserPick): added in v0.16.0, remove gate after 2027-05-15.
-        cdpBrowserPick: z.boolean().optional(),
-        // Fork delta (browser profiles): browser.cdp.profile.* and the tab state's `profile`.
-        // COMPAT(cdpBrowserProfiles): added in v0.16.0, remove gate after 2027-05-15.
-        cdpBrowserProfiles: z.boolean().optional(),
         // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
         usageSetting: z.boolean().optional(),
         usageSources: z.boolean().optional(),
+        // COMPAT(providerInstallation): added in v0.17.0, remove gate after 2027-05-13.
+        providerInstallation: z.boolean().optional(),
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: z.boolean().optional(),
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.
@@ -4107,6 +3997,11 @@ export const ServerInfoStatusPayloadSchema = z
         terminalCollection: z.boolean().optional(),
         // COMPAT(workspaceBaseBranch): added after v0.11.2, remove gate after 2027-10-14.
         workspaceBaseBranch: z.boolean().optional(),
+        // COMPAT(checkoutWorktreeList): added after v0.16.2, remove gate after 2027-11-19.
+        checkoutWorktreeList: z.boolean().optional(),
+        // COMPAT(worktreeRefActions): added after v0.16.2, remove gate after 2027-11-19.
+        // Hosts without it check out a change request even when asked to branch off it.
+        worktreeRefActions: z.boolean().optional(),
         // COMPAT(workspaceSetupRun): added in v0.8.0, remove gate after 2027-09-02.
         workspaceSetupRun: z.boolean().optional(),
         // COMPAT(workspaceTerminals): added in v0.8.0, remove gate after 2027-09-05.
@@ -4257,6 +4152,8 @@ export const ServerInfoStatusPayloadSchema = z
         hopliteProvider: z.boolean().optional(),
         // COMPAT(fxProvider): added after v0.15.3, remove after 2027-05-09 once host floor includes the bundled adapter.
         fxProvider: z.boolean().optional(),
+        // COMPAT(gooseProvider): added in v0.17.0, remove after 2027-05-20 once host floor includes the bundled adapter.
+        gooseProvider: z.boolean().optional(),
         // COMPAT(importSessionWorkspaceTarget): added in v0.1.110, remove gate after 2027-01-16.
         importSessionWorkspaceTarget: z.boolean().optional(),
         // COMPAT(importSessionSearch): added in v0.8.0, remove gate after 2027-03-02.
@@ -5469,17 +5366,12 @@ export const SetAgentTimelineSubscriptionResponseMessageSchema = z.object({
   }),
 });
 
-// Fork delta (usage heads-up): "usage" is sent only to clients that advertise
-// CLIENT_CAPS.usageNotifications; the legacy agent_stream attention event never carries it.
-const AgentAttentionNotificationReasonSchema = z.enum(["finished", "error", "permission", "usage"]);
-
 export const AgentAttentionRequiredMessageSchema = z.object({
   type: z.literal("agent_attention_required"),
   payload: z.object({
     subscriptionId: z.string().optional(),
     agentId: z.string(),
-    // Fork delta (usage heads-up): the reason may be "usage".
-    reason: AgentAttentionNotificationReasonSchema,
+    reason: z.enum(["finished", "error", "permission"]),
     timestamp: z.string(),
     shouldNotify: z.boolean(),
     notification: z
@@ -5490,8 +5382,7 @@ export const AgentAttentionRequiredMessageSchema = z.object({
           serverId: z.string(),
           workspaceId: z.string().optional(),
           agentId: z.string(),
-          // Fork delta (usage heads-up): the reason may be "usage".
-          reason: AgentAttentionNotificationReasonSchema,
+          reason: z.enum(["finished", "error", "permission"]),
         }),
       })
       .optional(),
@@ -6256,6 +6147,26 @@ export const CheckoutCommitsListResponseSchema = z.object({
   }),
 });
 
+export const CheckoutWorktreeSchema = z.object({
+  path: z.string(),
+  // null when HEAD is detached
+  branchName: z.string().nullable(),
+  head: z.string().nullable(),
+  createdAt: z.string(), // ISO 8601
+  // true for the worktree the request's cwd is in
+  containsCwd: z.boolean(),
+});
+
+export const CheckoutWorktreesListResponseSchema = z.object({
+  type: z.literal("checkout.worktrees.list.response"),
+  payload: z.object({
+    cwd: z.string(),
+    worktrees: z.array(CheckoutWorktreeSchema),
+    error: CheckoutErrorSchema.nullable(),
+    requestId: z.string(),
+  }),
+});
+
 export const CheckoutCommitFileDiffResponseSchema = z.object({
   type: z.literal("checkout.commits.file_diff.response"),
   payload: z.object({
@@ -6930,6 +6841,142 @@ export const ProviderDiagnosticResponseMessageSchema = z.object({
   }),
 });
 
+/** Provider-owned facts; `version` is an opaque string the app shows as written. */
+export const ProviderInstallationInspectionSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("installed"), version: z.string().optional() }),
+  z.object({ status: z.literal("not_installed") }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+
+export const ProviderInstallationSchema = z.object({
+  installUrl: z.string().optional(),
+  updateUrl: z.string().optional(),
+  /** Absent when the provider does not report its installation. */
+  inspection: ProviderInstallationInspectionSchema.optional(),
+  /** True when the provider can run its own update through `provider.installation.update`. */
+  canUpdate: z.boolean().optional(),
+});
+
+export const ProviderInstallationInspectResponseMessageSchema = z.object({
+  type: z.literal("provider.installation.inspect.response"),
+  payload: z.object({
+    provider: AgentProviderSchema,
+    /** Null when the provider declares no installation contract. */
+    installation: ProviderInstallationSchema.nullable(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
+/**
+ * The provider's answer to "is a newer version available". `versions` and `message` are opaque
+ * strings the app shows as written. `error` means the check threw or missed its deadline.
+ */
+export const ProviderInstallationUpdateCheckSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("current") }),
+  z.object({
+    status: z.literal("available"),
+    versions: z.array(z.string()).optional(),
+    message: z.string().optional(),
+  }),
+  z.object({ status: z.literal("unknown"), message: z.string().optional() }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+
+export const ProviderInstallationCheckUpdatesResponseMessageSchema = z.object({
+  type: z.literal("provider.installation.check_updates.response"),
+  payload: z.object({
+    provider: AgentProviderSchema,
+    /** Null when the provider cannot check for updates. */
+    updateCheck: ProviderInstallationUpdateCheckSchema.nullable(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
+/** One piece of updater output, shown unchanged and in order. */
+export const ProviderInstallationUpdateOutputSchema = z.object({
+  type: z.enum(["stdout", "stderr", "message"]),
+  text: z.string(),
+});
+
+/** The state of one provider update. Messages are the provider's, shown as written. */
+export const ProviderInstallationUpdateOperationSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("running"), id: z.string(), startedAt: z.string() }),
+  z.object({
+    status: z.literal("succeeded"),
+    id: z.string(),
+    startedAt: z.string(),
+    finishedAt: z.string(),
+    message: z.string().optional(),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    id: z.string(),
+    startedAt: z.string(),
+    finishedAt: z.string(),
+    message: z.string(),
+  }),
+]);
+
+/** The latest update of a provider since the daemon started, with its retained output. */
+export const ProviderInstallationUpdateSchema = z.object({
+  operation: ProviderInstallationUpdateOperationSchema,
+  output: z.array(ProviderInstallationUpdateOutputSchema),
+  /** True when the oldest output was dropped to stay within the daemon's output limit. */
+  truncated: z.boolean().optional(),
+});
+
+export const ProviderInstallationUpdateResponseMessageSchema = z.object({
+  type: z.literal("provider.installation.update.response"),
+  payload: z.object({
+    provider: AgentProviderSchema,
+    /** The update this request started, or the one already running. */
+    update: ProviderInstallationUpdateSchema.nullable(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
+export const ProviderInstallationUpdateSubscribeResponseMessageSchema = z.object({
+  type: z.literal("provider.installation.update.subscribe.response"),
+  payload: z.object({
+    provider: AgentProviderSchema,
+    subscriptionId: z.string().optional(),
+    /** Null when the provider has not been updated since the daemon started. */
+    update: ProviderInstallationUpdateSchema.nullable(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
+/**
+ * Sent to `provider.installation.update.subscribe` owners when an update starts, reports output
+ * or finishes. `output` holds only the entries new since the previous progress for `operation.id`.
+ */
+export const ProviderInstallationUpdateProgressMessageSchema = z.object({
+  type: z.literal("provider.installation.update.progress"),
+  payload: z.object({
+    subscriptionId: z.string().optional(),
+    provider: AgentProviderSchema,
+    operation: ProviderInstallationUpdateOperationSchema,
+    output: z.array(ProviderInstallationUpdateOutputSchema),
+  }),
+});
+
+/**
+ * Sent to `provider.installation.update.subscribe` owners when a refresh of the provider drops
+ * the failed update `operationId`, so the provider has no current update.
+ */
+export const ProviderInstallationUpdateClearedMessageSchema = z.object({
+  type: z.literal("provider.installation.update.cleared"),
+  payload: z.object({
+    subscriptionId: z.string().optional(),
+    provider: AgentProviderSchema,
+    operationId: z.string(),
+  }),
+});
+
 export const ProviderUsageToneSchema = z.enum(["default", "ok", "warning", "danger"]);
 export const ProviderUsageStatusSchema = z.enum(["available", "unavailable", "error"]);
 
@@ -7049,27 +7096,6 @@ export const UsageListReportsUpdateMessageSchema = z.object({
 export const UsageListReportsResponseMessageSchema = z.object({
   type: z.literal("usage.list_reports.response"),
   payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
-});
-// Fork delta (claude accounts): the window closest to running out across the reports, ranked as
-// the move dialog ranks a target's (chooseTightestWindow in usage-heads-up.ts).
-export const UsageTightestWindowSchema = z.object({
-  label: z.string(),
-  usedPct: z.number(),
-  resetsAt: z.string().nullable(),
-  // The window's usage heads-up tone (UsageHeadsUpTone in usage-heads-up.ts), not a source's own
-  // window tone.
-  tone: z.enum(["none", "warning", "danger"]),
-});
-// Fork delta (claude accounts): the reply to usage.provider.list_reports.request.
-export const UsageProviderListReportsResponseMessageSchema = z.object({
-  type: z.literal("usage.provider.list_reports.response"),
-  payload: z.object({
-    requestId: z.string(),
-    provider: z.string(),
-    reports: z.array(UsageReportEntrySchema),
-    tightest: UsageTightestWindowSchema.nullable(),
-    error: z.string().nullable(),
-  }),
 });
 
 const AgentSlashCommandSchema = z.object({
@@ -7622,19 +7648,6 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   HubExecutionAgentUpdateSchema,
   HubExecutionAgentStreamSchema,
   BrowserAutomationExecuteRequestSchema,
-  BrowserCdpTabOpenResponseSchema,
-  BrowserCdpTabCloseResponseSchema,
-  BrowserCdpTabsSubscribeResponseSchema,
-  BrowserCdpTabsUpdateSchema,
-  BrowserCdpViewSubscribeResponseSchema,
-  BrowserCdpViewUpdateSchema,
-  BrowserCdpViewNavigateResponseSchema,
-  BrowserCdpViewPickElementResponseSchema,
-  BrowserCdpProfileListResponseSchema,
-  BrowserCdpProfileCreateResponseSchema,
-  BrowserCdpProfileDeleteResponseSchema,
-  BrowserCdpProfileAssignResponseSchema,
-  BrowserCdpProfileImportResponseSchema,
   PluginCatalogGetResponseSchema,
   PluginListResponseSchema,
   PluginLogsGetResponseSchema,
@@ -7753,12 +7766,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
   AgentDetachResponseMessageSchema,
-  AgentRuntimeCloseResponseMessageSchema,
   AgentRewindResponseMessageSchema,
-  AgentMoveResponseMessageSchema,
-  AgentMoveBackResponseMessageSchema,
-  AgentMoveTargetsResponseMessageSchema,
-  AgentMovedMessageSchema,
   UpdateAgentResponseMessageSchema,
   ProjectRenameResponseSchema,
   ProjectIconSetResponseSchema,
@@ -7795,6 +7803,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   CheckoutForgeSetAutoMergeResponseSchema,
   CheckoutGithubSetAutoMergeResponseSchema,
   CheckoutCommitsListResponseSchema,
+  CheckoutWorktreesListResponseSchema,
   CheckoutCommitFileDiffResponseSchema,
   CheckoutForgeGetCheckDetailsResponseSchema,
   CheckoutGithubGetCheckDetailsResponseSchema,
@@ -7835,10 +7844,15 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProvidersSnapshotUpdateMessageSchema,
   RefreshProvidersSnapshotResponseMessageSchema,
   ProviderDiagnosticResponseMessageSchema,
+  ProviderInstallationInspectResponseMessageSchema,
+  ProviderInstallationCheckUpdatesResponseMessageSchema,
+  ProviderInstallationUpdateResponseMessageSchema,
+  ProviderInstallationUpdateSubscribeResponseMessageSchema,
+  ProviderInstallationUpdateProgressMessageSchema,
+  ProviderInstallationUpdateClearedMessageSchema,
   ProviderUsageListResponseMessageSchema,
   UsageListReportsUpdateMessageSchema,
   UsageListReportsResponseMessageSchema,
-  UsageProviderListReportsResponseMessageSchema,
   ListCommandsResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
@@ -7969,15 +7983,7 @@ export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingRes
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
 export type AgentConfigApplyResponseMessage = z.infer<typeof AgentConfigApplyResponseMessageSchema>;
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
-export type AgentRuntimeCloseResponseMessage = z.infer<
-  typeof AgentRuntimeCloseResponseMessageSchema
->;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
-export type AgentMoveResponseMessage = z.infer<typeof AgentMoveResponseMessageSchema>;
-export type AgentMoveBackResponseMessage = z.infer<typeof AgentMoveBackResponseMessageSchema>;
-export type AgentMoveTargetsResponseMessage = z.infer<typeof AgentMoveTargetsResponseMessageSchema>;
-export type AgentMoveTarget = z.infer<typeof AgentMoveTargetSchema>;
-export type AgentMovedMessage = z.infer<typeof AgentMovedMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
 export type ProjectRenameResponse = z.infer<typeof ProjectRenameResponseSchema>;
 export type ProjectIconSetResponse = z.infer<typeof ProjectIconSetResponseSchema>;
@@ -8028,15 +8034,35 @@ export type RefreshProvidersSnapshotResponseMessage = z.infer<
 export type ProviderDiagnosticResponseMessage = z.infer<
   typeof ProviderDiagnosticResponseMessageSchema
 >;
+export type ProviderInstallation = z.infer<typeof ProviderInstallationSchema>;
+export type ProviderInstallationInspection = z.infer<typeof ProviderInstallationInspectionSchema>;
+export type ProviderInstallationInspectResponseMessage = z.infer<
+  typeof ProviderInstallationInspectResponseMessageSchema
+>;
+export type ProviderInstallationUpdateCheck = z.infer<typeof ProviderInstallationUpdateCheckSchema>;
+export type ProviderInstallationCheckUpdatesResponseMessage = z.infer<
+  typeof ProviderInstallationCheckUpdatesResponseMessageSchema
+>;
+export type ProviderInstallationUpdateOutput = z.infer<
+  typeof ProviderInstallationUpdateOutputSchema
+>;
+export type ProviderInstallationUpdateOperation = z.infer<
+  typeof ProviderInstallationUpdateOperationSchema
+>;
+export type ProviderInstallationUpdate = z.infer<typeof ProviderInstallationUpdateSchema>;
+export type ProviderInstallationUpdateProgress = Omit<
+  z.infer<typeof ProviderInstallationUpdateProgressMessageSchema>["payload"],
+  "subscriptionId"
+>;
+export type ProviderInstallationUpdateCleared = Omit<
+  z.infer<typeof ProviderInstallationUpdateClearedMessageSchema>["payload"],
+  "subscriptionId"
+>;
 export type ProviderUsageTone = z.infer<typeof ProviderUsageToneSchema>;
 export type UsageProblem = z.infer<typeof UsageProblemSchema>;
 export type UsageReport = z.infer<typeof UsageReportSchema>;
 export type UsageReportEntry = z.infer<typeof UsageReportEntrySchema>;
 export type UsageListReportsResponseMessage = z.infer<typeof UsageListReportsResponseMessageSchema>;
-export type UsageTightestWindow = z.infer<typeof UsageTightestWindowSchema>;
-export type UsageProviderListReportsResponseMessage = z.infer<
-  typeof UsageProviderListReportsResponseMessageSchema
->;
 export type ProviderUsageStatus = z.infer<typeof ProviderUsageStatusSchema>;
 export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
 export type ProviderUsageWindow = z.infer<typeof ProviderUsageWindowSchema>;
@@ -8166,7 +8192,6 @@ export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequ
 export type SetAgentFeatureRequestMessage = z.infer<typeof SetAgentFeatureRequestMessageSchema>;
 export type AgentConfigApplyRequestMessage = z.infer<typeof AgentConfigApplyRequestMessageSchema>;
 export type AgentDetachRequestMessage = z.infer<typeof AgentDetachRequestMessageSchema>;
-export type AgentRuntimeCloseRequestMessage = z.infer<typeof AgentRuntimeCloseRequestMessageSchema>;
 export type AgentPermissionResponseMessage = z.infer<typeof AgentPermissionResponseMessageSchema>;
 export type CheckoutStatusRequest = z.infer<typeof CheckoutStatusRequestSchema>;
 export type CheckoutStatusResponse = z.infer<typeof CheckoutStatusResponseSchema>;
@@ -8193,6 +8218,9 @@ export type CheckoutCommitFile = z.infer<typeof CheckoutCommitFileSchema>;
 export type CheckoutCommit = z.infer<typeof CheckoutCommitSchema>;
 export type CheckoutCommitsListRequest = z.infer<typeof CheckoutCommitsListRequestSchema>;
 export type CheckoutCommitsListResponse = z.infer<typeof CheckoutCommitsListResponseSchema>;
+export type CheckoutWorktree = z.infer<typeof CheckoutWorktreeSchema>;
+export type CheckoutWorktreesListRequest = z.infer<typeof CheckoutWorktreesListRequestSchema>;
+export type CheckoutWorktreesListResponse = z.infer<typeof CheckoutWorktreesListResponseSchema>;
 export type CheckoutCommitFileDiffRequest = z.infer<typeof CheckoutCommitFileDiffRequestSchema>;
 export type CheckoutCommitFileDiffResponse = z.infer<typeof CheckoutCommitFileDiffResponseSchema>;
 export type ParsedDiffFile = z.infer<typeof ParsedDiffFileSchema>;

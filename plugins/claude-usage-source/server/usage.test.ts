@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { mkdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -892,128 +892,6 @@ it("discovers a Pi OAuth login independently of the CLI login", async () => {
   }
 });
 
-function profileApi(identities: Record<string, { uuid: string; email?: string } | number>) {
-  return (async (_url, init) => {
-    const token = new Headers(init?.headers).get("authorization")?.replace(/^Bearer /, "") ?? "";
-    const identity = identities[token];
-    if (identity === undefined) throw new Error(`Unexpected profile token ${token}`);
-    if (typeof identity === "number") return new Response(null, { status: identity });
-    return jsonResponse({
-      account: { uuid: identity.uuid, email: identity.email },
-      organization: { uuid: "org" },
-    });
-  }) as typeof fetch;
-}
-
-it("discovers every logged-in Claude profile in the home directory and hides the rest", async () => {
-  const home = mkdtempSync(join(tmpdir(), "claude-profiles-"));
-  try {
-    for (const name of [".claude", ".claude-work", ".claude-hobby", ".claude-personal", ".config"])
-      mkdirSync(join(home, name));
-    writeClaudeCredentials(join(home, ".claude"), "profiles-default");
-    writeClaudeCredentials(join(home, ".claude-work"), "profiles-work");
-    writeClaudeCredentials(join(home, ".claude-hobby"), "profiles-hobby");
-    writeClaudeCredentials(join(home, ".config"), "profiles-not-claude");
-    // `.claude-personal` exists but never logged in; `.claude.json` is a file, not a profile.
-    writeFileSync(join(home, ".claude.json"), "{}");
-    const accounts = await discover(
-      { kind: "global" },
-      { home, env: {}, platform: "linux" },
-      profileApi({
-        "profiles-default": { uuid: "default", email: "me@example.test" },
-        "profiles-work": { uuid: "work", email: "me@work.test" },
-        "profiles-hobby": 401,
-      }),
-    );
-    const hobby = credentialInput(join(home, ".claude-hobby"));
-    expect(accounts.filter((account) => account.harness?.startsWith("Claude"))).toEqual([
-      {
-        key: "default.org",
-        label: "me@example.test",
-        harness: "Claude",
-        input: credentialInput(join(home, ".claude")),
-      },
-      {
-        key: hashAccountKey(JSON.stringify(hobby.route)),
-        label: "claude-hobby",
-        harness: "Claude (claude-hobby)",
-        input: hobby,
-      },
-      {
-        key: "work.org",
-        label: "me@work.test",
-        harness: "Claude (claude-work)",
-        input: credentialInput(join(home, ".claude-work")),
-      },
-    ]);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-it("lists the profile the daemon runs under once, by its profile name", async () => {
-  const home = mkdtempSync(join(tmpdir(), "claude-daemon-profile-"));
-  try {
-    for (const name of [".claude", ".claude-work"]) mkdirSync(join(home, name));
-    writeClaudeCredentials(join(home, ".claude"), "daemon-profile-default");
-    writeClaudeCredentials(join(home, ".claude-work"), "daemon-profile-work");
-    const accounts = await discover(
-      { kind: "global" },
-      { home, env: { CLAUDE_CONFIG_DIR: join(home, ".claude-work") }, platform: "linux" },
-      profileApi({
-        "daemon-profile-default": { uuid: "default", email: "me@example.test" },
-        "daemon-profile-work": { uuid: "work" },
-      }),
-    );
-    expect(
-      accounts
-        .filter((account) => account.harness?.startsWith("Claude"))
-        .map(({ key, label, harness }) => ({ key, label, harness })),
-    ).toEqual([
-      { key: "work.org", label: "claude-work", harness: "Claude (claude-work)" },
-      { key: "default.org", label: "me@example.test", harness: "Claude" },
-    ]);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-it("reads each macOS profile from the Keychain entry its config directory selects", async () => {
-  const home = mkdtempSync(join(tmpdir(), "claude-keychain-profiles-"));
-  try {
-    for (const name of [".claude", ".claude-work"]) mkdirSync(join(home, name));
-    const workService = `Claude Code-credentials-${hashAccountKey(join(home, ".claude-work")).slice(0, 8)}`;
-    const reads: string[] = [];
-    const accounts = await discover(
-      { kind: "global" },
-      {
-        home,
-        env: { USER: "fixture" },
-        platform: "darwin",
-        readKeychainCredentials: async (service) => {
-          reads.push(service);
-          return { claudeAiOauth: { accessToken: `keychain-${service}` } };
-        },
-      },
-      profileApi({
-        "keychain-Claude Code-credentials": { uuid: "keychain-default" },
-        [`keychain-${workService}`]: { uuid: "keychain-work" },
-      }),
-    );
-    expect(
-      accounts
-        .filter((account) => account.harness?.startsWith("Claude"))
-        .map((account) => inputSchema.parse(account.input).route),
-    ).toEqual([
-      { store: "keychain", service: "Claude Code-credentials", account: "fixture" },
-      { store: "keychain", service: workService, account: "fixture" },
-    ]);
-    expect(new Set(reads)).toEqual(new Set(["Claude Code-credentials", workService]));
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
 it("keeps an expired Keychain login without calling the network and prefers Keychain over the fallback file", async () => {
   const directory = mkdtempSync(join(tmpdir(), "claude-expired-"));
   try {
@@ -1060,7 +938,9 @@ async function accountFor(
   lookup: Parameters<typeof discover>[0] = {},
 ) {
   const accounts = await discover({ kind: "global" }, { ...lookup, now }, fetchApi);
-  const account = accounts.find((candidate) => isDeepStrictEqual(candidate.input, input));
+  const account = accounts.find((candidate) =>
+    isDeepStrictEqual(inputSchema.parse(candidate.input).route, input.route),
+  );
   if (!account) throw new Error("Expected discovered login");
   return { key: account.key, ...(account.label ? { label: account.label } : {}) };
 }
@@ -1204,7 +1084,7 @@ it("session discovery reads only its Claude home and excludes foreign sessions",
         key: "session-account.org",
         label: "session@example.test",
         harness: "Claude",
-        input: credentialInput(home),
+        input: { ...credentialInput(home), accountKey: "session-account.org" },
       },
     ]);
     await discover(scope, lookup, api);

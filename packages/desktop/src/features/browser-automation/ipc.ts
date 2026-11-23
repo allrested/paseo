@@ -1,16 +1,12 @@
-import { ipcMain } from "electron";
+import { ipcMain, nativeImage } from "electron";
 import { BrowserAutomationExecuteRequestSchema } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import type {
   BrowserAutomationConsoleLogEntry,
   BrowserAutomationDialogEvent,
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
-import type {
-  TabContents,
-  BrowserRegistry,
-  TabImage,
-} from "@getpaseo/server/browser-automation/service";
-import type { IsolatedKeyboardInputEvent } from "@getpaseo/server/browser-automation/trusted-input";
-import { CdpSessionQueue } from "@getpaseo/server/browser-automation/cdp-session-queue";
+import type { TabContents, BrowserRegistry, TabImage } from "./service.js";
+import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
+import { CdpSessionQueue } from "./cdp-session-queue.js";
 import {
   dialogAcceptValue,
   handledDialogEvent,
@@ -18,12 +14,9 @@ import {
   promptShimDrainScript,
   promptShimInstallScript,
   promptShimRestoreScript,
-} from "@getpaseo/server/browser-automation/dialog-handling";
-import {
-  BrowserTabClosedError,
-  executeAutomationCommand,
-} from "@getpaseo/server/browser-automation/service";
-import { BrowserSnapshotEngine } from "@getpaseo/server/browser-automation/snapshot-engine";
+} from "./dialog-handling.js";
+import { BrowserTabClosedError, executeAutomationCommand, hasPaintedPixels } from "./service.js";
+import { BrowserSnapshotEngine } from "./snapshot-engine.js";
 import {
   listRegisteredPaseoBrowserIds,
   listRegisteredPaseoBrowserIdsForWorkspace,
@@ -140,6 +133,7 @@ export function adaptWebContents(contents: BrowserAutomationWebContents): TabCon
     goForward: () => contents.goForward(),
     reload: () => contents.reload(),
     captureFrame: (signal) => captureViewportFrame(contents, signal),
+    decodePng: (png) => nativeImage.createFromBuffer(Buffer.from(png)),
     invalidate: () => contents.invalidate(),
     withFrameProduction: async (capture) => {
       const previous = contents.getBackgroundThrottling();
@@ -189,6 +183,9 @@ function captureViewportFrame(
       // A resized resident guest can paint while capturePage's surface-copy
       // request remains pending. Subscribe to its rendered frames instead.
       contents.beginFrameSubscription(false, (image) => {
+        // Keep the subscription open until the page has painted; the capture
+        // budget turns a page that never paints into screenshot_no_frame.
+        if (!hasPaintedPixels(image)) return;
         stop();
         resolve(image);
       });

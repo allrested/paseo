@@ -97,40 +97,4 @@ describe("ScheduleSession", () => {
     expect(received?.target).toEqual({ type: "agent", agentId: "agent-9" });
     expect(findByType(emitted, "schedule/create/response")?.payload.error).toBeNull();
   });
-
-  it("schedule/list leaves out plugin-target schedules", async () => {
-    const common = {
-      name: "standup-notes",
-      prompt: "Stand-up notes",
-      cadence: { type: "cron" as const, expression: "0 8 * * 0-4", timezone: "Asia/Riyadh" },
-      status: "active" as const,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      nextRunAt: null,
-      lastRunAt: null,
-      pausedAt: null,
-      expiresAt: null,
-      maxRuns: null,
-      runs: [],
-    };
-    const { session, emitted } = makeSession({
-      list: async () => [
-        {
-          ...common,
-          id: "s-plugin",
-          target: { type: "plugin" as const, pluginId: "office", handler: "standup-notes" },
-        },
-        {
-          ...common,
-          id: "s-new-agent",
-          target: { type: "new-agent" as const, config: { provider: "claude", cwd: "/tmp" } },
-        },
-      ],
-    });
-
-    await session.handleScheduleListRequest({ type: "schedule/list", requestId: "sl1" });
-
-    const response = findByType(emitted, "schedule/list/response");
-    expect(response?.payload.schedules.map((schedule) => schedule.id)).toEqual(["s-new-agent"]);
-  });
 });

@@ -1,6 +1,5 @@
 import { createInstance, type BackendModule } from "i18next";
 import { initReactI18next } from "react-i18next";
-import { withBrand } from "../brand/brand";
 import { observeI18nInit } from "./init";
 import { en } from "./resources/en";
 
@@ -10,10 +9,7 @@ import { en } from "./resources/en";
 const bundledTranslations: BackendModule = {
   type: "backend",
   init() {},
-  read(language, _namespace, respond) {
-    // Under a host's own brand, its name stands where the strings say "Paseo".
-    const callback: typeof respond = (error, resources) =>
-      respond(error, resources ? withBrand(resources) : resources);
+  read(language, _namespace, callback) {
     switch (language) {
       case "en":
         callback(null, en);
@@ -60,7 +56,7 @@ observeI18nInit(
       lng: "en",
       partialBundledLanguages: true,
       resources: {
-        en: { translation: withBrand(en) },
+        en: { translation: en },
       },
       interpolation: {
         escapeValue: false,

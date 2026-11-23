@@ -645,3 +645,13 @@ test("speech config reads remain compatible with clients before features and fut
     }).features?.voiceMode?.stt,
   ).toEqual({ provider: "future", region: "eu" });
 });
+
+test("a user message keeps its image references while a text-only row remains valid", () => {
+  const textOnly = { type: "user_message", text: "look", messageId: "m1" };
+  expect(AgentTimelineItemPayloadSchema.parse(textOnly)).toEqual(textOnly);
+  const withImages = {
+    ...textOnly,
+    imageUrls: [`file:///tmp/paseo-attachments-abc123/${"a".repeat(64)}.png`],
+  };
+  expect(AgentTimelineItemPayloadSchema.parse(withImages)).toEqual(withImages);
+});

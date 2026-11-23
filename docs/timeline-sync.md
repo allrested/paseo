@@ -49,9 +49,17 @@ Large unbounded timeline responses can exceed relay frame limits, so catch-up us
 
 Page limits are projected-item targets. A tool call lifecycle is one projected item even if it spans many source sequence numbers, and assistant/reasoning chunks are merged before counting. The response carries `seqStart`, `seqEnd`, `sourceSeqRanges`, and `collapsed` so clients can advance sequence cursors without rendering delta rows.
 
-When live delivery detects a sequence gap, the app fetches `direction: "after"`. If the daemon
-responds with `hasNewer: true`, the app immediately fetches the next page from `endCursor`. Gap
-recovery is complete only when `hasNewer: false`.
+When live delivery detects a sequence gap, the app fetches `direction: "after"` its end cursor. If
+the daemon responds with `hasNewer: true`, the app immediately fetches the next page from
+`endCursor`. Gap recovery is complete only when `hasNewer: false`.
+
+A chat that was empty when it last caught up has no end cursor to compare a live row against. Such a
+row starts coverage only if it is the epoch's first row, seq 1. A later row means the chat missed the
+rows before it, such as a prompt sent while the app was offline, so the app drops it and recovers
+after seq 0. Coverage started at that later row would make the resume page look already applied, and
+the chat and its replica cache would keep only the end of the reply. A recovery that waits behind a
+running catch-up starts after whatever that catch-up applied, because the app applies a forward page
+row by row and an older cursor repeats rows.
 
 Initialization timeouts guard lack of catch-up progress, not the full multi-page sync. A successful page that queues the next `after` page refreshes the watchdog.
 
@@ -288,6 +296,14 @@ same id. This includes daemon-handled commands that do not allocate a foreground
 row is recorded before handler output. The app tracks submission transactions only for hosts with this
 capability. Older hosts keep the shipped untracked optimistic-row behavior and roll that row back on RPC
 rejection.
+
+The canonical row of a prompt sent with images also carries `imageUrls`: one `file:` URL per image,
+naming the daemon's own copy in its attachments folder. The sending window keeps showing the images
+it holds. Every other window, and the sender's after a reload, reads the daemon's copies and shows
+them as the same thumbnails. The copies last as long as the daemon's timeline does. After a restart
+the timeline is rebuilt from provider history: Claude's journal holds the image bytes, so the copies
+are written again; Codex history names the old files, which work while they still exist; other
+providers replay the text alone.
 
 Turn activity has one client-side replica. Lifecycle events can attach `turnId`, and agent snapshots can
 expose `activeTurn: { turnId, startedAt } | null`. An identified terminal cannot close a different

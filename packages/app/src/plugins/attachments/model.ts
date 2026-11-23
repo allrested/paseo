@@ -21,22 +21,6 @@ export type PluginResourceComposerAttachment = z.infer<
   typeof PluginResourceComposerAttachmentSchema
 >;
 
-/**
- * What the picker says while it has no rows. A plugin's search fails with a sentence for the
- * user; the daemon puts "Request failed: " before it and the client appends the request it failed
- * on, and neither is for the user.
- */
-export function searchEmptyText(error: unknown, isFetching: boolean): string {
-  if (error instanceof Error) {
-    if (error.name !== "DaemonRpcError") return error.message;
-    return error.message
-      .replace(/ requestType=\S+(?: code=\S+)?$/, "")
-      .replace(/^Request failed: /, "");
-  }
-  if (error) return String(error);
-  return isFetching ? "Searching..." : "No results";
-}
-
 export interface PluginResourceSourceIdentity {
   pluginId: string;
   sourceId: string;

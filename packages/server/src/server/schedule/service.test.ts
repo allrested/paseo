@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { deriveAgentStateBucket } from "@getpaseo/protocol/agent-state-bucket";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentStorage } from "../agent/agent-storage.js";
 import { createAgentCommand } from "../agent/create-agent/create.js";
@@ -649,6 +650,163 @@ describe("ScheduleService", () => {
     expect(resumed.nextRunAt).toBe("2026-01-01T00:04:00.000Z");
   });
 
+  test("lists and stops an active heartbeat while the agent is idle", async () => {
+    const logger = createTestLogger();
+    const manager = new AgentManager({
+      logger,
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger,
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+    });
+    const input = {
+      prompt: "Private heartbeat instruction",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+    } as const;
+    const created = await service.create(input);
+
+    expect(
+      deriveAgentStateBucket({
+        status: "idle",
+        backgroundWork: manager.getAgentBackgroundWorkSummary(agent.id),
+      }),
+    ).toBe("done");
+    const items = manager.listAgentBackgroundWork(agent.id);
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "heartbeat",
+        description: null,
+        canStop: true,
+        startedAt: created.createdAt,
+      }),
+    ]);
+    expect(JSON.stringify(items)).not.toContain(created.prompt);
+    await service.update({ id: created.id, name: "Status check" });
+    expect(manager.listAgentBackgroundWork(agent.id)).toEqual([
+      expect.objectContaining({ description: "Status check", startedAt: created.createdAt }),
+    ]);
+    const replacement = await service.createOrReplace({ ...input, name: "Status check" });
+    expect(replacement.id).toBe(created.id);
+    expect(manager.listAgentBackgroundWork(agent.id)).toHaveLength(1);
+    await service.pause(created.id);
+    expect(manager.listAgentBackgroundWork(agent.id)).toEqual([]);
+    await service.resume(created.id);
+    const [firstResume] = manager.listAgentBackgroundWork(agent.id);
+    const pausing = service.pause(created.id);
+    const resuming = service.resume(created.id);
+    const staleStop = expect(
+      manager.stopAgentBackgroundWork({
+        agentId: agent.id,
+        itemId: firstResume.id,
+        stopToken: firstResume.stopToken!,
+        canManageAutomation: true,
+      }),
+    ).rejects.toThrow("Background work is no longer available to stop");
+    await Promise.all([pausing, resuming, staleStop]);
+    const [resumed] = manager.listAgentBackgroundWork(agent.id);
+    await manager.stopAgentBackgroundWork({
+      agentId: agent.id,
+      itemId: resumed.id,
+      stopToken: resumed.stopToken!,
+      canManageAutomation: true,
+    });
+    await expect(service.inspect(created.id)).rejects.toThrow(`Schedule not found: ${created.id}`);
+    expect(manager.listAgentBackgroundWork(agent.id)).toEqual([]);
+
+    const deleted = await service.createOrReplace({ ...input, name: "Another check" });
+    expect(manager.listAgentBackgroundWork(agent.id)).toHaveLength(1);
+    await service.delete(deleted.id);
+    expect(manager.listAgentBackgroundWork(agent.id)).toEqual([]);
+  });
+
+  test("removes heartbeats when they expire or finish their last run", async () => {
+    const logger = createTestLogger();
+    const manager = new AgentManager({ logger, clients: createTestAgentClients() });
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger,
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async () => ({ agentId: agent.id, output: "done" }),
+    });
+    const input = {
+      prompt: "Check",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+    } as const;
+    const expiring = await service.create({
+      ...input,
+      expiresAt: "2026-01-01T00:00:30.000Z",
+      runOnCreate: false,
+    });
+    const finite = await service.create({ ...input, maxRuns: 1 });
+    expect(manager.listAgentBackgroundWork(agent.id)).toHaveLength(2);
+
+    now = new Date("2026-01-01T00:00:30.000Z");
+    await service.tick();
+
+    expect(await service.inspect(expiring.id)).toMatchObject({ status: "completed", runs: [] });
+    expect(await service.inspect(finite.id)).toMatchObject({
+      status: "completed",
+      runs: [{ status: "succeeded" }],
+    });
+    expect(manager.listAgentBackgroundWork(agent.id)).toEqual([]);
+  });
+
+  test("lets an already launched heartbeat turn finish after Stop deletes its schedule", async () => {
+    const logger = createTestLogger();
+    const manager = new AgentManager({ logger, clients: createTestAgentClients() });
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    const runner = new OverlappingTickRunner();
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger,
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: (schedule) => runner.run(schedule),
+    });
+    const created = await service.create({
+      prompt: "block the first tick",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+    });
+    const tick = service.tick();
+    await runner.firstRunStarted;
+    try {
+      const [item] = manager.listAgentBackgroundWork(agent.id);
+      await manager.stopAgentBackgroundWork({
+        agentId: agent.id,
+        itemId: item.id,
+        stopToken: item.stopToken!,
+        canManageAutomation: true,
+      });
+    } finally {
+      runner.unblockFirstRun();
+      await tick;
+    }
+    await expect(service.inspect(created.id)).rejects.toThrow(`Schedule not found: ${created.id}`);
+    expect(manager.listAgentBackgroundWork(agent.id)).toEqual([]);
+  });
+
   test("completes schedules when max runs is reached", async () => {
     const service = createScheduleService({
       paseoHome: tempDir,
@@ -757,44 +915,6 @@ describe("ScheduleService", () => {
       undefined,
       expect.any(ForegroundPromptStart),
     ]);
-  });
-
-  test("carries a moved agent's pending history on an agent-target schedule fire", async () => {
-    const manager = new AgentManager({
-      logger: createTestLogger(),
-      clients: createTestAgentClients(),
-      registry: agentStorage,
-    });
-    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
-      workspaceId: undefined,
-    });
-    await agentStorage.setMoveState(agent.id, {
-      pendingMoveContext: { text: "MARKER", title: "Chat history" },
-    });
-    const steerOrReplace = vi.spyOn(manager, "steerOrReplaceActiveTurn");
-    const service = createScheduleService({
-      paseoHome: tempDir,
-      logger: createTestLogger(),
-      agentManager: manager,
-      agentStorage,
-      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
-      now: () => now,
-    });
-    const schedule = await service.create({
-      prompt: "Check scheduled work",
-      cadence: { type: "every", everyMs: 60_000 },
-      target: { type: "agent", agentId: agent.id },
-    });
-
-    await service.runOnce(schedule.id);
-
-    expect(steerOrReplace).toHaveBeenCalledTimes(1);
-    const prompt = steerOrReplace.mock.calls[0]?.[1];
-    expect(Array.isArray(prompt) && prompt[0]).toMatchObject({
-      text: "MARKER",
-      contextKind: "chat_history",
-    });
-    expect((await agentStorage.get(agent.id))?.pendingMoveContext).toBeNull();
   });
 
   test("titles scheduled new agents from the schedule prompt", async () => {
@@ -3072,116 +3192,6 @@ describe("ScheduleService", () => {
     expect((await service.inspect(newAgentSchedule.id)).status).toBe("active");
   });
 
-  test("retargetAgent points an agent's open schedules at another agent and nothing else", async () => {
-    const service = createScheduleService({
-      paseoHome: tempDir,
-      logger: createTestLogger(),
-      agentManager: new AgentManager({ logger: createTestLogger() }),
-      agentStorage,
-      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
-      now: () => now,
-      runner: async () => ({ agentId: null, output: "ok" }),
-    });
-    const fromId = "11111111-1111-4111-8111-111111111111";
-    const toId = "33333333-3333-4333-8333-333333333333";
-    const otherId = "22222222-2222-4222-8222-222222222222";
-    const cadence = { type: "every", everyMs: 60_000 } as const;
-
-    const carried = await service.create({
-      name: "heartbeat",
-      prompt: "check the build",
-      cadence,
-      target: { type: "agent", agentId: fromId },
-      runOnCreate: false,
-    });
-    const paused = await service.create({
-      prompt: "paused one",
-      cadence,
-      target: { type: "agent", agentId: fromId },
-      runOnCreate: false,
-    });
-    await service.pause(paused.id);
-    const other = await service.create({
-      prompt: "someone else's",
-      cadence,
-      target: { type: "agent", agentId: otherId },
-      runOnCreate: false,
-    });
-    const before = await service.inspect(carried.id);
-
-    now = new Date("2026-01-01T00:05:00.000Z");
-    const ids = await service.retargetAgent(fromId, toId);
-
-    expect(ids.sort()).toEqual([carried.id, paused.id].sort());
-    const after = await service.inspect(carried.id);
-    expect(after.target).toEqual({ type: "agent", agentId: toId });
-    expect(after.updatedAt).toBe("2026-01-01T00:05:00.000Z");
-    expect({ ...after, target: before.target, updatedAt: before.updatedAt }).toEqual(before);
-    const pausedAfter = await service.inspect(paused.id);
-    expect(pausedAfter.target).toEqual({ type: "agent", agentId: toId });
-    expect(pausedAfter.status).toBe("paused");
-    expect((await service.inspect(other.id)).target).toEqual({ type: "agent", agentId: otherId });
-  });
-
-  test("retargetAgent leaves a completed schedule with the agent it had", async () => {
-    const service = createScheduleService({
-      paseoHome: tempDir,
-      logger: createTestLogger(),
-      agentManager: new AgentManager({ logger: createTestLogger() }),
-      agentStorage,
-      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
-      now: () => now,
-      runner: async () => ({ agentId: null, output: "ok" }),
-    });
-    const fromId = "11111111-1111-4111-8111-111111111111";
-    const completed = await service.create({
-      prompt: "done",
-      cadence: { type: "every", everyMs: 60_000 },
-      target: { type: "agent", agentId: fromId },
-      runOnCreate: false,
-    });
-    await service.completeForAgent(fromId);
-
-    expect(await service.retargetAgent(fromId, "33333333-3333-4333-8333-333333333333")).toEqual([]);
-    expect((await service.inspect(completed.id)).target).toEqual({
-      type: "agent",
-      agentId: fromId,
-    });
-  });
-
-  test("a run that finds its agent gone after the schedule was re-pointed leaves the schedule active", async () => {
-    const fromId = "11111111-1111-4111-8111-111111111111";
-    const toId = "33333333-3333-4333-8333-333333333333";
-    let service!: ScheduleService;
-    service = createScheduleService({
-      paseoHome: tempDir,
-      logger: createTestLogger(),
-      agentManager: new AgentManager({ logger: createTestLogger() }),
-      agentStorage,
-      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
-      now: () => now,
-      runner: async () => {
-        // A session move re-points the schedule and archives the agent this run was claimed for.
-        await service.retargetAgent(fromId, toId);
-        throw new ScheduleTargetGoneError(`Agent ${fromId} is archived`);
-      },
-    });
-    const created = await service.create({
-      prompt: "ping",
-      cadence: { type: "every", everyMs: 60_000 },
-      target: { type: "agent", agentId: fromId },
-    });
-
-    now = new Date("2026-01-01T00:01:00.000Z");
-    await service.tick();
-
-    const inspected = await service.inspect(created.id);
-    expect(inspected.status).toBe("active");
-    expect(inspected.target).toEqual({ type: "agent", agentId: toId });
-    expect(inspected.nextRunAt).not.toBeNull();
-    expect(inspected.runs.at(-1)?.status).toBe("failed");
-  });
-
   test("startup sweep completes agent-target schedules whose agent is gone", async () => {
     const missingAgentId = "44444444-4444-4444-8444-444444444444";
     const archivedAgentId = "55555555-5555-4555-8555-555555555555";
@@ -3241,12 +3251,19 @@ describe("ScheduleService", () => {
       target: { type: "agent", agentId: liveAgentId },
     });
     await service1.pause(pausedLive.id);
+    const expired = await service1.create({
+      prompt: "Expired check",
+      cadence: { type: "every", everyMs: 60_000 },
+      expiresAt: "2026-01-01T00:01:00.000Z",
+      target: { type: "agent", agentId: liveAgentId },
+    });
 
     now = new Date("2026-01-01T00:10:00.000Z");
+    const replacementManager = new AgentManager({ logger: createTestLogger() });
     const service2 = createScheduleService({
       paseoHome: tempDir,
       logger: createTestLogger(),
-      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentManager: replacementManager,
       agentStorage,
       providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
       now: () => now,
@@ -3260,6 +3277,12 @@ describe("ScheduleService", () => {
     expect((await service2.inspect(archived.id)).status).toBe("completed");
     expect((await service2.inspect(live.id)).status).toBe("active");
     expect((await service2.inspect(newAgent.id)).status).toBe("active");
+    expect((await service2.inspect(expired.id)).status).toBe("completed");
+    expect(replacementManager.getAgentBackgroundWorkSummary(missingAgentId)).toBeUndefined();
+    expect(replacementManager.getAgentBackgroundWorkSummary(archivedAgentId)).toBeUndefined();
+    expect(replacementManager.listAgentBackgroundWork(liveAgentId)).toEqual([
+      expect.objectContaining({ id: `heartbeat:${live.id}`, startedAt: live.createdAt }),
+    ]);
     // Paused schedules are swept too when their agent is gone, but survive when it lives.
     expect((await service2.inspect(pausedMissing.id)).status).toBe("completed");
     expect((await service2.inspect(pausedLive.id)).status).toBe("paused");
@@ -3842,164 +3865,5 @@ describe("ScheduleService", () => {
     now = new Date("2026-01-01T00:01:00.000Z");
     expect(await service.completeForAgent(agentId)).toBe(1);
     expect(await service.completeForAgent(agentId)).toBe(0);
-  });
-
-  describe("plugin schedules", () => {
-    type RunPluginSchedule = NonNullable<ScheduleServiceOptions["runPluginSchedule"]>;
-
-    const base = {
-      pluginId: "office",
-      name: "standup-notes",
-      handler: "standup-notes",
-      prompt: "Stand-up notes",
-      cadence: { type: "cron" as const, expression: "0 8 * * 0-4", timezone: "Asia/Riyadh" },
-    };
-
-    function cronAt(expression: string, timezone: string) {
-      return { type: "cron" as const, expression, timezone };
-    }
-
-    async function pluginRunSucceeds(): Promise<void> {}
-
-    function createPluginScheduleService(runPluginSchedule?: RunPluginSchedule): ScheduleService {
-      return createScheduleService({
-        paseoHome: tempDir,
-        logger: createTestLogger(),
-        agentManager: new AgentManager({ logger: createTestLogger() }),
-        agentStorage,
-        providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
-        now: () => now,
-        runPluginSchedule,
-      });
-    }
-
-    test("a due plugin schedule calls its plugin's handler", async () => {
-      const runPluginSchedule = vi.fn<RunPluginSchedule>(pluginRunSucceeds);
-      const service = createPluginScheduleService(runPluginSchedule);
-      // Friday 20 November 2026; the next weekday slot is Sunday 08:00 in Riyadh.
-      now = new Date("2026-11-20T12:00:00.000Z");
-      const schedule = await service.upsertPluginSchedule(base);
-      expect(schedule.nextRunAt).toBe("2026-11-22T05:00:00.000Z");
-
-      now = new Date("2026-11-22T05:00:00.000Z");
-      await service.tick();
-
-      const [stored] = await service.listPluginSchedules("office");
-      expect(runPluginSchedule).toHaveBeenCalledTimes(1);
-      expect(runPluginSchedule).toHaveBeenCalledWith({
-        pluginId: "office",
-        handler: "standup-notes",
-        scheduleId: schedule.id,
-        runId: stored.runs[0].id,
-      });
-      expect(stored.runs).toEqual([
-        expect.objectContaining({ status: "succeeded", agentId: null, output: null, error: null }),
-      ]);
-    });
-
-    test("upserting by the same plugin and name updates, it does not add", async () => {
-      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
-      const first = await service.upsertPluginSchedule({
-        ...base,
-        cadence: cronAt("0 8 * * 0-4", "Asia/Riyadh"),
-      });
-      const second = await service.upsertPluginSchedule({
-        ...base,
-        handler: "write-notes",
-        cadence: cronAt("0 8 * * 0-4", "Europe/Berlin"),
-      });
-
-      const owned = await service.listPluginSchedules("office");
-      expect(owned).toHaveLength(1);
-      expect(second.id).toBe(first.id);
-      expect(owned[0].cadence).toMatchObject({ timezone: "Europe/Berlin" });
-      expect(owned[0].target).toEqual({
-        type: "plugin",
-        pluginId: "office",
-        handler: "write-notes",
-      });
-    });
-
-    test("a plugin sees and removes only its own schedules", async () => {
-      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
-      await service.upsertPluginSchedule({ ...base, pluginId: "office" });
-      await service.upsertPluginSchedule({ ...base, pluginId: "other" });
-      await service.create({
-        name: base.name,
-        prompt: base.prompt,
-        cadence: base.cadence,
-        target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
-      });
-
-      expect(await service.listPluginSchedules("office")).toHaveLength(1);
-      expect(await service.removePluginSchedule("office", base.name)).toBe(true);
-      expect(await service.listPluginSchedules("office")).toEqual([]);
-      expect(await service.listPluginSchedules("other")).toHaveLength(1);
-      expect(await service.removePluginSchedule("office", base.name)).toBe(false);
-      expect(await service.list()).toHaveLength(2);
-    });
-
-    test("a plugin that is not loaded fails the run and keeps the schedule active", async () => {
-      const runPluginSchedule = vi.fn<RunPluginSchedule>(pluginRunSucceeds);
-      runPluginSchedule.mockRejectedValueOnce(new Error("Plugin is not available: office"));
-      const service = createPluginScheduleService(runPluginSchedule);
-      now = new Date("2026-11-20T12:00:00.000Z");
-      await service.upsertPluginSchedule(base);
-
-      now = new Date("2026-11-22T05:00:00.000Z");
-      await service.tick();
-
-      const [stored] = await service.listPluginSchedules("office");
-      expect(stored.status).toBe("active");
-      expect(stored.nextRunAt).toBe("2026-11-23T05:00:00.000Z");
-      expect(stored.runs.at(-1)).toMatchObject({
-        status: "failed",
-        error: "Plugin is not available: office",
-      });
-    });
-
-    test("a plugin schedule fails its run on a daemon without a plugin runner", async () => {
-      const service = createPluginScheduleService();
-      now = new Date("2026-11-20T12:00:00.000Z");
-      await service.upsertPluginSchedule(base);
-
-      now = new Date("2026-11-22T05:00:00.000Z");
-      await service.tick();
-
-      const [stored] = await service.listPluginSchedules("office");
-      expect(stored.status).toBe("active");
-      expect(stored.runs.at(-1)).toMatchObject({
-        status: "failed",
-        error: "Plugin schedules are not available",
-      });
-    });
-
-    test("upserting refuses an invalid cron expression or time zone before saving", async () => {
-      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
-
-      await expect(
-        service.upsertPluginSchedule({ ...base, cadence: cronAt("0 8 * * 0-4", "Mars/Base") }),
-      ).rejects.toThrow("Invalid cron time zone: Mars/Base");
-      await expect(
-        service.upsertPluginSchedule({ ...base, cadence: cronAt("0/15 * * * *", "Asia/Riyadh") }),
-      ).rejects.toThrow("Invalid cron minute step: use * or a range before /");
-      expect(await service.listPluginSchedules("office")).toEqual([]);
-
-      await service.upsertPluginSchedule(base);
-      await expect(
-        service.upsertPluginSchedule({ ...base, cadence: cronAt("0 8 * * 0-4", "Mars/Base") }),
-      ).rejects.toThrow("Invalid cron time zone: Mars/Base");
-      const [stored] = await service.listPluginSchedules("office");
-      expect(stored.cadence).toEqual(base.cadence);
-    });
-
-    test("update rejects new-agent fields on plugin-target schedules", async () => {
-      const service = createPluginScheduleService(vi.fn<RunPluginSchedule>(pluginRunSucceeds));
-      const schedule = await service.upsertPluginSchedule(base);
-
-      await expect(
-        service.update({ id: schedule.id, newAgentConfig: { provider: "codex" } }),
-      ).rejects.toThrow("only valid for new-agent target schedules");
-    });
   });
 });

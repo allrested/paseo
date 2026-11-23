@@ -193,7 +193,7 @@ export declare const Loading: ComponentType;
 export declare const DocumentFrame: ComponentType<{ url: string; testID?: string }>;
 
 export interface ScriptFrameProps {
-  /** JavaScript run once, in an empty standards-mode page with no network. */
+  /** Trusted, self-contained JavaScript to run in a new page. */
   script: string;
   /** Text the page sent with `window.paseoFrame.post(text)`. */
   onMessage(text: string): void;
@@ -208,8 +208,7 @@ export interface ScriptFrameHandle {
   post(text: string): void;
 }
 /**
- * Runs your script in an isolated page and passes strings both ways. The store build does not have
- * it, whatever its version: check `"ScriptFrame" in ui`.
+ * Runs a trusted plugin script in its own page and exchanges string messages with the plugin.
  */
 export declare const ScriptFrame: ForwardRefExoticComponent<
   ScriptFrameProps & RefAttributes<ScriptFrameHandle>

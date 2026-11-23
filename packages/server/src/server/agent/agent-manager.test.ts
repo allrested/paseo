@@ -6337,62 +6337,6 @@ test("reopening a closed agent keeps metadata saved while the loader was reading
   expect((await storage.get(agentId))?.metadata).toEqual({ first: 1, second: 2 });
 });
 
-test("setMetadata on a live agent is not activity: updatedAt stays and the state still goes out", async () => {
-  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-metadata-live-updated-at-"));
-  const storage = new AgentStorage(join(workdir, "agents"), logger);
-  const manager = new AgentManager({
-    clients: { codex: new TestAgentClient() },
-    registry: storage,
-    logger,
-  });
-  const created = await manager.createAgent(
-    { provider: "codex", cwd: workdir, title: "Metadata live" },
-    undefined,
-    { workspaceId: undefined },
-  );
-  const before = manager.getAgent(created.id)!.updatedAt.getTime();
-  const storedBefore = (await storage.get(created.id))!.updatedAt;
-  const emitted: unknown[] = [];
-  manager.subscribe(
-    (event) => {
-      if (event.type === "agent_state") emitted.push(event.agent.metadata);
-    },
-    { agentId: created.id, replayState: false },
-  );
-
-  await manager.setMetadata(created.id, { "office.subagent.number": 1 });
-
-  expect(manager.getAgent(created.id)!.updatedAt.getTime()).toBe(before);
-  expect((await storage.get(created.id))!.updatedAt).toBe(storedBefore);
-  expect((await storage.get(created.id))!.metadata).toEqual({ "office.subagent.number": 1 });
-  expect(emitted.at(-1)).toEqual({ "office.subagent.number": 1 });
-});
-
-test("setMetadata on a stored agent is not activity: updatedAt stays", async () => {
-  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-metadata-stored-updated-at-"));
-  const storage = new AgentStorage(join(workdir, "agents"), logger);
-  const manager = new AgentManager({
-    clients: { codex: new TestAgentClient() },
-    registry: storage,
-    logger,
-  });
-  const created = await manager.createAgent(
-    { provider: "codex", cwd: workdir, title: "Metadata stored" },
-    undefined,
-    { workspaceId: undefined, metadata: { first: 1 } },
-  );
-  await manager.closeAgent(created.id);
-  expect(manager.getAgent(created.id)).toBeNull();
-  const before = (await storage.get(created.id))!.updatedAt;
-
-  const saved = await manager.setMetadata(created.id, { "office.subagent.next": 2 });
-
-  expect(saved).toEqual({ first: 1, "office.subagent.next": 2 });
-  const after = await storage.get(created.id);
-  expect(after?.metadata).toEqual({ first: 1, "office.subagent.next": 2 });
-  expect(after?.updatedAt).toBe(before);
-});
-
 test("detachAgent removes relationship lifecycle labels from a live agent and emits state", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-detach-live-"));
   const storagePath = join(workdir, "agents");
@@ -9834,6 +9778,69 @@ test.each([
     expect(attentionReasons).toEqual(["error", expectedReason]);
   },
 );
+
+test("turns an agent starts on its own keep its finish unread until it is read", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-autonomous-finish-unread-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  class AutonomousClient extends TestAgentClient {
+    readonly session = new TestAgentSession({ provider: "codex", cwd: workdir });
+
+    override async createSession(): Promise<AgentSession> {
+      return this.session;
+    }
+  }
+
+  const client = new AutonomousClient();
+  const attention: Array<{ reason: string; attentionTimestamp: Date | null }> = [];
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    onAgentAttention: ({ reason, attentionTimestamp }) =>
+      attention.push({ reason, attentionTimestamp }),
+  });
+  onTestFinished(async () => {
+    await manager.closeAgent(agent.id);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+
+  async function runAutonomousTurn(turnId: string): Promise<void> {
+    const running = waitForAgentLifecycle(manager, agent.id, "running");
+    client.session.pushEvent({ type: "turn_started", provider: "codex", turnId });
+    await running;
+    const idle = waitForAgentLifecycle(manager, agent.id, "idle");
+    client.session.pushEvent({ type: "turn_completed", provider: "codex", turnId });
+    await idle;
+  }
+
+  // A background task's output wakes the agent three times while nobody reads it.
+  await runAutonomousTurn("wake-1");
+  await runAutonomousTurn("wake-2");
+  await runAutonomousTurn("wake-3");
+  // Each finish is reported, and all three belong to the same unread finish.
+  const unreadFinish = attention[0]?.attentionTimestamp;
+  expect(unreadFinish).toBeInstanceOf(Date);
+  expect(attention).toEqual([
+    { reason: "finished", attentionTimestamp: unreadFinish },
+    { reason: "finished", attentionTimestamp: unreadFinish },
+    { reason: "finished", attentionTimestamp: unreadFinish },
+  ]);
+  expect(toAgentPayload(manager.getAgent(agent.id)!)).toMatchObject({
+    requiresAttention: true,
+    attentionReason: "finished",
+  });
+
+  // After the user reads the agent, its next finish is a new unread finish.
+  await manager.clearAgentAttention(agent.id);
+  await runAutonomousTurn("wake-4");
+  expect(attention).toHaveLength(4);
+  expect(attention[3]?.reason).toBe("finished");
+  expect(attention[3]?.attentionTimestamp).not.toBe(unreadFinish);
+});
 
 test("streamAgent clears pending run when startTurn fails before a turn id exists", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-start-turn-failure-"));
@@ -15290,6 +15297,120 @@ test("stops only a currently owned public background item with its current token
   await manager.closeAgent(agent.id);
 });
 
+test("lists and stops heartbeat background work across provider session closure", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-background-heartbeat-"));
+  const stopped: string[] = [];
+  let activeSession: TestAgentSession | undefined;
+  class StoppableSession extends TestAgentSession {
+    async stopBackgroundWork(id: string) {
+      stopped.push(id);
+    }
+  }
+  class BackgroundWorkClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      activeSession = new StoppableSession(config);
+      return activeSession;
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new BackgroundWorkClient() },
+    registry: new AgentStorage(join(workdir, "agents"), logger),
+    logger,
+  });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  const events: AgentManagerEvent[] = [];
+  manager.subscribe((event) => events.push(event), { agentId: agent.id, replayState: false });
+  const heartbeatKey = { agentId: agent.id, namespace: "heartbeat", id: "schedule-1" } as const;
+  const heartbeat = {
+    ...heartbeatKey,
+    kind: "heartbeat",
+    countsAsRunning: false,
+    description: "Check build",
+    startedAt: "2026-10-06T10:00:00.000Z",
+    stop: async () => {
+      stopped.push("schedule-1");
+      manager.removeDaemonBackgroundWork(heartbeatKey);
+    },
+  };
+  try {
+    manager.setDaemonBackgroundWork(heartbeat);
+    const [item] = manager.listAgentBackgroundWork(agent.id);
+    expect(item).toMatchObject({
+      kind: "heartbeat",
+      description: "Check build",
+      startedAt: heartbeat.startedAt,
+      canStop: true,
+      stopToken: expect.any(String),
+    });
+    manager.setDaemonBackgroundWork({ ...heartbeat, description: "Check CI" });
+    const renamed = { ...item, description: "Check CI" };
+
+    activeSession?.pushEvent({
+      type: "background_work",
+      provider: "codex",
+      items: [{ id: item.id, kind: "shell", description: null, canStop: true }],
+    });
+    await vi.waitFor(() =>
+      expect(manager.getAgentBackgroundWorkSummary(agent.id)).toEqual({
+        count: 2,
+        runningCount: 1,
+      }),
+    );
+    const providerItem = manager
+      .listAgentBackgroundWork(agent.id)
+      .find((row) => row.kind === "shell")!;
+    expect(providerItem.id).not.toBe(item.id);
+    expect(events).toContainEqual({
+      type: "background_work",
+      agentId: agent.id,
+      items: expect.arrayContaining([providerItem, renamed]),
+    });
+    await manager.stopAgentBackgroundWork({
+      agentId: agent.id,
+      itemId: providerItem.id,
+      stopToken: providerItem.stopToken!,
+    });
+    expect(stopped).toEqual([item.id]);
+
+    const eventsBeforeClose = events.length;
+    await manager.closeAgent(agent.id);
+    expect(manager.getAgent(agent.id)).toBeNull();
+    expect(manager.listAgentBackgroundWork(agent.id)).toEqual([renamed]);
+    expect(manager.getAgentBackgroundWorkSummary(agent.id)).toEqual({ count: 1, runningCount: 0 });
+    expect(events.slice(eventsBeforeClose)).toContainEqual({
+      type: "background_work",
+      agentId: agent.id,
+      items: [renamed],
+    });
+
+    const stop = { agentId: agent.id, itemId: item.id, stopToken: item.stopToken! };
+    await expect(manager.stopAgentBackgroundWork(stop)).rejects.toThrow();
+    await expect(
+      manager.stopAgentBackgroundWork({
+        ...stop,
+        stopToken: providerItem.stopToken!,
+        canManageAutomation: true,
+      }),
+    ).rejects.toThrow();
+    expect(stopped).toEqual([item.id]);
+    await manager.stopAgentBackgroundWork({ ...stop, canManageAutomation: true });
+    expect(stopped).toEqual([item.id, "schedule-1"]);
+    expect(manager.getAgentBackgroundWorkSummary(agent.id)).toBeUndefined();
+    expect(events.at(-1)).toEqual({ type: "background_work", agentId: agent.id, items: [] });
+
+    manager.setDaemonBackgroundWork(heartbeat);
+    await expect(
+      manager.stopAgentBackgroundWork({ ...stop, canManageAutomation: true }),
+    ).rejects.toThrow();
+    expect(manager.listAgentBackgroundWork(agent.id)[0].stopToken).not.toBe(item.stopToken);
+  } finally {
+    if (manager.getAgent(agent.id)) await manager.closeAgent(agent.id);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("turns keep distinct identities across an idle runtime collection and resume", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-turn-identity-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
@@ -15548,7 +15669,7 @@ test.each(["turn_completed", "turn_failed", "turn_canceled"] as const)(
   },
 );
 
-test("an idle-only prompt rejects a busy recipient before changing its mode", async () => {
+test("an idle-only prompt waits for idle and checks admission before handoff", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-queued-mode-"));
   class ModeSession extends SteeringTestSession {
     mode = "plan";
@@ -15611,6 +15732,24 @@ test("an idle-only prompt rejects a busy recipient before changing its mode", as
     await providerStarted;
     session.pushEvent({ type: "turn_completed", provider: "codex", turnId: "active-turn-1" });
     await vi.waitFor(() => expect(manager.hasInFlightRun(agent.id)).toBe(false));
+
+    let queued = true;
+    const withdrawn = await sendPreparedPromptToAgent({
+      agentManager: manager,
+      agentStorage: storage,
+      agentId: agent.id,
+      prompt: "withdrawn follow-up",
+      idleOnly: true,
+      admit: () => queued,
+      onDispatch: () => {
+        queued = false;
+      },
+      logger,
+    });
+    await expect(dispatchStarted(withdrawn)).rejects.toThrow("canceled before its turn started");
+    expect(session.startPrompts).toEqual(["other turn"]);
+    expect(manager.hasInFlightRun(agent.id)).toBe(false);
+
     await sendPreparedPromptToAgent({
       agentManager: manager,
       agentStorage: storage,
@@ -15703,162 +15842,3 @@ function dispatchStarted(dispatch: Awaited<ReturnType<typeof startAgentRun>>): P
   void dispatch.started.catch(() => undefined);
   return dispatch.started;
 }
-
-test("closeRuntimeIfIdle closes an idle runtime that the next prompt resumes", async () => {
-  const h = idleCleanupHarness();
-  const agent = await h.create();
-  h.probes[0] = async () => true;
-
-  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBeNull();
-  expect(h.manager.getAgent(agent.id)).toBeNull();
-  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBeNull();
-  expect(h.closes).toBe(1);
-
-  const result = await h.manager.runAgent(agent.id, "after the close");
-  expect(result.sessionId).toBe(agent.persistence?.sessionId);
-  expect(h.prompts).toEqual(["after the close"]);
-});
-
-test("closeRuntimeIfIdle keeps a runtime whose provider vetoes or fails the probe", async () => {
-  const h = idleCleanupHarness();
-  const agent = await h.create();
-  const background = "Agent may still run background work; close it once that ends";
-
-  h.probes[0] = async () => false;
-  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBe(background);
-  h.probes[0] = async () => {
-    throw new Error("roster unavailable");
-  };
-  expect(await h.manager.closeRuntimeIfIdle(agent.id)).toBe(background);
-
-  expect(h.closes).toBe(0);
-  expect(h.manager.getAgent(agent.id)).not.toBeNull();
-});
-
-test("closeRuntimeIfIdle refuses when a prompt arrives during the safety probe", async () => {
-  const h = idleCleanupHarness();
-  const agent = await h.create();
-  const entered = deferred<void>();
-  const probe = deferred<boolean>();
-  h.probes[0] = () => {
-    entered.resolve();
-    return probe.promise;
-  };
-
-  const close = h.manager.closeRuntimeIfIdle(agent.id);
-  await entered.promise;
-  await h.manager.runAgent(agent.id, "arrived during safety query");
-  probe.resolve(true);
-
-  expect(await close).toBe("Agent is busy; close it once it is idle");
-  expect(h.closes).toBe(0);
-});
-
-test("closeRuntimeIfIdle makes a prompt racing the close wait for it and resume once", async () => {
-  const h = idleCleanupHarness();
-  const agent = await h.create();
-  h.probes[0] = async () => true;
-  const gate = deferred<void>();
-  h.holdClose(gate.promise);
-
-  const close = h.manager.closeRuntimeIfIdle(agent.id);
-  await h.closeEntered.promise;
-  const run = h.manager.runAgent(agent.id, "arrived while closing");
-  gate.resolve();
-
-  expect(await close).toBeNull();
-  const result = await run;
-  expect(result.sessionId).toBe(agent.persistence?.sessionId);
-  expect(h.closes).toBe(1);
-  expect(h.prompts).toEqual(["arrived while closing"]);
-});
-
-test("closeRuntimeIfIdle refuses an agent without a saved session to resume", async () => {
-  let closes = 0;
-  const client = new (class extends TestAgentClient {
-    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
-      const session = await super.createSession(config);
-      const runtimeInfo = session.getRuntimeInfo.bind(session);
-      session.getRuntimeInfo = async () => ({ ...(await runtimeInfo()), sessionId: null });
-      session.describePersistence = () => null;
-      session.canStopRuntime = async () => true;
-      session.close = async () => {
-        closes++;
-      };
-      return session;
-    }
-  })();
-  const manager = new AgentManager({ clients: { codex: client }, logger });
-  const agent = await manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
-    workspaceId: undefined,
-  });
-  onTestFinished(() => manager.closeAgent(agent.id));
-
-  expect(agent.persistence).toBeNull();
-  expect(await manager.closeRuntimeIfIdle(agent.id)).toBe(
-    "This agent has no saved session to resume, so it stays open",
-  );
-  expect(closes).toBe(0);
-  expect(manager.getAgent(agent.id)).not.toBeNull();
-});
-
-test("closeRuntimeIfIdle refuses a busy agent without asking its provider", async () => {
-  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-close-busy-"));
-  const storage = new AgentStorage(join(workdir, "agents"), logger);
-  let probes = 0;
-  class ProbedSession extends TestAgentSession {
-    async canStopRuntime(): Promise<boolean> {
-      probes++;
-      return true;
-    }
-  }
-  const sessions: ProbedSession[] = [];
-  const client = new (class extends TestAgentClient {
-    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
-      const session = new ProbedSession(config);
-      sessions.push(session);
-      return session;
-    }
-  })();
-  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
-  onTestFinished(async () => {
-    await Promise.all(manager.listAgents().map((agent) => manager.closeAgent(agent.id)));
-    await storage.flush();
-    rmSync(workdir, { recursive: true, force: true });
-  });
-  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
-    workspaceId: undefined,
-  });
-  sessions[0]?.pushEvent({
-    type: "provider_subagent",
-    provider: "codex",
-    event: { type: "upsert", id: "worker", title: "Worker", status: "running" },
-  });
-  await vi.waitFor(() => expect(manager.listProviderSubagents(agent.id)).toHaveLength(1));
-
-  expect(await manager.closeRuntimeIfIdle(agent.id)).toBe(
-    "Agent is busy; close it once it is idle",
-  );
-  expect(probes).toBe(0);
-  expect(manager.getAgent(agent.id)).not.toBeNull();
-});
-
-test("closeRuntimeIfIdle answers closed when another close released the runtime during the probe", async () => {
-  const h = idleCleanupHarness();
-  const agent = await h.create();
-  const entered = deferred<void>();
-  const probe = deferred<boolean>();
-  h.probes[0] = () => {
-    entered.resolve();
-    return probe.promise;
-  };
-
-  const close = h.manager.closeRuntimeIfIdle(agent.id);
-  await entered.promise;
-  await h.manager.closeAgent(agent.id);
-  probe.resolve(true);
-
-  expect(await close).toBeNull();
-  expect(h.closes).toBe(1);
-  expect(h.manager.getAgent(agent.id)).toBeNull();
-});

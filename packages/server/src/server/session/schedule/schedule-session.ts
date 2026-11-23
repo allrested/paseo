@@ -98,11 +98,7 @@ export class ScheduleSession {
     request: Extract<SessionInboundMessage, { type: "schedule/list" }>,
   ): Promise<void> {
     try {
-      // Plugin schedules belong to their plugin, and a client older than the plugin target
-      // cannot parse one.
-      const schedules = (await this.scheduleService.list()).filter(
-        (schedule) => schedule.target.type !== "plugin",
-      );
+      const schedules = await this.scheduleService.list();
       this.host.emit({
         type: "schedule/list/response",
         payload: {

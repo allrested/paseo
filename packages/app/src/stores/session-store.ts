@@ -36,7 +36,7 @@ import type {
   AgentPersistenceHandle,
 } from "@getpaseo/protocol/agent-types";
 import type {
-  AgentSnapshotPayload,
+  AgentBackgroundWorkSummary,
   ServerInfoStatusPayload,
   ProjectPlacementPayload,
   ServerCapabilities,
@@ -79,7 +79,7 @@ export interface Agent {
   id: string;
   provider: AgentProvider;
   status: AgentLifecycleStatus;
-  backgroundWork?: { count: number };
+  backgroundWork?: AgentBackgroundWorkSummary;
   turn: TurnLiveness;
   createdAt: Date;
   updatedAt: Date;
@@ -94,7 +94,6 @@ export interface Agent {
   usageScopeKey?: string;
   lastUsage?: AgentUsage;
   lastError?: string | null;
-  limitReached?: AgentSnapshotPayload["limitReached"];
   title: string | null;
   cwd: string;
   workspaceId?: string;

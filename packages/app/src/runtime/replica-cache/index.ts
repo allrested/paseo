@@ -1,6 +1,7 @@
 import { findMountedWindowStart } from "@/agent-stream/history-window";
 import { z } from "zod";
 import {
+  AgentBackgroundWorkSummarySchema,
   AgentStatusSchema,
   AgentTimelineItemPayloadSchema,
   ForgeWebSchema,
@@ -123,6 +124,7 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
     clientMessageId: z.string().optional(),
     messageId: z.string().optional(),
     text: z.string(),
+    imageUrls: z.array(z.string()).optional(),
   }),
   z.strictObject({
     ...TimelineItemBaseShape,
@@ -236,7 +238,7 @@ const StoredAgentSnapshotSchema = z.strictObject({
   updatedAt: IsoDateSchema,
   lastUserMessageAt: IsoDateSchema.nullable(),
   status: AgentStatusSchema,
-  backgroundWork: z.object({ count: z.number().int().nonnegative() }).optional(),
+  backgroundWork: AgentBackgroundWorkSummarySchema.optional(),
   activeTurn: z
     .strictObject({
       turnId: z.string(),
@@ -471,6 +473,7 @@ function serializeTimelineItem(item: StreamItem): StoredTimelineItem | null {
         ...(item.clientMessageId ? { clientMessageId: item.clientMessageId } : {}),
         ...(item.messageId ? { messageId: item.messageId } : {}),
         text: item.text,
+        ...(item.imageUrls?.length ? { imageUrls: item.imageUrls } : {}),
       };
     case "assistant_message":
       return {
@@ -564,6 +567,7 @@ function deserializeBuiltinTimelineItem(
         ...(item.clientMessageId ? { clientMessageId: item.clientMessageId } : {}),
         ...(item.messageId ? { messageId: item.messageId } : {}),
         text: item.text,
+        ...(item.imageUrls?.length ? { imageUrls: item.imageUrls } : {}),
       };
     case "assistant_message":
       return {

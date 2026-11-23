@@ -11,10 +11,7 @@ import {
   finishNotificationEvents,
   type FinishNotificationReason,
 } from "./internal/notification.js";
-export {
-  createJsonFinishSubscriptionStore,
-  createJsonFinishWatcherStore,
-} from "./internal/json-store.js";
+export { createJsonFinishSubscriptionStore } from "./internal/json-store.js";
 
 export interface FinishSubscription {
   id: string;
@@ -29,16 +26,6 @@ export interface FinishSubscriptionStore {
   put(subscription: FinishSubscription): Promise<void>;
   remove(id: string): Promise<void>;
 }
-/** A caller that was told about the end of a turn of an agent on this host. */
-export interface FinishWatcher {
-  childAgentId: string;
-  callerAgentId: string;
-  at: string;
-}
-export interface FinishWatcherStore {
-  list(): Promise<FinishWatcher[]>;
-  replace(watchers: FinishWatcher[]): Promise<void>;
-}
 export interface FinishObservationSession {
   next(): Promise<FinishObservationResult>;
   close(): Promise<void>;
@@ -49,14 +36,7 @@ export interface FinishObservation {
 interface Dependencies extends FinishObservation {
   store: FinishSubscriptionStore;
   messages(): AgentMessageDelivery;
-  /**
-   * Who to tell for this caller: itself while it is active, the agent its session moved to, or
-   * null when neither exists.
-   */
-  resolveCaller(agentId: string): Promise<string | null>;
-  /** Left out, who was told is remembered only until the daemon stops. */
-  watchers?: FinishWatcherStore;
-  now?: () => Date;
+  callerIsActive(agentId: string): Promise<boolean>;
   serverId: string;
   logger: Logger;
   retryDelayMs?: number;
@@ -71,15 +51,6 @@ export interface FinishSubscriptions {
   start(): Promise<void>;
   /** Pending notification intent, including registration, recovery and unacknowledged delivery. */
   hasPendingForCaller(agentId: string): boolean;
-  /**
-   * The callers that wait on `childAgentId`, or were told that a turn of it failed, was
-   * cancelled or was closed. A session move reads this: their notification is spent while the
-   * work they asked for is not done, so these are who to tell when the successor finishes. A
-   * caller told that the turn finished has its answer and is not named. Agents on this host only.
-   */
-  watchersOf(childAgentId: string): string[];
-  /** The agent completed a turn: whoever was told about an earlier failure no longer waits. */
-  forgetWatchers(childAgentId: string): void;
   register(
     input: Omit<FinishSubscription, "id">,
     pendingDispatch?: boolean,
@@ -101,41 +72,6 @@ function key(record: FinishSubscription): string {
 /** Owns durable intent, live observation, supersession, and dispatch acknowledgment. */
 export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptions {
   const tasks = new Set<Promise<void>>();
-  let told: FinishWatcher[] = [];
-  /** Long enough to move an agent the morning after its limit; nothing reads an older entry. */
-  const TOLD_FOR_MS = 7 * 24 * 60 * 60 * 1000;
-  function currentTime(): Date {
-    return (deps.now ?? (() => new Date()))();
-  }
-  function isFresh(entry: FinishWatcher, at: Date): boolean {
-    return at.getTime() - Date.parse(entry.at) < TOLD_FOR_MS;
-  }
-  /** The latest write of who was told, so close can wait for it. */
-  let savingTold: Promise<void> = Promise.resolve();
-  function saveTold(): void {
-    if (!deps.watchers) return;
-    savingTold = deps.watchers.replace(told).catch((error: unknown) => {
-      deps.logger.warn({ err: error }, "Failed to save finish watchers");
-    });
-  }
-  function noteTold(record: FinishSubscription): void {
-    // A watch on an agent of another host is that host's move to follow.
-    if (record.serverId) return;
-    const at = currentTime();
-    told = told.filter(
-      (entry) =>
-        isFresh(entry, at) &&
-        !(
-          entry.childAgentId === record.childAgentId && entry.callerAgentId === record.callerAgentId
-        ),
-    );
-    told.push({
-      childAgentId: record.childAgentId,
-      callerAgentId: record.callerAgentId,
-      at: at.toISOString(),
-    });
-    saveTold();
-  }
   const watches = new Map<string, Set<Watch>>();
   let closed = false;
   let recovering = true;
@@ -166,16 +102,12 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     void watch.task.then(() => tasks.delete(watch.task!));
     return watch;
   }
-  /** `group` is where the caller last saw the watch; a re-pointed watch sits under a newer key. */
   function stop(watch: Watch, group: Set<Watch>): void {
     watch.controller.abort();
     watch.decide(false);
-    const current = key(watch.records[0]!);
-    for (const holder of new Set([group, watches.get(current)])) {
-      if (!holder) continue;
-      holder.delete(watch);
-      if (!holder.size && watches.get(current) === holder) watches.delete(current);
-    }
+    group.delete(watch);
+    if (!group.size && watches.get(key(watch.records[0]!)) === group)
+      watches.delete(key(watch.records[0]!));
   }
   async function remove(watch: Watch): Promise<void> {
     // Only IDs captured by this observer are eligible; newer registrations survive.
@@ -214,25 +146,17 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       await Promise.all(pending.map((watch) => watch.decision));
     }
   }
-  /** A creation subscription stops reporting once the child no longer belongs to the caller. */
-  function detached(record: FinishSubscription, result: WaitForFinishResult): boolean {
-    if (!record.requireParentOwnership || !result.final) return false;
+  async function suppressed(
+    record: FinishSubscription,
+    result?: WaitForFinishResult,
+  ): Promise<boolean> {
+    if (!(await deps.callerIsActive(record.callerAgentId))) return true;
+    if (!record.requireParentOwnership || !result?.final) return false;
     const parent = getParentAddressFromLabels(
       result.final.labels,
       record.serverId ?? deps.serverId,
     );
     return parent?.agentId !== record.callerAgentId || parent.serverId !== deps.serverId;
-  }
-  /** Files a watch whose records changed pair under its new key and returns that group. */
-  function refile(watch: Watch, group: Set<Watch>, records: FinishSubscription[]): Set<Watch> {
-    group.delete(watch);
-    if (!group.size && watches.get(key(watch.records[0]!)) === group)
-      watches.delete(key(watch.records[0]!));
-    watch.records = records;
-    const next = watches.get(key(records[0]!)) ?? new Set<Watch>();
-    next.add(watch);
-    watches.set(key(records[0]!), next);
-    return next;
   }
   function reasonFor(result: FinishObservationResult): FinishNotificationReason {
     if (result.reason === "host unreachable" || result.reason === "host removed")
@@ -290,44 +214,19 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     if (reason !== "needs permission") return true;
     return false;
   }
-  /** A turn that failed, was cancelled or was closed leaves the caller's request undone. */
-  function noteIfUndone(record: FinishSubscription, result: FinishObservationResult): boolean {
-    if (!["errored", "was canceled", "was closed"].includes(reasonFor(result))) return false;
-    noteTold(record);
-    return true;
-  }
-
-  async function run(watch: Watch, initialGroup: Set<Watch>): Promise<void> {
+  async function run(watch: Watch, group: Set<Watch>): Promise<void> {
     const signal = watch.controller.signal;
     if (!(await watch.decision) || signal.aborted) return;
-    let group = initialGroup;
-    let record = {
+    const record = {
       ...watch.records[0]!,
       requireParentOwnership: watch.records.every(
         (intent) => intent.requireParentOwnership === true,
       ),
     };
-    /** False when nobody is left to tell. A caller that moved is replaced by its successor. */
-    async function followCaller(): Promise<boolean> {
-      const caller = await deps.resolveCaller(record.callerAgentId);
-      if (caller === null) return false;
-      // A watch stopped meanwhile is neither saved again nor filed again; the loop ends it.
-      if (caller === record.callerAgentId || signal.aborted) return true;
-      const records = watch.records.map((intent) => ({ ...intent, callerAgentId: caller }));
-      for (const intent of records) await deps.store.put(intent);
-      if (signal.aborted) {
-        for (const intent of records) await deps.store.remove(intent.id);
-        return true;
-      }
-      group = refile(watch, group, records);
-      record = { ...record, callerAgentId: caller };
-      return true;
-    }
     const permissions = new Set<string>();
     let observation: FinishObservationSession | undefined;
     let pending: FinishObservationResult | undefined;
     let acknowledged = false;
-    let noted = false;
     let remoteFailures = 0;
     let retries = 0;
     let warned = false;
@@ -357,7 +256,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     try {
       while (!signal.aborted) {
         try {
-          if (!(await followCaller())) {
+          if (await suppressed(record)) {
             await remove(watch);
             stop(watch, group);
             return;
@@ -372,12 +271,11 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
           // Its pending registration must not hold the running turn's checkpoint.
           if (pending.status !== "permission" || watch.pending) await decisions(group);
           if (signal.aborted) return;
-          if (!(await followCaller()) || detached(record, pending)) {
+          if (await suppressed(record, pending)) {
             await remove(watch);
             stop(watch, group);
             return;
           }
-          if (!noted) noted = noteIfUndone(record, pending);
           if (!acknowledged) acknowledged = await deliver(record, pending, permissions, signal);
           if (acknowledged) {
             // A removal failure retries only the commit, never the already accepted callback.
@@ -415,42 +313,8 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       }
       return false;
     },
-    watchersOf(childAgentId) {
-      const at = currentTime();
-      const callers = new Set<string>();
-      for (const entry of told) {
-        if (entry.childAgentId === childAgentId && isFresh(entry, at)) {
-          callers.add(entry.callerAgentId);
-        }
-      }
-      for (const group of watches.values()) {
-        for (const watch of group) {
-          const record = watch.records[0]!;
-          if (watch.pending || record.serverId || record.childAgentId !== childAgentId) continue;
-          callers.add(record.callerAgentId);
-        }
-      }
-      return [...callers];
-    },
-    forgetWatchers(childAgentId) {
-      if (!told.some((entry) => entry.childAgentId === childAgentId)) return;
-      told = told.filter((entry) => entry.childAgentId !== childAgentId);
-      saveTold();
-    },
     start: () =>
       serialize(async () => {
-        // A memory aid, never a reason to fail the start. What was noted before this read is kept.
-        const saved = await (deps.watchers?.list() ?? Promise.resolve([])).catch(
-          (error: unknown): FinishWatcher[] => {
-            deps.logger.warn({ err: error }, "Failed to read finish watchers");
-            return [];
-          },
-        );
-        const noted = new Set(told.map((entry) => `${entry.childAgentId}\n${entry.callerAgentId}`));
-        told = [
-          ...saved.filter((entry) => !noted.has(`${entry.childAgentId}\n${entry.callerAgentId}`)),
-          ...told,
-        ];
         const groups = new Map<string, FinishSubscription[]>();
         for (const record of await deps.store.list()) {
           const records = groups.get(key(record)) ?? [];
@@ -510,7 +374,6 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
         }
       await mutations;
       await Promise.all(tasks);
-      await savingTold;
       await deps.store.list();
       // Dispatch may still be pending. The delivery owner drains it after observers stop.
     },

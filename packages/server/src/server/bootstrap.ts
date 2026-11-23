@@ -1,33 +1,12 @@
 import { unarchiveWorkspaceAgents } from "./workspace-archive-service.js";
 import { createRestartRecovery } from "./agent/restart-recovery/index.js";
 import { sendPromptToAgent, unarchiveAgentState } from "./agent/agent-prompt.js";
+import { createChangeRequestWatches } from "./agent/change-request-watches/index.js";
 import { createIdleRuntimeCleanup } from "./agent/idle-runtime-cleanup/index.js";
-// Fork delta (usage heads-up): the usage watch and the move targets it reads.
-import {
-  listAgentMoveTargets,
-  moveTargetProvidersFrom,
-  sharedMoveTargetUsage,
-} from "./agent/session-move/list-move-targets.js";
-import {
-  createUsageWatch,
-  isWatchedAgent,
-  startUsageWatch,
-} from "./agent/session-move/usage-watch.js";
-import { startUsageLimitFallback } from "./agent/session-move/usage-limit-fallback.js";
-import { movedAgentLookup, resolveMovedAgent } from "./agent/session-move/move-agent.js";
-import { registerWatcherNotice } from "./agent/session-move/watcher-notice.js";
-import { createUsageLookup } from "./agent/session-move/move-targets.js";
-import {
-  probeTargetLogin,
-  runStatusCommand,
-  type RunCommand,
-  type TargetLogin,
-} from "./agent/session-move/target-login.js";
 import {
   createFinishSubscriptions,
   createFinishObservation,
   createJsonFinishSubscriptionStore,
-  createJsonFinishWatcherStore,
 } from "./agent/finish-subscriptions/index.js";
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
@@ -166,7 +145,6 @@ import { createSpeechService } from "./speech/speech-runtime.js";
 import { createSpeechSettingsOwner } from "./speech/speech-settings.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
-import type { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import {
@@ -194,12 +172,6 @@ import {
 } from "./config.js";
 import { resolvePaseoToolPolicy } from "./agent/paseo-tool-policy.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
-import type { CdpBrowserService } from "./browser-tools/cdp/cdp-browser-service.js";
-import { createCdpBrowserService } from "./browser-tools/cdp/create-cdp-browser-service.js";
-import { CdpEndpoint } from "./browser-tools/cdp/cdp-endpoint.js";
-import { CdpOffscreenPages } from "./browser-tools/cdp/offscreen-pages.js";
-import { CDP_COMMAND_TIMEOUT_MS } from "./browser-tools/cdp/cdp-browser-service.js";
-import { bundleBrowserScript } from "./plugins/browser-script.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
 import { resolveWorkspaceIdForPath } from "./resolve-workspace-id-for-path.js";
@@ -256,7 +228,6 @@ import {
 } from "./auth.js";
 import { deleteLocalCredential, writeLocalCredential } from "./local-credential.js";
 import { createWebUiMiddleware } from "./web-ui.js";
-import { loadBrand, type BrandInput } from "./brand.js";
 import { WorkspaceAutoName } from "./workspace-auto-name.js";
 import { createGitMutationService } from "./session/git-mutation/git-mutation-service.js";
 import { workspaceIdsOnCheckout } from "./workspace-directory.js";
@@ -453,10 +424,6 @@ export interface PaseoDaemonConfig {
   mcpInjectIntoAgents?: boolean;
   usageEnabled?: boolean;
   browserToolsEnabled?: boolean;
-  /**
-   * CDP origin of the Docker Chromium (PASEO_BROWSER_CDP_URL). Unset means no daemon browser host.
-   */
-  browserCdpUrl?: string;
   git?: {
     maxProcessesPerSecond: number;
     maxProcessConcurrency: number;
@@ -490,7 +457,6 @@ export interface PaseoDaemonConfig {
   webUi?: {
     enabled: boolean;
     distDir: string | null;
-    brand?: BrandInput;
   };
   appBaseUrl?: string;
   auth?: DaemonAuthConfig;
@@ -531,8 +497,6 @@ export interface PaseoDaemon {
   config: PaseoDaemonConfig;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
-  scheduleService: ScheduleService;
-  providerSnapshotManager: ProviderSnapshotManager;
   terminalManager: TerminalManager;
   serviceProxy: ServiceProxySubsystem;
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
@@ -554,8 +518,6 @@ export interface PaseoDaemonDependencies {
     daemonStatusRpc?: boolean;
     relayConfig?: boolean;
   };
-  /** Runs a CLI's login status command for session move. Tests pass one that runs nothing. */
-  runLoginStatusCommand?: RunCommand;
 }
 
 function resolveBuiltinPluginLoader(dependencies: PaseoDaemonDependencies): BuiltinPluginLoader {
@@ -578,55 +540,6 @@ function createBootstrapManagedProcessRegistry(
   });
 }
 
-// Fork delta (office stream): offscreen pages use the same Chromium as the browser pane. A bad URL
-// leaves built-ins without them and never stops the daemon from starting.
-function createDaemonOffscreenPages(input: {
-  config: PaseoDaemonConfig;
-  logger: Logger;
-}): CdpOffscreenPages | null {
-  const url = input.config.browserCdpUrl;
-  if (!url) return null;
-  const logger = input.logger.child({ module: "offscreen-pages" });
-  try {
-    return new CdpOffscreenPages({
-      endpoint: new CdpEndpoint({
-        url,
-        commandTimeoutMs: CDP_COMMAND_TIMEOUT_MS,
-        onError: (error) => logger.debug({ err: error }, "CDP error"),
-      }),
-      logger,
-    });
-  } catch (error) {
-    logger.error({ err: error, url }, "Offscreen pages are off: the CDP URL is not usable");
-    return null;
-  }
-}
-
-// Fork delta (web browser pane): the daemon hosts the Docker Chromium when a CDP URL is set. A bad
-// URL turns the host off with an error in the log; it never stops the daemon from starting.
-function createDaemonCdpBrowser(input: {
-  config: PaseoDaemonConfig;
-  broker: BrowserToolsBroker;
-  logger: Logger;
-}): CdpBrowserService | null {
-  const url = input.config.browserCdpUrl;
-  if (!url) return null;
-  try {
-    return createCdpBrowserService({
-      url,
-      paseoHome: input.config.paseoHome,
-      broker: input.broker,
-      logger: input.logger,
-    });
-  } catch (error) {
-    input.logger.error(
-      { err: error, url },
-      "PASEO_BROWSER_CDP_URL is not a usable URL; the Docker browser host is off",
-    );
-    return null;
-  }
-}
-
 async function reconcileManagedProcessLedger(
   managedProcesses: ManagedProcessRegistry,
   logger: Logger,
@@ -637,19 +550,12 @@ async function reconcileManagedProcessLedger(
   }
 }
 
-async function mountWebUi(
-  app: express.Application,
-  config: PaseoDaemonConfig,
-  logger: Logger,
-): Promise<void> {
-  // Read before the middleware is made, so requests stay in their order behind it.
-  const brand = config.webUi?.enabled ? await loadBrand(config.webUi.brand, logger) : null;
+function mountWebUi(app: express.Application, config: PaseoDaemonConfig, logger: Logger): void {
   app.use(
     createWebUiMiddleware({
       enabled: config.webUi?.enabled ?? false,
       distDir: config.webUi?.distDir ?? null,
       label: getHostName(),
-      brand,
       logger,
     }),
   );
@@ -767,21 +673,17 @@ export async function createPaseoDaemon(
   });
   const browserToolsPolicy = new DaemonConfigBrowserToolsPolicy(daemonConfigStore);
   const browserToolsBroker = new BrowserToolsBroker({});
-  const cdpBrowser = createDaemonCdpBrowser({ config, broker: browserToolsBroker, logger });
-  browserToolsBroker.cdpBrowser = cdpBrowser;
-  // Fork delta (office stream): built-ins may open pages in that Chromium that no pane sees.
-  const offscreenPages = createDaemonOffscreenPages({ config, logger });
   const pluginRuntime: PluginService = new PluginService(logger, daemonConfigStore, daemonVersion, {
     usageAgents: {
       hasAgent: (id) => agentManager.getAgent(id) !== null,
       usageSession: (id) => agentManager.usageSession(id),
+      resolveLaunch: (provider) => providerSnapshotManager.resolveUsageLaunch(provider),
     },
     managedSources: new ManagedPluginSources(config.paseoHome, {
       registries: config.pluginRegistries,
       defaultUrl: config.pluginRegistryUrl,
     }),
     builtinPlugins: resolveBuiltinPluginLoader(dependencies),
-    builtinExtras: { offscreenPages: offscreenPages ?? undefined, bundleBrowserScript },
     settingsDirectory: path.join(config.paseoHome, "plugin-settings"),
   });
 
@@ -847,9 +749,6 @@ export async function createPaseoDaemon(
     appBaseUrl = typeof value === "string" ? value : "https://app.paseo.sh";
   });
   let wsServer: VoiceAssistantWebSocketServer | null = null;
-  // Fork delta (usage heads-up): stops the usage watch.
-  let stopUsageWatch: (() => void) | null = null;
-  let stopUsageLimitFallback: (() => void) | null = null;
   let serviceProxyListenTarget: ListenTarget | null = null;
   const scriptHealthMonitor = new ScriptHealthMonitor({
     serviceProxy,
@@ -940,7 +839,7 @@ export async function createPaseoDaemon(
   // classification and host/CORS handling, but before daemon bearer auth, so
   // static app files load without the daemon password while API/WebSocket calls
   // remain protected.
-  await mountWebUi(app, config, logger);
+  mountWebUi(app, config, logger);
 
   let localCredential: string | null = null;
   const daemonAuth = { ...config.auth, localCredential: () => localCredential };
@@ -1569,12 +1468,30 @@ export async function createPaseoDaemon(
     createDirectoryWorkspace: createScheduleLocalWorkspaceExternal,
     createPaseoWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
-    runPluginSchedule: (run) => pluginRuntime.runSchedule(run),
   });
-  pluginRuntime.bindSchedules(scheduleService);
   await scheduleService.start();
 
+  const changeRequestWatches = createChangeRequestWatches({
+    source: github.changeRequests,
+    backgroundWork: agentManager,
+    paseoHome: config.paseoHome,
+    logger,
+    isActive: async (agentId) => {
+      const record = await agentStorage.get(agentId);
+      return record ? !record.archivedAt : Boolean(agentManager.getAgent(agentId));
+    },
+    messages: () => {
+      if (!wsServer) throw new Error("Daemon is not accepting agent messages");
+      return wsServer.agentMessages;
+    },
+  });
+
   agentManager.setAgentArchivedCallback(async (agentId) => {
+    await changeRequestWatches
+      .archive(agentId)
+      .catch((err) =>
+        logger.warn({ err, agentId }, "Could not remove archived agent's change request watches"),
+      );
     try {
       await scheduleService.completeForAgent(agentId);
     } catch (error) {
@@ -1596,15 +1513,16 @@ export async function createPaseoDaemon(
 
   const finishSubscriptions = createFinishSubscriptions({
     store: createJsonFinishSubscriptionStore(config.paseoHome),
-    watchers: createJsonFinishWatcherStore(config.paseoHome),
     serverId,
     logger,
     messages: () => {
       if (!wsServer) throw new Error("Daemon is not accepting agent messages");
       return wsServer.agentMessages;
     },
-    resolveCaller: (agentId) =>
-      resolveMovedAgent(agentId, movedAgentLookup({ agentManager, agentStorage })),
+    callerIsActive: async (agentId) => {
+      const record = await agentStorage.get(agentId);
+      return record ? !record.archivedAt : Boolean(agentManager.getAgent(agentId));
+    },
     ...createFinishObservation({
       agentManager,
       agentStorage,
@@ -1621,33 +1539,6 @@ export async function createPaseoDaemon(
       },
     }),
   });
-  // Nothing is reused: someone who signs in after a refusal is not held to the old answer. The
-  // lookup still shares a probe in flight and gives up on a slow one.
-  const targetLoginLookup = createUsageLookup<TargetLogin>({ ttlMs: 0 });
-  const targetLogin = async (providerId: string): Promise<TargetLogin> => {
-    const info = providerSnapshotManager.getProviderLaunchInfo(providerId);
-    if (!info) return "unknown";
-    const login = await targetLoginLookup(providerId, () =>
-      probeTargetLogin(info, dependencies.runLoginStatusCommand ?? runStatusCommand),
-    );
-    return login ?? "unknown";
-  };
-  agentManager.setMoveCarry({
-    targetLogin,
-    retargetSchedules: (from, to) => scheduleService.retargetAgent(from, to),
-    notifyWatchersOnFinish: (input) =>
-      registerWatcherNotice({ serverId, subscriptions: finishSubscriptions }, input),
-  });
-  // An agent that completes a turn has done its work: whoever was told about an earlier failure
-  // of it is not told again when it is moved later.
-  const stopForgettingWatchers = agentManager.subscribe(
-    (event) => {
-      if (event.type === "agent_stream" && event.event.type === "turn_completed") {
-        finishSubscriptions.forgetWatchers(event.agentId);
-      }
-    },
-    { replayState: false },
-  );
 
   const idleRuntimeCleanup = createIdleRuntimeCleanup({
     enabled: daemonConfigStore.get().idleRuntimeCleanup !== false,
@@ -1666,6 +1557,7 @@ export async function createPaseoDaemon(
   const createAgentToolHostDependencies = (
     runtime: PaseoToolRuntimeContext,
   ): PaseoToolHostDependencies => ({
+    changeRequestWatches,
     finishSubscriptions: () => finishSubscriptions,
     agentMessages: () => {
       if (!wsServer) throw new Error("Daemon is not accepting agent messages");
@@ -1749,9 +1641,6 @@ export async function createPaseoDaemon(
   agentManager.setPaseoToolCatalogFactory(createAgentToolCatalog);
   agentManager.setPaseoToolsEnabled(config.mcpInjectIntoAgents !== false);
   setAgentProviderToolsEnabled(config.mcpEnabled !== false && config.mcpInjectIntoAgents !== false);
-  // No-op unless PASEO_IDLE_SESSION_REAP_MINUTES is set. See
-  // agent/idle-session-reaper.ts for why unbounded warm sessions are a problem.
-  agentManager.startIdleSessionReaper();
 
   let mcpEnabled = config.mcpEnabled ?? true;
   let agentMcpBaseUrl: string | null = null;
@@ -2038,76 +1927,11 @@ export async function createPaseoDaemon(
             );
             pluginRuntime.bindPaseoSessionHost(wsServer);
             await pluginRuntime.start();
-            // Never awaited and never throws: an unreachable Chromium must not block daemon start.
-            cdpBrowser?.start();
             providerSnapshotManager.settlePluginProviders();
             restartRecovery.resumePending();
             await finishSubscriptions.start();
+            await changeRequestWatches.start();
             wsServer.beginAcceptingConnections();
-            // Fork delta (usage heads-up): one notice when an account window crosses 80% and 95%.
-            const usageWatchLogger = logger.child({ module: "usage-watch" });
-            const isUsageEnabled = () => daemonConfigStore.get().usage?.enabled !== false;
-            stopUsageWatch = startUsageWatch({
-              watch: createUsageWatch({
-                runningAgents: async () =>
-                  Promise.all(
-                    agentManager
-                      .listAgents()
-                      .filter((agent) => isWatchedAgent(agent))
-                      .map(async (agent) => ({
-                        id: agent.id,
-                        provider: agent.provider,
-                        title: (await agentStorage.get(agent.id))?.title ?? null,
-                      })),
-                  ),
-                launchInfo: (providerId) =>
-                  providerSnapshotManager.getProviderLaunchInfo(providerId),
-                usageEnabled: isUsageEnabled,
-                listUsageReportsForScope: (scope) => pluginRuntime.listUsageReportsForScope(scope),
-                listMoveTargets: (agentId) =>
-                  listAgentMoveTargets({
-                    agentId,
-                    findAgent: async (id) =>
-                      agentManager.getAgent(id) ?? (await agentStorage.get(id)),
-                    providers: moveTargetProvidersFrom(providerSnapshotManager),
-                    usageEnabled: isUsageEnabled(),
-                    listUsageReportsForScope: (scope) =>
-                      pluginRuntime.listUsageReportsForScope(scope),
-                    usageLookup: sharedMoveTargetUsage,
-                    loginOf: targetLogin,
-                    logger: usageWatchLogger,
-                    now: Date.now(),
-                  }),
-                notify: async (notice) => {
-                  await wsServer?.broadcastUsageAttention(notice);
-                },
-                // Fork delta (session move): an idle agent's account is read too, so the limit
-                // shows before a turn fails.
-                openAgents: async () =>
-                  agentManager
-                    .listAgents()
-                    .filter((agent) => !agent.internal)
-                    .map((agent) => ({ id: agent.id, provider: agent.provider })),
-                limitReachedAt: (agentId) =>
-                  agentManager.getAgent(agentId)?.limitReached?.at ?? null,
-                listAgentUsage: (agentId) => pluginRuntime.listUsageReports({ agentId }),
-                setLimitReached: (agentId, value) => agentManager.setLimitReached(agentId, value),
-                now: () => new Date(),
-                logger: usageWatchLogger,
-              }),
-              logger: usageWatchLogger,
-            });
-            // Fork delta (session move): a failed turn the limit matcher does not know still
-            // offers the move when the agent's account is at 100%. The read is forced, because
-            // a cached report from before the limit was hit would say there is room.
-            stopUsageLimitFallback = startUsageLimitFallback({
-              agentManager,
-              usageEnabled: isUsageEnabled,
-              listAgentUsage: (agentId) =>
-                pluginRuntime.listUsageReports({ agentId, forceRefresh: true }),
-              now: () => new Date(),
-              logger: logger.child({ module: "usage-limit-fallback" }),
-            });
             const relaySecurityLogger = logger.child({ module: "relay-security" });
             relayRuntime = createRelayRuntime({
               config: {
@@ -2164,20 +1988,11 @@ export async function createPaseoDaemon(
       speechService.start();
       scriptHealthMonitor.start();
     } catch (error) {
-      // Fork delta (usage heads-up): a start that fails after the usage watch began stops it.
-      stopUsageWatch?.();
-      stopUsageWatch = null;
-      stopUsageLimitFallback?.();
-      stopUsageLimitFallback = null;
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
       unsubscribePluginProviders();
       unsubscribePluginSessionChanges();
       await pluginRuntime.stopAllPlugins().catch(() => undefined);
-      // Fork delta (office stream): no page outlives the plugins that opened it.
-      await offscreenPages?.stop().catch(() => undefined);
-      // Fork delta (web browser pane): a failed start leaves no CDP reconnect timer running.
-      await cdpBrowser?.stop().catch(() => undefined);
       await serviceProxy.stopStandalone().catch(() => undefined);
       await agentProviderRuntime.shutdown().catch(() => undefined);
       if (mainStarted) {
@@ -2193,9 +2008,6 @@ export async function createPaseoDaemon(
     let terminalShutdownError: unknown = null;
     localCredential = null;
     await deleteLocalCredential(config.paseoHome);
-    await cdpBrowser?.stop().catch((error) => {
-      logger.warn({ err: error }, "Failed to stop the CDP browser host");
-    });
     // Stop tracking plugin provider registrations before anything tears plugins
     // down, so plugin shutdown cannot withdraw a provider from under an agent
     // that is still open. Plugins themselves are stopped once every session
@@ -2207,14 +2019,9 @@ export async function createPaseoDaemon(
     scriptHealthMonitor.stop();
     unsubscribeIdleRuntimeCleanup();
     await idleRuntimeCleanup.close();
-    // Fork delta (usage heads-up): the usage watch stops with the daemon.
-    stopUsageWatch?.();
-    stopUsageWatch = null;
-    stopUsageLimitFallback?.();
-    stopUsageLimitFallback = null;
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
-    stopForgettingWatchers();
+    await changeRequestWatches.close();
     await finishSubscriptions.close();
     await wsServer?.agentMessages.close();
     agentManager.prepareForShutdown();
@@ -2230,10 +2037,6 @@ export async function createPaseoDaemon(
     await agentStorage.flush().catch(() => undefined);
     await agentProviderRuntime.shutdown();
     await pluginRuntime.stopAllPlugins();
-    // Fork delta (office stream): no page outlives the plugins that opened it.
-    await offscreenPages?.stop().catch((error) => {
-      logger.warn({ err: error }, "Failed to close the offscreen pages");
-    });
     try {
       if (keepTerminals) {
         await terminalManager.detach();
@@ -2278,8 +2081,6 @@ export async function createPaseoDaemon(
     config,
     agentManager,
     agentStorage,
-    scheduleService,
-    providerSnapshotManager,
     terminalManager,
     serviceProxy,
     scriptRuntimeStore,

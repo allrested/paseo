@@ -2,31 +2,18 @@ const NOTIFICATION_PREVIEW_LIMIT = 220;
 
 export type AgentAttentionReason = "finished" | "error" | "permission";
 
-/**
- * Fork delta (usage heads-up): an account crossing a usage level. Only the dedicated
- * agent_attention_required message carries it, to clients that advertise usage_notifications;
- * an agent's own turn never raises it.
- */
-export type AgentAttentionNotificationReason = AgentAttentionReason | "usage";
-
-// Fork delta (usage heads-up): the reason is a type parameter on both interfaces, so a usage
-// notice and an agent's own notice carry different reason types.
-export interface AgentAttentionNotificationData<
-  Reason extends AgentAttentionNotificationReason = AgentAttentionNotificationReason,
-> {
+export interface AgentAttentionNotificationData {
   [key: string]: unknown;
   serverId: string;
   workspaceId?: string;
   agentId: string;
-  reason: Reason;
+  reason: AgentAttentionReason;
 }
 
-export interface AgentAttentionNotificationPayload<
-  Reason extends AgentAttentionNotificationReason = AgentAttentionNotificationReason,
-> {
+export interface AgentAttentionNotificationPayload {
   title: string;
   body: string;
-  data: AgentAttentionNotificationData<Reason>;
+  data: AgentAttentionNotificationData;
 }
 
 interface BuildAgentAttentionNotificationPayloadInput {
@@ -211,10 +198,9 @@ function resolveAgentAttentionFallbackBody(reason: AgentAttentionReason): string
   return "Finished working.";
 }
 
-// Fork delta (usage heads-up): the payload is narrowed to an agent's own reasons, never "usage".
 export function buildAgentAttentionNotificationPayload(
   input: BuildAgentAttentionNotificationPayloadInput,
-): AgentAttentionNotificationPayload<AgentAttentionReason> {
+): AgentAttentionNotificationPayload {
   const title = resolveAgentAttentionTitle(input.reason);
   const preview = resolveAgentAttentionPreview(input);
   const body = preview ?? resolveAgentAttentionFallbackBody(input.reason);

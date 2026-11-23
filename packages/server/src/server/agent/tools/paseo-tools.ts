@@ -1,3 +1,5 @@
+import type { ChangeRequestWatches } from "../change-request-watches/index.js";
+import { changeRequestStatusSchema } from "../../../services/change-request-source.js";
 import { registerPluginTools } from "./plugin-tools.js";
 import type { FinishSubscriptions, FinishRegistration } from "../finish-subscriptions/index.js";
 import type { AgentMessageDelivery } from "../agent-messages/index.js";
@@ -33,7 +35,7 @@ import {
   toAgentPayload,
 } from "../agent-projections.js";
 import { summarizeAgentActivity } from "../activity-curator.js";
-import type { AgentStorage } from "../agent-storage.js";
+import type { AgentStorage, StoredAgentRecord } from "../agent-storage.js";
 import { AgentNotFoundError, ensureAgentLoaded } from "../agent-loading.js";
 import { isStoredAgentProviderAvailable } from "../../persistence-hooks.js";
 import {
@@ -83,7 +85,6 @@ import {
   sendPromptToAgent,
   waitForAgentRunStartWithTimeout,
 } from "../agent-prompt.js";
-import { moveAgent, moveAgentBack } from "../session-move/move-agent.js";
 import { respondToAgentPermission } from "../permission-response.js";
 import {
   archiveAgentCommand,
@@ -121,6 +122,7 @@ import { isPaseoToolEnabled } from "../paseo-tool-policy.js";
 
 export interface PaseoToolHostDependencies {
   agentMessages?: () => AgentMessageDelivery;
+  changeRequestWatches?: ChangeRequestWatches;
   finishSubscriptions?: () => FinishSubscriptions;
   serverId?: string;
   hosts?: () => ToolHosts;
@@ -199,28 +201,6 @@ const WorkspaceAutomationSummarySchema = z.object({
   title: z.string().nullable(),
   background: z.boolean().optional(),
 });
-
-type MoveToolTarget =
-  | { back: true; toAgentId?: string }
-  | { back: false; provider: string; model?: string };
-
-/** Refuses inputs that mix a forward move and a move back, so none is silently dropped. */
-function parseMoveToolTarget(input: {
-  provider?: string;
-  model?: string;
-  back?: boolean;
-  toAgentId?: string;
-}): MoveToolTarget {
-  if (input.back) {
-    if (input.provider !== undefined || input.model !== undefined) {
-      throw new Error("provider and model apply to a forward move; omit them with back=true");
-    }
-    return { back: true, ...(input.toAgentId !== undefined ? { toAgentId: input.toAgentId } : {}) };
-  }
-  if (input.toAgentId !== undefined) throw new Error("toAgentId requires back=true");
-  if (!input.provider) throw new Error("provider is required unless back=true");
-  return { back: false, provider: input.provider, ...(input.model ? { model: input.model } : {}) };
-}
 
 function toWorkspaceAutomationSummary(workspace: PersistedWorkspaceRecord) {
   return {
@@ -2129,6 +2109,15 @@ function createToolCatalog(
     return backgroundWork ? { ...snapshot, backgroundWork } : snapshot;
   }
 
+  function projectStoredAgent(record: StoredAgentRecord) {
+    return buildStoredAgentPayload(
+      record,
+      new Set(providerSnapshotManager.listRegisteredProviderIds()),
+      (provider, own) => agentManager.effectiveOptionsFor(provider, own),
+      agentManager.getAgentBackgroundWorkSummary(record.id),
+    );
+  }
+
   registerTool(
     "get_agent_status",
     {
@@ -2161,11 +2150,7 @@ function createToolCatalog(
         throw new PaseoToolInputError(`Agent ${agentId} not found`);
       }
 
-      const structuredSnapshot = buildStoredAgentPayload(
-        record,
-        new Set(providerSnapshotManager.listRegisteredProviderIds()),
-        (provider, own) => agentManager.effectiveOptionsFor(provider, own),
-      );
+      const structuredSnapshot = projectStoredAgent(record);
       return {
         content: [],
         structuredContent: ensureValidJson({
@@ -2215,12 +2200,7 @@ function createToolCatalog(
         storage: agentStorage,
         workspaces: options.workspaceRegistry,
         projectLive: projectLiveAgent,
-        projectStored: (record) =>
-          buildStoredAgentPayload(
-            record,
-            new Set(providerSnapshotManager.listRegisteredProviderIds()),
-            (provider, own) => agentManager.effectiveOptionsFor(provider, own),
-          ),
+        projectStored: projectStoredAgent,
         isProviderVisible: () => true,
         isStoredProviderAvailable: (record) =>
           isStoredAgentProviderAvailable(
@@ -2290,52 +2270,6 @@ function createToolCatalog(
         content: [],
         structuredContent: ensureValidJson({ success: true }),
       };
-    },
-  );
-
-  registerTool(
-    "move_agent",
-    {
-      title: "Move agent",
-      description:
-        "Move an agent to another provider or account (e.g. when its quota is exhausted) without calling its model. " +
-        "The original is archived and linked. Set back=true to move a moved agent back to its original, " +
-        "or to an earlier agent in its move chain with toAgentId.",
-      inputSchema: {
-        agentId: z.string(),
-        provider: z.string().optional().describe("Forward move only"),
-        model: z.string().optional().describe("Forward move only"),
-        back: z.boolean().optional(),
-        toAgentId: z
-          .string()
-          .optional()
-          .describe("With back=true: an earlier agent in the move chain to return to"),
-        continueWork: z.boolean().optional(),
-      },
-      outputSchema: {
-        agentId: z.string(),
-        strategy: z.enum(["native", "handoff"]),
-        fellBackFromNative: z.boolean(),
-      },
-    },
-    async ({ agentId, provider, model, back, toAgentId, continueWork }) => {
-      const target = parseMoveToolTarget({ provider, model, back, toAgentId });
-      const deps = { agentManager, agentStorage, providerSnapshotManager, logger: childLogger };
-      const result = target.back
-        ? await moveAgentBack(deps, {
-            agentId,
-            continueWork: continueWork ?? true,
-            ...(target.toAgentId !== undefined ? { toAgentId: target.toAgentId } : {}),
-          })
-        : await moveAgent(deps, {
-            agentId,
-            target: {
-              provider: target.provider,
-              ...(target.model ? { model: target.model } : {}),
-            },
-            continueWork: continueWork ?? true,
-          });
-      return { content: [], structuredContent: ensureValidJson(result) };
     },
   );
 
@@ -2791,6 +2725,61 @@ function createToolCatalog(
       };
     },
   );
+
+  if (options.changeRequestWatches) {
+    const watches = options.changeRequestWatches;
+    const inputSchema = { url: z.string().trim().min(1).describe("URL of a GitHub pull request.") };
+    registerTool(
+      "subscribe_change_request",
+      {
+        title: "Watch change request",
+        description:
+          "Watch a pull request for check failures, passing checks, new comments, reviews, and closure. Returns the current state and sends future updates after your current turn.",
+        inputSchema,
+        outputSchema: {
+          url: z.string(),
+          ...changeRequestStatusSchema.shape,
+          subscribed: z.boolean(),
+          stale: z
+            .boolean()
+            .describe("The last stored status is shown because a fresh read is pending or failed."),
+        },
+      },
+      async ({ url }) => {
+        if (!callerAgentId) {
+          throw new PaseoToolInputError(
+            "subscribe_change_request requires an agent-scoped session",
+          );
+        }
+        resolveCallerAgent();
+        return {
+          content: [],
+          structuredContent: ensureValidJson(await watches.subscribe(callerAgentId, url)),
+        };
+      },
+    );
+    registerTool(
+      "unsubscribe_change_request",
+      {
+        title: "Stop watching change request",
+        description: "Stop your watch and discard its unsent updates.",
+        inputSchema,
+        outputSchema: { url: z.string(), removed: z.boolean() },
+      },
+      async ({ url }) => {
+        if (!callerAgentId) {
+          throw new PaseoToolInputError(
+            "unsubscribe_change_request requires an agent-scoped session",
+          );
+        }
+        resolveCallerAgent();
+        return {
+          content: [],
+          structuredContent: ensureValidJson(await watches.unsubscribe(callerAgentId, url)),
+        };
+      },
+    );
+  }
 
   registerTool(
     "create_heartbeat",

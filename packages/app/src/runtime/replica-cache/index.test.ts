@@ -1235,3 +1235,23 @@ it("retains semantic agent messages across disk-cache reconstruction", async () 
   await writer.flush();
   expect(await createCache(storage).readTimeline(SERVER_ID, "agent-1")).toEqual(value);
 });
+
+it("keeps a user message's image references across disk-cache reconstruction", async () => {
+  const storage = new MemoryStorage();
+  const writer = createCache(storage);
+  const value = timeline();
+  value.items = [
+    {
+      kind: "user_message",
+      id: "upload",
+      messageId: "upload",
+      text: "",
+      imageUrls: [`file:///tmp/paseo-attachments-abc123/${"a".repeat(64)}.png`],
+      timestamp: new Date(1),
+      timelineCursor: { epoch: "epoch-1", seq: 12 },
+    },
+  ];
+  writer.commitTimeline(SERVER_ID, "agent-1", value);
+  await writer.flush();
+  expect(await createCache(storage).readTimeline(SERVER_ID, "agent-1")).toEqual(value);
+});

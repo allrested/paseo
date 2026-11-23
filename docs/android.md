@@ -8,7 +8,7 @@ Controlled by `APP_VARIANT` in `packages/app/app.config.js` (vanilla Expo, no cu
 | ------------- | ----------- | ---------------- |
 | `production`  | Paseo       | `sh.paseo`       |
 | `development` | Paseo Debug | `sh.paseo.debug` |
-| `fork`        | Paseo Fork  | `sh.paseo.fork`  |
+| `fork`        | AI          | `sh.paseo.fork`  |
 
 `fork` is the allrested fork's own app: it installs beside the store app, pairs on its own and has no Firebase file, so push notifications do not work in it. `npm run build:apk:fork` builds it (see [The fork's app](#the-forks-app)).
 
@@ -170,6 +170,8 @@ Those markers emit only while a system trace records `sh.paseo` (`perfetto -a sh
 they do not produce Downloads files.
 
 ## The fork's app
+
+The launcher shows **AI** with the [Flavours logo](https://pos.flavours.sa/flavours/logo192.png?v=1.0.0). The APK bundles the artwork so it works offline.
 
 The allrested fork ships the [`fork` variant](#app-variants) as an arm64 APK, signed with the
 fork's own key, on prereleases of `allrested/paseo`. It is an ordinary release build: no watchdog

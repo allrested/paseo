@@ -103,7 +103,6 @@ export function toStoredAgentRecord(
     controls: normalizeControls(agent.controls),
     persistence,
     lastError: agent.lastError ?? undefined,
-    limitReached: agent.limitReached ?? undefined,
     requiresAttention: agent.attention.requiresAttention,
     attentionReason: agent.attention.requiresAttention ? agent.attention.attentionReason : null,
     attentionTimestamp: agent.attention.requiresAttention
@@ -181,10 +180,6 @@ export function toAgentPayload(
 
   if (agent.lastError !== undefined) {
     payload.lastError = agent.lastError;
-  }
-
-  if (agent.limitReached) {
-    payload.limitReached = agent.limitReached;
   }
 
   // Handle attention state
@@ -265,16 +260,18 @@ function buildStoredOptionControls(
   };
 }
 
-function buildStoredLimitReachedField(
+function visibleStoredBackgroundWork(
   record: StoredAgentRecord,
-): Pick<AgentSnapshotPayload, "limitReached"> {
-  return record.limitReached ? { limitReached: record.limitReached } : {};
+  summary: AgentSnapshotPayload["backgroundWork"],
+): AgentSnapshotPayload["backgroundWork"] {
+  return record.internal || record.archivedAt ? undefined : summary;
 }
 
 export function buildStoredAgentPayload(
   record: StoredAgentRecord,
   validProviders: Iterable<AgentProvider>,
   effectiveOptionsFor: EffectiveOptionsResolver,
+  backgroundWork?: AgentSnapshotPayload["backgroundWork"],
 ): AgentSnapshotPayload {
   const defaultCapabilities = {
     supportsStreaming: false,
@@ -315,6 +312,7 @@ export function buildStoredAgentPayload(
     updatedAt: updatedAt.toISOString(),
     lastUserMessageAt: lastUserMessageAt ? lastUserMessageAt.toISOString() : null,
     status: record.lastStatus,
+    backgroundWork: visibleStoredBackgroundWork(record, backgroundWork),
     capabilities: defaultCapabilities,
     currentModeId: record.lastModeId ?? null,
     availableModes: [],
@@ -330,7 +328,6 @@ export function buildStoredAgentPayload(
     labels: normalizeLabels(record.labels),
     metadata: record.metadata,
     ...(typeof record.lastError === "string" ? { lastError: record.lastError } : {}),
-    ...buildStoredLimitReachedField(record),
     ...(providerAvailable ? {} : { providerUnavailable: true }),
   };
 }

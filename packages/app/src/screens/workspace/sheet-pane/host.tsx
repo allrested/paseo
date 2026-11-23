@@ -6,10 +6,7 @@ import { useForgeShorthandBridge } from "@/git/forge-shorthand";
 import { useComposerEditingEnvironmentBridge } from "@/composer/editing-session";
 import { RetainedPanelActivity, useRetainedPanelActive } from "@/components/retained-panel";
 import type { ContextBridge } from "@/components/ui/isolated-bottom-sheet-modal";
-import {
-  useDiffDocumentWorkspaceCacheBridge,
-  useDiffDocumentWorkspaceCacheBridgeIfAny,
-} from "@/git/diff-document/workspace-cache";
+import { useDiffDocumentWorkspaceCacheBridge } from "@/git/diff-document/workspace-cache";
 import { HostRouteProvider, useHostRouteServerId } from "@/navigation/host-route-context";
 import type { WorkspacePaneContentModel } from "@/screens/workspace/workspace-pane-content";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
@@ -56,19 +53,9 @@ export function useSheetPaneHost(): SheetPaneHost {
  * host, and the environment of the built-in panels. Pane identity is supplied by the pane itself.
  */
 export function useSheetPaneBridge(): ContextBridge {
-  return useBridge(useSheetPaneHost(), useDiffDocumentWorkspaceCacheBridge());
-}
-
-/**
- * The sheet pane bridge for a sheet that may open outside a workspace, such as the side area of a
- * plugin's own screen: it carries the workspace host and the diff cache only where there is one.
- */
-export function useSheetPaneBridgeAnywhere(): ContextBridge {
-  return useBridge(useSheetPaneHostIfAny(), useDiffDocumentWorkspaceCacheBridgeIfAny());
-}
-
-function useBridge(host: SheetPaneHost | null, cache: ContextBridge): ContextBridge {
+  const host = useSheetPaneHost();
   const editing = useComposerEditingEnvironmentBridge();
+  const cache = useDiffDocumentWorkspaceCacheBridge();
   const files = useAssistantFileLinkEnvironmentBridge();
   const forgeShorthand = useForgeShorthandBridge();
   const active = useRetainedPanelActive();

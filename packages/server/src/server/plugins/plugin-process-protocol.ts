@@ -1,15 +1,17 @@
 import type { JsonValue } from "@getpaseo/protocol/agent-types";
-import type { PluginHookAgent, PluginSchedule, PluginScheduleInput } from "@getpaseo/plugin/server";
-import { ScheduleCadenceSchema } from "@getpaseo/protocol/schedule/types";
+import type { PluginHookAgent } from "@getpaseo/plugin/server";
 import { UsageScopeSchema, type UsageScope } from "@getpaseo/plugin/server/usage";
 import type {
   ProviderConnectRequest,
   ProviderCatalogOptions,
   ProviderEvent,
   ProviderInput,
+  ProviderInstallationLaunch,
   ProviderStatusRequest,
+  ProviderUpdateReport,
 } from "@getpaseo/plugin/server/provider";
 import {
+  ProviderUpdateReportSchema,
   ProviderEventSchema,
   ProviderInputSchema,
   ProviderLaunchSchema,
@@ -20,6 +22,7 @@ export interface PluginProviderMetadata {
   requiresConfiguration?: boolean;
   hasCatalogCacheKey?: boolean;
   hasStatus?: boolean;
+  installation?: PluginProviderInstallationMetadata;
   command?: readonly [string, ...string[]];
   id: string;
   label: string;
@@ -27,17 +30,20 @@ export interface PluginProviderMetadata {
   iconPath?: string;
 }
 
+export interface PluginProviderInstallationMetadata {
+  installUrl?: string;
+  updateUrl?: string;
+  hasInspect: boolean;
+  hasCheckForUpdates: boolean;
+  hasUpdate?: boolean;
+}
+
 export interface PluginUsageSourceMetadata {
   id: string;
   label: string;
+  provider?: string;
   icon?: string;
 }
-
-/** A plugin's call on its own schedules. The daemon adds the plugin id. */
-export type PluginSchedulesCall =
-  | { method: "upsert"; input: PluginScheduleInput }
-  | { method: "remove"; name: string }
-  | { method: "list" };
 
 export type PluginProcessRequest =
   | { type: "tool.call"; requestId: string; agent: PluginHookAgent; name: string; input: unknown }
@@ -49,6 +55,19 @@ export type PluginProcessRequest =
       providerId: string;
       request: ProviderStatusRequest;
     }
+  | {
+      type: "provider.installation.inspect" | "provider.installation.update";
+      requestId: string;
+      providerId: string;
+      request: { launch?: ProviderInstallationLaunch };
+    }
+  | {
+      type: "provider.installation.check_updates";
+      requestId: string;
+      providerId: string;
+      request: { launch?: ProviderInstallationLaunch; installedVersion?: string };
+    }
+  | { type: "provider.installation.cancel"; requestId: string }
   | {
       type: "initialize";
       pluginId: string;
@@ -68,9 +87,6 @@ export type PluginProcessRequest =
   | { type: "usage.fetch"; requestId: string; sourceId: string; input: unknown }
   | { type: "usage.discover"; requestId: string; sourceId: string; scope: UsageScope }
   | { type: "invoke"; requestId: string; method: string; input: unknown }
-  | { type: "schedule.run"; requestId: string; handler: string; scheduleId: string; runId: string }
-  | { type: "schedules.result"; requestId: string; output: unknown }
-  | { type: "schedules.error"; requestId: string; error: string }
   | {
       type: "subscribe";
       requestId: string;
@@ -109,7 +125,7 @@ export type PluginProcessMessage =
     }
   | { type: "result"; requestId: string; output: unknown }
   | { type: "error"; requestId: string; error: string }
-  | { type: "schedules.call"; requestId: string; call: PluginSchedulesCall }
+  | { type: "provider.installation.report"; requestId: string; report: ProviderUpdateReport }
   | { type: "fatal"; error: string }
   | { type: "subscription.event"; subscriptionId: string; event: unknown }
   | { type: "subscription.closed"; subscriptionId: string; error?: string }
@@ -143,6 +159,16 @@ const providerMetadataSchema = z
     requiresConfiguration: z.boolean().optional(),
     hasCatalogCacheKey: z.boolean().optional(),
     hasStatus: z.boolean().optional(),
+    installation: z
+      .object({
+        installUrl: z.string().optional(),
+        updateUrl: z.string().optional(),
+        hasInspect: z.boolean(),
+        hasCheckForUpdates: z.boolean(),
+        hasUpdate: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     command: z.tuple([z.string().min(1)], z.string()).optional(),
   })
   .strict();
@@ -150,9 +176,14 @@ const usageSourceMetadataSchema = z
   .object({
     id: z.string().min(1),
     label: z.string().min(1),
+    provider: z.string().min(1).optional(),
     icon: z.string().optional(),
   })
   .strict();
+const ProviderInstallationLaunchSchema = ProviderLaunchSchema.extend({
+  resolved: z.boolean(),
+}).strict();
+
 const providerConnectRequestSchema = z
   .object({
     launch: ProviderLaunchSchema.optional(),
@@ -160,37 +191,6 @@ const providerConnectRequestSchema = z
     capabilities: z.array(z.string()),
   })
   .strict();
-export const PluginSchedulesCallSchema: z.ZodType<PluginSchedulesCall> = z.discriminatedUnion(
-  "method",
-  [
-    z
-      .object({
-        method: z.literal("upsert"),
-        input: z.object({
-          name: z.string(),
-          handler: z.string().min(1),
-          prompt: z.string(),
-          cadence: ScheduleCadenceSchema,
-        }),
-      })
-      .strict(),
-    z.object({ method: z.literal("remove"), name: z.string() }).strict(),
-    z.object({ method: z.literal("list") }).strict(),
-  ],
-);
-export const PluginScheduleKeptSchema = z.object({
-  id: z.string(),
-  nextRunAt: z.string().nullable(),
-});
-export const PluginScheduleListSchema: z.ZodType<PluginSchedule[]> = z.array(
-  z.object({
-    id: z.string(),
-    name: z.string(),
-    handler: z.string(),
-    cadence: ScheduleCadenceSchema,
-    nextRunAt: z.string().nullable(),
-  }),
-);
 const frameFields = {
   data: z.union([z.string(), z.instanceof(Uint8Array)]),
   isBinary: z.boolean(),
@@ -229,6 +229,28 @@ export const PluginProcessRequestSchema: z.ZodType<PluginProcessRequest> = z.dis
         request: z.object({ launch: ProviderLaunchSchema.optional() }).strict(),
       })
       .strict(),
+    z
+      .object({
+        type: z.enum(["provider.installation.inspect", "provider.installation.update"]),
+        requestId: z.string().min(1),
+        providerId: z.string().min(1),
+        request: z.object({ launch: ProviderInstallationLaunchSchema.optional() }).strict(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("provider.installation.check_updates"),
+        requestId: z.string().min(1),
+        providerId: z.string().min(1),
+        request: z
+          .object({
+            launch: ProviderInstallationLaunchSchema.optional(),
+            installedVersion: z.string().optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+    z.object({ type: z.literal("provider.installation.cancel"), requestId: z.string() }).strict(),
     z
       .object({
         type: z.literal("initialize"),
@@ -298,29 +320,6 @@ export const PluginProcessRequestSchema: z.ZodType<PluginProcessRequest> = z.dis
       .strict(),
     z
       .object({
-        type: z.literal("schedule.run"),
-        requestId: z.string().min(1),
-        handler: z.string().min(1),
-        scheduleId: z.string().min(1),
-        runId: z.string().min(1),
-      })
-      .strict(),
-    z
-      .object({
-        type: z.literal("schedules.result"),
-        requestId: z.string().min(1),
-        output: z.unknown(),
-      })
-      .strict(),
-    z
-      .object({
-        type: z.literal("schedules.error"),
-        requestId: z.string().min(1),
-        error: z.string(),
-      })
-      .strict(),
-    z
-      .object({
         type: z.literal("subscribe"),
         requestId: z.string().min(1),
         subscriptionId: z.string().min(1),
@@ -375,9 +374,9 @@ export const PluginProcessMessageSchema: z.ZodType<PluginProcessMessage> = z.dis
       .strict(),
     z
       .object({
-        type: z.literal("schedules.call"),
+        type: z.literal("provider.installation.report"),
         requestId: z.string().min(1),
-        call: PluginSchedulesCallSchema,
+        report: ProviderUpdateReportSchema,
       })
       .strict(),
     z.object({ type: z.literal("fatal"), error: z.string() }).strict(),

@@ -1,6 +1,6 @@
 import { createIdleRuntimeCleanup } from "../idle-runtime-cleanup/index.js";
 import { HostObservationError } from "../host-operations/index.js";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -11,7 +11,6 @@ import { createTestLogger } from "../../../test-utils/test-logger.js";
 import {
   createFinishSubscriptions,
   createJsonFinishSubscriptionStore,
-  createJsonFinishWatcherStore,
   type FinishObservation,
   type FinishSubscriptions,
 } from "./index.js";
@@ -49,10 +48,8 @@ class Observation implements FinishObservation {
 }
 class Delivery implements AgentMessageDelivery {
   prompts: string[] = [];
-  recipients: string[] = [];
   acknowledgments: Array<ReturnType<typeof deferred<"steered">>> = [];
   enqueue(message: Parameters<AgentMessageDelivery["enqueue"]>[0]) {
-    this.recipients.push(message.recipientId);
     this.prompts.push(String(message.prompt));
     const acknowledgment = deferred<"steered">();
     this.acknowledgments.push(acknowledgment);
@@ -88,15 +85,11 @@ async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 
   const observation = new Observation();
   const delivery = new Delivery();
   let active = true;
-  let successor: string | null = null;
-  const clock = { now: new Date("2026-11-14T10:00:00.000Z") };
   const service = createFinishSubscriptions({
     store,
     messages: () => delivery,
     open: observation.open.bind(observation),
-    resolveCaller: async (agentId) => successor ?? (active ? agentId : null),
-    watchers: createJsonFinishWatcherStore(home),
-    now: () => clock.now,
+    callerIsActive: async () => active,
     serverId: "origin",
     logger: createTestLogger(),
     retryDelayMs,
@@ -109,13 +102,8 @@ async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 
     observation,
     delivery,
     service,
-    clock,
     archive: () => {
       active = false;
-    },
-    moveCallerTo: (agentId: string) => {
-      active = false;
-      successor = agentId;
     },
   };
 }
@@ -239,76 +227,6 @@ test("archived parent suppresses delivery and removes obsolete intent", async ()
   await until(() => state.observation.waits.length === 1);
   state.archive();
   state.observation.waits[0]!.result.resolve(outcome());
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
-  expect(state.delivery.prompts).toHaveLength(0);
-});
-
-test("a watcher that moved gets the notification at its successor, and the record names it", async () => {
-  const state = await scenario();
-  await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
-  state.moveCallerTo("parent-2");
-  state.observation.waits[0]!.result.resolve(outcome());
-  await until(() => state.delivery.prompts.length === 1);
-  expect(state.delivery.recipients).toEqual(["parent-2"]);
-  expect((await state.store.list()).map((record) => record.callerAgentId)).toEqual(["parent-2"]);
-  expect(state.service.hasPendingForCaller("parent-2")).toBe(true);
-  expect(state.service.hasPendingForCaller("parent")).toBe(false);
-  state.delivery.acknowledgments[0]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
-});
-
-test("withdrawing a notification after its watcher moved leaves nothing behind", async () => {
-  const state = await scenario();
-  const registration = await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
-  state.moveCallerTo("parent-2");
-  state.observation.waits[0]!.result.resolve(outcome());
-  await until(() => state.delivery.prompts.length === 1);
-  expect(state.service.hasPendingForCaller("parent-2")).toBe(true);
-
-  await registration.reject();
-
-  expect(await state.store.list()).toHaveLength(0);
-  expect(state.service.hasPendingForCaller("parent-2")).toBe(false);
-});
-
-test("a restart after the watcher moved resumes with the successor", async () => {
-  const first = await scenario();
-  await first.service.register(intent);
-  await until(() => first.observation.waits.length === 1);
-  first.moveCallerTo("parent-2");
-  first.observation.waits[0]!.result.resolve(outcome());
-  await until(() => first.delivery.prompts.length === 1);
-  await first.service.close();
-
-  const restarted = await scenario(first.home);
-  await until(() => restarted.observation.waits.length === 1);
-  restarted.observation.waits[0]!.result.resolve(outcome());
-  await until(() => restarted.delivery.prompts.length === 1);
-  expect(restarted.delivery.recipients).toEqual(["parent-2"]);
-});
-
-test("a creation subscription still reports to a watcher that moved", async () => {
-  const state = await scenario();
-  await state.service.register({ ...intent, requireParentOwnership: true });
-  await until(() => state.observation.waits.length === 1);
-  state.moveCallerTo("parent-2");
-  const reparented = outcome();
-  reparented.final!.labels = { "paseo.parent-agent-id": "parent-2" };
-  state.observation.waits[0]!.result.resolve(reparented);
-  await until(() => state.delivery.prompts.length === 1);
-  expect(state.delivery.recipients).toEqual(["parent-2"]);
-});
-
-test("a creation subscription for a detached child stops for a watcher that moved too", async () => {
-  const state = await scenario();
-  await state.service.register({ ...intent, requireParentOwnership: true });
-  await until(() => state.observation.waits.length === 1);
-  state.moveCallerTo("parent-2");
-  const detached = outcome();
-  detached.final!.labels = {};
-  state.observation.waits[0]!.result.resolve(detached);
   await expect.poll(async () => (await state.store.list()).length).toBe(0);
   expect(state.delivery.prompts).toHaveLength(0);
 });
@@ -602,96 +520,4 @@ test("an undispatched follow-up does not block the running child's permission no
   expect(state.delivery.prompts[0]).toContain("needs permission");
   expect(state.delivery.prompts[0]).toContain("approval");
   expect(await state.store.list()).toHaveLength(2);
-});
-
-/** Registers `intent`, ends the child's turn with `ending`, and waits for the delivery to settle. */
-async function tellParent(
-  state: Awaited<ReturnType<typeof scenario>>,
-  ending: Parameters<typeof outcome>[0],
-): Promise<void> {
-  const waits = state.observation.waits.length;
-  const prompts = state.delivery.prompts.length;
-  await state.service.register(intent);
-  await until(() => state.observation.waits.length === waits + 1);
-  state.observation.waits[waits]!.result.resolve(outcome(ending));
-  await until(() => state.delivery.prompts.length === prompts + 1);
-  state.delivery.acknowledgments[prompts]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
-}
-
-test("names a caller that still waits on an agent, for a move to tell it about the successor", async () => {
-  const state = await scenario();
-  await state.service.register(intent);
-  await state.service.register({ ...intent, callerAgentId: "far", serverId: "remote" });
-  await until(() => state.observation.waits.length === 2);
-
-  // The watch on an agent of another host is that host's move to follow.
-  expect(state.service.watchersOf("child")).toEqual(["parent"]);
-  expect(state.service.watchersOf("someone-else")).toEqual([]);
-});
-
-test("names a caller that was told the agent's turn failed, and one told it was closed", async () => {
-  const failed = await scenario();
-  await tellParent(failed, "error");
-  expect(failed.service.watchersOf("child")).toEqual(["parent"]);
-
-  const closed = await scenario();
-  await tellParent(closed, "closed");
-  expect(closed.service.watchersOf("child")).toEqual(["parent"]);
-});
-
-test("does not name a caller whose request finished: it has its answer", async () => {
-  const state = await scenario();
-
-  await tellParent(state, "idle");
-
-  expect(state.delivery.prompts[0]).toContain("finished");
-  expect(state.service.watchersOf("child")).toEqual([]);
-});
-
-test("forgets who was told once the agent completes a turn", async () => {
-  const state = await scenario();
-  await tellParent(state, "error");
-
-  state.service.forgetWatchers("someone-else");
-  expect(state.service.watchersOf("child")).toEqual(["parent"]);
-  state.service.forgetWatchers("child");
-
-  expect(state.service.watchersOf("child")).toEqual([]);
-  await state.service.close();
-  const restarted = await scenario(state.home);
-  expect(restarted.service.watchersOf("child")).toEqual([]);
-});
-
-test("still names who was told after a daemon restart", async () => {
-  const first = await scenario();
-  await tellParent(first, "error");
-  await first.service.close();
-
-  const restarted = await scenario(first.home);
-
-  expect(restarted.service.watchersOf("child")).toEqual(["parent"]);
-});
-
-test("drops what it remembers after a week", async () => {
-  const state = await scenario();
-  await tellParent(state, "error");
-  await state.service.close();
-
-  state.clock.now = new Date("2026-11-22T10:00:00.000Z");
-  const later = await scenario(state.home);
-  later.clock.now = new Date("2026-11-22T10:00:00.000Z");
-
-  expect(later.service.watchersOf("child")).toEqual([]);
-});
-
-test("starts with nobody remembered when the file of who was told cannot be read", async () => {
-  const first = await scenario();
-  await tellParent(first, "error");
-  await first.service.close();
-  await writeFile(join(first.home, "finish-watchers.json"), "{not json");
-
-  const restarted = await scenario(first.home);
-
-  expect(restarted.service.watchersOf("child")).toEqual([]);
 });
