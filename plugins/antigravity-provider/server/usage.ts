@@ -48,6 +48,11 @@ function accountKey(env: ProviderLaunch["env"]): string {
   );
 }
 
+function formatWindowLabel(name: string, window: string): string {
+  if (window.trim().toLowerCase() === "5h") return "5h";
+  return name.trim().replace(/(?:\s+Limit)?\s+Remaining$/i, "");
+}
+
 function shortWindow(window: string): string {
   const trimmed = window.trim();
   const normalized = trimmed.toLowerCase();
@@ -56,18 +61,27 @@ function shortWindow(window: string): string {
   return trimmed;
 }
 
-function shortGroupName(name: string): string {
+function windowDurationSeconds(window: string): number | undefined {
+  switch (window.trim().toLowerCase()) {
+    case "5h":
+      return 5 * 3600;
+    case "weekly":
+      return 7 * 86400;
+    default:
+      return undefined;
+  }
+}
+
+function formatGroupLabel(name: string): string {
   return name
     .trim()
-    .replace(/\s+models$/i, "")
+    .replace(/(?:^|\s+)models$/i, "")
     .trim();
 }
 
-function formatShortLabel(groupName: string, window: string, includeGroup: boolean): string {
+function formatShortLabel(groupLabel: string, window: string): string {
   const period = shortWindow(window);
-  if (!includeGroup) return period;
-  const scope = shortGroupName(groupName);
-  return scope ? `${scope} ${period}` : period;
+  return groupLabel ? `${groupLabel} ${period}` : period;
 }
 
 export class Usage {
@@ -118,23 +132,31 @@ export class Usage {
         if (!data.command) throw new Error("agy did not return usage data");
         const groups = data.command.data.groups;
         const includeGroup = groups.length > 1;
-        const windows = groups.flatMap((group) =>
-          group.buckets.flatMap((bucket) => {
+        const windows = groups.flatMap((group) => {
+          const groupLabel = formatGroupLabel(group.name);
+          return group.buckets.flatMap((bucket) => {
             if (!bucket.disabled && bucket.remaining_fraction == null) return [];
             const used = bucket.disabled ? null : (1 - bucket.remaining_fraction!) * 100;
             return [
               windowFromUsedPct({
                 id: bucket.id,
-                label: `${group.name} · ${bucket.name}${bucket.disabled ? " · Disabled" : ""}`,
-                shortLabel: formatShortLabel(group.name, bucket.window, includeGroup),
+                label: [
+                  groupLabel,
+                  formatWindowLabel(bucket.name, bucket.window),
+                  bucket.disabled ? "Disabled" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+                shortLabel: formatShortLabel(includeGroup ? groupLabel : "", bucket.window),
                 summary: !bucket.disabled && bucket.window === "weekly",
                 utilizationPct: used,
+                durationSeconds: windowDurationSeconds(bucket.window),
                 resetsAt: bucket.disabled ? null : bucket.reset_time,
                 tone: used === null ? "default" : toneFromUsedPct(used),
               }),
             ];
-          }),
-        );
+          });
+        });
         if (windows.length === 0)
           return unavailable({ kind: "no_quota", detail: "No usage quota reported by agy" });
         return { status: "available", windows };
