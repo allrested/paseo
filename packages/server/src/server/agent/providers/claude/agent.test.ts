@@ -13,6 +13,7 @@ import * as executableUtils from "../../../../executable-resolution/executable-r
 import { buildAgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
 import {
   ClaudeAgentClient,
+  attachReplayedCommandImages,
   convertClaudeHistoryEntry,
   normalizeClaudeAskUserQuestionRequestInput,
   normalizeClaudeAskUserQuestionUpdatedInput,
@@ -240,6 +241,71 @@ describe("convertClaudeHistoryEntry", () => {
     ]);
     const [url] = rows[0].type === "user_message" ? (rows[0].imageUrls ?? []) : [];
     expect((await fs.readFile(fileURLToPath(url))).toString("base64")).toBe(ONE_PIXEL_PNG);
+  });
+
+  test("replays the image sent with a slash command onto the command's row", async () => {
+    // Claude Code journals a slash command as its own user entry and puts what was sent with
+    // it, the expanded skill and the images, in a meta entry that hangs off it.
+    const timeline: Array<{ item: AgentTimelineItem }> = [
+      { item: { type: "user_message", text: "an earlier message", messageId: "earlier" } },
+      { item: { type: "user_message", text: "/review why is this red", messageId: "command" } },
+    ];
+    const meta = {
+      type: "user",
+      uuid: "command-meta",
+      parentUuid: "command",
+      isMeta: true,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: ONE_PIXEL_PNG },
+          },
+          { type: "text", text: "Base directory for this skill: /skills/review" },
+        ],
+      },
+    };
+
+    expect(await attachReplayedCommandImages(meta, timeline)).toBe(true);
+
+    expect(timeline.map((row) => row.item)).toEqual([
+      { type: "user_message", text: "an earlier message", messageId: "earlier" },
+      {
+        type: "user_message",
+        text: "/review why is this red",
+        messageId: "command",
+        imageUrls: [expect.stringMatching(/^file:\/\/.*\/[0-9a-f]{64}\.png$/)],
+      },
+    ]);
+  });
+
+  test("leaves the timeline alone for a meta entry without an image or without its command", async () => {
+    const row = { type: "user_message" as const, text: "/review", messageId: "command" };
+    const timeline: Array<{ item: AgentTimelineItem }> = [{ item: { ...row } }];
+    const image = {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: ONE_PIXEL_PNG },
+    };
+    const meta = (parentUuid: string, content: unknown[]) => ({
+      type: "user",
+      uuid: "meta",
+      parentUuid,
+      isMeta: true,
+      message: { role: "user", content },
+    });
+
+    expect(
+      await attachReplayedCommandImages(
+        meta("command", [{ type: "text", text: "skill" }]),
+        timeline,
+      ),
+    ).toBe(false);
+    expect(await attachReplayedCommandImages(meta("another", [image]), timeline)).toBe(false);
+    expect(
+      await attachReplayedCommandImages({ ...meta("command", [image]), isMeta: false }, timeline),
+    ).toBe(false);
+    expect(timeline).toEqual([{ item: row }]);
   });
 
   test("replays a steered message that holds only an image", async () => {

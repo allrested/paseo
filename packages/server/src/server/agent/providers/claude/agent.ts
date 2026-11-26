@@ -5992,6 +5992,10 @@ class ClaudeAgentSession implements AgentSession {
       return;
     }
 
+    if (await attachReplayedCommandImages(entry, timeline)) {
+      return;
+    }
+
     const historyTimestamp = normalizeProviderReplayTimestamp(entry.timestamp);
     const notificationOwner = notificationToolUseId
       ? replay.toolOwners.get(notificationToolUseId)
@@ -7029,6 +7033,25 @@ async function replayedUserImageUrls(content: unknown): Promise<string[]> {
     }
   }
   return imageUrls;
+}
+
+// Claude Code journals a slash command as a user entry of its own. What was sent with it, the
+// expanded skill and the uploaded images, goes into a meta entry that hangs off that entry and
+// is not a turn. Its images belong to the command's row: without them a restart loses them.
+export async function attachReplayedCommandImages(
+  entry: ClaudeHistoryEntry,
+  timeline: ReadonlyArray<{ item: AgentTimelineItem }>,
+): Promise<boolean> {
+  const parent = readTrimmedString(entry.parentUuid);
+  if (entry.type !== "user" || entry.isMeta !== true || !parent) return false;
+  const row = timeline.findLast(
+    ({ item }) => item.type === "user_message" && item.messageId === parent,
+  )?.item;
+  if (row?.type !== "user_message") return false;
+  const imageUrls = await replayedUserImageUrls(toObjectRecord(entry.message)?.content);
+  if (!imageUrls.length) return false;
+  row.imageUrls = [...(row.imageUrls ?? []), ...imageUrls];
+  return true;
 }
 
 async function replayedUserMessage(
