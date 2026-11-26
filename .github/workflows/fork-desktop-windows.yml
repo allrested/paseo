@@ -1,0 +1,77 @@
+# The fork's desktop app for Windows: the installer of the fork's own interface, which draws what
+# the fork's daemon sends (a sent image in every window, ScriptFrame). The stock installer carries
+# upstream's interface and does not.
+#
+# Runs by hand, and on a pull request that changes this file, as its test. The installer is not code-signed, so Windows SmartScreen warns on first run.
+# It keeps the stock app's id: it installs over the stock app and keeps its paired hosts.
+# Updates are looked up in this fork's releases, never upstream's, so the stock app cannot
+# replace it; without a desktop release here it stays on the version that was installed.
+name: Fork Desktop Windows
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fork-desktop-windows.yml
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit of the fork to build"
+        required: true
+        default: main
+        type: string
+
+concurrency:
+  group: fork-desktop-windows-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Build the installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EP_GH_IGNORE_TIME: true
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          set -euo pipefail
+          npm run build:desktop -- --publish never --win nsis --x64 \
+            "-c.publish.owner=${{ github.repository_owner }}" \
+            "-c.publish.repo=${{ github.event.repository.name }}"
+
+      - name: Name the build
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/desktop/package.json').version")"
+          echo "name=paseo-fork-windows-${version}-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          ls -la packages/desktop/release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: packages/desktop/release/Paseo-Setup-*-x64.exe
+          if-no-files-found: error
+          retention-days: 14
